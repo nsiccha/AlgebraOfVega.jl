@@ -31,6 +31,6 @@ end
 
 DocumenterVitepress.deploydocs(
     repo = "github.com/nsiccha/AlgebraOfVega.jl",
-    devbranch = "main",
+    devbranch = "dev",
     push_preview = true,
 )
