@@ -131,14 +131,14 @@ end
 # --- Utilities for the explorer widget ---
 
 function classify_columns(tbl)
-    cols = string.(keys(tbl))
-    numeric = [c for c in cols if eltype(tbl[Symbol(c)]) <: Number]
-    categorical = [c for c in cols if !(eltype(tbl[Symbol(c)]) <: Number)]
+    cols = string.(Tables.columnnames(tbl))
+    numeric = [c for c in cols if eltype(Tables.getcolumn(tbl, Symbol(c))) <: Number]
+    categorical = [c for c in cols if !(eltype(Tables.getcolumn(tbl, Symbol(c))) <: Number)]
     (all=cols, numeric=numeric, categorical=categorical)
 end
 
 function table_to_rows(tbl)
-    cols = keys(tbl)
-    n = length(tbl[first(cols)])
-    [Dict(string(c) => tbl[c][i] for c in cols) for i in 1:n]
+    cols = Tables.columnnames(tbl)
+    n = length(Tables.getcolumn(tbl, first(cols)))
+    [Dict(string(c) => Tables.getcolumn(tbl, c)[i] for c in cols) for i in 1:n]
 end

@@ -44,7 +44,7 @@ function explorer_js(; namespace="", plot_selector="#explorer-plot", spec_select
                     else if (id === 'ex-y' && allCols.length > 1) sel.value = allCols[1];
                 });
 
-                ['ex-color', 'ex-col', 'ex-row'].forEach(function(id) {
+                ['ex-color', 'ex-group', 'ex-col', 'ex-row'].forEach(function(id) {
                     var sel = document.getElementById(id);
                     var prev = sel.value;
                     sel.innerHTML = '<option value="">(none)</option>';
@@ -64,6 +64,7 @@ function explorer_js(; namespace="", plot_selector="#explorer-plot", spec_select
                 var x = document.getElementById('ex-x').value;
                 var y = document.getElementById('ex-y').value;
                 var color = document.getElementById('ex-color').value;
+                var group = document.getElementById('ex-group').value;
                 var facetCol = document.getElementById('ex-col').value;
                 var facetRow = document.getElementById('ex-row').value;
                 var mark = document.getElementById('ex-mark').value;
@@ -88,6 +89,10 @@ function explorer_js(; namespace="", plot_selector="#explorer-plot", spec_select
                 if (color) {
                     encoding.color = {field: color, type: 'nominal'};
                     encoding.tooltip.push({field: color, type: 'nominal'});
+                }
+
+                if (group) {
+                    encoding.detail = {field: group, type: 'nominal'};
                 }
 
                 var spec;
@@ -170,6 +175,9 @@ function explorer_controls_html(datasets; default_ds="cars", onchange_fn="explor
   <label style="display:flex; flex-direction:column; gap:0.25rem;">Color:
     <select id="ex-color" onchange="$onchange_fn"><option value="">(none)</option>$cat_options</select>
   </label>
+  <label style="display:flex; flex-direction:column; gap:0.25rem;">Group:
+    <select id="ex-group" onchange="$onchange_fn"><option value="">(none)</option>$cat_options</select>
+  </label>
   <label style="display:flex; flex-direction:column; gap:0.25rem;">Facet Column:
     <select id="ex-col" onchange="$onchange_fn"><option value="">(none)</option>$cat_options</select>
   </label>
@@ -222,6 +230,12 @@ function explorer_widget(datasets; default_ds="cars")
             ),
             h.label("Color: ",
                 h.select(; id="ex-color", onchange="AoV.explorerUpdate()")(
+                    h.option("(none)"; value=""),
+                    [h.option(c; value=c) for c in cols.categorical]...
+                ); style="display:flex; flex-direction:column; gap:0.25rem;",
+            ),
+            h.label("Group: ",
+                h.select(; id="ex-group", onchange="AoV.explorerUpdate()")(
                     h.option("(none)"; value=""),
                     [h.option(c; value=c) for c in cols.categorical]...
                 ); style="display:flex; flex-direction:column; gap:0.25rem;",
@@ -340,7 +354,7 @@ function write_explorer_assets(dir, datasets)
       if (allCols.indexOf(prev) >= 0) sel.value = prev;
       else if (id === 'ex-y' && allCols.length > 1) sel.value = allCols[1];
     });
-    ['ex-color', 'ex-col', 'ex-row'].forEach(function(id) {
+    ['ex-color', 'ex-group', 'ex-col', 'ex-row'].forEach(function(id) {
       var sel = document.getElementById(id);
       var prev = sel.value;
       sel.innerHTML = '<option value="">(none)</option>';
@@ -360,6 +374,7 @@ function write_explorer_assets(dir, datasets)
     var x = document.getElementById('ex-x').value;
     var y = document.getElementById('ex-y').value;
     var color = document.getElementById('ex-color').value;
+    var group = document.getElementById('ex-group').value;
     var facetCol = document.getElementById('ex-col').value;
     var facetRow = document.getElementById('ex-row').value;
     var mark = document.getElementById('ex-mark').value;
@@ -379,6 +394,9 @@ function write_explorer_assets(dir, datasets)
     if (color) {
       encoding.color = {field: color, type: 'nominal'};
       encoding.tooltip.push({field: color, type: 'nominal'});
+    }
+    if (group) {
+      encoding.detail = {field: group, type: 'nominal'};
     }
     var spec;
     if (facetCol || facetRow) {
