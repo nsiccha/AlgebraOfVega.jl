@@ -118,6 +118,9 @@ function explorer_js(; namespace="", plot_selector="#explorer-plot", spec_select
                     encoding.detail = {field: group, type: 'nominal'};
                 }
 
+                var indepX = document.getElementById('ex-indep-x') && document.getElementById('ex-indep-x').checked;
+                var indepY = document.getElementById('ex-indep-y') && document.getElementById('ex-indep-y').checked;
+
                 var spec;
                 if (facetCol || facetRow) {
                     var facet = {};
@@ -139,6 +142,12 @@ function explorer_js(; namespace="", plot_selector="#explorer-plot", spec_select
                         facet: facet,
                         spec: {mark: mark, encoding: encoding, width: cellWidth, height: 200},
                     };
+                    if (indepX || indepY) {
+                        var resolve = {scale: {}, axis: {}};
+                        if (indepX) { resolve.scale.x = 'independent'; resolve.axis.x = 'independent'; }
+                        if (indepY) { resolve.scale.y = 'independent'; resolve.axis.y = 'independent'; }
+                        spec.resolve = resolve;
+                    }
                 } else {
                     spec = {
                         data: {values: data},
@@ -251,6 +260,12 @@ function explorer_controls_html(datasets; default_ds="cars", onchange_fn="explor
       $mark_options
     </select>
   </label>
+  <label style="display:flex; align-items:center; gap:0.25rem;">
+    <input type="checkbox" id="ex-indep-x" onchange="$onchange_fn"> Independent X
+  </label>
+  <label style="display:flex; align-items:center; gap:0.25rem;">
+    <input type="checkbox" id="ex-indep-y" onchange="$onchange_fn"> Independent Y
+  </label>
 </div>
 <div id="explorer-plot" style="width:100%; min-width:0;"></div>"""
 end
@@ -339,6 +354,16 @@ function explorer_widget(datasets; default_ds="cars",
                 h.select(; id="ex-mark", onchange="AoV.explorerUpdate()")(
                     [h.option(last(m); value=first(m), selected=(first(m) == default_mark) ? "selected" : nothing) for m in marks]...
                 ); style="display:flex; flex-direction:column; gap:0.25rem;",
+            ),
+            h.label(
+                h.input(; type="checkbox", id="ex-indep-x", onchange="AoV.explorerUpdate()"),
+                " Independent X";
+                style="display:flex; align-items:center; gap:0.25rem;",
+            ),
+            h.label(
+                h.input(; type="checkbox", id="ex-indep-y", onchange="AoV.explorerUpdate()"),
+                " Independent Y";
+                style="display:flex; align-items:center; gap:0.25rem;",
             ),
         ),
 
@@ -483,6 +508,8 @@ function write_explorer_assets(dir, datasets; width="container", height=350)
     if (group) {
       encoding.detail = {field: group, type: 'nominal'};
     }
+    var indepX = document.getElementById('ex-indep-x') && document.getElementById('ex-indep-x').checked;
+    var indepY = document.getElementById('ex-indep-y') && document.getElementById('ex-indep-y').checked;
     var spec;
     if (facetCol || facetRow) {
       var facet = {};
@@ -500,6 +527,12 @@ function write_explorer_assets(dir, datasets; width="container", height=350)
         cellWidth = Math.max(250, availWidth - 60);
       }
       spec = {data: {values: data}, facet: facet, spec: {mark: mark, encoding: encoding, width: cellWidth, height: 200}};
+      if (indepX || indepY) {
+        var resolve = {scale: {}, axis: {}};
+        if (indepX) { resolve.scale.x = 'independent'; resolve.axis.x = 'independent'; }
+        if (indepY) { resolve.scale.y = 'independent'; resolve.axis.y = 'independent'; }
+        spec.resolve = resolve;
+      }
     } else {
       spec = {data: {values: data}, mark: mark, encoding: encoding, width: $js_width, height: $height};
     }
