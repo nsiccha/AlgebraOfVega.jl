@@ -38,7 +38,7 @@
       if (allCols.indexOf(prev) >= 0) sel.value = prev;
       else if (id === 'ex-y' && allCols.length > 1) sel.value = allCols[1];
     });
-    ['ex-color', 'ex-col', 'ex-row'].forEach(function(id) {
+    ['ex-color', 'ex-group', 'ex-col', 'ex-row'].forEach(function(id) {
       var sel = document.getElementById(id);
       var prev = sel.value;
       sel.innerHTML = '<option value="">(none)</option>';
@@ -58,6 +58,7 @@
     var x = document.getElementById('ex-x').value;
     var y = document.getElementById('ex-y').value;
     var color = document.getElementById('ex-color').value;
+    var group = document.getElementById('ex-group').value;
     var facetCol = document.getElementById('ex-col').value;
     var facetRow = document.getElementById('ex-row').value;
     var mark = document.getElementById('ex-mark').value;
@@ -77,6 +78,9 @@
     if (color) {
       encoding.color = {field: color, type: 'nominal'};
       encoding.tooltip.push({field: color, type: 'nominal'});
+    }
+    if (group) {
+      encoding.detail = {field: group, type: 'nominal'};
     }
     var spec;
     if (facetCol || facetRow) {
