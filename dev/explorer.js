@@ -87,7 +87,18 @@
       var facet = {};
       if (facetCol) facet.column = {field: facetCol, type: 'nominal'};
       if (facetRow) facet.row = {field: facetRow, type: 'nominal'};
-      spec = {data: {values: data}, facet: facet, spec: {mark: mark, encoding: encoding, width: 250, height: 200}};
+      var plotEl = document.querySelector('#explorer-plot');
+      var availWidth = plotEl ? plotEl.clientWidth : 800;
+      var cellWidth = 250;
+      if (facetCol) {
+        var uniqueCols = {};
+        for (var i = 0; i < data.length; i++) { uniqueCols[data[i][facetCol]] = true; }
+        var nCols = Object.keys(uniqueCols).length;
+        if (nCols > 0) cellWidth = Math.max(100, Math.floor((availWidth - 60) / nCols));
+      } else {
+        cellWidth = Math.max(250, availWidth - 60);
+      }
+      spec = {data: {values: data}, facet: facet, spec: {mark: mark, encoding: encoding, width: cellWidth, height: 200}};
     } else {
       spec = {data: {values: data}, mark: mark, encoding: encoding, width: 'container', height: 350};
     }
