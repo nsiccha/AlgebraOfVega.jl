@@ -1,6 +1,7 @@
 (function() {
   if (typeof document === 'undefined') return;
   var _explorerDatasets, _explorerColumns;
+  var _explorerFilterSelected = {};
 
   function init() {
     var scripts = document.querySelectorAll('script[src*="explorer.js"]');
@@ -21,6 +22,50 @@
     });
   }
 
+  window._explorerUpdateFilterPills = function(activeCols, data) {
+    var container = document.getElementById('ex-filter-pills');
+    if (!container) return;
+    container.innerHTML = '';
+    if (!activeCols || activeCols.length === 0 || !data) return;
+    var stored = _explorerFilterSelected;
+    activeCols.forEach(function(col) {
+      var unique = {};
+      for (var i = 0; i < data.length; i++) {
+        var v = data[i][col];
+        if (v !== null && v !== undefined) unique[String(v)] = true;
+      }
+      var values = Object.keys(unique).sort();
+      if (!stored[col]) {
+        stored[col] = new Set(values);
+      }
+      var row = document.createElement('div');
+      row.style.cssText = 'display:flex; flex-wrap:wrap; align-items:center; gap:0.3rem; margin-bottom:0.25rem;';
+      var label = document.createElement('strong');
+      label.textContent = col + ': ';
+      label.style.cssText = 'font-size:0.85rem; min-width:5rem;';
+      row.appendChild(label);
+      values.forEach(function(v) {
+        var pill = document.createElement('button');
+        pill.type = 'button';
+        pill.textContent = v;
+        var sel = stored[col].has(v);
+        pill.style.cssText = 'border:1px solid var(--pico-primary);border-radius:1rem;padding:0.15rem 0.6rem;cursor:pointer;font-size:0.85rem;' +
+          (sel ? 'background:var(--pico-primary);color:var(--pico-primary-inverse);' : 'background:transparent;color:var(--pico-primary);');
+        pill.onclick = function(e) {
+          if (e.ctrlKey || e.metaKey) {
+            stored[col] = new Set([v]);
+          } else {
+            if (stored[col].has(v)) stored[col].delete(v);
+            else stored[col].add(v);
+          }
+          explorerUpdate();
+        };
+        row.appendChild(pill);
+      });
+      container.appendChild(row);
+    });
+  };
+
   window._explorerUpdateDropdowns = function() {
     var ds = document.getElementById('ex-dataset').value;
     var cols = _explorerColumns[ds];
@@ -40,6 +85,7 @@
     });
     ['ex-color', 'ex-group', 'ex-col', 'ex-row'].forEach(function(id) {
       var sel = document.getElementById(id);
+      if (!sel) return;
       var prev = sel.value;
       sel.innerHTML = '<option value="">(none)</option>';
       catCols.forEach(function(c) {
@@ -62,7 +108,19 @@
     var facetCol = document.getElementById('ex-col').value;
     var facetRow = document.getElementById('ex-row').value;
     var mark = document.getElementById('ex-mark').value;
-    var data = _explorerDatasets[ds];
+    var rawData = _explorerDatasets[ds];
+    var activeCatCols = [];
+    [color, group, facetCol, facetRow].forEach(function(c) {
+      if (c && activeCatCols.indexOf(c) < 0) activeCatCols.push(c);
+    });
+    _explorerUpdateFilterPills(activeCatCols, rawData);
+    var data = rawData;
+    var stored = _explorerFilterSelected;
+    activeCatCols.forEach(function(col) {
+      if (stored[col] && stored[col].size > 0) {
+        data = data.filter(function(row) { return stored[col].has(String(row[col])); });
+      }
+    });
     function fieldType(field) {
       for (var i = 0; i < data.length; i++) {
         var v = data[i][field];
@@ -70,10 +128,13 @@
       }
       return 'nominal';
     }
+    var xType = fieldType(x), yType = fieldType(y);
+    var zeroX = xType === 'quantitative' && (mark === 'bar') ? {} : {zero: false};
+    var zeroY = yType === 'quantitative' && (mark === 'bar') ? {} : {zero: false};
     var encoding = {
-      x: {field: x, type: fieldType(x)},
-      y: {field: y, type: fieldType(y)},
-      tooltip: [{field: x, type: fieldType(x)}, {field: y, type: fieldType(y)}],
+      x: {field: x, type: xType, scale: zeroX},
+      y: {field: y, type: yType, scale: zeroY},
+      tooltip: [{field: x, type: xType}, {field: y, type: yType}],
     };
     if (color) {
       encoding.color = {field: color, type: 'nominal'};
