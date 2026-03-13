@@ -130,6 +130,12 @@ end
 
 # --- Utilities for the explorer widget ---
 
+"""
+    classify_columns(tbl) -> (all, numeric, categorical)
+
+Classify columns of a Tables.jl-compatible table into numeric and categorical.
+Works with any table type (NamedTuples, DataFrames, etc.).
+"""
 function classify_columns(tbl)
     cols = string.(Tables.columnnames(tbl))
     numeric = [c for c in cols if eltype(Tables.getcolumn(tbl, Symbol(c))) <: Number]
@@ -137,6 +143,12 @@ function classify_columns(tbl)
     (all=cols, numeric=numeric, categorical=categorical)
 end
 
+"""
+    table_to_rows(tbl) -> Vector{Dict{String,Any}}
+
+Convert a Tables.jl-compatible table to a vector of row dicts (for JSON serialization).
+Works with any table type (NamedTuples, DataFrames, etc.).
+"""
 function table_to_rows(tbl)
     cols = Tables.columnnames(tbl)
     n = length(Tables.getcolumn(tbl, first(cols)))

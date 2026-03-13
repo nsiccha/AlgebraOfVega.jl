@@ -17,6 +17,13 @@ default_explorer_datasets() = Dict(
 
 Return a String of JS code that implements the explorer widget logic.
 
+Generates two JS functions: `_explorerUpdateDropdowns` (repopulates dropdown options
+when the dataset changes) and `explorerUpdate` (builds and renders the Vega-Lite spec).
+
+Dropdowns: dataset, x, y, color, group (detail encoding), facet column, facet row, mark type.
+The group dropdown maps to Vega-Lite's `detail` encoding channel, which groups data
+(e.g. draws separate lines per group) without assigning a visual property like color.
+
 - `namespace`: JS namespace prefix for functions (e.g. "AoV." for web app, "" for standalone)
 - `plot_selector`: CSS selector for the plot container
 - `spec_selector`: CSS selector for spec JSON display (nothing to skip)
@@ -151,6 +158,10 @@ end
     explorer_controls_html(datasets; default_ds="cars", onchange_fn="explorerUpdate()")
 
 Return an HTML string for the explorer dropdown controls.
+
+Includes dropdowns for: dataset, x, y, color, group (detail encoding),
+facet column, facet row, and mark type.
+Datasets can be any Tables.jl-compatible type (NamedTuples, DataFrames, etc.).
 """
 function explorer_controls_html(datasets; default_ds="cars", onchange_fn="explorerUpdate()")
     ds_names = sort(collect(keys(datasets)))
@@ -199,9 +210,13 @@ function explorer_controls_html(datasets; default_ds="cars", onchange_fn="explor
 end
 
 """
-    explorer_widget(datasets; id="explorer")
+    explorer_widget(datasets; default_ds="cars")
 
 Return an HTMX Node for the explorer widget (for web apps using HTMXObjects).
+
+Includes dropdowns for: dataset, x, y, color, group (detail encoding),
+facet column, facet row, and mark type.
+Datasets can be any Tables.jl-compatible type (NamedTuples, DataFrames, etc.).
 """
 function explorer_widget(datasets; default_ds="cars")
     ds_names = sort(collect(keys(datasets)))
