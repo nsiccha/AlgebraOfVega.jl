@@ -28,9 +28,21 @@ export Scatter, Lines, ScatterLines, BarPlot, Heatmap, BoxPlot,
 # AlgebraOfVega exports
 export config, draw, vlspec
 export to_vegalite, to_json, to_html, to_node, vega_head
-export vega_runtime, update_data
+export vega_runtime, update_data, vega_cdn_urls
 # Tidybayes-style analysis exports
 export pointinterval, gradient_interval, lineribbon, ribbon, dotinterval
+# Dataset exports
+export sample_cars, sample_tips, sample_stocks, sample_temperatures,
+    sample_population, melt_population, sample_monthly_sales, melt_sales,
+    sample_posterior_draws, sample_regression_predictions,
+    sample_grouped_regression_predictions,
+    randn_bm, classify_columns, table_to_rows
+# Explorer exports
+export default_explorer_datasets, explorer_widget, write_explorer_assets,
+    explorer_controls_html, explorer_js, explorer_data_init_js
+
+include("datasets.jl")
+include("explorer.jl")
 
 # --- Vega-specific types ---
 
@@ -1849,5 +1861,30 @@ end
 Convenience alias for `to_node(spec; kwargs...)`.
 """
 draw(spec; kwargs...) = to_node(spec; kwargs...)
+
+# --- Renderer-agnostic dependency declaration ---
+
+"""
+    vega_cdn_urls(; vega=VEGA_VERSION, vegalite=VEGALITE_VERSION, embed=VEGA_EMBED_VERSION)
+
+Return a vector of CDN URLs for the Vega libraries. Useful for VitePress config,
+Quarto YAML, or any system that needs to declare script dependencies.
+"""
+vega_cdn_urls(; vega=VEGA_VERSION, vegalite=VEGALITE_VERSION, embed=VEGA_EMBED_VERSION) = [
+    "https://cdn.jsdelivr.net/npm/vega@$vega",
+    "https://cdn.jsdelivr.net/npm/vega-lite@$vegalite",
+    "https://cdn.jsdelivr.net/npm/vega-embed@$embed",
+]
+
+# --- MIME show methods for notebook/Quarto support ---
+
+Base.show(io::IO, ::MIME"text/html", spec::VegaSpec) = print(io, to_html(spec))
+Base.show(io::IO, ::MIME"application/vnd.vegalite.v5+json", spec::VegaSpec) = print(io, to_json(spec))
+
+# Also support raw Layer/Layers types
+Base.show(io::IO, m::MIME"text/html", layer::AlgebraOfGraphics.Layer) = show(io, m, VegaSpec(layer, nothing))
+Base.show(io::IO, m::MIME"text/html", layers::AlgebraOfGraphics.Layers) = show(io, m, VegaSpec(layers, nothing))
+Base.show(io::IO, m::MIME"application/vnd.vegalite.v5+json", layer::AlgebraOfGraphics.Layer) = show(io, m, VegaSpec(layer, nothing))
+Base.show(io::IO, m::MIME"application/vnd.vegalite.v5+json", layers::AlgebraOfGraphics.Layers) = show(io, m, VegaSpec(layers, nothing))
 
 end # module AlgebraOfVega

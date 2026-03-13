@@ -2,96 +2,14 @@
 using AlgebraOfVega
 using JSON
 
-# --- Sample datasets (subset from web gallery) ---
-
-cars() = (;
-    horsepower = [130,165,150,150,140,198,220,215,225,190,170,160,150,225,95,95,97,85,88,46,87,90,95,113,90,215,200,210,193,88,90,95,100,105,100,88,100,165,175,153,150,180,170,175,110,72,100,88,86,90,70,76,65,69,60,70,95,80,54,90,86,110],
-    mpg = [18,15,18,16,17,15,14,14,14,15,15,14,15,14,24,22,18,21,27,26,25,24,25,26,21,10,10,11,9,27,28,25,25,19,16,17,19,18,14,14,15,15,14,15,24,20,25,21,27,26,26,28,25,26,30,22,17,23,36,25,22,18],
-    origin = ["USA","USA","USA","USA","USA","USA","USA","USA","USA","USA","USA","USA","USA","USA","Japan","Japan","Japan","Japan","Japan","Europe","Europe","Europe","Europe","Europe","Europe","USA","USA","USA","USA","Japan","Japan","Japan","Japan","Europe","Europe","Europe","Europe","USA","USA","USA","USA","USA","USA","USA","Japan","Japan","Japan","Japan","Japan","Japan","Japan","Japan","Japan","Japan","Japan","USA","USA","USA","Japan","Europe","Europe","Europe"],
-    cylinders = [8,8,8,8,8,8,8,8,8,8,8,8,8,8,4,4,4,4,4,4,4,4,4,4,4,8,8,8,8,4,4,4,4,4,4,4,4,6,6,6,6,8,8,8,4,4,4,4,4,4,4,4,4,4,4,6,6,6,4,4,4,4],
-    weight = [3504,3693,3436,3433,3449,4341,4354,4312,4425,3850,3563,3609,3761,3086,2372,2833,2774,2587,2130,1835,2672,2430,2375,2234,2648,4615,4376,4382,4732,2130,2264,2228,2046,2634,2702,2875,2901,3353,3169,2906,3380,3740,4080,3645,2585,2310,2472,2265,2110,2800,2110,2085,2245,1965,1755,2815,3210,3380,1760,2130,2205,2245],
-)
-
-tips() = (;
-    total_bill = [16.99,10.34,21.01,23.68,24.59,25.29,8.77,26.88,15.04,14.78,10.27,35.26,15.42,18.43,14.83,21.58,10.33,16.29,16.97,20.65],
-    tip = [1.01,1.66,3.50,3.31,3.61,4.71,2.0,3.12,1.96,3.23,1.71,5.0,1.57,3.0,1.44,3.5,1.7,3.31,3.5,3.35],
-    sex = ["Female","Male","Male","Male","Female","Male","Male","Male","Male","Female","Male","Female","Male","Male","Female","Male","Male","Male","Male","Male"],
-    day = ["Sun","Sun","Sun","Sun","Sun","Sun","Sun","Sun","Sun","Sun","Sun","Sun","Sun","Sun","Sun","Sun","Sun","Sun","Sun","Sun"],
-    size = [2,3,3,2,4,4,2,4,2,2,2,4,2,2,2,2,3,3,3,3],
-)
-
-stocks() = let
-    dates = ["2000-01-01","2000-02-01","2000-03-01","2000-04-01","2000-05-01","2000-06-01"]
-    n = length(dates)
-    (;
-        date = repeat(dates, 3),
-        price = [Float64[100,110,105,115,120,118]; Float64[80,85,90,88,92,95]; Float64[50,55,60,58,65,70]],
-        symbol = [fill("AAPL", n); fill("GOOG", n); fill("MSFT", n)],
-    )
-end
-
-temperatures() = (;
-    month = repeat(["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"], 3),
-    city = [fill("New York", 12); fill("London", 12); fill("Tokyo", 12)],
-    temp = [
-        0,1,5,12,18,24,27,26,22,15,8,3,
-        5,5,7,10,13,16,19,18,15,11,8,5,
-        5,6,9,15,19,23,27,28,24,18,12,7,
-    ],
-)
-
-population() = (;
-    category = ["0-14","15-24","25-54","55-64","65+"],
-    male = [25,18,40,12,10],
-    female = [24,17,38,13,14],
-)
-
-function melt_population(pop)
-    n = length(pop.category)
-    (;
-        category = [pop.category; pop.category],
-        count = [pop.male; pop.female],
-        sex = [fill("Male", n); fill("Female", n)],
-    )
-end
-
-function randn_bm(n)
-    out = Float64[]
-    while length(out) < n
-        u1, u2 = rand(), rand()
-        u1 == 0.0 && continue
-        z0 = sqrt(-2 * log(u1)) * cos(2π * u2)
-        z1 = sqrt(-2 * log(u1)) * sin(2π * u2)
-        push!(out, z0, z1)
-    end
-    out[1:n]
-end
-
-function posterior_draws(; n=500)
-    (;
-        parameter = [fill("α", n); fill("β", n); fill("σ", n)],
-        value = [2.0 .+ 0.5 .* randn_bm(n); 0.8 .+ 0.3 .* randn_bm(n); 1.2 .+ 0.2 .* abs.(randn_bm(n))],
-        chain = [repeat(1:4, n÷4); repeat(1:4, n÷4); repeat(1:4, n÷4)],
-    )
-end
-
-function regression_predictions(; n_x=50, n_draws=200)
-    xs = range(0, 5, length=n_x)
-    rows_x = Float64[]
-    rows_y = Float64[]
-    rows_draw = Int[]
-    for d in 1:n_draws
-        α = 2.0 + 0.5 * randn_bm(1)[1]
-        β = 0.8 + 0.3 * randn_bm(1)[1]
-        σ = 1.2 + 0.2 * abs(randn_bm(1)[1])
-        for x in xs
-            push!(rows_x, x)
-            push!(rows_y, α + β * x + σ * randn_bm(1)[1])
-            push!(rows_draw, d)
-        end
-    end
-    (x=rows_x, y=rows_y, draw=rows_draw)
-end
+# Local aliases for shared datasets (keep plot code concise)
+cars() = sample_cars()
+tips() = sample_tips()
+stocks() = sample_stocks()
+temperatures() = sample_temperatures()
+population() = sample_population()
+posterior_draws(; kw...) = sample_posterior_draws(; kw...)
+regression_predictions(; kw...) = sample_regression_predictions(; kw...)
 
 # --- Define curated examples ---
 # Each: (id, title, description, code_string, spec_thunk)
@@ -398,193 +316,17 @@ $code_str
     end
 
     # --- Generate the Data Explorer widget ---
-    explorer_datasets = Dict("cars" => cars(), "tips" => tips(), "stocks" => stocks(), "temperatures" => temperatures())
-    ds_names = sort(collect(keys(explorer_datasets)))
-
-    function table_to_rows(tbl)
-        cols = keys(tbl)
-        n = length(tbl[first(cols)])
-        [Dict(string(c) => tbl[c][i] for c in cols) for i in 1:n]
-    end
-
-    function classify_columns(tbl)
-        cols = string.(keys(tbl))
-        numeric = [c for c in cols if eltype(tbl[Symbol(c)]) <: Number]
-        categorical = [c for c in cols if !(eltype(tbl[Symbol(c)]) <: Number)]
-        (all=cols, numeric=numeric, categorical=categorical)
-    end
-
-    ds_json = JSON.json(Dict(name => table_to_rows(explorer_datasets[name]) for name in ds_names))
-    col_json = JSON.json(Dict(name => Dict(
-        "all" => collect(classify_columns(explorer_datasets[name]).all),
-        "numeric" => classify_columns(explorer_datasets[name]).numeric,
-        "categorical" => classify_columns(explorer_datasets[name]).categorical,
-    ) for name in ds_names))
-
-    # Build dropdown options for default dataset
-    default_ds = "cars"
-    default_cols = classify_columns(explorer_datasets[default_ds])
-    ds_options = join(["<option value=\"$n\">$n</option>" for n in ds_names], "\n")
-    all_options = join(["<option value=\"$c\">$c</option>" for c in default_cols.all], "\n")
-    all_options_y = join(["<option value=\"$c\"$(c == default_cols.all[min(2,end)] ? " selected" : "")>$c</option>" for c in default_cols.all], "\n")
-    cat_options = join(["<option value=\"$c\">$c</option>" for c in default_cols.categorical], "\n")
-
+    explorer_datasets = default_explorer_datasets()
     explorer_html = """
 <div>
 <p>Build faceted plots interactively — all client-side, no server round-trips.</p>
-
-<div id="explorer-controls" style="display:flex; flex-wrap:wrap; gap:1rem; margin-bottom:1rem; align-items:end;">
-  <label style="display:flex; flex-direction:column; gap:0.25rem;">Dataset:
-    <select id="ex-dataset" onchange="_explorerUpdateDropdowns(); explorerUpdate()">$ds_options</select>
-  </label>
-  <label style="display:flex; flex-direction:column; gap:0.25rem;">X:
-    <select id="ex-x" onchange="explorerUpdate()">$all_options</select>
-  </label>
-  <label style="display:flex; flex-direction:column; gap:0.25rem;">Y:
-    <select id="ex-y" onchange="explorerUpdate()">$all_options_y</select>
-  </label>
-  <label style="display:flex; flex-direction:column; gap:0.25rem;">Color:
-    <select id="ex-color" onchange="explorerUpdate()"><option value="">(none)</option>$cat_options</select>
-  </label>
-  <label style="display:flex; flex-direction:column; gap:0.25rem;">Facet Column:
-    <select id="ex-col" onchange="explorerUpdate()"><option value="">(none)</option>$cat_options</select>
-  </label>
-  <label style="display:flex; flex-direction:column; gap:0.25rem;">Facet Row:
-    <select id="ex-row" onchange="explorerUpdate()"><option value="">(none)</option>$cat_options</select>
-  </label>
-  <label style="display:flex; flex-direction:column; gap:0.25rem;">Mark:
-    <select id="ex-mark" onchange="explorerUpdate()">
-      <option value="point">point</option>
-      <option value="bar">bar</option>
-      <option value="line">line</option>
-      <option value="area">area</option>
-      <option value="boxplot">boxplot</option>
-      <option value="rect">rect (heatmap)</option>
-    </select>
-  </label>
-</div>
-
-<div id="explorer-plot" style="width:100%; min-width:0;"></div>
+$(explorer_controls_html(explorer_datasets))
 </div>
 <ExplorerLoader />
 """
 
-    # Write datasets JSON and explorer JS to public/
-    write(joinpath(specsdir, "..", "explorer-data.json"), ds_json)
-    write(joinpath(specsdir, "..", "explorer-columns.json"), col_json)
-    println("  wrote explorer data files")
-
-    explorer_js = """
-(function() {
-  if (typeof document === 'undefined') return;
-  var _explorerDatasets, _explorerColumns;
-
-  function init() {
-    // Derive base path from this script's own URL
-    var scripts = document.querySelectorAll('script[src*="explorer.js"]');
-    var base = '';
-    if (scripts.length > 0) {
-      var src = scripts[scripts.length - 1].src;
-      base = src.substring(0, src.lastIndexOf('/'));
-    }
-    Promise.all([
-      fetch(base + '/explorer-data.json'),
-      fetch(base + '/explorer-columns.json'),
-    ]).then(function(responses) {
-      return Promise.all(responses.map(function(r) { return r.json(); }));
-    }).then(function(data) {
-      _explorerDatasets = data[0];
-      _explorerColumns = data[1];
-      explorerUpdate();
-    });
-  }
-
-  window._explorerUpdateDropdowns = function() {
-    var ds = document.getElementById('ex-dataset').value;
-    var cols = _explorerColumns[ds];
-    var allCols = cols.all;
-    var catCols = cols.categorical;
-    ['ex-x', 'ex-y'].forEach(function(id) {
-      var sel = document.getElementById(id);
-      var prev = sel.value;
-      sel.innerHTML = '';
-      allCols.forEach(function(c) {
-        var opt = document.createElement('option');
-        opt.value = c; opt.textContent = c;
-        sel.appendChild(opt);
-      });
-      if (allCols.indexOf(prev) >= 0) sel.value = prev;
-      else if (id === 'ex-y' && allCols.length > 1) sel.value = allCols[1];
-    });
-    ['ex-color', 'ex-col', 'ex-row'].forEach(function(id) {
-      var sel = document.getElementById(id);
-      var prev = sel.value;
-      sel.innerHTML = '<option value="">(none)</option>';
-      catCols.forEach(function(c) {
-        var opt = document.createElement('option');
-        opt.value = c; opt.textContent = c;
-        sel.appendChild(opt);
-      });
-      if (catCols.indexOf(prev) >= 0) sel.value = prev;
-      else sel.value = '';
-    });
-  };
-
-  window.explorerUpdate = function() {
-    if (!_explorerDatasets) return;
-    var ds = document.getElementById('ex-dataset').value;
-    var x = document.getElementById('ex-x').value;
-    var y = document.getElementById('ex-y').value;
-    var color = document.getElementById('ex-color').value;
-    var facetCol = document.getElementById('ex-col').value;
-    var facetRow = document.getElementById('ex-row').value;
-    var mark = document.getElementById('ex-mark').value;
-    var data = _explorerDatasets[ds];
-    function fieldType(field) {
-      for (var i = 0; i < data.length; i++) {
-        var v = data[i][field];
-        if (v !== null && v !== undefined) return typeof v === 'number' ? 'quantitative' : 'nominal';
-      }
-      return 'nominal';
-    }
-    var encoding = {
-      x: {field: x, type: fieldType(x)},
-      y: {field: y, type: fieldType(y)},
-      tooltip: [{field: x, type: fieldType(x)}, {field: y, type: fieldType(y)}],
-    };
-    if (color) {
-      encoding.color = {field: color, type: 'nominal'};
-      encoding.tooltip.push({field: color, type: 'nominal'});
-    }
-    var spec;
-    if (facetCol || facetRow) {
-      var facet = {};
-      if (facetCol) facet.column = {field: facetCol, type: 'nominal'};
-      if (facetRow) facet.row = {field: facetRow, type: 'nominal'};
-      spec = {data: {values: data}, facet: facet, spec: {mark: mark, encoding: encoding, width: 250, height: 200}};
-    } else {
-      spec = {data: {values: data}, mark: mark, encoding: encoding, width: 600, height: 350};
-    }
-    function doEmbed() {
-      vegaEmbed('#explorer-plot', spec, {actions: false}).catch(console.error);
-    }
-    if (typeof vegaEmbed !== 'undefined') { doEmbed(); }
-    else {
-      var check = setInterval(function() {
-        if (typeof vegaEmbed !== 'undefined') { clearInterval(check); doEmbed(); }
-      }, 100);
-    }
-  };
-
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
-  } else {
-    init();
-  }
-})();
-"""
-    write(joinpath(specsdir, "..", "explorer.js"), explorer_js)
-    println("  wrote explorer.js")
+    # Write explorer assets (data JSON + JS) to public/
+    write_explorer_assets(joinpath(srcdir, "public"), explorer_datasets)
 
     md = """# Gallery Examples
 
