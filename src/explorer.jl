@@ -52,6 +52,12 @@ function _resolve_filter_include(f::Function, tbl)
     isempty(result) ? nothing : result
 end
 
+"""
+    _filter_init_js(resolved, namespace) -> String
+
+Return a JS snippet that pre-seeds `_explorerFilterSelected` from a resolved filter dict.
+Returns `""` for `nothing` (no pre-filtering).
+"""
 function _filter_init_js(::Nothing, namespace)
     ""
 end
@@ -319,6 +325,11 @@ Datasets can be any Tables.jl-compatible type (NamedTuples, DataFrames, etc.).
 - `default_x`, `default_y`: pre-select x/y columns (default: first and second column)
 - `default_color`, `default_group`, `default_col`, `default_row`: pre-select categorical dropdowns (default: nothing = "(none)")
 - `default_mark`: pre-select mark type (default: "point")
+- `default_filter_include`: initial filter pill selection for categorical columns. Accepts three
+  forms: a `Dict` of lists (`Dict("col" => ["val1", "val2"])`) to select specific values, a `Dict`
+  of functions (`Dict("col" => v -> v != "x")`) to select values matching a predicate, or a global
+  callback `(col, val) -> Bool` applied to every categorical column. Default: `nothing` (all values
+  selected).
 - `marks`: list of `value => label` pairs for the mark dropdown (default: `_default_marks()`)
 """
 function explorer_controls_html(datasets; default_ds="penguins", onchange_fn="explorerUpdate()",
@@ -405,6 +416,11 @@ Datasets can be any Tables.jl-compatible type (NamedTuples, DataFrames, etc.).
 - `default_mark`: pre-select mark type (default: "point")
 - `width`: plot width for non-faceted specs — integer or "container" (default: "container")
 - `height`: plot height for non-faceted specs (default: 350)
+- `default_filter_include`: initial filter pill selection for categorical columns. Accepts three
+  forms: a `Dict` of lists (`Dict("col" => ["val1", "val2"])`) to select specific values, a `Dict`
+  of functions (`Dict("col" => v -> v != "x")`) to select values matching a predicate, or a global
+  callback `(col, val) -> Bool` applied to every categorical column. Default: `nothing` (all values
+  selected).
 - `marks`: list of `value => label` pairs for the mark dropdown (default: `_default_marks()`)
 - `show_spec`: whether to show the Vega-Lite JSON spec details section (default: false)
 

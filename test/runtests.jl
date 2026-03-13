@@ -154,6 +154,42 @@ end
     end
 end
 
+@testset "filter_include" begin
+    datasets = AlgebraOfVega.default_explorer_datasets()
+    tbl = datasets["cars"]
+
+    # nothing passthrough
+    @test AlgebraOfVega._resolve_filter_include(nothing, tbl) === nothing
+
+    # Dict with explicit value lists
+    resolved = AlgebraOfVega._resolve_filter_include(Dict("origin" => ["USA", "Japan"]), tbl)
+    @test resolved isa Dict{String, Vector{String}}
+    @test Set(resolved["origin"]) == Set(["USA", "Japan"])
+
+    # Dict with per-column callback
+    resolved2 = AlgebraOfVega._resolve_filter_include(Dict("origin" => v -> v != "Europe"), tbl)
+    @test resolved2 isa Dict{String, Vector{String}}
+    @test "Europe" ∉ resolved2["origin"]
+    @test length(resolved2["origin"]) > 0
+
+    # Global callback function
+    resolved3 = AlgebraOfVega._resolve_filter_include((col, val) -> col != "origin" || val != "Europe", tbl)
+    @test resolved3 isa Dict{String, Vector{String}}
+    @test "Europe" ∉ resolved3["origin"]
+
+    # _filter_init_js with nothing returns empty string
+    @test AlgebraOfVega._filter_init_js(nothing, "AoV.") == ""
+
+    # _filter_init_js with a Dict returns JS containing _explorerFilterSelected and new Set
+    js = AlgebraOfVega._filter_init_js(Dict("origin" => ["USA"]), "AoV.")
+    @test occursin("_explorerFilterSelected", js)
+    @test occursin("new Set", js)
+
+    # explorer_widget with default_filter_include doesn't error
+    w = AlgebraOfVega.explorer_widget(datasets; default_filter_include=Dict("species" => ["Adelie"]))
+    @test w !== nothing
+end
+
 @testset "_default_marks" begin
     marks = AlgebraOfVega._default_marks()
     @test marks isa Vector{Pair{String,String}}
