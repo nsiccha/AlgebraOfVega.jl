@@ -1475,6 +1475,7 @@ end
         h.h1("AlgebraOfVega Gallery"),
         h.p(
             "$(length(PLOTS)) examples of AlgebraOfGraphics.jl specs translated to Vega-Lite. ",
+            h.a("Data Explorer →"; href="/explorer", style="font-size:0.9em; margin-right:1em;"),
             h.a("View flagged plots →"; href="/flagged", style="font-size:0.9em;"),
         ),
         [gallery_section(title, ids) for (title, ids) in PLOT_SECTIONS]...,
@@ -1664,6 +1665,261 @@ end
             spec = entry[5]()
             HTTP.Response(200, ["Content-Type" => "text/html; charset=utf-8"], body=to_html(spec))
         end
+    end
+
+    # --- Data Explorer (fully client-side) ---
+
+    EXPLORER_DATASETS = Dict(
+        "cars" => cars(),
+        "tips" => tips(),
+        "stocks" => stocks(),
+        "temperatures" => temperatures(),
+    )
+
+    explorer_data_json(name) = begin
+        tbl = EXPLORER_DATASETS[name]
+        cols = keys(tbl)
+        n = length(tbl[first(cols)])
+        rows = [Dict(string(c) => tbl[c][i] for c in cols) for i in 1:n]
+        JSON.json(rows)
+    end
+
+    explorer_columns(name) = begin
+        tbl = EXPLORER_DATASETS[name]
+        cols = string.(keys(tbl))
+        numeric = String[]
+        categorical = String[]
+        for c in cols
+            col = tbl[Symbol(c)]
+            if eltype(col) <: Number
+                push!(numeric, c)
+            else
+                push!(categorical, c)
+            end
+        end
+        (all=cols, numeric=numeric, categorical=categorical)
+    end
+
+    @get explorer = begin
+        ds_name = "cars"
+        params = HTTP.queryparams(req)
+        if haskey(params, "dataset") && haskey(EXPLORER_DATASETS, params["dataset"])
+            ds_name = params["dataset"]
+        end
+        cols = explorer_columns(ds_name)
+        data_json = explorer_data_json(ds_name)
+
+        # Precompute datasets JSON for client-side switching
+        all_datasets_json = Dict(name => explorer_data_json(name) for name in keys(EXPLORER_DATASETS))
+        all_columns_json = Dict(name => explorer_columns(name) for name in keys(EXPLORER_DATASETS))
+
+        ds_names = sort(collect(keys(EXPLORER_DATASETS)))
+
+        content = h.div(
+            h.h1("Data Explorer"),
+            h.p("Build faceted plots interactively — all client-side, no server round-trips."),
+
+            # Controls
+            h.div(; id="explorer-controls", style="display:flex; flex-wrap:wrap; gap:1rem; margin-bottom:1rem; align-items:end;")(
+                h.label("Dataset: ",
+                    h.select(; id="ex-dataset", onchange="AoV.explorerUpdate()")(
+                        [h.option(n; value=n, selected=(n == ds_name) ? "selected" : nothing) for n in ds_names]...
+                    ); style="display:flex; flex-direction:column; gap:0.25rem;",
+                ),
+                h.label("X: ",
+                    h.select(; id="ex-x", onchange="AoV.explorerUpdate()")(
+                        [h.option(c; value=c) for c in cols.all]...
+                    ); style="display:flex; flex-direction:column; gap:0.25rem;",
+                ),
+                h.label("Y: ",
+                    h.select(; id="ex-y", onchange="AoV.explorerUpdate()")(
+                        [h.option(c; value=c, selected=(c == cols.all[min(2,end)]) ? "selected" : nothing) for c in cols.all]...
+                    ); style="display:flex; flex-direction:column; gap:0.25rem;",
+                ),
+                h.label("Color: ",
+                    h.select(; id="ex-color", onchange="AoV.explorerUpdate()")(
+                        h.option("(none)"; value=""),
+                        [h.option(c; value=c) for c in cols.categorical]...
+                    ); style="display:flex; flex-direction:column; gap:0.25rem;",
+                ),
+                h.label("Facet Column: ",
+                    h.select(; id="ex-col", onchange="AoV.explorerUpdate()")(
+                        h.option("(none)"; value=""),
+                        [h.option(c; value=c) for c in cols.categorical]...
+                    ); style="display:flex; flex-direction:column; gap:0.25rem;",
+                ),
+                h.label("Facet Row: ",
+                    h.select(; id="ex-row", onchange="AoV.explorerUpdate()")(
+                        h.option("(none)"; value=""),
+                        [h.option(c; value=c) for c in cols.categorical]...
+                    ); style="display:flex; flex-direction:column; gap:0.25rem;",
+                ),
+                h.label("Mark: ",
+                    h.select(; id="ex-mark", onchange="AoV.explorerUpdate()")(
+                        h.option("point"; value="point"),
+                        h.option("bar"; value="bar"),
+                        h.option("line"; value="line"),
+                        h.option("area"; value="area"),
+                        h.option("boxplot"; value="boxplot"),
+                        h.option("rect (heatmap)"; value="rect"),
+                    ); style="display:flex; flex-direction:column; gap:0.25rem;",
+                ),
+            ),
+
+            # Plot container
+            h.div(; id="explorer-plot", style="width:100%; min-width:0;"),
+
+            # Generated spec viewer
+            h.details(; style="margin-top:1rem")(
+                h.summary("Vega-Lite JSON Spec"),
+                h.pre(; id="explorer-spec-json", style="background:var(--pico-code-background-color); padding:1rem; border-radius:0.5rem; overflow-x:auto; max-height:400px;"),
+            ),
+
+            # Embed all datasets + column info in the page
+            h.script(let
+                ds_dict = Dict(
+                    name => JSON.parse(explorer_data_json(name))
+                    for name in ds_names
+                )
+                col_dict = Dict(
+                    name => Dict(
+                        "all" => collect(explorer_columns(name).all),
+                        "numeric" => explorer_columns(name).numeric,
+                        "categorical" => explorer_columns(name).categorical,
+                    )
+                    for name in ds_names
+                )
+                """
+            AoV._explorerDatasets = $(JSON.json(ds_dict));
+            AoV._explorerColumns = $(JSON.json(col_dict));"""
+            end * """
+
+            AoV._explorerUpdateDropdowns = function() {
+                var ds = document.getElementById('ex-dataset').value;
+                var cols = AoV._explorerColumns[ds];
+                var allCols = cols.all;
+                var catCols = cols.categorical;
+
+                // Save current selections
+                var cur = {
+                    x: document.getElementById('ex-x').value,
+                    y: document.getElementById('ex-y').value,
+                    color: document.getElementById('ex-color').value,
+                    col: document.getElementById('ex-col').value,
+                    row: document.getElementById('ex-row').value,
+                };
+
+                // Update all-column dropdowns (x, y)
+                ['ex-x', 'ex-y'].forEach(function(id) {
+                    var sel = document.getElementById(id);
+                    var prev = sel.value;
+                    sel.innerHTML = '';
+                    allCols.forEach(function(c) {
+                        var opt = document.createElement('option');
+                        opt.value = c; opt.textContent = c;
+                        sel.appendChild(opt);
+                    });
+                    if (allCols.indexOf(prev) >= 0) sel.value = prev;
+                    else if (id === 'ex-y' && allCols.length > 1) sel.value = allCols[1];
+                });
+
+                // Update categorical dropdowns (color, col, row)
+                ['ex-color', 'ex-col', 'ex-row'].forEach(function(id) {
+                    var sel = document.getElementById(id);
+                    var prev = sel.value;
+                    sel.innerHTML = '<option value="">(none)</option>';
+                    catCols.forEach(function(c) {
+                        var opt = document.createElement('option');
+                        opt.value = c; opt.textContent = c;
+                        sel.appendChild(opt);
+                    });
+                    if (catCols.indexOf(prev) >= 0) sel.value = prev;
+                    else sel.value = '';
+                });
+            };
+
+            AoV.explorerUpdate = function() {
+                var ds = document.getElementById('ex-dataset').value;
+                var x = document.getElementById('ex-x').value;
+                var y = document.getElementById('ex-y').value;
+                var color = document.getElementById('ex-color').value;
+                var facetCol = document.getElementById('ex-col').value;
+                var facetRow = document.getElementById('ex-row').value;
+                var mark = document.getElementById('ex-mark').value;
+                var data = AoV._explorerDatasets[ds];
+
+                // Infer type from data
+                function fieldType(field) {
+                    for (var i = 0; i < data.length; i++) {
+                        var v = data[i][field];
+                        if (v !== null && v !== undefined) {
+                            return typeof v === 'number' ? 'quantitative' : 'nominal';
+                        }
+                    }
+                    return 'nominal';
+                }
+
+                var encoding = {
+                    x: {field: x, type: fieldType(x)},
+                    y: {field: y, type: fieldType(y)},
+                    tooltip: [{field: x, type: fieldType(x)}, {field: y, type: fieldType(y)}],
+                };
+
+                if (color) {
+                    encoding.color = {field: color, type: 'nominal'};
+                    encoding.tooltip.push({field: color, type: 'nominal'});
+                }
+
+                var spec;
+                if (facetCol || facetRow) {
+                    // Faceted spec
+                    var facet = {};
+                    if (facetCol) facet.column = {field: facetCol, type: 'nominal'};
+                    if (facetRow) facet.row = {field: facetRow, type: 'nominal'};
+                    spec = {
+
+                        data: {values: data},
+                        facet: facet,
+                        spec: {
+                            mark: mark,
+                            encoding: encoding,
+                            width: 250,
+                            height: 200,
+                        },
+                    };
+                } else {
+                    spec = {
+
+                        data: {values: data},
+                        mark: mark,
+                        encoding: encoding,
+                        width: 'container',
+                        height: 350,
+                        autosize: {type: 'fit', contains: 'padding'},
+                    };
+                }
+
+                // Show spec
+                document.getElementById('explorer-spec-json').textContent = JSON.stringify(spec, null, 2);
+
+                // Render
+                vegaEmbed('#explorer-plot', spec, {actions: false}).catch(console.error);
+            };
+
+            // Handle dataset change: update dropdowns then re-render
+            document.getElementById('ex-dataset').addEventListener('change', function() {
+                AoV._explorerUpdateDropdowns();
+                AoV.explorerUpdate();
+            });
+
+            // Initial render
+            AoV.explorerUpdate();
+            """),
+
+            h.a("← Back to gallery"; href="/", style="display:inline-block; margin-top:1rem;"),
+        )
+
+        page[content]
     end
 
     # --- Interactive demo: Brush → Server Stats ---
