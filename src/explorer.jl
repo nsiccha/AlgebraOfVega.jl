@@ -6,6 +6,7 @@
 Return a Dict of default datasets for the explorer widget.
 """
 default_explorer_datasets() = Dict(
+    "penguins" => sample_penguins(),
     "cars" => sample_cars(),
     "tips" => sample_tips(),
     "stocks" => sample_stocks(),
@@ -49,6 +50,52 @@ function explorer_js(; namespace="", plot_selector="#explorer-plot", spec_select
                 document.querySelector('$spec_selector').textContent = JSON.stringify(spec, null, 2);"""
     js_width = width isa Integer ? string(width) : "'$width'"
     """
+            $(namespace)_explorerFilterSelected = {};
+
+            $(namespace)_explorerUpdateFilterPills = function(activeCols, data) {
+                var container = document.getElementById('ex-filter-pills');
+                if (!container) return;
+                container.innerHTML = '';
+                if (!activeCols || activeCols.length === 0 || !data) return;
+                var stored = $(namespace)_explorerFilterSelected;
+                activeCols.forEach(function(col) {
+                    var unique = {};
+                    for (var i = 0; i < data.length; i++) {
+                        var v = data[i][col];
+                        if (v !== null && v !== undefined) unique[String(v)] = true;
+                    }
+                    var values = Object.keys(unique).sort();
+                    if (!stored[col]) {
+                        stored[col] = new Set(values);
+                    }
+                    var row = document.createElement('div');
+                    row.style.cssText = 'display:flex; flex-wrap:wrap; align-items:center; gap:0.3rem; margin-bottom:0.25rem;';
+                    var label = document.createElement('strong');
+                    label.textContent = col + ': ';
+                    label.style.cssText = 'font-size:0.85rem; min-width:5rem;';
+                    row.appendChild(label);
+                    values.forEach(function(v) {
+                        var pill = document.createElement('button');
+                        pill.type = 'button';
+                        pill.textContent = v;
+                        var sel = stored[col].has(v);
+                        pill.style.cssText = 'border:1px solid var(--pico-primary);border-radius:1rem;padding:0.15rem 0.6rem;cursor:pointer;font-size:0.85rem;' +
+                            (sel ? 'background:var(--pico-primary);color:var(--pico-primary-inverse);' : 'background:transparent;color:var(--pico-primary);');
+                        pill.onclick = function(e) {
+                            if (e.ctrlKey || e.metaKey) {
+                                stored[col] = new Set([v]);
+                            } else {
+                                if (stored[col].has(v)) stored[col].delete(v);
+                                else stored[col].add(v);
+                            }
+                            $(namespace)explorerUpdate();
+                        };
+                        row.appendChild(pill);
+                    });
+                    container.appendChild(row);
+                });
+            };
+
             $(namespace)_explorerUpdateDropdowns = function() {
                 var ds = document.getElementById('ex-dataset').value;
                 var cols = $(namespace)_explorerColumns[ds];
@@ -70,6 +117,7 @@ function explorer_js(; namespace="", plot_selector="#explorer-plot", spec_select
 
                 ['ex-color', 'ex-group', 'ex-col', 'ex-row'].forEach(function(id) {
                     var sel = document.getElementById(id);
+                    if (!sel) return;
                     var prev = sel.value;
                     sel.innerHTML = '<option value="">(none)</option>';
                     catCols.forEach(function(c) {
@@ -92,7 +140,22 @@ function explorer_js(; namespace="", plot_selector="#explorer-plot", spec_select
                 var facetCol = document.getElementById('ex-col').value;
                 var facetRow = document.getElementById('ex-row').value;
                 var mark = document.getElementById('ex-mark').value;
-                var data = $(namespace)_explorerDatasets[ds];
+                var rawData = $(namespace)_explorerDatasets[ds];
+
+                var activeCatCols = [];
+                [color, group, facetCol, facetRow].forEach(function(c) {
+                    if (c && activeCatCols.indexOf(c) < 0) activeCatCols.push(c);
+                });
+
+                $(namespace)_explorerUpdateFilterPills(activeCatCols, rawData);
+
+                var data = rawData;
+                var stored = $(namespace)_explorerFilterSelected;
+                activeCatCols.forEach(function(col) {
+                    if (stored[col] && stored[col].size > 0) {
+                        data = data.filter(function(row) { return stored[col].has(String(row[col])); });
+                    }
+                });
 
                 function fieldType(field) {
                     for (var i = 0; i < data.length; i++) {
@@ -211,8 +274,8 @@ Datasets can be any Tables.jl-compatible type (NamedTuples, DataFrames, etc.).
 - `default_mark`: pre-select mark type (default: "point")
 - `marks`: list of `value => label` pairs for the mark dropdown (default: `_default_marks()`)
 """
-function explorer_controls_html(datasets; default_ds="cars", onchange_fn="explorerUpdate()",
-        default_x=nothing, default_y=nothing, default_color=nothing, default_group=nothing,
+function explorer_controls_html(datasets; default_ds="penguins", onchange_fn="explorerUpdate()",
+        default_x="bill_length", default_y="bill_depth", default_color=:species, default_group=nothing,
         default_col=nothing, default_row=nothing, default_mark="point",
         default_indep_x=false, default_indep_y=false,
         marks=_default_marks())
@@ -272,6 +335,7 @@ function explorer_controls_html(datasets; default_ds="cars", onchange_fn="explor
     <input type="checkbox" id="ex-indep-y" onchange="$onchange_fn"$(default_indep_y ? " checked" : "")> Independent Y
   </label>
 </div>
+<div id="ex-filter-pills" style="display:flex; flex-wrap:wrap; gap:0.3rem; margin-bottom:0.5rem;"></div>
 <div id="explorer-plot" style="width:100%; min-width:0;"></div>"""
 end
 
@@ -299,10 +363,10 @@ Datasets can be any Tables.jl-compatible type (NamedTuples, DataFrames, etc.).
 Faceted specs use responsive cell widths derived from the container's `clientWidth`
 rather than a fixed size. See [`explorer_js`](@ref) for details.
 """
-function explorer_widget(datasets; default_ds="cars",
+function explorer_widget(datasets; default_ds="penguins",
         title=nothing,
         subtitle=nothing,
-        default_x=nothing, default_y=nothing, default_color=nothing, default_group=nothing,
+        default_x="bill_length", default_y="bill_depth", default_color=:species, default_group=nothing,
         default_col=nothing, default_row=nothing, default_mark="point",
         default_indep_x=false, default_indep_y=false,
         width="container", height=350,
@@ -375,6 +439,9 @@ function explorer_widget(datasets; default_ds="cars",
             ),
         ),
 
+        # Filter pills
+        h.div(; id="ex-filter-pills", style="display:flex; flex-wrap:wrap; gap:0.3rem; margin-bottom:0.5rem;"),
+
         # Plot container
         h.div(; id="explorer-plot", style="width:100%; min-width:0;"),
 
@@ -435,6 +502,7 @@ function write_explorer_assets(dir, datasets; width="container", height=350)
 (function() {
   if (typeof document === 'undefined') return;
   var _explorerDatasets, _explorerColumns;
+  var _explorerFilterSelected = {};
 
   function init() {
     var scripts = document.querySelectorAll('script[src*="explorer.js"]');
@@ -455,6 +523,50 @@ function write_explorer_assets(dir, datasets; width="container", height=350)
     });
   }
 
+  window._explorerUpdateFilterPills = function(activeCols, data) {
+    var container = document.getElementById('ex-filter-pills');
+    if (!container) return;
+    container.innerHTML = '';
+    if (!activeCols || activeCols.length === 0 || !data) return;
+    var stored = _explorerFilterSelected;
+    activeCols.forEach(function(col) {
+      var unique = {};
+      for (var i = 0; i < data.length; i++) {
+        var v = data[i][col];
+        if (v !== null && v !== undefined) unique[String(v)] = true;
+      }
+      var values = Object.keys(unique).sort();
+      if (!stored[col]) {
+        stored[col] = new Set(values);
+      }
+      var row = document.createElement('div');
+      row.style.cssText = 'display:flex; flex-wrap:wrap; align-items:center; gap:0.3rem; margin-bottom:0.25rem;';
+      var label = document.createElement('strong');
+      label.textContent = col + ': ';
+      label.style.cssText = 'font-size:0.85rem; min-width:5rem;';
+      row.appendChild(label);
+      values.forEach(function(v) {
+        var pill = document.createElement('button');
+        pill.type = 'button';
+        pill.textContent = v;
+        var sel = stored[col].has(v);
+        pill.style.cssText = 'border:1px solid var(--pico-primary);border-radius:1rem;padding:0.15rem 0.6rem;cursor:pointer;font-size:0.85rem;' +
+          (sel ? 'background:var(--pico-primary);color:var(--pico-primary-inverse);' : 'background:transparent;color:var(--pico-primary);');
+        pill.onclick = function(e) {
+          if (e.ctrlKey || e.metaKey) {
+            stored[col] = new Set([v]);
+          } else {
+            if (stored[col].has(v)) stored[col].delete(v);
+            else stored[col].add(v);
+          }
+          explorerUpdate();
+        };
+        row.appendChild(pill);
+      });
+      container.appendChild(row);
+    });
+  };
+
   window._explorerUpdateDropdowns = function() {
     var ds = document.getElementById('ex-dataset').value;
     var cols = _explorerColumns[ds];
@@ -474,6 +586,7 @@ function write_explorer_assets(dir, datasets; width="container", height=350)
     });
     ['ex-color', 'ex-group', 'ex-col', 'ex-row'].forEach(function(id) {
       var sel = document.getElementById(id);
+      if (!sel) return;
       var prev = sel.value;
       sel.innerHTML = '<option value="">(none)</option>';
       catCols.forEach(function(c) {
@@ -496,7 +609,19 @@ function write_explorer_assets(dir, datasets; width="container", height=350)
     var facetCol = document.getElementById('ex-col').value;
     var facetRow = document.getElementById('ex-row').value;
     var mark = document.getElementById('ex-mark').value;
-    var data = _explorerDatasets[ds];
+    var rawData = _explorerDatasets[ds];
+    var activeCatCols = [];
+    [color, group, facetCol, facetRow].forEach(function(c) {
+      if (c && activeCatCols.indexOf(c) < 0) activeCatCols.push(c);
+    });
+    _explorerUpdateFilterPills(activeCatCols, rawData);
+    var data = rawData;
+    var stored = _explorerFilterSelected;
+    activeCatCols.forEach(function(col) {
+      if (stored[col] && stored[col].size > 0) {
+        data = data.filter(function(row) { return stored[col].has(String(row[col])); });
+      }
+    });
     function fieldType(field) {
       for (var i = 0; i < data.length; i++) {
         var v = data[i][field];

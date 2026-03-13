@@ -13,7 +13,7 @@ using Makie: Scatter, Lines, ScatterLines, BarPlot, Heatmap, BoxPlot,
 import Makie
 using JSON, Tables
 using HTMX
-import HTMX: h, Node
+import HTMX: h
 
 # Re-export AoG API
 export data, mapping, visual, dims

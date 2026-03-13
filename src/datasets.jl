@@ -37,6 +37,16 @@ sample_temperatures() = (;
     ],
 )
 
+sample_penguins() = (;
+    species = ["Adelie","Adelie","Adelie","Adelie","Adelie","Adelie","Adelie","Adelie","Adelie","Adelie","Adelie","Adelie","Adelie","Adelie","Adelie","Adelie","Adelie","Adelie","Adelie","Adelie","Chinstrap","Chinstrap","Chinstrap","Chinstrap","Chinstrap","Chinstrap","Chinstrap","Chinstrap","Chinstrap","Chinstrap","Chinstrap","Chinstrap","Chinstrap","Chinstrap","Gentoo","Gentoo","Gentoo","Gentoo","Gentoo","Gentoo","Gentoo","Gentoo","Gentoo","Gentoo","Gentoo","Gentoo","Gentoo","Gentoo","Gentoo","Gentoo"],
+    island = ["Torgersen","Torgersen","Torgersen","Torgersen","Torgersen","Torgersen","Biscoe","Biscoe","Dream","Dream","Dream","Dream","Dream","Dream","Torgersen","Torgersen","Biscoe","Biscoe","Dream","Dream","Dream","Dream","Dream","Dream","Dream","Dream","Dream","Dream","Dream","Dream","Dream","Dream","Dream","Dream","Biscoe","Biscoe","Biscoe","Biscoe","Biscoe","Biscoe","Biscoe","Biscoe","Biscoe","Biscoe","Biscoe","Biscoe","Biscoe","Biscoe","Biscoe","Biscoe"],
+    bill_length = [39.1,39.5,40.3,36.7,39.3,38.9,37.8,37.7,36.6,38.7,42.5,34.4,46.0,37.8,38.6,41.1,37.6,38.7,34.6,36.6,46.5,50.0,51.3,45.4,52.7,45.2,46.1,51.3,46.0,51.3,46.6,51.7,47.0,52.0,46.1,50.0,48.7,50.2,45.1,46.5,46.3,42.9,46.1,44.5,47.8,48.2,50.0,47.3,42.8,45.1],
+    bill_depth = [18.7,17.4,18.0,19.3,20.6,17.8,18.3,18.7,17.8,19.0,20.7,18.4,21.5,18.3,21.2,17.6,19.3,19.2,21.1,17.2,17.9,19.5,18.2,18.7,19.0,17.8,18.2,18.2,18.9,20.3,14.1,20.3,17.3,18.1,13.2,16.3,14.1,14.2,13.5,13.5,15.8,13.1,15.1,14.3,15.0,14.3,15.3,13.8,13.5,14.5],
+    flipper_length = [181,186,195,193,190,181,174,180,187,195,187,184,194,174,191,182,181,169,185,186,192,196,197,188,197,198,178,197,195,187,215,194,199,197,211,230,210,218,215,210,215,215,210,212,215,210,218,217,210,215],
+    body_mass = [3750,3800,3250,3450,3650,3625,3200,3600,3700,3450,3525,3325,4200,3400,3800,3950,3300,3450,3475,3600,3500,3900,3650,3525,3725,3950,3250,3750,4150,3900,4400,3775,3900,4150,4500,5700,4450,5200,4750,4550,4725,4150,4200,5250,5200,4775,5400,4725,4100,4400],
+    sex = ["Male","Female","Female","Female","Male","Female","Female","Male","Female","Male","Female","Female","Male","Female","Female","Male","Female","Male","Male","Female","Female","Male","Male","Female","Male","Female","Female","Male","Male","Male","Female","Male","Female","Male","Female","Male","Female","Male","Female","Male","Male","Female","Male","Female","Male","Female","Male","Female","Female","Female"],
+)
+
 sample_population() = (;
     category = ["0-14","15-24","25-54","55-64","65+"],
     male = [25,18,40,12,10],

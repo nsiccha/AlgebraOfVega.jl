@@ -74,7 +74,7 @@ end
     @test occursin("Group:", html)
 
     # default column selections
-    html2 = AlgebraOfVega.explorer_controls_html(datasets; default_x="mpg", default_y="horsepower", default_color="origin")
+    html2 = AlgebraOfVega.explorer_controls_html(datasets; default_ds="cars", default_x="mpg", default_y="horsepower", default_color="origin")
     @test occursin("<option value=\"mpg\" selected>", html2)
     @test occursin("<option value=\"horsepower\" selected>", html2)
     @test occursin("<option value=\"origin\" selected>", html2)
