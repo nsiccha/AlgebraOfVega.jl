@@ -38,6 +38,18 @@ struct Config
     properties::Dict{Symbol, Any}
 end
 
+"""
+    config(; kwargs...)
+
+Create a `Config` with Vega-Lite properties. Common options:
+
+- `width`, `height`, `title` — spec dimensions and title
+- `encoding` — deep-merged with auto-generated encodings (add aggregate, scale, axis, etc.)
+- `params`, `transform` — VL interactivity parameters and data transforms
+- `select` — field(s) for client-side dropdown filtering (e.g. `select=:origin`)
+
+Config is applied to a spec via `*`: `data(df) * mapping(:x, :y) * visual(Scatter) * config(width=500)`.
+"""
 config(; kwargs...) = Config(Dict{Symbol,Any}(pairs(kwargs)...))
 
 struct VegaSpec
@@ -45,6 +57,12 @@ struct VegaSpec
     config::Union{Config, Nothing}
 end
 
+"""
+    vlspec(drawable; kwargs...)
+
+Wrap an AoG drawable in a `VegaSpec` with optional config properties.
+Equivalent to `drawable * config(; kwargs...)`.
+"""
 vlspec(drawable; kwargs...) = VegaSpec(drawable, isempty(kwargs) ? nothing : config(; kwargs...))
 
 # Composition: AoG drawable * Config → VegaSpec
@@ -1435,6 +1453,13 @@ end
 
 # --- Public API: to_vegalite ---
 
+"""
+    to_vegalite(spec) -> Dict{String,Any}
+
+Convert an AoG `Layer`, `Layers`, or `VegaSpec` to a Vega-Lite JSON dictionary.
+Handles all translation: mark types, encodings, statistical transforms, config merging,
+and auto-interactivity.
+"""
 function to_vegalite(layer::AlgebraOfGraphics.Layer)
     layer_to_vl(layer)
 end
@@ -1629,7 +1654,12 @@ to_vegalite(d::Dict) = d
 
 # --- Output ---
 
-to_json(x; kwargs...) = JSON.json(to_vegalite(x))
+"""
+    to_json(spec; kwargs...) -> String
+
+Convert a spec to a Vega-Lite JSON string. Passes `kwargs` to `JSON.json`.
+"""
+to_json(x; kwargs...) = JSON.json(to_vegalite(x); kwargs...)
 
 VEGA_VERSION = "5"
 VEGALITE_VERSION = "5"
