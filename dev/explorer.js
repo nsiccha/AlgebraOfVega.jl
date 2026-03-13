@@ -82,6 +82,8 @@
     if (group) {
       encoding.detail = {field: group, type: 'nominal'};
     }
+    var indepX = document.getElementById('ex-indep-x') && document.getElementById('ex-indep-x').checked;
+    var indepY = document.getElementById('ex-indep-y') && document.getElementById('ex-indep-y').checked;
     var spec;
     if (facetCol || facetRow) {
       var facet = {};
@@ -99,6 +101,12 @@
         cellWidth = Math.max(250, availWidth - 60);
       }
       spec = {data: {values: data}, facet: facet, spec: {mark: mark, encoding: encoding, width: cellWidth, height: 200}};
+      if (indepX || indepY) {
+        var resolve = {scale: {}, axis: {}};
+        if (indepX) { resolve.scale.x = 'independent'; resolve.axis.x = 'independent'; }
+        if (indepY) { resolve.scale.y = 'independent'; resolve.axis.y = 'independent'; }
+        spec.resolve = resolve;
+      }
     } else {
       spec = {data: {values: data}, mark: mark, encoding: encoding, width: 'container', height: 350};
     }
