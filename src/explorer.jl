@@ -12,8 +12,17 @@ default_explorer_datasets() = Dict(
     "temperatures" => sample_temperatures(),
 )
 
+_default_marks() = [
+    "point" => "point",
+    "bar" => "bar",
+    "line" => "line",
+    "area" => "area",
+    "boxplot" => "boxplot",
+    "rect" => "rect (heatmap)",
+]
+
 """
-    explorer_js(; namespace="", plot_selector="#explorer-plot", spec_selector=nothing)
+    explorer_js(; namespace="", plot_selector="#explorer-plot", spec_selector=nothing, width="container", height=350)
 
 Return a String of JS code that implements the explorer widget logic.
 
@@ -27,10 +36,13 @@ The group dropdown maps to Vega-Lite's `detail` encoding channel, which groups d
 - `namespace`: JS namespace prefix for functions (e.g. "AoV." for web app, "" for standalone)
 - `plot_selector`: CSS selector for the plot container
 - `spec_selector`: CSS selector for spec JSON display (nothing to skip)
+- `width`: plot width for non-faceted specs (integer or "container")
+- `height`: plot height for non-faceted specs
 """
-function explorer_js(; namespace="", plot_selector="#explorer-plot", spec_selector=nothing)
+function explorer_js(; namespace="", plot_selector="#explorer-plot", spec_selector=nothing, width="container", height=350)
     spec_line = isnothing(spec_selector) ? "" : """
                 document.querySelector('$spec_selector').textContent = JSON.stringify(spec, null, 2);"""
+    js_width = width isa Integer ? string(width) : "'$width'"
     """
             $(namespace)_explorerUpdateDropdowns = function() {
                 var ds = document.getElementById('ex-dataset').value;
@@ -117,8 +129,8 @@ function explorer_js(; namespace="", plot_selector="#explorer-plot", spec_select
                         data: {values: data},
                         mark: mark,
                         encoding: encoding,
-                        width: $(plot_selector == "#explorer-plot" ? "600" : "'container'"),
-                        height: 350,
+                        width: $js_width,
+                        height: $height,
                     };
                 }
 $spec_line
@@ -155,22 +167,46 @@ function explorer_data_init_js(datasets; namespace="")
 end
 
 """
-    explorer_controls_html(datasets; default_ds="cars", onchange_fn="explorerUpdate()")
+    explorer_controls_html(datasets; default_ds="cars", onchange_fn="explorerUpdate()", kwargs...)
 
 Return an HTML string for the explorer dropdown controls.
 
 Includes dropdowns for: dataset, x, y, color, group (detail encoding),
 facet column, facet row, and mark type.
 Datasets can be any Tables.jl-compatible type (NamedTuples, DataFrames, etc.).
+
+# Keyword arguments
+- `default_ds`: which dataset to pre-select
+- `onchange_fn`: JS function to call on dropdown change
+- `default_x`, `default_y`: pre-select x/y columns (default: first and second column)
+- `default_color`, `default_group`, `default_col`, `default_row`: pre-select categorical dropdowns (default: nothing = "(none)")
+- `default_mark`: pre-select mark type (default: "point")
+- `marks`: list of `value => label` pairs for the mark dropdown (default: `_default_marks()`)
 """
-function explorer_controls_html(datasets; default_ds="cars", onchange_fn="explorerUpdate()")
+function explorer_controls_html(datasets; default_ds="cars", onchange_fn="explorerUpdate()",
+        default_x=nothing, default_y=nothing, default_color=nothing, default_group=nothing,
+        default_col=nothing, default_row=nothing, default_mark="point",
+        marks=_default_marks())
     ds_names = sort(collect(keys(datasets)))
     cols = classify_columns(datasets[default_ds])
 
+    dx = something(default_x, first(cols.all))
+    dy = something(default_y, cols.all[min(2, end)])
+
     ds_options = join(["<option value=\"$n\">$n</option>" for n in ds_names], "\n")
-    all_options = join(["<option value=\"$c\">$c</option>" for c in cols.all], "\n")
-    all_options_y = join(["<option value=\"$c\"$(c == cols.all[min(2,end)] ? " selected" : "")>$c</option>" for c in cols.all], "\n")
-    cat_options = join(["<option value=\"$c\">$c</option>" for c in cols.categorical], "\n")
+    all_options_x = join(["<option value=\"$c\"$(c == dx ? " selected" : "")>$c</option>" for c in cols.all], "\n")
+    all_options_y = join(["<option value=\"$c\"$(c == dy ? " selected" : "")>$c</option>" for c in cols.all], "\n")
+
+    function cat_options_html(default_val)
+        opts = "<option value=\"\">(none)</option>"
+        for c in cols.categorical
+            sel = (!isnothing(default_val) && c == string(default_val)) ? " selected" : ""
+            opts *= "<option value=\"$c\"$sel>$c</option>"
+        end
+        opts
+    end
+
+    mark_options = join(["<option value=\"$(first(m))\"$(first(m) == default_mark ? " selected" : "")>$(last(m))</option>" for m in marks], "\n")
 
     """
 <div id="explorer-controls" style="display:flex; flex-wrap:wrap; gap:1rem; margin-bottom:1rem; align-items:end;">
@@ -178,31 +214,26 @@ function explorer_controls_html(datasets; default_ds="cars", onchange_fn="explor
     <select id="ex-dataset" onchange="_explorerUpdateDropdowns(); $onchange_fn">$ds_options</select>
   </label>
   <label style="display:flex; flex-direction:column; gap:0.25rem;">X:
-    <select id="ex-x" onchange="$onchange_fn">$all_options</select>
+    <select id="ex-x" onchange="$onchange_fn">$all_options_x</select>
   </label>
   <label style="display:flex; flex-direction:column; gap:0.25rem;">Y:
     <select id="ex-y" onchange="$onchange_fn">$all_options_y</select>
   </label>
   <label style="display:flex; flex-direction:column; gap:0.25rem;">Color:
-    <select id="ex-color" onchange="$onchange_fn"><option value="">(none)</option>$cat_options</select>
+    <select id="ex-color" onchange="$onchange_fn">$(cat_options_html(default_color))</select>
   </label>
   <label style="display:flex; flex-direction:column; gap:0.25rem;">Group:
-    <select id="ex-group" onchange="$onchange_fn"><option value="">(none)</option>$cat_options</select>
+    <select id="ex-group" onchange="$onchange_fn">$(cat_options_html(default_group))</select>
   </label>
   <label style="display:flex; flex-direction:column; gap:0.25rem;">Facet Column:
-    <select id="ex-col" onchange="$onchange_fn"><option value="">(none)</option>$cat_options</select>
+    <select id="ex-col" onchange="$onchange_fn">$(cat_options_html(default_col))</select>
   </label>
   <label style="display:flex; flex-direction:column; gap:0.25rem;">Facet Row:
-    <select id="ex-row" onchange="$onchange_fn"><option value="">(none)</option>$cat_options</select>
+    <select id="ex-row" onchange="$onchange_fn">$(cat_options_html(default_row))</select>
   </label>
   <label style="display:flex; flex-direction:column; gap:0.25rem;">Mark:
     <select id="ex-mark" onchange="$onchange_fn">
-      <option value="point">point</option>
-      <option value="bar">bar</option>
-      <option value="line">line</option>
-      <option value="area">area</option>
-      <option value="boxplot">boxplot</option>
-      <option value="rect">rect (heatmap)</option>
+      $mark_options
     </select>
   </label>
 </div>
@@ -210,21 +241,52 @@ function explorer_controls_html(datasets; default_ds="cars", onchange_fn="explor
 end
 
 """
-    explorer_widget(datasets; default_ds="cars")
+    explorer_widget(datasets; kwargs...)
 
 Return an HTMX Node for the explorer widget (for web apps using HTMXObjects).
 
 Includes dropdowns for: dataset, x, y, color, group (detail encoding),
 facet column, facet row, and mark type.
 Datasets can be any Tables.jl-compatible type (NamedTuples, DataFrames, etc.).
+
+# Keyword arguments
+- `default_ds`: which dataset to pre-select (default: "cars")
+- `title`: heading text, or `nothing` to hide (default: "Data Explorer")
+- `subtitle`: description text, or `nothing` to hide (default: "Build faceted plots interactively — all client-side, no server round-trips.")
+- `default_x`, `default_y`: pre-select x/y columns (default: nothing = first/second column)
+- `default_color`, `default_group`, `default_col`, `default_row`: pre-select categorical dropdowns (default: nothing = "(none)")
+- `default_mark`: pre-select mark type (default: "point")
+- `width`: plot width for non-faceted specs — integer or "container" (default: "container")
+- `height`: plot height for non-faceted specs (default: 350)
+- `marks`: list of `value => label` pairs for the mark dropdown (default: `_default_marks()`)
+- `show_spec`: whether to show the Vega-Lite JSON spec details section (default: true)
 """
-function explorer_widget(datasets; default_ds="cars")
+function explorer_widget(datasets; default_ds="cars",
+        title="Data Explorer",
+        subtitle="Build faceted plots interactively — all client-side, no server round-trips.",
+        default_x=nothing, default_y=nothing, default_color=nothing, default_group=nothing,
+        default_col=nothing, default_row=nothing, default_mark="point",
+        width="container", height=350,
+        marks=_default_marks(), show_spec=true)
     ds_names = sort(collect(keys(datasets)))
     cols = classify_columns(datasets[default_ds])
 
+    dx = something(default_x, first(cols.all))
+    dy = something(default_y, cols.all[min(2, end)])
+
+    function cat_select(id, default_val)
+        h.select(; id=id, onchange="AoV.explorerUpdate()")(
+            h.option("(none)"; value=""),
+            [h.option(c; value=c, selected=(!isnothing(default_val) && c == string(default_val)) ? "selected" : nothing) for c in cols.categorical]...
+        )
+    end
+
+    spec_selector = show_spec ? "#explorer-spec-json" : nothing
+
     h.div(
-        h.h1("Data Explorer"),
-        h.p("Build faceted plots interactively — all client-side, no server round-trips."),
+        # Title / subtitle
+        isnothing(title) ? "" : h.h1(title),
+        isnothing(subtitle) ? "" : h.p(subtitle),
 
         # Controls
         h.div(; id="explorer-controls", style="display:flex; flex-wrap:wrap; gap:1rem; margin-bottom:1rem; align-items:end;")(
@@ -235,46 +297,29 @@ function explorer_widget(datasets; default_ds="cars")
             ),
             h.label("X: ",
                 h.select(; id="ex-x", onchange="AoV.explorerUpdate()")(
-                    [h.option(c; value=c) for c in cols.all]...
+                    [h.option(c; value=c, selected=(c == dx) ? "selected" : nothing) for c in cols.all]...
                 ); style="display:flex; flex-direction:column; gap:0.25rem;",
             ),
             h.label("Y: ",
                 h.select(; id="ex-y", onchange="AoV.explorerUpdate()")(
-                    [h.option(c; value=c, selected=(c == cols.all[min(2,end)]) ? "selected" : nothing) for c in cols.all]...
+                    [h.option(c; value=c, selected=(c == dy) ? "selected" : nothing) for c in cols.all]...
                 ); style="display:flex; flex-direction:column; gap:0.25rem;",
             ),
-            h.label("Color: ",
-                h.select(; id="ex-color", onchange="AoV.explorerUpdate()")(
-                    h.option("(none)"; value=""),
-                    [h.option(c; value=c) for c in cols.categorical]...
-                ); style="display:flex; flex-direction:column; gap:0.25rem;",
+            h.label("Color: ", cat_select("ex-color", default_color);
+                style="display:flex; flex-direction:column; gap:0.25rem;",
             ),
-            h.label("Group: ",
-                h.select(; id="ex-group", onchange="AoV.explorerUpdate()")(
-                    h.option("(none)"; value=""),
-                    [h.option(c; value=c) for c in cols.categorical]...
-                ); style="display:flex; flex-direction:column; gap:0.25rem;",
+            h.label("Group: ", cat_select("ex-group", default_group);
+                style="display:flex; flex-direction:column; gap:0.25rem;",
             ),
-            h.label("Facet Column: ",
-                h.select(; id="ex-col", onchange="AoV.explorerUpdate()")(
-                    h.option("(none)"; value=""),
-                    [h.option(c; value=c) for c in cols.categorical]...
-                ); style="display:flex; flex-direction:column; gap:0.25rem;",
+            h.label("Facet Column: ", cat_select("ex-col", default_col);
+                style="display:flex; flex-direction:column; gap:0.25rem;",
             ),
-            h.label("Facet Row: ",
-                h.select(; id="ex-row", onchange="AoV.explorerUpdate()")(
-                    h.option("(none)"; value=""),
-                    [h.option(c; value=c) for c in cols.categorical]...
-                ); style="display:flex; flex-direction:column; gap:0.25rem;",
+            h.label("Facet Row: ", cat_select("ex-row", default_row);
+                style="display:flex; flex-direction:column; gap:0.25rem;",
             ),
             h.label("Mark: ",
                 h.select(; id="ex-mark", onchange="AoV.explorerUpdate()")(
-                    h.option("point"; value="point"),
-                    h.option("bar"; value="bar"),
-                    h.option("line"; value="line"),
-                    h.option("area"; value="area"),
-                    h.option("boxplot"; value="boxplot"),
-                    h.option("rect (heatmap)"; value="rect"),
+                    [h.option(last(m); value=first(m), selected=(first(m) == default_mark) ? "selected" : nothing) for m in marks]...
                 ); style="display:flex; flex-direction:column; gap:0.25rem;",
             ),
         ),
@@ -282,16 +327,16 @@ function explorer_widget(datasets; default_ds="cars")
         # Plot container
         h.div(; id="explorer-plot", style="width:100%; min-width:0;"),
 
-        # Generated spec viewer
-        h.details(; style="margin-top:1rem")(
+        # Generated spec viewer (conditional)
+        show_spec ? h.details(; style="margin-top:1rem")(
             h.summary("Vega-Lite JSON Spec"),
             h.pre(; id="explorer-spec-json", style="background:var(--pico-code-background-color); padding:1rem; border-radius:0.5rem; overflow-x:auto; max-height:400px;"),
-        ),
+        ) : "",
 
         # Inline script with data + logic
         h.script(
             explorer_data_init_js(datasets; namespace="AoV.") *
-            explorer_js(; namespace="AoV.", plot_selector="#explorer-plot", spec_selector="#explorer-spec-json") * """
+            explorer_js(; namespace="AoV.", plot_selector="#explorer-plot", spec_selector=spec_selector, width=width, height=height) * """
 
             document.getElementById('ex-dataset').addEventListener('change', function() {
                 AoV._explorerUpdateDropdowns();
@@ -305,12 +350,15 @@ function explorer_widget(datasets; default_ds="cars")
 end
 
 """
-    write_explorer_assets(dir, datasets)
+    write_explorer_assets(dir, datasets; width="container", height=350)
 
 Write explorer JSON data and JS files to `dir` for static sites (VitePress docs).
 Creates `explorer-data.json`, `explorer-columns.json`, and `explorer.js`.
+
+- `width`: plot width for non-faceted specs (integer or "container")
+- `height`: plot height for non-faceted specs
 """
-function write_explorer_assets(dir, datasets)
+function write_explorer_assets(dir, datasets; width="container", height=350)
     mkpath(dir)
     ds_names = sort(collect(keys(datasets)))
 
@@ -326,8 +374,9 @@ function write_explorer_assets(dir, datasets)
     ) for name in ds_names)
     write(joinpath(dir, "explorer-columns.json"), JSON.json(col_dict))
 
+    js_width = width isa Integer ? string(width) : "'$width'"
+
     # Write explorer.js (self-contained IIFE that fetches data)
-    js_logic = explorer_js(; namespace="", plot_selector="#explorer-plot")
     write(joinpath(dir, "explorer.js"), """
 (function() {
   if (typeof document === 'undefined') return;
@@ -420,7 +469,7 @@ function write_explorer_assets(dir, datasets)
       if (facetRow) facet.row = {field: facetRow, type: 'nominal'};
       spec = {data: {values: data}, facet: facet, spec: {mark: mark, encoding: encoding, width: 250, height: 200}};
     } else {
-      spec = {data: {values: data}, mark: mark, encoding: encoding, width: 600, height: 350};
+      spec = {data: {values: data}, mark: mark, encoding: encoding, width: $js_width, height: $height};
     }
     function doEmbed() {
       vegaEmbed('#explorer-plot', spec, {actions: false}).catch(console.error);

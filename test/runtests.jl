@@ -35,12 +35,21 @@ end
     @test occursin("encoding.detail", js)
     @test occursin("ex-color", js)
     @test occursin("ex-x", js)
+    # default width is 'container'
+    @test occursin("'container'", js)
+    @test occursin("height: 350", js)
 
     # namespace and selectors
     js2 = AlgebraOfVega.explorer_js(; namespace="Foo.", plot_selector="#myplot", spec_selector="#myspec")
     @test occursin("Foo.", js2)
     @test occursin("#myplot", js2)
     @test occursin("#myspec", js2)
+
+    # custom width/height
+    js3 = AlgebraOfVega.explorer_js(; width=800, height=500)
+    @test occursin("width: 800", js3)
+    @test occursin("height: 500", js3)
+    @test !occursin("'container'", js3)
 end
 
 @testset "explorer_controls_html" begin
@@ -52,13 +61,51 @@ end
     @test occursin("ex-row", html)
     @test occursin("ex-mark", html)
     @test occursin("Group:", html)
+
+    # default column selections
+    html2 = AlgebraOfVega.explorer_controls_html(datasets; default_x="mpg", default_y="horsepower", default_color="origin")
+    @test occursin("<option value=\"mpg\" selected>", html2)
+    @test occursin("<option value=\"horsepower\" selected>", html2)
+    @test occursin("<option value=\"origin\" selected>", html2)
+
+    # custom marks
+    html3 = AlgebraOfVega.explorer_controls_html(datasets; marks=["point" => "scatter", "line" => "line"])
+    @test occursin("scatter", html3)
+    @test !occursin("boxplot", html3)
+
+    # default mark selection
+    html4 = AlgebraOfVega.explorer_controls_html(datasets; default_mark="line")
+    @test occursin("<option value=\"line\" selected>", html4)
 end
 
 @testset "explorer_widget" begin
     datasets = AlgebraOfVega.default_explorer_datasets()
+
+    # default usage
     w = AlgebraOfVega.explorer_widget(datasets)
-    # Should return an HTMX node (Cobweb.Node)
     @test w !== nothing
+
+    # custom title/subtitle
+    w2 = AlgebraOfVega.explorer_widget(datasets; title="My Explorer", subtitle="Custom subtitle")
+    @test w2 !== nothing
+
+    # hidden title/subtitle
+    w3 = AlgebraOfVega.explorer_widget(datasets; title=nothing, subtitle=nothing)
+    @test w3 !== nothing
+
+    # show_spec=false
+    w4 = AlgebraOfVega.explorer_widget(datasets; show_spec=false)
+    @test w4 !== nothing
+
+    # custom defaults
+    w5 = AlgebraOfVega.explorer_widget(datasets;
+        default_x="mpg", default_y="horsepower", default_color="origin",
+        default_mark="line", width=800, height=400)
+    @test w5 !== nothing
+
+    # custom marks
+    w6 = AlgebraOfVega.explorer_widget(datasets; marks=["point" => "scatter"])
+    @test w6 !== nothing
 end
 
 @testset "explorer_data_init_js" begin
@@ -81,6 +128,13 @@ end
             @test length(Tables.getcolumn(tbl, c)) == n
         end
     end
+end
+
+@testset "_default_marks" begin
+    marks = AlgebraOfVega._default_marks()
+    @test marks isa Vector{Pair{String,String}}
+    @test length(marks) == 6
+    @test first(first(marks)) == "point"
 end
 
 end
