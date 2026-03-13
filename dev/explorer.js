@@ -89,7 +89,7 @@
       if (facetRow) facet.row = {field: facetRow, type: 'nominal'};
       spec = {data: {values: data}, facet: facet, spec: {mark: mark, encoding: encoding, width: 250, height: 200}};
     } else {
-      spec = {data: {values: data}, mark: mark, encoding: encoding, width: 600, height: 350};
+      spec = {data: {values: data}, mark: mark, encoding: encoding, width: 'container', height: 350};
     }
     function doEmbed() {
       vegaEmbed('#explorer-plot', spec, {actions: false}).catch(console.error);
