@@ -104,10 +104,13 @@ function explorer_js(; namespace="", plot_selector="#explorer-plot", spec_select
                     return 'nominal';
                 }
 
+                var xType = fieldType(x), yType = fieldType(y);
+                var zeroX = xType === 'quantitative' && (mark === 'bar') ? {} : {zero: false};
+                var zeroY = yType === 'quantitative' && (mark === 'bar') ? {} : {zero: false};
                 var encoding = {
-                    x: {field: x, type: fieldType(x)},
-                    y: {field: y, type: fieldType(y)},
-                    tooltip: [{field: x, type: fieldType(x)}, {field: y, type: fieldType(y)}],
+                    x: {field: x, type: xType, scale: zeroX},
+                    y: {field: y, type: yType, scale: zeroY},
+                    tooltip: [{field: x, type: xType}, {field: y, type: yType}],
                 };
 
                 if (color) {
@@ -211,6 +214,7 @@ Datasets can be any Tables.jl-compatible type (NamedTuples, DataFrames, etc.).
 function explorer_controls_html(datasets; default_ds="cars", onchange_fn="explorerUpdate()",
         default_x=nothing, default_y=nothing, default_color=nothing, default_group=nothing,
         default_col=nothing, default_row=nothing, default_mark="point",
+        default_indep_x=false, default_indep_y=false,
         marks=_default_marks())
     ds_names = sort(collect(keys(datasets)))
     cols = classify_columns(datasets[default_ds])
@@ -262,10 +266,10 @@ function explorer_controls_html(datasets; default_ds="cars", onchange_fn="explor
     </select>
   </label>
   <label style="display:flex; align-items:center; gap:0.25rem;">
-    <input type="checkbox" id="ex-indep-x" onchange="$onchange_fn"> Independent X
+    <input type="checkbox" id="ex-indep-x" onchange="$onchange_fn"$(default_indep_x ? " checked" : "")> Independent X
   </label>
   <label style="display:flex; align-items:center; gap:0.25rem;">
-    <input type="checkbox" id="ex-indep-y" onchange="$onchange_fn"> Independent Y
+    <input type="checkbox" id="ex-indep-y" onchange="$onchange_fn"$(default_indep_y ? " checked" : "")> Independent Y
   </label>
 </div>
 <div id="explorer-plot" style="width:100%; min-width:0;"></div>"""
@@ -282,26 +286,27 @@ Datasets can be any Tables.jl-compatible type (NamedTuples, DataFrames, etc.).
 
 # Keyword arguments
 - `default_ds`: which dataset to pre-select (default: "cars")
-- `title`: heading text, or `nothing` to hide (default: "Data Explorer")
-- `subtitle`: description text, or `nothing` to hide (default: "Build faceted plots interactively — all client-side, no server round-trips.")
+- `title`: heading text, or `nothing` to hide (default: `nothing`)
+- `subtitle`: description text, or `nothing` to hide (default: `nothing`)
 - `default_x`, `default_y`: pre-select x/y columns (default: nothing = first/second column)
 - `default_color`, `default_group`, `default_col`, `default_row`: pre-select categorical dropdowns (default: nothing = "(none)")
 - `default_mark`: pre-select mark type (default: "point")
 - `width`: plot width for non-faceted specs — integer or "container" (default: "container")
 - `height`: plot height for non-faceted specs (default: 350)
 - `marks`: list of `value => label` pairs for the mark dropdown (default: `_default_marks()`)
-- `show_spec`: whether to show the Vega-Lite JSON spec details section (default: true)
+- `show_spec`: whether to show the Vega-Lite JSON spec details section (default: false)
 
 Faceted specs use responsive cell widths derived from the container's `clientWidth`
 rather than a fixed size. See [`explorer_js`](@ref) for details.
 """
 function explorer_widget(datasets; default_ds="cars",
-        title="Data Explorer",
-        subtitle="Build faceted plots interactively — all client-side, no server round-trips.",
+        title=nothing,
+        subtitle=nothing,
         default_x=nothing, default_y=nothing, default_color=nothing, default_group=nothing,
         default_col=nothing, default_row=nothing, default_mark="point",
+        default_indep_x=false, default_indep_y=false,
         width="container", height=350,
-        marks=_default_marks(), show_spec=true)
+        marks=_default_marks(), show_spec=false)
     ds_names = sort(collect(keys(datasets)))
     cols = classify_columns(datasets[default_ds])
 
@@ -357,12 +362,14 @@ function explorer_widget(datasets; default_ds="cars",
                 ); style="display:flex; flex-direction:column; gap:0.25rem;",
             ),
             h.label(
-                h.input(; type="checkbox", id="ex-indep-x", onchange="AoV.explorerUpdate()"),
+                h.input(; type="checkbox", id="ex-indep-x", onchange="AoV.explorerUpdate()",
+                    checked=default_indep_x ? "checked" : nothing),
                 " Independent X";
                 style="display:flex; align-items:center; gap:0.25rem;",
             ),
             h.label(
-                h.input(; type="checkbox", id="ex-indep-y", onchange="AoV.explorerUpdate()"),
+                h.input(; type="checkbox", id="ex-indep-y", onchange="AoV.explorerUpdate()",
+                    checked=default_indep_y ? "checked" : nothing),
                 " Independent Y";
                 style="display:flex; align-items:center; gap:0.25rem;",
             ),
@@ -497,10 +504,13 @@ function write_explorer_assets(dir, datasets; width="container", height=350)
       }
       return 'nominal';
     }
+    var xType = fieldType(x), yType = fieldType(y);
+    var zeroX = xType === 'quantitative' && (mark === 'bar') ? {} : {zero: false};
+    var zeroY = yType === 'quantitative' && (mark === 'bar') ? {} : {zero: false};
     var encoding = {
-      x: {field: x, type: fieldType(x)},
-      y: {field: y, type: fieldType(y)},
-      tooltip: [{field: x, type: fieldType(x)}, {field: y, type: fieldType(y)}],
+      x: {field: x, type: xType, scale: zeroX},
+      y: {field: y, type: yType, scale: zeroY},
+      tooltip: [{field: x, type: xType}, {field: y, type: yType}],
     };
     if (color) {
       encoding.color = {field: color, type: 'nominal'};
