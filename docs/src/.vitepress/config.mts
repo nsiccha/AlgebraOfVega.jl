@@ -39,7 +39,10 @@ export default defineConfig({
     ['link', { rel: 'icon', href: 'REPLACE_ME_DOCUMENTER_VITEPRESS_FAVICON' }],
     ['script', {src: `${getBaseRepository(baseTemp.base)}versions.js`}],
     // ['script', {src: '/versions.js'], for custom domains, I guess if deploy_url is available.
-    ['script', {src: `${baseTemp.base}siteinfo.js`}]
+    ['script', {src: `${baseTemp.base}siteinfo.js`}],
+    ['script', {src: 'https://cdn.jsdelivr.net/npm/vega@5'}],
+    ['script', {src: 'https://cdn.jsdelivr.net/npm/vega-lite@5'}],
+    ['script', {src: 'https://cdn.jsdelivr.net/npm/vega-embed@6'}]
   ],
   
   markdown: {

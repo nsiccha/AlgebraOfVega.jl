@@ -1,5 +1,8 @@
 using Documenter, DocumenterVitepress, AlgebraOfVega
 
+# Generate gallery examples with Vega-Lite specs
+include("generate_gallery.jl")
+
 makedocs(
     sitename = "AlgebraOfVega.jl",
     modules  = [AlgebraOfVega],
@@ -7,6 +10,7 @@ makedocs(
         repo = "github.com/nsiccha/AlgebraOfVega.jl",
         devurl = "dev",
         devbranch = "dev",
+        build_vitepress = false,
     ),
     pages = [
         "Home" => "index.md",
@@ -14,12 +18,25 @@ makedocs(
         "Translation Guide" => "translation.md",
         "Interactivity" => "interactivity.md",
         "Uncertainty Visualization" => "uncertainty.md",
+        "Gallery Examples" => "gallery-examples.md",
         "Gallery" => "gallery.md",
         "API" => "api.md",
     ],
     checkdocs = :none,
     warnonly = true,
 )
+
+# Copy public assets (JSON specs) into VitePress build directory
+let src = joinpath(@__DIR__, "src", "public")
+    dst = joinpath(@__DIR__, "build", ".documenter", "public")
+    if isdir(src)
+        cp(src, dst; force=true)
+        @info "Copied public assets to $dst"
+    end
+end
+
+# Build VitePress (after public assets are in place)
+DocumenterVitepress.build_docs(joinpath(@__DIR__, "build"))
 
 let redirect = joinpath(@__DIR__, "build", "index.html")
     isfile(redirect) || write(redirect, """

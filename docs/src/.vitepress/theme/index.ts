@@ -13,6 +13,8 @@ import VersionPicker from "@/VersionPicker.vue"
 import AuthorBadge from '@/AuthorBadge.vue'
 import Authors from '@/Authors.vue'
 import Banner from '@/Banner.vue'
+import VegaPlot from '@/VegaPlot.vue'
+import ExplorerLoader from '@/ExplorerLoader.vue'
 
 import { enhanceAppWithTabs } from 'vitepress-plugin-tabs/client'
 
@@ -37,6 +39,8 @@ export const Theme: ThemeConfig = {
     app.component('VersionPicker', VersionPicker);
     app.component('AuthorBadge', AuthorBadge)
     app.component('Authors', Authors)
+    app.component('VegaPlot', VegaPlot)
+    app.component('ExplorerLoader', ExplorerLoader)
   }
 }
 export default Theme

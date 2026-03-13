@@ -2,3 +2,7 @@ Manifest.toml
 web/flagged.txt
 
 CLAUDE.md
+
+# Generated docs assets (rebuilt by docs/generate_gallery.jl)
+docs/src/gallery-examples.md
+docs/src/public/
