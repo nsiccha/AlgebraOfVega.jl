@@ -820,7 +820,7 @@ function linear_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
     y_field = length(layer.positional) >= 2 ? string(layer.positional[2]) : "y"
     color_field = haskey(layer.named, :color) ? string(layer.named[:color]) : nothing
     analysis = extract_linear_analysis(layer)
-    has_band = !isnothing(analysis) && !isnothing(analysis.interval)
+    has_band = !isnothing(analysis) && !isnothing(analysis.interval) && !(analysis.interval isa Makie.Automatic)
 
     reg_transform = Dict{String,Any}(
         "regression" => y_field,
@@ -949,7 +949,7 @@ function smooth_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
     color_field = haskey(layer.named, :color) ? string(layer.named[:color]) : nothing
     analysis = extract_smooth_analysis(layer)
     bandwidth = !isnothing(analysis) ? analysis.span : 0.75
-    has_band = !isnothing(analysis) && !isnothing(analysis.interval)
+    has_band = !isnothing(analysis) && !isnothing(analysis.interval) && !(analysis.interval isa Makie.Automatic)
 
     loess_transform = Dict{String,Any}(
         "loess" => y_field,
@@ -1445,6 +1445,7 @@ end
 
 function to_vegalite(v::VegaSpec)
     spec = to_vegalite(v.drawable)
+    select_fields = nothing
     if !isnothing(v.config)
         for (k, val) in v.config.properties
             sk = string(k)
@@ -1462,12 +1463,81 @@ function to_vegalite(v::VegaSpec)
             elseif sk in ("width", "height") && haskey(spec, "spec")
                 # For faceted specs, width/height go into the inner spec
                 spec["spec"][sk] = val
+            elseif sk == "select"
+                # Collect select fields — processed after spec is built
+                select_fields = val isa Symbol ? [val] : val
             else
                 spec[sk] = val
             end
         end
     end
+    if !isnothing(select_fields)
+        add_select_filters!(spec, v.drawable, select_fields)
+    end
     add_auto_interactivity!(spec)
+    spec
+end
+
+"""
+    add_select_filters!(spec, drawable, fields)
+
+Add dropdown filter widgets for the given fields. Extracts unique values from
+the data and injects VL `params` with `bind: {input: "select"}` + expression filters.
+
+Usage via config: `config(select=:origin)` or `config(select=[:origin, :cylinders])`.
+Each field gets a dropdown with "All" + sorted unique values.
+"""
+function add_select_filters!(spec::Dict{String,Any}, drawable, fields)
+    # Extract data table from the drawable
+    table = nothing
+    if drawable isa AlgebraOfGraphics.Layer
+        table = extract_data(drawable)
+    elseif drawable isa AlgebraOfGraphics.Layers
+        for l in drawable.layers
+            t = extract_data(l)
+            if !isnothing(t)
+                table = t
+                break
+            end
+        end
+    end
+    isnothing(table) && return spec
+
+    params = get!(spec, "params", Dict{String,Any}[])
+    transforms = get!(spec, "transform", Dict{String,Any}[])
+
+    # For layered specs, transforms go at the top level (shared data)
+    # For single-view specs, they also go at the top level
+    for field in fields
+        field_str = string(field)
+        param_name = "select_$(field_str)"
+
+        # Get unique values
+        vals = try
+            col = Tables.getcolumn(table, field)
+            sort(unique(col))
+        catch
+            continue
+        end
+
+        # Add param with dropdown binding
+        push!(params, Dict{String,Any}(
+            "name" => param_name,
+            "value" => nothing,  # null = show all
+            "bind" => Dict{String,Any}(
+                "input" => "select",
+                "options" => [nothing; vals],
+                "labels" => ["All"; [string(v) for v in vals]],
+                "name" => "$(field_str): ",
+            ),
+        ))
+
+        # Add filter transform
+        push!(transforms, Dict{String,Any}(
+            "filter" => "$(param_name) === null || datum.$(field_str) === $(param_name)",
+        ))
+    end
+
     spec
 end
 

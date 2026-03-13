@@ -140,6 +140,84 @@ end
 
 # Each entry: (id, title, description, code_string, spec_fn)
 PLOTS = [
+    # --- Interactive Filtering (client-side, no server) ---
+
+    ("filter_origin", "Filter by Origin", "Dropdown filters scatter plot by car origin",
+     """data(cars()) *
+    mapping(:horsepower, :mpg, color=:origin) *
+    visual(Scatter) *
+    config(width=500, height=350, title="Cars: Filter by Origin",
+           select=:origin)""",
+     () -> data(cars()) *
+        mapping(:horsepower, :mpg, color=:origin) *
+        visual(Scatter) *
+        config(width=500, height=350, title="Cars: Filter by Origin",
+               select=:origin)),
+
+    ("filter_multi", "Multi-Filter", "Two dropdowns: origin + cylinders",
+     """data(cars()) *
+    mapping(:horsepower, :mpg, color=:origin) *
+    visual(Scatter) *
+    config(width=500, height=350, title="Cars: Multi-Filter",
+           select=[:origin, :cylinders])""",
+     () -> data(cars()) *
+        mapping(:horsepower, :mpg, color=:origin) *
+        visual(Scatter) *
+        config(width=500, height=350, title="Cars: Multi-Filter",
+               select=[:origin, :cylinders])),
+
+    ("filter_tips", "Filter Tips", "Explore tips data by day and meal time",
+     """data(tips()) *
+    mapping(:total_bill, :tip, color=:sex) *
+    visual(Scatter) *
+    config(width=500, height=350, title="Tips Explorer",
+           select=[:day, :sex])""",
+     () -> data(tips()) *
+        mapping(:total_bill, :tip, color=:sex) *
+        visual(Scatter) *
+        config(width=500, height=350, title="Tips Explorer",
+               select=[:day, :sex])),
+
+    ("filter_histogram", "Filtered Histogram", "Histogram updates with dropdown selection",
+     """data(cars()) *
+    mapping(:mpg) *
+    histogram() *
+    config(width=500, height=300, title="MPG Distribution by Origin",
+           select=:origin)""",
+     () -> data(cars()) *
+        mapping(:mpg) *
+        histogram() *
+        config(width=500, height=300, title="MPG Distribution by Origin",
+               select=:origin)),
+
+    ("filter_regression", "Filtered Regression", "Scatter + linear fit updates with dropdown",
+     """data(cars()) *
+    mapping(:horsepower, :mpg) *
+    (visual(Scatter, opacity=0.5) + linear()) *
+    config(width=500, height=350, title="Regression by Origin",
+           select=:origin)""",
+     () -> data(cars()) *
+        mapping(:horsepower, :mpg) *
+        (visual(Scatter, opacity=0.5) + linear()) *
+        config(width=500, height=350, title="Regression by Origin",
+               select=:origin)),
+
+    ("filter_bar", "Filtered Bar Chart", "Mean tip by gender filtered by day",
+     """data(tips()) *
+    mapping(:sex, :tip) *
+    visual(BarPlot) *
+    config(width=400, height=300, title="Average Tip by Gender",
+           encoding=Dict("y" => Dict("aggregate" => "mean")),
+           select=:day)""",
+     () -> data(tips()) *
+        mapping(:sex, :tip) *
+        visual(BarPlot) *
+        config(width=400, height=300, title="Average Tip by Gender",
+               encoding=Dict("y" => Dict("aggregate" => "mean")),
+               select=:day)),
+
+    # --- Basic ---
+
     ("scatter", "Scatter Plot", "Horsepower vs MPG colored by origin",
      """data(cars()) *
     mapping(:horsepower, :mpg, color=:origin) *
@@ -1354,6 +1432,7 @@ end
 
     # Group plots by category for the index
     PLOT_SECTIONS = [
+        ("Interactive Filtering" => ["filter_origin", "filter_multi", "filter_tips", "filter_histogram", "filter_regression", "filter_bar"]),
         ("Basic" => ["scatter", "bar", "line", "lines_only", "area", "histogram", "heatmap", "boxplot"]),
         ("Composition" => ["layered", "multi_layer", "stacked_bar", "grouped_bar", "bubble", "scatter_jitter", "custom_config"]),
         ("Interactive" => ["interactive_brush", "interactive_highlight", "interactive_zoom", "interactive_slider", "interactive_dropdown"]),
