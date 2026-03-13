@@ -70,10 +70,13 @@
       }
       return 'nominal';
     }
+    var xType = fieldType(x), yType = fieldType(y);
+    var zeroX = xType === 'quantitative' && (mark === 'bar') ? {} : {zero: false};
+    var zeroY = yType === 'quantitative' && (mark === 'bar') ? {} : {zero: false};
     var encoding = {
-      x: {field: x, type: fieldType(x)},
-      y: {field: y, type: fieldType(y)},
-      tooltip: [{field: x, type: fieldType(x)}, {field: y, type: fieldType(y)}],
+      x: {field: x, type: xType, scale: zeroX},
+      y: {field: y, type: yType, scale: zeroY},
+      tooltip: [{field: x, type: xType}, {field: y, type: yType}],
     };
     if (color) {
       encoding.color = {field: color, type: 'nominal'};
