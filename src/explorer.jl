@@ -30,6 +30,7 @@ Generates two JS functions: `_explorerUpdateDropdowns` (repopulates dropdown opt
 when the dataset changes) and `explorerUpdate` (builds and renders the Vega-Lite spec).
 
 Dropdowns: dataset, x, y, color, group (detail encoding), facet column, facet row, mark type.
+Checkboxes: independent X/Y axis (adds VL `resolve` for faceted specs).
 The group dropdown maps to Vega-Lite's `detail` encoding channel, which groups data
 (e.g. draws separate lines per group) without assigning a visual property like color.
 
@@ -196,7 +197,7 @@ end
 Return an HTML string for the explorer dropdown controls.
 
 Includes dropdowns for: dataset, x, y, color, group (detail encoding),
-facet column, facet row, and mark type.
+facet column, facet row, and mark type, plus checkboxes for independent X/Y axes.
 Datasets can be any Tables.jl-compatible type (NamedTuples, DataFrames, etc.).
 
 # Keyword arguments
@@ -276,7 +277,7 @@ end
 Return an HTMX Node for the explorer widget (for web apps using HTMXObjects).
 
 Includes dropdowns for: dataset, x, y, color, group (detail encoding),
-facet column, facet row, and mark type.
+facet column, facet row, and mark type, plus checkboxes for independent X/Y axes.
 Datasets can be any Tables.jl-compatible type (NamedTuples, DataFrames, etc.).
 
 # Keyword arguments

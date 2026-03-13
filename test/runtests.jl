@@ -55,6 +55,12 @@ end
     @test occursin("var cellWidth = 250", js)
     @test occursin("Math.max(100, Math.floor((availWidth - 60) / nCols))", js)
     @test occursin("clientWidth", js)
+
+    # independent axis checkboxes
+    @test occursin("ex-indep-x", js)
+    @test occursin("ex-indep-y", js)
+    @test occursin("resolve", js)
+    @test occursin("independent", js)
 end
 
 @testset "explorer_controls_html" begin
@@ -81,6 +87,12 @@ end
     # default mark selection
     html4 = AlgebraOfVega.explorer_controls_html(datasets; default_mark="line")
     @test occursin("<option value=\"line\" selected>", html4)
+
+    # independent axis checkboxes
+    @test occursin("ex-indep-x", html)
+    @test occursin("ex-indep-y", html)
+    @test occursin("Independent X", html)
+    @test occursin("Independent Y", html)
 end
 
 @testset "explorer_widget" begin
@@ -111,6 +123,13 @@ end
     # custom marks
     w6 = AlgebraOfVega.explorer_widget(datasets; marks=["point" => "scatter"])
     @test w6 !== nothing
+
+    # independent axis checkboxes
+    ws = string(w)
+    @test occursin("ex-indep-x", ws)
+    @test occursin("ex-indep-y", ws)
+    @test occursin("Independent X", ws)
+    @test occursin("Independent Y", ws)
 end
 
 @testset "explorer_data_init_js" begin
