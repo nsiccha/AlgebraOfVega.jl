@@ -38,6 +38,10 @@ The group dropdown maps to Vega-Lite's `detail` encoding channel, which groups d
 - `spec_selector`: CSS selector for spec JSON display (nothing to skip)
 - `width`: plot width for non-faceted specs (integer or "container")
 - `height`: plot height for non-faceted specs
+
+Faceted specs use responsive cell widths: container `clientWidth` divided by the number
+of unique facet column values (min 100px). Row-only facets use full container width minus
+padding (min 250px). Falls back to 800px if the container element isn't found.
 """
 function explorer_js(; namespace="", plot_selector="#explorer-plot", spec_selector=nothing, width="container", height=350)
     spec_line = isnothing(spec_selector) ? "" : """
@@ -271,6 +275,9 @@ Datasets can be any Tables.jl-compatible type (NamedTuples, DataFrames, etc.).
 - `height`: plot height for non-faceted specs (default: 350)
 - `marks`: list of `value => label` pairs for the mark dropdown (default: `_default_marks()`)
 - `show_spec`: whether to show the Vega-Lite JSON spec details section (default: true)
+
+Faceted specs use responsive cell widths derived from the container's `clientWidth`
+rather than a fixed size. See [`explorer_js`](@ref) for details.
 """
 function explorer_widget(datasets; default_ds="cars",
         title="Data Explorer",
@@ -368,6 +375,9 @@ Creates `explorer-data.json`, `explorer-columns.json`, and `explorer.js`.
 
 - `width`: plot width for non-faceted specs (integer or "container")
 - `height`: plot height for non-faceted specs
+
+Faceted specs use responsive cell widths derived from the container's `clientWidth`
+rather than a fixed size. See [`explorer_js`](@ref) for details.
 """
 function write_explorer_assets(dir, datasets; width="container", height=350)
     mkpath(dir)

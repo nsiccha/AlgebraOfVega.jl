@@ -50,6 +50,11 @@ end
     @test occursin("width: 800", js3)
     @test occursin("height: 500", js3)
     @test !occursin("'container'", js3)
+
+    # faceted path uses responsive cellWidth logic
+    @test occursin("var cellWidth = 250", js)
+    @test occursin("Math.max(100, Math.floor((availWidth - 60) / nCols))", js)
+    @test occursin("clientWidth", js)
 end
 
 @testset "explorer_controls_html" begin
