@@ -13,6 +13,53 @@ default_explorer_datasets() = Dict(
     "temperatures" => sample_temperatures(),
 )
 
+"""
+    _resolve_filter_include(filter_include, tbl) -> Dict{String, Vector{String}}
+
+Resolve a `default_filter_include` value into a Dict mapping column names to included values.
+Accepts `nothing` (no pre-filtering), a `Dict`, or a `Function(col, val) -> Bool`.
+"""
+function _resolve_filter_include(::Nothing, tbl)
+    nothing
+end
+function _resolve_filter_include(d::AbstractDict, tbl)
+    cols = classify_columns(tbl)
+    result = Dict{String, Vector{String}}()
+    for (k, v) in d
+        c = string(k)
+        if v isa Function
+            vals = unique(string.(Tables.getcolumn(tbl, Symbol(c))))
+            included = filter(v, vals)
+            if length(included) < length(vals)
+                result[c] = included
+            end
+        else
+            result[c] = [string(x) for x in v]
+        end
+    end
+    isempty(result) ? nothing : result
+end
+function _resolve_filter_include(f::Function, tbl)
+    cols = classify_columns(tbl)
+    result = Dict{String, Vector{String}}()
+    for c in cols.categorical
+        vals = unique(string.(Tables.getcolumn(tbl, Symbol(c))))
+        included = filter(v -> f(c, v), vals)
+        if length(included) < length(vals)
+            result[c] = included
+        end
+    end
+    isempty(result) ? nothing : result
+end
+
+function _filter_init_js(::Nothing, namespace)
+    ""
+end
+function _filter_init_js(d::AbstractDict, namespace)
+    parts = join(["'$(k)': new Set($(JSON.json(v)))" for (k, v) in d], ", ")
+    "\n            $(namespace)_explorerFilterSelected = {$parts};"
+end
+
 _default_marks() = [
     "point" => "point",
     "bar" => "bar",
@@ -277,6 +324,7 @@ Datasets can be any Tables.jl-compatible type (NamedTuples, DataFrames, etc.).
 function explorer_controls_html(datasets; default_ds="penguins", onchange_fn="explorerUpdate()",
         default_x="bill_length", default_y="bill_depth", default_color=:species, default_group=nothing,
         default_col=nothing, default_row=nothing, default_mark="point",
+        default_filter_include=nothing,
         default_indep_x=false, default_indep_y=false,
         marks=_default_marks())
     ds_names = sort(collect(keys(datasets)))
@@ -368,6 +416,7 @@ function explorer_widget(datasets; default_ds="penguins",
         subtitle=nothing,
         default_x="bill_length", default_y="bill_depth", default_color=:species, default_group=nothing,
         default_col=nothing, default_row=nothing, default_mark="point",
+        default_filter_include=nothing,
         default_indep_x=false, default_indep_y=false,
         width="container", height=350,
         marks=_default_marks(), show_spec=false)
@@ -454,7 +503,8 @@ function explorer_widget(datasets; default_ds="penguins",
         # Inline script with data + logic
         h.script(
             explorer_data_init_js(datasets; namespace="AoV.") *
-            explorer_js(; namespace="AoV.", plot_selector="#explorer-plot", spec_selector=spec_selector, width=width, height=height) * """
+            explorer_js(; namespace="AoV.", plot_selector="#explorer-plot", spec_selector=spec_selector, width=width, height=height) *
+            _filter_init_js(_resolve_filter_include(default_filter_include, datasets[default_ds]), "AoV.") * """
 
             document.getElementById('ex-dataset').addEventListener('change', function() {
                 AoV._explorerUpdateDropdowns();
