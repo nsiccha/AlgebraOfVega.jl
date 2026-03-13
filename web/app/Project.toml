@@ -1,0 +1,4 @@
+[deps]
+AlgebraOfVegaGallery = "e3a1b2c4-d5e6-4f7a-8b9c-0d1e2f3a4b5c"
+HTMXObjects = "b12ef442-5798-4353-80f3-9562b03a0cb6"
+Revise = "295af30f-e4ad-537b-8983-00126c2a3abe"
