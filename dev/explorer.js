@@ -145,8 +145,92 @@
     }
     var indepX = document.getElementById('ex-indep-x') && document.getElementById('ex-indep-x').checked;
     var indepY = document.getElementById('ex-indep-y') && document.getElementById('ex-indep-y').checked;
+    var logX = document.getElementById('ex-log-x') && document.getElementById('ex-log-x').checked;
+    var logY = document.getElementById('ex-log-y') && document.getElementById('ex-log-y').checked;
+    if (logX && xType === 'quantitative') { encoding.x.scale = Object.assign({}, encoding.x.scale, {type: 'log'}); }
+    if (logY && yType === 'quantitative') { encoding.y.scale = Object.assign({}, encoding.y.scale, {type: 'log'}); }
+    var ribbonEl = document.getElementById('ex-ribbon-levels-label');
+    if (ribbonEl) ribbonEl.style.display = (mark === 'line+ribbon') ? '' : 'none';
     var spec;
-    if (facetCol || facetRow) {
+    if (mark === 'line+ribbon') {
+      var levelsStr = document.getElementById('ex-ribbon-levels') ? document.getElementById('ex-ribbon-levels').value : '0.5, 0.9';
+      var levels = levelsStr.split(',').map(function(s) { return parseFloat(s.trim()); }).filter(function(v) { return v > 0 && v < 1; }).sort();
+      var groups = {};
+      for (var i = 0; i < data.length; i++) {
+        var row = data[i];
+        var key = color ? row[x] + '|||' + row[color] : String(row[x]);
+        if (!groups[key]) groups[key] = {xv: row[x], cv: color ? row[color] : null, ys: []};
+        var yVal = parseFloat(row[y]);
+        if (!isNaN(yVal)) groups[key].ys.push(yVal);
+      }
+      function _quantile(sorted, p) {
+        if (sorted.length === 0) return null;
+        var idx = p * (sorted.length - 1);
+        var lo = Math.floor(idx), hi = Math.ceil(idx);
+        if (lo === hi) return sorted[lo];
+        return sorted[lo] + (idx - lo) * (sorted[hi] - sorted[lo]);
+      }
+      var summaryData = [];
+      Object.keys(groups).forEach(function(key) {
+        var g = groups[key];
+        g.ys.sort(function(a, b) { return a - b; });
+        var sr = {_x: g.xv, _median: _quantile(g.ys, 0.5)};
+        if (g.cv !== null) sr._color = g.cv;
+        levels.forEach(function(p) {
+          var lo = (1 - p) / 2, hi = 1 - lo;
+          sr['_lo_' + p] = _quantile(g.ys, lo);
+          sr['_hi_' + p] = _quantile(g.ys, hi);
+        });
+        summaryData.push(sr);
+      });
+      var layers = [];
+      var opStep = levels.length > 1 ? 0.4 / (levels.length - 1) : 0;
+      for (var li = levels.length - 1; li >= 0; li--) {
+        var p = levels[li];
+        var bandEnc = {
+          x: {field: '_x', type: xType, scale: encoding.x.scale},
+          y: {field: '_lo_' + p, type: 'quantitative', scale: encoding.y.scale, title: y},
+          y2: {field: '_hi_' + p},
+        };
+        if (color) bandEnc.color = {field: '_color', type: 'nominal', title: color};
+        layers.push({mark: {type: 'area', opacity: 0.15 + opStep * li}, encoding: bandEnc});
+      }
+      var lineEnc = {
+        x: {field: '_x', type: xType, scale: encoding.x.scale, title: x},
+        y: {field: '_median', type: 'quantitative', scale: encoding.y.scale, title: y},
+        tooltip: [{field: '_x', type: xType, title: x}, {field: '_median', type: 'quantitative', title: 'median'}],
+      };
+      if (color) {
+        lineEnc.color = {field: '_color', type: 'nominal', title: color};
+        lineEnc.tooltip.push({field: '_color', type: 'nominal', title: color});
+      }
+      layers.push({mark: 'line', encoding: lineEnc});
+      if (facetCol || facetRow) {
+        var facet = {};
+        if (facetCol) facet.column = {field: facetCol, type: 'nominal'};
+        if (facetRow) facet.row = {field: facetRow, type: 'nominal'};
+        var plotEl = document.querySelector('#explorer-plot');
+        var availWidth = plotEl ? plotEl.clientWidth : 800;
+        var cellWidth = 250;
+        if (facetCol) {
+          var uniqueCols = {};
+          for (var i = 0; i < summaryData.length; i++) { uniqueCols[summaryData[i][facetCol]] = true; }
+          var nCols = Object.keys(uniqueCols).length;
+          if (nCols > 0) cellWidth = Math.max(100, Math.floor((availWidth - 60) / nCols));
+        } else {
+          cellWidth = Math.max(250, availWidth - 60);
+        }
+        spec = {data: {values: summaryData}, facet: facet, spec: {layer: layers, width: cellWidth, height: 200}};
+        if (indepX || indepY) {
+          var resolve = {scale: {}, axis: {}};
+          if (indepX) { resolve.scale.x = 'independent'; resolve.axis.x = 'independent'; }
+          if (indepY) { resolve.scale.y = 'independent'; resolve.axis.y = 'independent'; }
+          spec.resolve = resolve;
+        }
+      } else {
+        spec = {data: {values: summaryData}, layer: layers, width: 'container', height: 350};
+      }
+    } else if (facetCol || facetRow) {
       var facet = {};
       if (facetCol) facet.column = {field: facetCol, type: 'nominal'};
       if (facetRow) facet.row = {field: facetRow, type: 'nominal'};
