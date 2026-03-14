@@ -193,8 +193,89 @@ end
 @testset "_default_marks" begin
     marks = AlgebraOfVega._default_marks()
     @test marks isa Vector{Pair{String,String}}
-    @test length(marks) == 6
+    @test length(marks) == 7
     @test first(first(marks)) == "point"
+    @test any(p -> first(p) == "line+ribbon", marks)
+end
+
+@testset "explorer_js log scale" begin
+    js = AlgebraOfVega.explorer_js()
+    @test occursin("ex-log-x", js)
+    @test occursin("ex-log-y", js)
+    @test occursin("type: 'log'", js)
+end
+
+@testset "explorer_js line+ribbon" begin
+    js = AlgebraOfVega.explorer_js()
+    @test occursin("line+ribbon", js)
+    @test occursin("_quantile", js)
+    @test occursin("_median", js)
+    @test occursin("ex-ribbon-levels", js)
+    @test occursin("summaryData", js)
+end
+
+@testset "explorer_controls_html log and ribbon" begin
+    datasets = AlgebraOfVega.default_explorer_datasets()
+    html = AlgebraOfVega.explorer_controls_html(datasets)
+    @test occursin("ex-log-x", html)
+    @test occursin("ex-log-y", html)
+    @test occursin("Log X", html)
+    @test occursin("Log Y", html)
+    @test occursin("ex-ribbon-levels", html)
+    @test occursin("Ribbon levels:", html)
+    # ribbon levels hidden by default (mark != line+ribbon)
+    @test occursin("display:none;", html)
+
+    # ribbon levels visible when default_mark is line+ribbon
+    html2 = AlgebraOfVega.explorer_controls_html(datasets; default_mark="line+ribbon")
+    @test occursin("line + ribbon", html2)
+end
+
+@testset "explorer_controls_html dataset hiding" begin
+    single = Dict("mydata" => AlgebraOfVega.sample_cars())
+    html = AlgebraOfVega.explorer_controls_html(single)
+    # dataset dropdown should be hidden
+    @test occursin("display:none;", html)
+    @test occursin("ex-dataset", html)
+
+    multi = AlgebraOfVega.default_explorer_datasets()
+    html2 = AlgebraOfVega.explorer_controls_html(multi)
+    # dataset dropdown should be visible
+    @test occursin("Dataset:", html2)
+end
+
+@testset "bare table support" begin
+    tbl = AlgebraOfVega.sample_penguins()
+
+    # explorer_controls_html accepts bare table
+    html = AlgebraOfVega.explorer_controls_html(tbl)
+    @test occursin("ex-x", html)
+    @test occursin("display:none;", html)  # single dataset → hidden dropdown
+
+    # explorer_widget accepts bare table
+    w = AlgebraOfVega.explorer_widget(tbl;
+        default_x="bill_length", default_y="bill_depth")
+    @test w !== nothing
+
+    # _wrap_datasets passthrough for Dict
+    d = Dict("a" => tbl)
+    @test AlgebraOfVega._wrap_datasets(d) === d
+
+    # _wrap_datasets wraps bare table
+    wrapped = AlgebraOfVega._wrap_datasets(tbl)
+    @test wrapped isa Dict
+    @test haskey(wrapped, "data")
+end
+
+@testset "explorer_widget log and ribbon" begin
+    datasets = AlgebraOfVega.default_explorer_datasets()
+    ws = string(AlgebraOfVega.explorer_widget(datasets))
+    @test occursin("ex-log-x", ws)
+    @test occursin("ex-log-y", ws)
+    @test occursin("Log X", ws)
+    @test occursin("Log Y", ws)
+    @test occursin("ex-ribbon-levels", ws)
+    @test occursin("Ribbon levels", ws)
 end
 
 end

@@ -71,6 +71,7 @@ _default_marks() = [
     "bar" => "bar",
     "line" => "line",
     "area" => "area",
+    "line+ribbon" => "line + ribbon",
     "boxplot" => "boxplot",
     "rect" => "rect (heatmap)",
 ]
@@ -84,7 +85,7 @@ Generates two JS functions: `_explorerUpdateDropdowns` (repopulates dropdown opt
 when the dataset changes) and `explorerUpdate` (builds and renders the Vega-Lite spec).
 
 Dropdowns: dataset, x, y, color, group (detail encoding), facet column, facet row, mark type.
-Checkboxes: independent X/Y axis (adds VL `resolve` for faceted specs).
+Checkboxes: independent X/Y axis (adds VL `resolve` for faceted specs), log X/Y scale.
 The group dropdown maps to Vega-Lite's `detail` encoding channel, which groups data
 (e.g. draws separate lines per group) without assigning a visual property like color.
 
@@ -240,9 +241,96 @@ function explorer_js(; namespace="", plot_selector="#explorer-plot", spec_select
 
                 var indepX = document.getElementById('ex-indep-x') && document.getElementById('ex-indep-x').checked;
                 var indepY = document.getElementById('ex-indep-y') && document.getElementById('ex-indep-y').checked;
+                var logX = document.getElementById('ex-log-x') && document.getElementById('ex-log-x').checked;
+                var logY = document.getElementById('ex-log-y') && document.getElementById('ex-log-y').checked;
+
+                if (logX && xType === 'quantitative') { encoding.x.scale = Object.assign({}, encoding.x.scale, {type: 'log'}); }
+                if (logY && yType === 'quantitative') { encoding.y.scale = Object.assign({}, encoding.y.scale, {type: 'log'}); }
+
+                var ribbonEl = document.getElementById('ex-ribbon-levels-label');
+                if (ribbonEl) ribbonEl.style.display = (mark === 'line+ribbon') ? '' : 'none';
 
                 var spec;
-                if (facetCol || facetRow) {
+                if (mark === 'line+ribbon') {
+                    var levelsStr = document.getElementById('ex-ribbon-levels') ? document.getElementById('ex-ribbon-levels').value : '0.5, 0.9';
+                    var levels = levelsStr.split(',').map(function(s) { return parseFloat(s.trim()); }).filter(function(v) { return v > 0 && v < 1; }).sort();
+                    var groups = {};
+                    for (var i = 0; i < data.length; i++) {
+                        var row = data[i];
+                        var key = color ? row[x] + '|||' + row[color] : String(row[x]);
+                        if (!groups[key]) groups[key] = {xv: row[x], cv: color ? row[color] : null, ys: []};
+                        var yVal = parseFloat(row[y]);
+                        if (!isNaN(yVal)) groups[key].ys.push(yVal);
+                    }
+                    function _quantile(sorted, p) {
+                        if (sorted.length === 0) return null;
+                        var idx = p * (sorted.length - 1);
+                        var lo = Math.floor(idx), hi = Math.ceil(idx);
+                        if (lo === hi) return sorted[lo];
+                        return sorted[lo] + (idx - lo) * (sorted[hi] - sorted[lo]);
+                    }
+                    var summaryData = [];
+                    Object.keys(groups).forEach(function(key) {
+                        var g = groups[key];
+                        g.ys.sort(function(a, b) { return a - b; });
+                        var sr = {_x: g.xv, _median: _quantile(g.ys, 0.5)};
+                        if (g.cv !== null) sr._color = g.cv;
+                        levels.forEach(function(p) {
+                            var lo = (1 - p) / 2, hi = 1 - lo;
+                            sr['_lo_' + p] = _quantile(g.ys, lo);
+                            sr['_hi_' + p] = _quantile(g.ys, hi);
+                        });
+                        summaryData.push(sr);
+                    });
+                    var layers = [];
+                    var opStep = levels.length > 1 ? 0.4 / (levels.length - 1) : 0;
+                    for (var li = levels.length - 1; li >= 0; li--) {
+                        var p = levels[li];
+                        var bandEnc = {
+                            x: {field: '_x', type: xType, scale: encoding.x.scale},
+                            y: {field: '_lo_' + p, type: 'quantitative', scale: encoding.y.scale, title: y},
+                            y2: {field: '_hi_' + p},
+                        };
+                        if (color) bandEnc.color = {field: '_color', type: 'nominal', title: color};
+                        layers.push({mark: {type: 'area', opacity: 0.15 + opStep * li}, encoding: bandEnc});
+                    }
+                    var lineEnc = {
+                        x: {field: '_x', type: xType, scale: encoding.x.scale, title: x},
+                        y: {field: '_median', type: 'quantitative', scale: encoding.y.scale, title: y},
+                        tooltip: [{field: '_x', type: xType, title: x}, {field: '_median', type: 'quantitative', title: 'median'}],
+                    };
+                    if (color) {
+                        lineEnc.color = {field: '_color', type: 'nominal', title: color};
+                        lineEnc.tooltip.push({field: '_color', type: 'nominal', title: color});
+                    }
+                    layers.push({mark: 'line', encoding: lineEnc});
+
+                    if (facetCol || facetRow) {
+                        var facet = {};
+                        if (facetCol) facet.column = {field: facetCol, type: 'nominal'};
+                        if (facetRow) facet.row = {field: facetRow, type: 'nominal'};
+                        var plotEl = document.querySelector('$plot_selector');
+                        var availWidth = plotEl ? plotEl.clientWidth : 800;
+                        var cellWidth = 250;
+                        if (facetCol) {
+                            var uniqueCols = {};
+                            for (var i = 0; i < summaryData.length; i++) { uniqueCols[summaryData[i][facetCol]] = true; }
+                            var nCols = Object.keys(uniqueCols).length;
+                            if (nCols > 0) cellWidth = Math.max(100, Math.floor((availWidth - 60) / nCols));
+                        } else {
+                            cellWidth = Math.max(250, availWidth - 60);
+                        }
+                        spec = {data: {values: summaryData}, facet: facet, spec: {layer: layers, width: cellWidth, height: 200}};
+                        if (indepX || indepY) {
+                            var resolve = {scale: {}, axis: {}};
+                            if (indepX) { resolve.scale.x = 'independent'; resolve.axis.x = 'independent'; }
+                            if (indepY) { resolve.scale.y = 'independent'; resolve.axis.y = 'independent'; }
+                            spec.resolve = resolve;
+                        }
+                    } else {
+                        spec = {data: {values: summaryData}, layer: layers, width: $js_width, height: $height};
+                    }
+                } else if (facetCol || facetRow) {
                     var facet = {};
                     if (facetCol) facet.column = {field: facetCol, type: 'nominal'};
                     if (facetRow) facet.row = {field: facetRow, type: 'nominal'};
@@ -311,20 +399,25 @@ function explorer_data_init_js(datasets; namespace="")
 end
 
 """
-    explorer_controls_html(datasets; default_ds="cars", onchange_fn="explorerUpdate()", kwargs...)
+    explorer_controls_html(datasets_or_table; default_ds="penguins", onchange_fn="explorerUpdate()", kwargs...)
 
 Return an HTML string for the explorer dropdown controls.
 
+Accepts either a `Dict{String => table}` of named datasets or a bare table (auto-wrapped as
+`Dict("data" => table)` with the dataset dropdown hidden).
+
 Includes dropdowns for: dataset, x, y, color, group (detail encoding),
-facet column, facet row, and mark type, plus checkboxes for independent X/Y axes.
-Datasets can be any Tables.jl-compatible type (NamedTuples, DataFrames, etc.).
+facet column, facet row, and mark type, plus checkboxes for independent X/Y axes and log X/Y scale.
+When mark is "line+ribbon", a "Ribbon levels" text input appears for tuning quantile bands.
 
 # Keyword arguments
-- `default_ds`: which dataset to pre-select
+- `default_ds`: which dataset to pre-select (auto-falls back to first available key)
 - `onchange_fn`: JS function to call on dropdown change
 - `default_x`, `default_y`: pre-select x/y columns (default: first and second column)
 - `default_color`, `default_group`, `default_col`, `default_row`: pre-select categorical dropdowns (default: nothing = "(none)")
 - `default_mark`: pre-select mark type (default: "point")
+- `default_indep_x`, `default_indep_y`: pre-check independent axis checkboxes (default: false)
+- `default_log_x`, `default_log_y`: pre-check log scale checkboxes (default: false)
 - `default_filter_include`: initial filter pill selection for categorical columns. Accepts three
   forms: a `Dict` of lists (`Dict("col" => ["val1", "val2"])`) to select specific values, a `Dict`
   of functions (`Dict("col" => v -> v != "x")`) to select values matching a predicate, or a global
@@ -332,13 +425,16 @@ Datasets can be any Tables.jl-compatible type (NamedTuples, DataFrames, etc.).
   selected).
 - `marks`: list of `value => label` pairs for the mark dropdown (default: `_default_marks()`)
 """
-function explorer_controls_html(datasets; default_ds="penguins", onchange_fn="explorerUpdate()",
+function explorer_controls_html(datasets_or_table; default_ds="penguins", onchange_fn="explorerUpdate()",
         default_x="bill_length", default_y="bill_depth", default_color=:species, default_group=nothing,
         default_col=nothing, default_row=nothing, default_mark="point",
         default_filter_include=nothing,
         default_indep_x=false, default_indep_y=false,
+        default_log_x=false, default_log_y=false,
         marks=_default_marks())
+    datasets = _wrap_datasets(datasets_or_table)
     ds_names = sort(collect(keys(datasets)))
+    default_ds = default_ds in ds_names ? default_ds : first(ds_names)
     cols = classify_columns(datasets[default_ds])
 
     dx = something(default_x, first(cols.all))
@@ -359,9 +455,13 @@ function explorer_controls_html(datasets; default_ds="penguins", onchange_fn="ex
 
     mark_options = join(["<option value=\"$(first(m))\"$(first(m) == default_mark ? " selected" : "")>$(last(m))</option>" for m in marks], "\n")
 
+    hide_ds = length(ds_names) == 1
+    ds_label_style = hide_ds ? "display:none;" : "display:flex; flex-direction:column; gap:0.25rem;"
+    ribbon_style = default_mark == "line+ribbon" ? "display:flex; flex-direction:column; gap:0.25rem;" : "display:none;"
+
     """
 <div id="explorer-controls" style="display:flex; flex-wrap:wrap; gap:1rem; margin-bottom:1rem; align-items:end;">
-  <label style="display:flex; flex-direction:column; gap:0.25rem;">Dataset:
+  <label style="$ds_label_style">Dataset:
     <select id="ex-dataset" onchange="_explorerUpdateDropdowns(); $onchange_fn">$ds_options</select>
   </label>
   <label style="display:flex; flex-direction:column; gap:0.25rem;">X:
@@ -393,27 +493,41 @@ function explorer_controls_html(datasets; default_ds="penguins", onchange_fn="ex
   <label style="display:flex; align-items:center; gap:0.25rem;">
     <input type="checkbox" id="ex-indep-y" onchange="$onchange_fn"$(default_indep_y ? " checked" : "")> Independent Y
   </label>
+  <label style="display:flex; align-items:center; gap:0.25rem;">
+    <input type="checkbox" id="ex-log-x" onchange="$onchange_fn"$(default_log_x ? " checked" : "")> Log X
+  </label>
+  <label style="display:flex; align-items:center; gap:0.25rem;">
+    <input type="checkbox" id="ex-log-y" onchange="$onchange_fn"$(default_log_y ? " checked" : "")> Log Y
+  </label>
+  <label id="ex-ribbon-levels-label" style="$ribbon_style">Ribbon levels:
+    <input type="text" id="ex-ribbon-levels" value="0.5, 0.9" onchange="$onchange_fn" style="width:8rem;">
+  </label>
 </div>
 <div id="ex-filter-pills" style="display:flex; flex-wrap:wrap; gap:0.3rem; margin-bottom:0.5rem;"></div>
 <div id="explorer-plot" style="width:100%; min-width:0;"></div>"""
 end
 
 """
-    explorer_widget(datasets; kwargs...)
+    explorer_widget(datasets_or_table; kwargs...)
 
 Return an HTMX Node for the explorer widget (for web apps using HTMXObjects).
 
+Accepts either a `Dict{String => table}` of named datasets or a bare table (auto-wrapped as
+`Dict("data" => table)` with the dataset dropdown hidden).
+
 Includes dropdowns for: dataset, x, y, color, group (detail encoding),
-facet column, facet row, and mark type, plus checkboxes for independent X/Y axes.
-Datasets can be any Tables.jl-compatible type (NamedTuples, DataFrames, etc.).
+facet column, facet row, and mark type, plus checkboxes for independent X/Y axes and log X/Y scale.
+When mark is "line+ribbon", a "Ribbon levels" text input appears for tuning quantile bands.
 
 # Keyword arguments
-- `default_ds`: which dataset to pre-select (default: "cars")
+- `default_ds`: which dataset to pre-select (auto-falls back to first available key)
 - `title`: heading text, or `nothing` to hide (default: `nothing`)
 - `subtitle`: description text, or `nothing` to hide (default: `nothing`)
 - `default_x`, `default_y`: pre-select x/y columns (default: nothing = first/second column)
 - `default_color`, `default_group`, `default_col`, `default_row`: pre-select categorical dropdowns (default: nothing = "(none)")
 - `default_mark`: pre-select mark type (default: "point")
+- `default_indep_x`, `default_indep_y`: pre-check independent axis checkboxes (default: false)
+- `default_log_x`, `default_log_y`: pre-check log scale checkboxes (default: false)
 - `width`: plot width for non-faceted specs — integer or "container" (default: "container")
 - `height`: plot height for non-faceted specs (default: 350)
 - `default_filter_include`: initial filter pill selection for categorical columns. Accepts three
@@ -427,17 +541,21 @@ Datasets can be any Tables.jl-compatible type (NamedTuples, DataFrames, etc.).
 Faceted specs use responsive cell widths derived from the container's `clientWidth`
 rather than a fixed size. See [`explorer_js`](@ref) for details.
 """
-function explorer_widget(datasets; default_ds="penguins",
+function explorer_widget(datasets_or_table; default_ds="penguins",
         title=nothing,
         subtitle=nothing,
         default_x="bill_length", default_y="bill_depth", default_color=:species, default_group=nothing,
         default_col=nothing, default_row=nothing, default_mark="point",
         default_filter_include=nothing,
         default_indep_x=false, default_indep_y=false,
+        default_log_x=false, default_log_y=false,
         width="container", height=350,
         marks=_default_marks(), show_spec=false)
+    datasets = _wrap_datasets(datasets_or_table)
     ds_names = sort(collect(keys(datasets)))
+    default_ds = default_ds in ds_names ? default_ds : first(ds_names)
     cols = classify_columns(datasets[default_ds])
+    hide_ds = length(ds_names) == 1
 
     dx = something(default_x, first(cols.all))
     dy = something(default_y, cols.all[min(2, end)])
@@ -461,7 +579,7 @@ function explorer_widget(datasets; default_ds="penguins",
             h.label("Dataset: ",
                 h.select(; id="ex-dataset", onchange="AoV.explorerUpdate()")(
                     [h.option(n; value=n, selected=(n == default_ds) ? "selected" : nothing) for n in ds_names]...
-                ); style="display:flex; flex-direction:column; gap:0.25rem;",
+                ); style=hide_ds ? "display:none;" : "display:flex; flex-direction:column; gap:0.25rem;",
             ),
             h.label("X: ",
                 h.select(; id="ex-x", onchange="AoV.explorerUpdate()")(
@@ -502,6 +620,24 @@ function explorer_widget(datasets; default_ds="penguins",
                 " Independent Y";
                 style="display:flex; align-items:center; gap:0.25rem;",
             ),
+            h.label(
+                h.input(; type="checkbox", id="ex-log-x", onchange="AoV.explorerUpdate()",
+                    checked=default_log_x ? "checked" : nothing),
+                " Log X";
+                style="display:flex; align-items:center; gap:0.25rem;",
+            ),
+            h.label(
+                h.input(; type="checkbox", id="ex-log-y", onchange="AoV.explorerUpdate()",
+                    checked=default_log_y ? "checked" : nothing),
+                " Log Y";
+                style="display:flex; align-items:center; gap:0.25rem;",
+            ),
+            h.label("Ribbon levels: ",
+                h.input(; type="text", id="ex-ribbon-levels", value="0.5, 0.9",
+                    onchange="AoV.explorerUpdate()", style="width:8rem;");
+                id="ex-ribbon-levels-label",
+                style=default_mark == "line+ribbon" ? "display:flex; flex-direction:column; gap:0.25rem;" : "display:none;",
+            ),
         ),
 
         # Filter pills
@@ -534,10 +670,12 @@ function explorer_widget(datasets; default_ds="penguins",
 end
 
 """
-    write_explorer_assets(dir, datasets; width="container", height=350)
+    write_explorer_assets(dir, datasets_or_table; width="container", height=350)
 
 Write explorer JSON data and JS files to `dir` for static sites (VitePress docs).
 Creates `explorer-data.json`, `explorer-columns.json`, and `explorer.js`.
+
+Accepts either a `Dict{String => table}` of named datasets or a bare table.
 
 - `width`: plot width for non-faceted specs (integer or "container")
 - `height`: plot height for non-faceted specs
@@ -545,7 +683,8 @@ Creates `explorer-data.json`, `explorer-columns.json`, and `explorer.js`.
 Faceted specs use responsive cell widths derived from the container's `clientWidth`
 rather than a fixed size. See [`explorer_js`](@ref) for details.
 """
-function write_explorer_assets(dir, datasets; width="container", height=350)
+function write_explorer_assets(dir, datasets_or_table; width="container", height=350)
+    datasets = _wrap_datasets(datasets_or_table)
     mkpath(dir)
     ds_names = sort(collect(keys(datasets)))
 
@@ -712,8 +851,92 @@ function write_explorer_assets(dir, datasets; width="container", height=350)
     }
     var indepX = document.getElementById('ex-indep-x') && document.getElementById('ex-indep-x').checked;
     var indepY = document.getElementById('ex-indep-y') && document.getElementById('ex-indep-y').checked;
+    var logX = document.getElementById('ex-log-x') && document.getElementById('ex-log-x').checked;
+    var logY = document.getElementById('ex-log-y') && document.getElementById('ex-log-y').checked;
+    if (logX && xType === 'quantitative') { encoding.x.scale = Object.assign({}, encoding.x.scale, {type: 'log'}); }
+    if (logY && yType === 'quantitative') { encoding.y.scale = Object.assign({}, encoding.y.scale, {type: 'log'}); }
+    var ribbonEl = document.getElementById('ex-ribbon-levels-label');
+    if (ribbonEl) ribbonEl.style.display = (mark === 'line+ribbon') ? '' : 'none';
     var spec;
-    if (facetCol || facetRow) {
+    if (mark === 'line+ribbon') {
+      var levelsStr = document.getElementById('ex-ribbon-levels') ? document.getElementById('ex-ribbon-levels').value : '0.5, 0.9';
+      var levels = levelsStr.split(',').map(function(s) { return parseFloat(s.trim()); }).filter(function(v) { return v > 0 && v < 1; }).sort();
+      var groups = {};
+      for (var i = 0; i < data.length; i++) {
+        var row = data[i];
+        var key = color ? row[x] + '|||' + row[color] : String(row[x]);
+        if (!groups[key]) groups[key] = {xv: row[x], cv: color ? row[color] : null, ys: []};
+        var yVal = parseFloat(row[y]);
+        if (!isNaN(yVal)) groups[key].ys.push(yVal);
+      }
+      function _quantile(sorted, p) {
+        if (sorted.length === 0) return null;
+        var idx = p * (sorted.length - 1);
+        var lo = Math.floor(idx), hi = Math.ceil(idx);
+        if (lo === hi) return sorted[lo];
+        return sorted[lo] + (idx - lo) * (sorted[hi] - sorted[lo]);
+      }
+      var summaryData = [];
+      Object.keys(groups).forEach(function(key) {
+        var g = groups[key];
+        g.ys.sort(function(a, b) { return a - b; });
+        var sr = {_x: g.xv, _median: _quantile(g.ys, 0.5)};
+        if (g.cv !== null) sr._color = g.cv;
+        levels.forEach(function(p) {
+          var lo = (1 - p) / 2, hi = 1 - lo;
+          sr['_lo_' + p] = _quantile(g.ys, lo);
+          sr['_hi_' + p] = _quantile(g.ys, hi);
+        });
+        summaryData.push(sr);
+      });
+      var layers = [];
+      var opStep = levels.length > 1 ? 0.4 / (levels.length - 1) : 0;
+      for (var li = levels.length - 1; li >= 0; li--) {
+        var p = levels[li];
+        var bandEnc = {
+          x: {field: '_x', type: xType, scale: encoding.x.scale},
+          y: {field: '_lo_' + p, type: 'quantitative', scale: encoding.y.scale, title: y},
+          y2: {field: '_hi_' + p},
+        };
+        if (color) bandEnc.color = {field: '_color', type: 'nominal', title: color};
+        layers.push({mark: {type: 'area', opacity: 0.15 + opStep * li}, encoding: bandEnc});
+      }
+      var lineEnc = {
+        x: {field: '_x', type: xType, scale: encoding.x.scale, title: x},
+        y: {field: '_median', type: 'quantitative', scale: encoding.y.scale, title: y},
+        tooltip: [{field: '_x', type: xType, title: x}, {field: '_median', type: 'quantitative', title: 'median'}],
+      };
+      if (color) {
+        lineEnc.color = {field: '_color', type: 'nominal', title: color};
+        lineEnc.tooltip.push({field: '_color', type: 'nominal', title: color});
+      }
+      layers.push({mark: 'line', encoding: lineEnc});
+      if (facetCol || facetRow) {
+        var facet = {};
+        if (facetCol) facet.column = {field: facetCol, type: 'nominal'};
+        if (facetRow) facet.row = {field: facetRow, type: 'nominal'};
+        var plotEl = document.querySelector('#explorer-plot');
+        var availWidth = plotEl ? plotEl.clientWidth : 800;
+        var cellWidth = 250;
+        if (facetCol) {
+          var uniqueCols = {};
+          for (var i = 0; i < summaryData.length; i++) { uniqueCols[summaryData[i][facetCol]] = true; }
+          var nCols = Object.keys(uniqueCols).length;
+          if (nCols > 0) cellWidth = Math.max(100, Math.floor((availWidth - 60) / nCols));
+        } else {
+          cellWidth = Math.max(250, availWidth - 60);
+        }
+        spec = {data: {values: summaryData}, facet: facet, spec: {layer: layers, width: cellWidth, height: 200}};
+        if (indepX || indepY) {
+          var resolve = {scale: {}, axis: {}};
+          if (indepX) { resolve.scale.x = 'independent'; resolve.axis.x = 'independent'; }
+          if (indepY) { resolve.scale.y = 'independent'; resolve.axis.y = 'independent'; }
+          spec.resolve = resolve;
+        }
+      } else {
+        spec = {data: {values: summaryData}, layer: layers, width: $js_width, height: $height};
+      }
+    } else if (facetCol || facetRow) {
       var facet = {};
       if (facetCol) facet.column = {field: facetCol, type: 'nominal'};
       if (facetRow) facet.row = {field: facetRow, type: 'nominal'};
@@ -757,4 +980,17 @@ function write_explorer_assets(dir, datasets; width="container", height=350)
 })();
 """)
     println("  wrote explorer assets to $dir")
+end
+
+# Bare table convenience methods — auto-wrap as Dict("data" => table)
+
+"""
+    _wrap_datasets(datasets) -> Dict
+
+If `datasets` is already a Dict, return as-is. Otherwise, wrap a bare table as `Dict("data" => table)`.
+"""
+_wrap_datasets(datasets::AbstractDict) = datasets
+function _wrap_datasets(table)
+    Tables.istable(table) || throw(ArgumentError("expected a Dict of datasets or a Tables.jl-compatible table, got $(typeof(table))"))
+    Dict("data" => table)
 end
