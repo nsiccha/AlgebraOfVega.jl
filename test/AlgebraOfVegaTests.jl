@@ -1,36 +1,6 @@
-module AlgebraOfVegaTests
+@testmodule begin
 
-using Test, Random, AlgebraOfVega, Tables
 
-_cache = Dict{Symbol, Tuple{Float64, Any}}()
-cache() = _cache
-
-function test_names()
-    fns = Symbol[]
-    for n in sort(names(@__MODULE__; all=true))
-        startswith(string(n), "test_") || continue
-        n === :test_names && continue
-        isa(getfield(@__MODULE__, n), Function) || continue
-        push!(fns, n)
-    end
-    fns
-end
-
-run_test!(name::Symbol; seed=42) = begin
-    fn = getfield(@__MODULE__, name)
-    Random.seed!(seed)
-    result = fn()
-    _cache[name] = (time(), result)
-    result
-end
-run_tests!(names; seed=42) = Dict(n => run_test!(n; seed) for n in names)
-run_all!(; seed=42) = run_tests!(test_names(); seed)
-cached(name::Symbol) = get(_cache, name, nothing)
-clear_cache!() = empty!(_cache)
-
-# --- Tests ---
-
-function test_classify_columns()
     @testset "classify_columns" begin
         nt = AlgebraOfVega.sample_cars()
         cols = AlgebraOfVega.classify_columns(nt)
@@ -45,9 +15,7 @@ function test_classify_columns()
         @test cols2.numeric == cols.numeric
         @test cols2.categorical == cols.categorical
     end
-end
 
-function test_table_to_rows()
     @testset "table_to_rows" begin
         nt = AlgebraOfVega.sample_tips()
         rows = AlgebraOfVega.table_to_rows(nt)
@@ -56,9 +24,7 @@ function test_table_to_rows()
         @test rows[1]["total_bill"] == nt.total_bill[1]
         @test rows[1]["sex"] == nt.sex[1]
     end
-end
 
-function test_explorer_js()
     @testset "explorer_js" begin
         js = AlgebraOfVega.explorer_js()
         @test occursin("ex-group", js)
@@ -87,9 +53,7 @@ function test_explorer_js()
         @test occursin("resolve", js)
         @test occursin("independent", js)
     end
-end
 
-function test_explorer_controls_html()
     @testset "explorer_controls_html" begin
         datasets = AlgebraOfVega.default_explorer_datasets()
         html = AlgebraOfVega.explorer_controls_html(datasets)
@@ -121,9 +85,7 @@ function test_explorer_controls_html()
         @test occursin("Independent X", html)
         @test occursin("Independent Y", html)
     end
-end
 
-function test_explorer_widget()
     @testset "explorer_widget" begin
         datasets = AlgebraOfVega.default_explorer_datasets()
 
@@ -153,18 +115,14 @@ function test_explorer_widget()
         @test occursin("Independent X", ws)
         @test occursin("Independent Y", ws)
     end
-end
 
-function test_explorer_data_init_js()
     @testset "explorer_data_init_js" begin
         datasets = AlgebraOfVega.default_explorer_datasets()
         js = AlgebraOfVega.explorer_data_init_js(datasets)
         @test occursin("_explorerDatasets", js)
         @test occursin("_explorerColumns", js)
     end
-end
 
-function test_sample_datasets()
     @testset "sample datasets" begin
         for f in [AlgebraOfVega.sample_cars, AlgebraOfVega.sample_tips,
                   AlgebraOfVega.sample_stocks, AlgebraOfVega.sample_temperatures]
@@ -178,9 +136,7 @@ function test_sample_datasets()
             end
         end
     end
-end
 
-function test_filter_include()
     @testset "filter_include" begin
         datasets = AlgebraOfVega.default_explorer_datasets()
         tbl = datasets["cars"]
@@ -209,9 +165,7 @@ function test_filter_include()
         w = AlgebraOfVega.explorer_widget(datasets; default_filter_include=Dict("species" => ["Adelie"]))
         @test w !== nothing
     end
-end
 
-function test_default_marks()
     @testset "_default_marks" begin
         marks = AlgebraOfVega._default_marks()
         @test marks isa Vector{Pair{String,String}}
@@ -219,18 +173,14 @@ function test_default_marks()
         @test first(first(marks)) == "point"
         @test any(p -> first(p) == "line+ribbon", marks)
     end
-end
 
-function test_explorer_js_log_scale()
     @testset "explorer_js log scale" begin
         js = AlgebraOfVega.explorer_js()
         @test occursin("ex-log-x", js)
         @test occursin("ex-log-y", js)
         @test occursin("type: 'log'", js)
     end
-end
 
-function test_explorer_js_line_ribbon()
     @testset "explorer_js line+ribbon" begin
         js = AlgebraOfVega.explorer_js()
         @test occursin("line+ribbon", js)
@@ -239,9 +189,7 @@ function test_explorer_js_line_ribbon()
         @test occursin("ex-ribbon-levels", js)
         @test occursin("summaryData", js)
     end
-end
 
-function test_explorer_controls_log_ribbon()
     @testset "explorer_controls_html log and ribbon" begin
         datasets = AlgebraOfVega.default_explorer_datasets()
         html = AlgebraOfVega.explorer_controls_html(datasets)
@@ -256,9 +204,7 @@ function test_explorer_controls_log_ribbon()
         html2 = AlgebraOfVega.explorer_controls_html(datasets; default_mark="line+ribbon")
         @test occursin("line + ribbon", html2)
     end
-end
 
-function test_explorer_controls_dataset_hiding()
     @testset "explorer_controls_html dataset hiding" begin
         single = Dict("mydata" => AlgebraOfVega.sample_cars())
         html = AlgebraOfVega.explorer_controls_html(single)
@@ -269,9 +215,7 @@ function test_explorer_controls_dataset_hiding()
         html2 = AlgebraOfVega.explorer_controls_html(multi)
         @test occursin("Dataset:", html2)
     end
-end
 
-function test_bare_table_support()
     @testset "bare table support" begin
         tbl = AlgebraOfVega.sample_penguins()
 
@@ -290,9 +234,7 @@ function test_bare_table_support()
         @test wrapped isa Dict
         @test haskey(wrapped, "data")
     end
-end
 
-function test_explorer_widget_log_ribbon()
     @testset "explorer_widget log and ribbon" begin
         datasets = AlgebraOfVega.default_explorer_datasets()
         ws = string(AlgebraOfVega.explorer_widget(datasets))
@@ -303,6 +245,5 @@ function test_explorer_widget_log_ribbon()
         @test occursin("ex-ribbon-levels", ws)
         @test occursin("Ribbon levels", ws)
     end
-end
 
-end # module
+end # @testmodule
