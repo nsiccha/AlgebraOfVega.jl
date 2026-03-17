@@ -3,6 +3,12 @@ module AlgebraOfVegaGallery
 using HTMXObjects
 using AlgebraOfVega
 using JSON
+using TestModules, Random
+
+module AlgebraOfVegaTests
+    using Test, Random, AlgebraOfVega, Tables, TestModules
+end
+using .AlgebraOfVegaTests
 
 # --- Sample datasets (from AlgebraOfVega.datasets) ---
 # Local aliases to keep existing plot code unchanged
@@ -1207,14 +1213,6 @@ end""",
 
 # --- Utilities ---
 
-function wants_plain(req)
-    accept = HTTP.header(req, "Accept", "")
-    contains(accept, "text/plain") || haskey(HTTP.queryparams(req), "plain")
-end
-
-function raw_response(text)
-    HTTP.Response(200, ["Content-Type" => "text/plain; charset=utf-8"], body=text)
-end
 
 function json_response(text)
     HTTP.Response(200, ["Content-Type" => "application/json; charset=utf-8"], body=text)
@@ -1269,7 +1267,7 @@ end
 
 @htmx struct AppContext
     req = nothing
-    plain = wants_plain(req)
+    md = wants_markdown(req)
 
     flag_button(id) = begin
         flagged = id in load_flags()
@@ -1405,7 +1403,7 @@ end
         end
     end
 
-    page[content] = htmx(
+    page(content) = htmx(
         h.main(class="container-fluid", style="padding:1rem 2rem;")(
             h.div(content; id="main-content"),
         );
@@ -1413,15 +1411,15 @@ end
         extra_head=vega_head(),
     )
 
-    @get index = if plain
-        raw_response(join(["$(p[1]): $(p[2]) — $(p[3])" for p in PLOTS], "\n"))
+    @get index = if md
+        markdown_response(join(["$(p[1]): $(p[2]) — $(p[3])" for p in PLOTS], "\n"))
     else
         page[gallery_index]
     end
 
-    @get plot[id] = begin
+    @get plot(id) = begin
         entry = find_plot(id)
-        if !isnothing(entry) && plain
+        if !isnothing(entry) && md
             spec = entry[5]()
             json_response(JSON.json(to_vegalite(spec), 2))
         else
@@ -1434,7 +1432,7 @@ end
         end
     end
 
-    @get card_plot[id] = begin
+    @get card_plot(id) = begin
         entry = find_plot(id)
         if isnothing(entry)
             h.p("Unknown plot: $id")
@@ -1456,7 +1454,7 @@ end
         end
     end
 
-    @post flag[id] = begin
+    @post flag(id) = begin
         toggle_flag!(id)
         flag_button(id)
     end
@@ -1483,17 +1481,17 @@ end
         page[content]
     end
 
-    @get spec[id] = begin
+    @get spec(id) = begin
         entry = find_plot(id)
         if isnothing(entry)
-            raw_response("Unknown plot: $id")
+            markdown_response("Unknown plot: $id")
         else
             spec = entry[5]()
             json_response(JSON.json(to_vegalite(spec), 2))
         end
     end
 
-    @get inspect_layer[expr] = begin
+    @get inspect_layer(expr) = begin
         layer = try
             if expr == "linear"
                 linear()
@@ -1514,7 +1512,7 @@ end
             nothing
         end
         if isnothing(layer)
-            raw_response("Unknown: $expr")
+            markdown_response("Unknown: $expr")
         else
             lines = String[]
             push!(lines, "typeof: $(typeof(layer))")
@@ -1532,12 +1530,12 @@ end
             if hasproperty(layer, :named)
                 push!(lines, "named: $(layer.named)")
             end
-            raw_response(join(lines, "\n"))
+            markdown_response(join(lines, "\n"))
         end
     end
 
     # --- Standalone HTML page for any plot ---
-    @get standalone[id] = begin
+    @get standalone(id) = begin
         entry = find_plot(id)
         if isnothing(entry)
             HTTP.Response(404, ["Content-Type" => "text/plain"], body="Unknown plot: $id")
@@ -1576,10 +1574,7 @@ end
             ),
         )
 
-    @get brush_stats = begin
-        params = HTTP.queryparams(req)
-        horsepower = get(params, "horsepower", "")
-        mpg = get(params, "mpg", "")
+    @get brush_stats(; horsepower="", mpg="") = begin
         c = cars()
         hp_range = try JSON.parse(horsepower) catch; nothing end
         mpg_range = try JSON.parse(mpg) catch; nothing end
@@ -1682,7 +1677,7 @@ draw(spec;
 #   <button hx-get="/update_data/USA" hx-target="#update-script">
 
 # Server filters data and returns a script that updates the view:
-@get update_data[origin] = begin
+@get update_data(origin) = begin
     filtered = origin == "All" ? cars() : filter_by_origin(cars(), origin)
     update_data("update-demo", filtered)
 end""");
@@ -1695,7 +1690,7 @@ end""");
         end
     end
 
-    @get filter_data[origin] = begin
+    @get filter_data(origin) = begin
         c = cars()
         if origin == "All"
             update_data("update-demo", c)
@@ -1712,9 +1707,22 @@ end""");
             update_data("update-demo", filtered)
         end
     end
+
+    @get tests = test_list(AlgebraOfVegaTests, md)
+    @post tests_run(name) = test_run!(AlgebraOfVegaTests, name, md)
+    @post tests_run_all = test_run_all!(AlgebraOfVegaTests, md)
+    @post tests_run_failed = test_run_failed!(AlgebraOfVegaTests, md)
+    @post tests_run_batch(; names="") = test_run_batch!(AlgebraOfVegaTests, names, md)
+    @post tests_clear_cache = test_clear_cache!(AlgebraOfVegaTests, md)
 end
 
 function __init__()
+    test_file = joinpath(dirname(dirname(@__DIR__)), "test", "AlgebraOfVegaTests.jl")
+    if isdefined(Main, :Revise)
+        Main.Revise.includet(AlgebraOfVegaTests, test_file)
+    else
+        Base.include(AlgebraOfVegaTests, test_file)
+    end
     route!(AppContext())
 end
 
