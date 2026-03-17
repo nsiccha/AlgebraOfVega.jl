@@ -103,11 +103,11 @@
     var ds = document.getElementById('ex-dataset').value;
     var x = document.getElementById('ex-x').value;
     var y = document.getElementById('ex-y').value;
-    var color = document.getElementById('ex-color').value;
-    var group = document.getElementById('ex-group').value;
-    var facetCol = document.getElementById('ex-col').value;
-    var facetRow = document.getElementById('ex-row').value;
-    var mark = document.getElementById('ex-mark').value;
+    var color = (document.getElementById('ex-color') || {}).value || '';
+    var group = (document.getElementById('ex-group') || {}).value || '';
+    var facetCol = (document.getElementById('ex-col') || {}).value || '';
+    var facetRow = (document.getElementById('ex-row') || {}).value || '';
+    var mark = (document.getElementById('ex-mark') || {}).value || 'point';
     var rawData = _explorerDatasets[ds];
     var activeCatCols = [];
     [color, group, facetCol, facetRow].forEach(function(c) {
