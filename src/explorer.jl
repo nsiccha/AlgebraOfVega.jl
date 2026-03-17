@@ -440,7 +440,7 @@ function explorer_controls_html(datasets_or_table; default_ds="penguins", onchan
     dx = something(default_x, first(cols.all))
     dy = something(default_y, cols.all[min(2, end)])
 
-    ds_options = join(["<option value=\"$n\">$n</option>" for n in ds_names], "\n")
+    ds_options = join(["<option value=\"$n\"$(n == default_ds ? " selected" : "")>$n</option>" for n in ds_names], "\n")
     all_options_x = join(["<option value=\"$c\"$(c == dx ? " selected" : "")>$c</option>" for c in cols.all], "\n")
     all_options_y = join(["<option value=\"$c\"$(c == dy ? " selected" : "")>$c</option>" for c in cols.all], "\n")
 
@@ -809,11 +809,11 @@ function write_explorer_assets(dir, datasets_or_table; width="container", height
     var ds = document.getElementById('ex-dataset').value;
     var x = document.getElementById('ex-x').value;
     var y = document.getElementById('ex-y').value;
-    var color = document.getElementById('ex-color').value;
-    var group = document.getElementById('ex-group').value;
-    var facetCol = document.getElementById('ex-col').value;
-    var facetRow = document.getElementById('ex-row').value;
-    var mark = document.getElementById('ex-mark').value;
+    var color = (document.getElementById('ex-color') || {}).value || '';
+    var group = (document.getElementById('ex-group') || {}).value || '';
+    var facetCol = (document.getElementById('ex-col') || {}).value || '';
+    var facetRow = (document.getElementById('ex-row') || {}).value || '';
+    var mark = (document.getElementById('ex-mark') || {}).value || 'point';
     var rawData = _explorerDatasets[ds];
     var activeCatCols = [];
     [color, group, facetCol, facetRow].forEach(function(c) {
