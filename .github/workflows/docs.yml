@@ -28,12 +28,10 @@ jobs:
           node-version: '20'
       - name: Install npm dependencies
         run: cd docs && npm install
-      - name: Dev unregistered dependencies
+      - name: Install dependencies
         run: |
           git clone https://github.com/nsiccha/TestModules.jl.git
-          julia --project=docs -e 'using Pkg; Pkg.develop(path="TestModules.jl")'
-      - name: Install dependencies
-        run: julia --project=docs -e 'using Pkg; Pkg.develop(PackageSpec(path=pwd())); Pkg.instantiate()'
+          julia --project=docs -e 'using Pkg; Pkg.develop([PackageSpec(path=pwd()), PackageSpec(path="TestModules.jl")]); Pkg.instantiate()'
       - name: Build and deploy
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
