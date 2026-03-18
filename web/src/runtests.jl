@@ -1,0 +1,248 @@
+using TestModules
+using AlgebraOfVega
+using Tables
+
+@testset "classify_columns" begin
+    nt = AlgebraOfVega.sample_cars()
+    cols = AlgebraOfVega.classify_columns(nt)
+    @test "horsepower" in cols.numeric
+    @test "mpg" in cols.numeric
+    @test "origin" in cols.categorical
+    @test "origin" ∉ cols.numeric
+    @test Set(cols.all) == Set(vcat(cols.numeric, cols.categorical))
+
+    ct = Tables.columntable(nt)
+    cols2 = AlgebraOfVega.classify_columns(ct)
+    @test cols2.numeric == cols.numeric
+    @test cols2.categorical == cols.categorical
+end
+
+@testset "table_to_rows" begin
+    nt = AlgebraOfVega.sample_tips()
+    rows = AlgebraOfVega.table_to_rows(nt)
+    @test length(rows) == length(nt.total_bill)
+    @test rows[1] isa Dict{String,Any}
+    @test rows[1]["total_bill"] == nt.total_bill[1]
+    @test rows[1]["sex"] == nt.sex[1]
+end
+
+@testset "explorer_js" begin
+    js = AlgebraOfVega.explorer_js()
+    @test occursin("ex-group", js)
+    @test occursin("encoding.detail", js)
+    @test occursin("ex-color", js)
+    @test occursin("ex-x", js)
+    @test occursin("'container'", js)
+    @test occursin("height: 350", js)
+
+    js2 = AlgebraOfVega.explorer_js(; namespace="Foo.", plot_selector="#myplot", spec_selector="#myspec")
+    @test occursin("Foo.", js2)
+    @test occursin("#myplot", js2)
+    @test occursin("#myspec", js2)
+
+    js3 = AlgebraOfVega.explorer_js(; width=800, height=500)
+    @test occursin("width: 800", js3)
+    @test occursin("height: 500", js3)
+    @test !occursin("'container'", js3)
+
+    @test occursin("var cellWidth = 250", js)
+    @test occursin("Math.max(100, Math.floor((availWidth - 60) / nCols))", js)
+    @test occursin("clientWidth", js)
+
+    @test occursin("ex-indep-x", js)
+    @test occursin("ex-indep-y", js)
+    @test occursin("resolve", js)
+    @test occursin("independent", js)
+end
+
+@testset "explorer_controls_html" begin
+    datasets = AlgebraOfVega.default_explorer_datasets()
+    html = AlgebraOfVega.explorer_controls_html(datasets)
+    @test occursin("ex-group", html)
+    @test occursin("ex-color", html)
+    @test occursin("ex-col", html)
+    @test occursin("ex-row", html)
+    @test occursin("ex-mark", html)
+    @test occursin("Group:", html)
+
+    # default dataset gets selected attribute
+    @test occursin("<option value=\"penguins\" selected>", html)
+
+    html2 = AlgebraOfVega.explorer_controls_html(datasets; default_ds="cars", default_x="mpg", default_y="horsepower", default_color="origin")
+    @test occursin("<option value=\"cars\" selected>", html2)
+    @test occursin("<option value=\"mpg\" selected>", html2)
+    @test occursin("<option value=\"horsepower\" selected>", html2)
+    @test occursin("<option value=\"origin\" selected>", html2)
+
+    html3 = AlgebraOfVega.explorer_controls_html(datasets; marks=["point" => "scatter", "line" => "line"])
+    @test occursin("scatter", html3)
+    @test !occursin("boxplot", html3)
+
+    html4 = AlgebraOfVega.explorer_controls_html(datasets; default_mark="line")
+    @test occursin("<option value=\"line\" selected>", html4)
+
+    @test occursin("ex-indep-x", html)
+    @test occursin("ex-indep-y", html)
+    @test occursin("Independent X", html)
+    @test occursin("Independent Y", html)
+end
+
+@testset "explorer_widget" begin
+    datasets = AlgebraOfVega.default_explorer_datasets()
+
+    w = AlgebraOfVega.explorer_widget(datasets)
+    @test w !== nothing
+
+    w2 = AlgebraOfVega.explorer_widget(datasets; title="My Explorer", subtitle="Custom subtitle")
+    @test w2 !== nothing
+
+    w3 = AlgebraOfVega.explorer_widget(datasets; title=nothing, subtitle=nothing)
+    @test w3 !== nothing
+
+    w4 = AlgebraOfVega.explorer_widget(datasets; show_spec=false)
+    @test w4 !== nothing
+
+    w5 = AlgebraOfVega.explorer_widget(datasets;
+        default_x="mpg", default_y="horsepower", default_color="origin",
+        default_mark="line", width=800, height=400)
+    @test w5 !== nothing
+
+    w6 = AlgebraOfVega.explorer_widget(datasets; marks=["point" => "scatter"])
+    @test w6 !== nothing
+
+    ws = string(w)
+    @test occursin("ex-indep-x", ws)
+    @test occursin("ex-indep-y", ws)
+    @test occursin("Independent X", ws)
+    @test occursin("Independent Y", ws)
+end
+
+@testset "explorer_data_init_js" begin
+    datasets = AlgebraOfVega.default_explorer_datasets()
+    js = AlgebraOfVega.explorer_data_init_js(datasets)
+    @test occursin("_explorerDatasets", js)
+    @test occursin("_explorerColumns", js)
+end
+
+@testset "sample datasets" begin
+    for f in [AlgebraOfVega.sample_cars, AlgebraOfVega.sample_tips,
+              AlgebraOfVega.sample_stocks, AlgebraOfVega.sample_temperatures]
+        tbl = f()
+        cols = Tables.columnnames(tbl)
+        @test length(cols) > 0
+        n = length(Tables.getcolumn(tbl, first(cols)))
+        @test n > 0
+        for c in cols
+            @test length(Tables.getcolumn(tbl, c)) == n
+        end
+    end
+end
+
+@testset "filter_include" begin
+    datasets = AlgebraOfVega.default_explorer_datasets()
+    tbl = datasets["cars"]
+
+    @test AlgebraOfVega._resolve_filter_include(nothing, tbl) === nothing
+
+    resolved = AlgebraOfVega._resolve_filter_include(Dict("origin" => ["USA", "Japan"]), tbl)
+    @test resolved isa Dict{String, Vector{String}}
+    @test Set(resolved["origin"]) == Set(["USA", "Japan"])
+
+    resolved2 = AlgebraOfVega._resolve_filter_include(Dict("origin" => v -> v != "Europe"), tbl)
+    @test resolved2 isa Dict{String, Vector{String}}
+    @test "Europe" ∉ resolved2["origin"]
+    @test length(resolved2["origin"]) > 0
+
+    resolved3 = AlgebraOfVega._resolve_filter_include((col, val) -> col != "origin" || val != "Europe", tbl)
+    @test resolved3 isa Dict{String, Vector{String}}
+    @test "Europe" ∉ resolved3["origin"]
+
+    @test AlgebraOfVega._filter_init_js(nothing, "AoV.") == ""
+
+    js = AlgebraOfVega._filter_init_js(Dict("origin" => ["USA"]), "AoV.")
+    @test occursin("_explorerFilterSelected", js)
+    @test occursin("new Set", js)
+
+    w = AlgebraOfVega.explorer_widget(datasets; default_filter_include=Dict("species" => ["Adelie"]))
+    @test w !== nothing
+end
+
+@testset "_default_marks" begin
+    marks = AlgebraOfVega._default_marks()
+    @test marks isa Vector{Pair{String,String}}
+    @test length(marks) == 7
+    @test first(first(marks)) == "point"
+    @test any(p -> first(p) == "line+ribbon", marks)
+end
+
+@testset "explorer_js log scale" begin
+    js = AlgebraOfVega.explorer_js()
+    @test occursin("ex-log-x", js)
+    @test occursin("ex-log-y", js)
+    @test occursin("type: 'log'", js)
+end
+
+@testset "explorer_js line+ribbon" begin
+    js = AlgebraOfVega.explorer_js()
+    @test occursin("line+ribbon", js)
+    @test occursin("_quantile", js)
+    @test occursin("_median", js)
+    @test occursin("ex-ribbon-levels", js)
+    @test occursin("summaryData", js)
+end
+
+@testset "explorer_controls_html log and ribbon" begin
+    datasets = AlgebraOfVega.default_explorer_datasets()
+    html = AlgebraOfVega.explorer_controls_html(datasets)
+    @test occursin("ex-log-x", html)
+    @test occursin("ex-log-y", html)
+    @test occursin("Log X", html)
+    @test occursin("Log Y", html)
+    @test occursin("ex-ribbon-levels", html)
+    @test occursin("Ribbon levels:", html)
+    @test occursin("display:none;", html)
+
+    html2 = AlgebraOfVega.explorer_controls_html(datasets; default_mark="line+ribbon")
+    @test occursin("line + ribbon", html2)
+end
+
+@testset "explorer_controls_html dataset hiding" begin
+    single = Dict("mydata" => AlgebraOfVega.sample_cars())
+    html = AlgebraOfVega.explorer_controls_html(single)
+    @test occursin("display:none;", html)
+    @test occursin("ex-dataset", html)
+
+    multi = AlgebraOfVega.default_explorer_datasets()
+    html2 = AlgebraOfVega.explorer_controls_html(multi)
+    @test occursin("Dataset:", html2)
+end
+
+@testset "bare table support" begin
+    tbl = AlgebraOfVega.sample_penguins()
+
+    html = AlgebraOfVega.explorer_controls_html(tbl)
+    @test occursin("ex-x", html)
+    @test occursin("display:none;", html)
+
+    w = AlgebraOfVega.explorer_widget(tbl;
+        default_x="bill_length", default_y="bill_depth")
+    @test w !== nothing
+
+    d = Dict("a" => tbl)
+    @test AlgebraOfVega._wrap_datasets(d) === d
+
+    wrapped = AlgebraOfVega._wrap_datasets(tbl)
+    @test wrapped isa Dict
+    @test haskey(wrapped, "data")
+end
+
+@testset "explorer_widget log and ribbon" begin
+    datasets = AlgebraOfVega.default_explorer_datasets()
+    ws = string(AlgebraOfVega.explorer_widget(datasets))
+    @test occursin("ex-log-x", ws)
+    @test occursin("ex-log-y", ws)
+    @test occursin("Log X", ws)
+    @test occursin("Log Y", ws)
+    @test occursin("ex-ribbon-levels", ws)
+    @test occursin("Ribbon levels", ws)
+end

@@ -3,12 +3,11 @@ module AlgebraOfVegaGallery
 using HTMXObjects
 using AlgebraOfVega
 using JSON
-using TestModules, Random
+using TestModules, Random, Tables
 
-module AlgebraOfVegaTests
-    using Test, Random, AlgebraOfVega, Tables, TestModules
-end
-using .AlgebraOfVegaTests
+TestModules.defer!()
+include("runtests.jl")
+TestModules.undefer!()
 
 # --- Sample datasets (from AlgebraOfVega.datasets) ---
 # Local aliases to keep existing plot code unchanged
@@ -1708,21 +1707,10 @@ end""");
         end
     end
 
-    @get tests = test_list(AlgebraOfVegaTests, md)
-    @post tests_run(name) = test_run!(AlgebraOfVegaTests, name, md)
-    @post tests_run_all = test_run_all!(AlgebraOfVegaTests, md)
-    @post tests_run_failed = test_run_failed!(AlgebraOfVegaTests, md)
-    @post tests_run_batch(; names="") = test_run_batch!(AlgebraOfVegaTests, names, md)
-    @post tests_clear_cache = test_clear_cache!(AlgebraOfVegaTests, md)
+    @include tests = TestRoutes(; req, test_module=@__MODULE__)
 end
 
 function __init__()
-    test_file = joinpath(dirname(dirname(@__DIR__)), "test", "AlgebraOfVegaTests.jl")
-    if isdefined(Main, :Revise)
-        Main.Revise.includet(AlgebraOfVegaTests, test_file)
-    else
-        Base.include(AlgebraOfVegaTests, test_file)
-    end
     route!(AppContext())
 end
 
