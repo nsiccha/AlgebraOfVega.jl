@@ -6,7 +6,7 @@ using JSON
 using TestModules, Random, Tables
 
 TestModules.defer!()
-include("runtests.jl")
+include("test/runtests.jl")
 TestModules.undefer!()
 
 # --- Sample datasets (from AlgebraOfVega.datasets) ---
