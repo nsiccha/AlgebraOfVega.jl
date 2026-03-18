@@ -1919,7 +1919,10 @@ function to_node(spec; id=nothing, width=nothing, height=nothing, actions=false,
     vl = spec isa Dict ? copy(spec) : to_vegalite(spec)
     !isnothing(width) && (vl["width"] = width)
     !isnothing(height) && (vl["height"] = height)
-    if fit_width && !haskey(vl, "hconcat") && !haskey(vl, "vconcat")
+    # Only apply fit_width defaults if no explicit width was set (via config or kwarg)
+    has_explicit_width = haskey(vl, "width") && vl["width"] isa Number
+    has_explicit_inner_width = haskey(vl, "spec") && vl["spec"] isa Dict && haskey(vl["spec"], "width")
+    if fit_width && !has_explicit_width && !has_explicit_inner_width && !haskey(vl, "hconcat") && !haskey(vl, "vconcat")
         is_faceted = haskey(vl, "facet") || haskey(vl, "spec")
         is_layered = haskey(vl, "layer") || is_faceted || haskey(vl, "concat")
         # VL composite marks (boxplot, errorbar, errorband) internally create layers —
