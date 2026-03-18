@@ -118,6 +118,14 @@ function plottype_to_mark_props(T::Type)
     props
 end
 
+_COMPOSITE_MARKS = Set(["boxplot", "errorbar", "errorband"])
+
+function _is_composite_mark(vl::Dict)
+    m = get(vl, "mark", nothing)
+    mark_type = m isa String ? m : m isa Dict ? get(m, "type", "") : ""
+    mark_type in _COMPOSITE_MARKS
+end
+
 # --- AoG aesthetic name → Vega-Lite channel ---
 
 function aog_named_to_vl_channel(name::Symbol)
@@ -289,7 +297,10 @@ function pregrouped_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
             end
             row = Dict{String,Any}("x" => x_label)
             if !isnothing(y_arg)
-                row["y"] = y_arg[i][j]
+                yval = y_arg[i][j]
+                # Skip NaN/Inf values — they produce "infinite extent" VL warnings
+                (yval isa Number && !isfinite(yval)) && continue
+                row["y"] = yval
             end
             push!(rows, row)
         end
@@ -348,11 +359,13 @@ function pregrouped_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
     spec
 end
 
+_vl_safe(v) = v isa Number && !isfinite(v) ? nothing : v
+
 function data_to_vl(table)
     isnothing(table) && return nothing
     rows = Tables.rowtable(table)
     Dict{String,Any}("values" => [
-        Dict{String,Any}(string(k) => v for (k, v) in pairs(nt))
+        Dict{String,Any}(string(k) => _vl_safe(v) for (k, v) in pairs(nt))
         for nt in rows
     ])
 end
@@ -1763,8 +1776,9 @@ function add_auto_interactivity!(spec::Dict{String,Any})
         end
     end
 
-    # Nearest-point tooltip for line/area marks (makes tooltip snap to data)
-    if mark_type in ("line", "area") && !isnothing(enc) && haskey(enc, "tooltip")
+    # Nearest-point tooltip for point/area marks (makes tooltip snap to data).
+    # VL doesn't support "nearest" for line marks — skip those.
+    if mark_type in ("point", "area") && !isnothing(enc) && haskey(enc, "tooltip")
         push!(params, Dict{String,Any}(
             "name" => "hover_nearest",
             "select" => Dict{String,Any}("type" => "point", "on" => "pointerover", "nearest" => true),
@@ -1908,9 +1922,13 @@ function to_node(spec; id=nothing, width=nothing, height=nothing, actions=false,
     if fit_width && !haskey(vl, "hconcat") && !haskey(vl, "vconcat")
         is_faceted = haskey(vl, "facet") || haskey(vl, "spec")
         is_layered = haskey(vl, "layer") || is_faceted || haskey(vl, "concat")
-        if !is_layered
-            # "width": "container" only works for single-view specs
+        # VL composite marks (boxplot, errorbar, errorband) internally create layers —
+        # "width: container" and "autosize: fit" don't work for them
+        is_composite = _is_composite_mark(vl)
+        if !is_layered && !is_composite
+            # "width": "container" only works for true single-view specs
             vl["width"] = "container"
+            vl["autosize"] = Dict("type" => "fit", "contains" => "padding")
         elseif is_faceted && haskey(vl, "spec")
             # For faceted specs, set per-cell width in the inner spec
             inner = vl["spec"]
@@ -1918,11 +1936,8 @@ function to_node(spec; id=nothing, width=nothing, height=nothing, actions=false,
                 inner["width"] = 400
             end
         elseif !haskey(vl, "width")
-            # For layered specs without explicit width, use a sensible default
+            # For layered/composite specs without explicit width, use a sensible default
             vl["width"] = 400
-        end
-        if !is_faceted
-            vl["autosize"] = Dict("type" => "fit", "contains" => "padding")
         end
     end
     id = something(id, "vega-" * string(abs(hash(JSON.json(vl))), base=16))
