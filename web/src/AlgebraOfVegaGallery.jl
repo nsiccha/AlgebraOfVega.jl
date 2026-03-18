@@ -629,6 +629,58 @@ end""",
      end,
      "https://aog.makie.org/stable/examples/scales/discrete-scales"),
 
+    # --- Pregrouped ---
+
+    ("pregrouped_boxplot", "Pregrouped Box Plot",
+     "Box plot from pregrouped data with renamer labels",
+     """pregrouped(
+    fill.(1:3, 10) => renamer(["A", "B", "C"]),
+    [randn(10) for _ in 1:3]
+) * visual(BoxPlot) *
+    config(title="Pregrouped Box Plot")""",
+     () -> pregrouped(
+        fill.(1:3, 10) => renamer(["A", "B", "C"]),
+        [randn_bm(10) for _ in 1:3]
+    ) * visual(BoxPlot) *
+        config(title="Pregrouped Box Plot")),
+
+    ("pregrouped_boxplot_plain", "Pregrouped (no renamer)",
+     "Box plot from pregrouped data without renamer",
+     """pregrouped(
+    fill.(1:4, 20),
+    [randn(20) .+ i for i in 1:4]
+) * visual(BoxPlot) *
+    config(title="Pregrouped (no renamer)")""",
+     () -> pregrouped(
+        fill.(1:4, 20),
+        [randn_bm(20) .+ i for i in 1:4]
+    ) * visual(BoxPlot) *
+        config(title="Pregrouped (no renamer)")),
+
+    ("pregrouped_dose_response", "Dose Response (pregrouped)",
+     "Simulated dose-response box plots like a pharmacometrics QT study",
+     """let doses = ["Placebo", "Low", "Medium", "High"]
+    n = 30
+    effects = [randn(n) .* 2, randn(n) .* 2 .+ 1,
+               randn(n) .* 2 .+ 3, randn(n) .* 2 .+ 5]
+    pregrouped(
+        fill.(1:4, n) => renamer(doses),
+        effects
+    ) * visual(BoxPlot) *
+        config(title="Dose Response")
+end""",
+     () -> let
+        doses = ["Placebo", "Low", "Medium", "High"]
+        n = 30
+        effects = [randn_bm(n) .* 2, randn_bm(n) .* 2 .+ 1,
+                   randn_bm(n) .* 2 .+ 3, randn_bm(n) .* 2 .+ 5]
+        pregrouped(
+            fill.(1:4, n) => renamer(doses),
+            effects
+        ) * visual(BoxPlot) *
+            config(title="Dose Response")
+     end),
+
     ("aog_barplot_names", "Named Bar Plot",
      "Bar chart with string category names",
      """let df = (; name=["Anna Coolidge","Berta Bauer","Charlie Archer"], age=[34,79,58])
@@ -1316,6 +1368,7 @@ end
         ("AoG: Basic Visualizations" => ["aog_scatter_basic", "aog_sine_lines", "aog_lines_scatter", "aog_two_sources", "aog_boxplot"]),
         ("AoG: Additional Marks" => ["aog_step", "aog_rules", "aog_errorbars"]),
         ("AoG: Data Manipulations" => ["aog_wide_lines", "aog_wide_scatter", "aog_presorted_bar"]),
+        ("AoG: Pregrouped" => ["pregrouped_boxplot", "pregrouped_boxplot_plain", "pregrouped_dose_response"]),
         ("AoG: Scales" => ["aog_log_transform", "aog_discrete_boxplot", "aog_combined_boxplot", "aog_barplot_names", "aog_dodge", "aog_legend_merge", "aog_multi_color"]),
         ("AoG: Statistical Analyses" => ["aog_density", "aog_histogram_basic", "aog_histogram", "aog_frequency", "aog_expectation", "aog_frequency_color", "aog_linear", "aog_smooth", "aog_linear_band", "aog_smooth_band"]),
         ("AoG: Composition Patterns" => ["aog_scatter_regression", "aog_scatter_smooth", "aog_bar_line_combo", "aog_stacked_area", "aog_color_regression"]),

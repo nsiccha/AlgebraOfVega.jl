@@ -277,5 +277,6 @@ end
 
     # is_pregrouped detection
     layer = pregrouped(fill.(1:2, 5), [randn(5) for _ in 1:2])
-    @test AlgebraOfVega.is_pregrouped(layer.layers[1]) || AlgebraOfVega.is_pregrouped(first(layer.layers))
+    # pregrouped() returns a single Layer (data * mapping)
+    @test AlgebraOfVega.is_pregrouped(layer)
 end
