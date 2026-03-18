@@ -1586,6 +1586,42 @@ end
         end
     end
 
+    # --- Pregrouped debug page ---
+    @get debug_pregrouped = begin
+        # Test case 1: basic with renamer
+        spec1 = pregrouped(
+            fill.(1:3, 100) => renamer(["A", "B", "C"]),
+            [randn_bm(100) for _ in 1:3]
+        ) * visual(BoxPlot) * config(title="1. Basic with renamer")
+
+        # Test case 2: without renamer
+        spec2 = pregrouped(
+            fill.(1:2, 50),
+            [randn_bm(50) for _ in 1:2]
+        ) * visual(BoxPlot) * config(title="2. Without renamer")
+
+        # Test case 3: Bruno QT pattern (axes/eachcol)
+        cdslope = randn_bm(5000)
+        cdslope_mat = reshape(cdslope, 1000, 5)
+        spec3 = pregrouped(
+            fill.(axes(cdslope_mat, 2), size(cdslope_mat, 1)) => renamer(string.([0, 10, 20, 40, 80])),
+            collect(eachcol(cdslope_mat))
+        ) * visual(BoxPlot) * config(title="3. Bruno QT pattern (axes/eachcol)")
+
+        specs = [spec1, spec2, spec3]
+        h.div(
+            vega_head(),
+            h.h2("Pregrouped Debug"),
+            [h.div(; style="margin-bottom:2rem")(
+                draw(s),
+                h.details(
+                    h.summary("Spec JSON"),
+                    h.pre(h.code(JSON.json(to_vegalite(s), 2)); style="font-size:0.8em; max-height:400px; overflow:auto;"),
+                ),
+            ) for s in specs]...,
+        )
+    end
+
     # --- Standalone HTML page for any plot ---
     @get standalone(id) = begin
         entry = find_plot(id)

@@ -1906,15 +1906,24 @@ function to_node(spec; id=nothing, width=nothing, height=nothing, actions=false,
     !isnothing(width) && (vl["width"] = width)
     !isnothing(height) && (vl["height"] = height)
     if fit_width && !haskey(vl, "hconcat") && !haskey(vl, "vconcat")
-        is_layered = haskey(vl, "layer") || haskey(vl, "facet") || haskey(vl, "concat")
+        is_faceted = haskey(vl, "facet") || haskey(vl, "spec")
+        is_layered = haskey(vl, "layer") || is_faceted || haskey(vl, "concat")
         if !is_layered
             # "width": "container" only works for single-view specs
             vl["width"] = "container"
+        elseif is_faceted && haskey(vl, "spec")
+            # For faceted specs, set per-cell width in the inner spec
+            inner = vl["spec"]
+            if !haskey(inner, "width")
+                inner["width"] = 400
+            end
         elseif !haskey(vl, "width")
             # For layered specs without explicit width, use a sensible default
             vl["width"] = 400
         end
-        vl["autosize"] = Dict("type" => "fit", "contains" => "padding")
+        if !is_faceted
+            vl["autosize"] = Dict("type" => "fit", "contains" => "padding")
+        end
     end
     id = something(id, "vega-" * string(abs(hash(JSON.json(vl))), base=16))
     json = JSON.json(vl)
