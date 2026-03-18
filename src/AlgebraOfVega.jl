@@ -239,6 +239,115 @@ function extract_data(layer::AlgebraOfGraphics.Layer)
     cols
 end
 
+function is_pregrouped(layer::AlgebraOfGraphics.Layer)
+    isnothing(layer.data) && return false
+    d = layer.data
+    inner = d isa AlgebraOfGraphics.Columns ? d.columns : d
+    inner isa AlgebraOfGraphics.Pregrouped
+end
+
+"""
+    pregrouped_to_vl(layer; is_sublayer=false)
+
+Translate a pregrouped AoG layer to Vega-Lite. Flattens grouped vectors
+into long-form inline data with "x" (nominal) and "y" (quantitative) columns.
+Handles renamer labels on the x axis.
+"""
+function pregrouped_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
+    pos = layer.positional
+
+    # Extract x and y grouped data from positional args
+    x_arg = pos[1]
+    y_arg = length(pos) >= 2 ? pos[2] : nothing
+
+    # Unwrap x: may be Pair(data, renamer) or raw data
+    x_data, x_rename = if x_arg isa Pair
+        first(x_arg), last(x_arg)
+    else
+        x_arg, nothing
+    end
+
+    # Collect ordered labels from renamer for sort order
+    x_sort = nothing
+    if x_rename isa AlgebraOfGraphics.Renamer
+        x_sort = [string(l) for l in x_rename.labels]
+    end
+
+    # Flatten grouped vectors into long-form rows
+    rows = Dict{String,Any}[]
+    n_groups = length(x_data)
+    for i in 1:n_groups
+        x_vals = x_data[i]
+        for j in eachindex(x_vals)
+            x_raw = x_vals[j]
+            x_label = if x_rename isa AlgebraOfGraphics.Renamer
+                string(x_rename(x_raw).value)
+            elseif x_rename isa Function
+                string(x_rename(x_raw))
+            else
+                string(x_raw)
+            end
+            row = Dict{String,Any}("x" => x_label)
+            if !isnothing(y_arg)
+                row["y"] = y_arg[i][j]
+            end
+            push!(rows, row)
+        end
+    end
+
+    # Visual / mark
+    vis = extract_visual(layer)
+    mark_type = !isnothing(vis) ? plottype_to_mark(vis.plottype) : "boxplot"
+    extra_props = !isnothing(vis) ? merge(plottype_to_mark_props(vis.plottype), visual_attrs_to_mark_props(vis)) : Dict{String,Any}()
+    mark = if isempty(extra_props)
+        mark_type
+    else
+        merge(Dict{String,Any}("type" => mark_type), extra_props)
+    end
+
+    # Encoding
+    encoding = Dict{String,Any}()
+    x_enc = Dict{String,Any}("field" => "x", "type" => "nominal")
+    if !isnothing(x_sort)
+        x_enc["sort"] = x_sort
+    end
+    encoding["x"] = x_enc
+    if !isnothing(y_arg)
+        encoding["y"] = Dict{String,Any}("field" => "y", "type" => "quantitative")
+    end
+
+    # Named mappings (color, etc.)
+    for (name, sel) in pairs(layer.named)
+        ch = aog_named_to_vl_channel(name)
+        isnothing(ch) && continue
+        encoding[ch] = selector_to_field(sel)
+    end
+
+    # Auto tooltip
+    tooltip_fields = Dict{String,Any}[]
+    for (ch, enc) in encoding
+        enc isa Dict || continue
+        haskey(enc, "field") || continue
+        entry = Dict{String,Any}("field" => enc["field"])
+        haskey(enc, "type") && (entry["type"] = enc["type"])
+        push!(tooltip_fields, entry)
+    end
+    if !isempty(tooltip_fields)
+        encoding["tooltip"] = tooltip_fields
+    end
+
+    spec = Dict{String,Any}(
+        "data" => Dict{String,Any}("values" => rows),
+        "mark" => mark,
+        "encoding" => encoding,
+    )
+
+    if !is_sublayer
+        spec["\$schema"] = "https://vega.github.io/schema/vega-lite/v5.json"
+    end
+    spec
+end
+
 function data_to_vl(table)
     isnothing(table) && return nothing
     rows = Tables.rowtable(table)
@@ -1164,6 +1273,11 @@ end
 # --- Core translation ---
 
 function layer_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
+    # Check for pregrouped data first
+    if is_pregrouped(layer)
+        return pregrouped_to_vl(layer; is_sublayer)
+    end
+
     # Check for tidybayes analysis types first
     analysis = extract_analysis(layer)
     if !isnothing(analysis)
@@ -1288,6 +1402,9 @@ function layers_to_vl(layers::AlgebraOfGraphics.Layers)
     shared_data = nothing
 
     for l in layers.layers
+        if is_pregrouped(l)
+            continue  # pregrouped layers carry their own inline data
+        end
         table = extract_data(l)
         if !isnothing(table) && isnothing(shared_table)
             shared_data = data_to_vl(table)

@@ -246,3 +246,36 @@ end
     @test occursin("ex-ribbon-levels", ws)
     @test occursin("Ribbon levels", ws)
 end
+
+@testset "pregrouped boxplot" begin
+    # Basic pregrouped with renamer
+    spec_obj = pregrouped(
+        fill.(1:3, 10) => renamer(["A", "B", "C"]),
+        [randn(10) for _ in 1:3]
+    ) * visual(BoxPlot)
+    vl = to_vegalite(spec_obj)
+    @test vl["mark"] == "boxplot"
+    @test haskey(vl, "data")
+    @test length(vl["data"]["values"]) == 30  # 3 groups x 10 obs
+    @test vl["encoding"]["x"]["type"] == "nominal"
+    @test vl["encoding"]["y"]["type"] == "quantitative"
+    @test vl["encoding"]["x"]["sort"] == ["A", "B", "C"]
+    # Check that renamer labels are applied
+    labels = Set(r["x"] for r in vl["data"]["values"])
+    @test labels == Set(["A", "B", "C"])
+
+    # Pregrouped without renamer
+    spec_obj2 = pregrouped(
+        fill.(1:2, 5),
+        [randn(5) for _ in 1:2]
+    ) * visual(BoxPlot)
+    vl2 = to_vegalite(spec_obj2)
+    @test vl2["mark"] == "boxplot"
+    @test length(vl2["data"]["values"]) == 10
+    labels2 = Set(r["x"] for r in vl2["data"]["values"])
+    @test labels2 == Set(["1", "2"])
+
+    # is_pregrouped detection
+    layer = pregrouped(fill.(1:2, 5), [randn(5) for _ in 1:2])
+    @test AlgebraOfVega.is_pregrouped(layer.layers[1]) || AlgebraOfVega.is_pregrouped(first(layer.layers))
+end
