@@ -36,6 +36,7 @@ export sample_cars, sample_tips, sample_stocks, sample_temperatures,
     sample_population, melt_population, sample_monthly_sales, melt_sales,
     sample_posterior_draws, sample_regression_predictions,
     sample_grouped_regression_predictions, sample_faceted_regression_predictions,
+    sample_faceted_observations,
     randn_bm, classify_columns, table_to_rows
 # Explorer exports
 export default_explorer_datasets, explorer_widget, write_explorer_assets,
@@ -1585,16 +1586,14 @@ function layer_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
 end
 
 function layers_to_vl(layers::AlgebraOfGraphics.Layers)
-    # Check if any layer is faceted (density with y group) — needs special handling
-    has_faceted = false
+    # Check if any layer is faceted density (density with y group) — needs special handling
+    has_faceted_density = false
     facet_field = nothing
     shared_table = nothing
     shared_data = nothing
 
     for l in layers.layers
-        if is_pregrouped(l)
-            continue  # pregrouped layers carry their own inline data
-        end
+        is_pregrouped(l) && continue
         table = extract_data(l)
         if !isnothing(table) && isnothing(shared_table)
             shared_data = data_to_vl(table)
@@ -1602,27 +1601,43 @@ function layers_to_vl(layers::AlgebraOfGraphics.Layers)
         end
         dens = extract_density_analysis(l)
         if !isnothing(dens) && haskey(l.named, :y)
-            has_faceted = true
+            has_faceted_density = true
             facet_field = string(l.named[:y])
         end
     end
 
-    if has_faceted && !isnothing(facet_field)
+    if has_faceted_density && !isnothing(facet_field)
         return _faceted_layers_to_vl(layers, facet_field, shared_table, shared_data)
     end
 
-    spec = Dict{String,Any}()
-    spec["\$schema"] = "https://vega.github.io/schema/vega-lite/v5.json"
+    # Check if any layer is an analysis type (produces own summarized data)
+    has_analysis = any(l -> !isnothing(extract_analysis(l)), layers.layers)
 
-    if !isnothing(shared_data)
+    spec = Dict{String,Any}("\$schema" => "https://vega.github.io/schema/vega-lite/v5.json")
+    # Only share data at top level when no analysis layers are present
+    if !has_analysis && !isnothing(shared_data)
         spec["data"] = shared_data
     end
 
+    outer_facet = Dict{String,Any}()
     layer_specs = Dict{String,Any}[]
+
     for layer in layers.layers
         ls = layer_to_vl(layer; is_sublayer=true)
-        # A sublayer may itself contain "layer" (e.g. pointinterval) — flatten
-        if haskey(ls, "layer") && !haskey(ls, "facet")
+
+        if haskey(ls, "facet")
+            # Faceted analysis spec — lift facet, flatten inner sublayers with their data
+            merge!(outer_facet, ls["facet"])
+            inner = ls["spec"]
+            inner_data = get(ls, "data", get(inner, "data", nothing))
+            for sl in get(inner, "layer", [inner])
+                if !isnothing(inner_data) && !haskey(sl, "data")
+                    sl["data"] = inner_data
+                end
+                push!(layer_specs, sl)
+            end
+        elseif haskey(ls, "layer")
+            # Multi-layer (unfaceted analysis) — flatten sublayers with attached data
             sub_data = get(ls, "data", nothing)
             for sl in ls["layer"]
                 if !isnothing(sub_data) && !haskey(sl, "data")
@@ -1631,16 +1646,66 @@ function layers_to_vl(layers::AlgebraOfGraphics.Layers)
                 push!(layer_specs, sl)
             end
         else
-            table = extract_data(layer)
-            if !isnothing(table) && table === shared_table
-                delete!(ls, "data")
+            # Single layer
+            if has_analysis && !haskey(ls, "data")
+                # Mixed mode — ensure each layer carries its own data
+                table = extract_data(layer)
+                !isnothing(table) && (ls["data"] = data_to_vl(table))
+            elseif !has_analysis
+                table = extract_data(layer)
+                if !isnothing(table) && table === shared_table
+                    delete!(ls, "data")
+                end
             end
             push!(layer_specs, ls)
         end
     end
 
-    spec["layer"] = layer_specs
+    # Also collect facet from regular layer encodings (col=/row= → column/row channels)
+    for ls in layer_specs
+        enc = get(ls, "encoding", nothing)
+        isnothing(enc) && continue
+        haskey(enc, "column") && !haskey(outer_facet, "column") && (outer_facet["column"] = enc["column"])
+        haskey(enc, "row") && !haskey(outer_facet, "row") && (outer_facet["row"] = enc["row"])
+    end
+
+    if !isempty(outer_facet)
+        # Strip column/row from sublayer encodings — facet is at top level
+        for ls in layer_specs
+            enc = get(ls, "encoding", nothing)
+            isnothing(enc) && continue
+            delete!(enc, "column")
+            delete!(enc, "row")
+        end
+        # VL needs outer data for facet cell derivation
+        if !haskey(spec, "data")
+            spec["data"] = Dict{String,Any}("values" => _collect_facet_values(layer_specs, outer_facet))
+        end
+        spec["facet"] = outer_facet
+        spec["spec"] = Dict{String,Any}("layer" => layer_specs)
+    else
+        spec["layer"] = layer_specs
+    end
+
     spec
+end
+
+"""Collect unique facet field value combinations from all sublayers' inline data."""
+function _collect_facet_values(layer_specs, facet)
+    fields = [v["field"] for (_, v) in facet]
+    seen = Set{Any}()
+    rows = Dict{String,Any}[]
+    for ls in layer_specs
+        vals = get(get(ls, "data", Dict{String,Any}()), "values", nothing)
+        isnothing(vals) && continue
+        for row in vals
+            key = Tuple(get(row, f, nothing) for f in fields)
+            key ∈ seen && continue
+            push!(seen, key)
+            push!(rows, Dict{String,Any}(f => get(row, f, nothing) for f in fields))
+        end
+    end
+    rows
 end
 
 function _faceted_layers_to_vl(layers, facet_field, shared_table, shared_data)
