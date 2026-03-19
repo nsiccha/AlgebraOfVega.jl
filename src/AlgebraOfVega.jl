@@ -1670,6 +1670,34 @@ function layers_to_vl(layers::AlgebraOfGraphics.Layers)
     end
 
     if !isempty(outer_facet)
+        # VL facet only filters inherited (outer) data — per-sublayer data is NOT filtered.
+        # Fix: merge all sublayer data into one outer dataset tagged with __source__,
+        # then add filter transforms to each sublayer so they only see their own rows.
+        merged_values = Dict{String,Any}[]
+        src_id = 0
+        seen_data = Dict{UInt,String}()  # objectid(values) → source tag
+        for ls in layer_specs
+            data = get(ls, "data", nothing)
+            isnothing(data) && continue
+            vals = get(data, "values", nothing)
+            isnothing(vals) && continue
+            oid = objectid(vals)
+            tag = get(seen_data, oid, nothing)
+            if isnothing(tag)
+                src_id += 1
+                tag = "_s$(src_id)"
+                seen_data[oid] = tag
+                for row in vals
+                    row["__src"] = tag
+                end
+                append!(merged_values, vals)
+            end
+            # Replace per-sublayer data with a filter transform
+            delete!(ls, "data")
+            existing = get(ls, "transform", Dict{String,Any}[])
+            pushfirst!(existing, Dict{String,Any}("filter" => "datum.__src === '$(tag)'"))
+            ls["transform"] = existing
+        end
         # Strip column/row from sublayer encodings — facet is at top level
         for ls in layer_specs
             enc = get(ls, "encoding", nothing)
@@ -1677,10 +1705,7 @@ function layers_to_vl(layers::AlgebraOfGraphics.Layers)
             delete!(enc, "column")
             delete!(enc, "row")
         end
-        # VL needs outer data for facet cell derivation
-        if !haskey(spec, "data")
-            spec["data"] = Dict{String,Any}("values" => _collect_facet_values(layer_specs, outer_facet))
-        end
+        spec["data"] = Dict{String,Any}("values" => merged_values)
         spec["facet"] = outer_facet
         spec["spec"] = Dict{String,Any}("layer" => layer_specs)
     else
@@ -1688,24 +1713,6 @@ function layers_to_vl(layers::AlgebraOfGraphics.Layers)
     end
 
     spec
-end
-
-"""Collect unique facet field value combinations from all sublayers' inline data."""
-function _collect_facet_values(layer_specs, facet)
-    fields = [v["field"] for (_, v) in facet]
-    seen = Set{Any}()
-    rows = Dict{String,Any}[]
-    for ls in layer_specs
-        vals = get(get(ls, "data", Dict{String,Any}()), "values", nothing)
-        isnothing(vals) && continue
-        for row in vals
-            key = Tuple(get(row, f, nothing) for f in fields)
-            key ∈ seen && continue
-            push!(seen, key)
-            push!(rows, Dict{String,Any}(f => get(row, f, nothing) for f in fields))
-        end
-    end
-    rows
 end
 
 function _faceted_layers_to_vl(layers, facet_field, shared_table, shared_data)
