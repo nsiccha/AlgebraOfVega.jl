@@ -1415,7 +1415,7 @@ end
                         style="font-size:0.8em; margin-left:0.3em;",
                     ),
             ),
-            isnothing(spec) ? h.p("Unknown plot") : draw(spec),
+            isnothing(spec) ? h.p("Unknown plot") : vdraw(spec),
             h.details(; style="margin-top:0.25rem")(
                 h.summary("Code"; style="font-size:0.8em;"),
                 h.pre(h.code(code_str); style="background:var(--pico-code-background-color); padding:0.5rem; border-radius:0.25rem; overflow-x:auto; font-size:0.75em;"),
@@ -1508,7 +1508,7 @@ end
                 plot_nav(id),
                 h.h2(title),
                 h.p(description),
-                draw(spec),
+                vdraw(spec),
                 h.h4("Julia Code"; style="margin-top:1.5rem"),
                 h.pre(h.code(code_str); style="background:var(--pico-code-background-color); padding:1rem; border-radius:0.5rem; overflow-x:auto;"),
                 h.details(; style="margin-top:1rem")(
@@ -1557,7 +1557,7 @@ end
             spec = spec_fn()
             json_str = JSON.json(to_vegalite(spec), 2)
             h.div(
-                draw(spec),
+                vdraw(spec),
                 h.details(; style="margin-top:0.5rem")(
                     h.summary("Julia Code"),
                     h.pre(h.code(code_str); style="background:var(--pico-code-background-color); padding:0.75rem; border-radius:0.5rem; overflow-x:auto; font-size:0.85em;"),
@@ -1677,7 +1677,7 @@ end
             vega_head(),
             h.h2("Pregrouped Debug"),
             [h.div(; style="margin-bottom:2rem")(
-                draw(s),
+                vdraw(s),
                 h.details(
                     h.summary("Spec JSON"),
                     h.pre(h.code(JSON.json(to_vegalite(s), 2)); style="font-size:0.8em; max-height:400px; overflow:auto;"),
@@ -1775,7 +1775,7 @@ end
             h.h2("Brush → Server Stats"),
             h.p("Drag a selection on the scatter plot. The brush bounds are sent to the server via HTMX, ",
                 "which computes summary statistics in Julia and returns them as HTML."),
-            draw(brush_plot_spec;
+            vdraw(brush_plot_spec;
                 id="brush-demo",
                 signals=[(signal="brush", url="/brush_stats", target="#brush-stats", debounce=200)],
             ),
@@ -1784,7 +1784,7 @@ end
             ),
             h.h4("How it works"; style="margin-top:1.5rem"),
             h.pre(h.code("""# In the @htmx struct:
-draw(spec;
+vdraw(spec;
     id="brush-demo",
     signals=[(signal="brush", url="/brush_stats", target="#brush-stats")],
 )
@@ -1810,7 +1810,7 @@ draw(spec;
             h.h2("Server-Side Data Filtering"),
             h.p("Click a button to fetch filtered data from the server. ",
                 "The Vega view's dataset is swapped without re-creating the plot — axes animate smoothly."),
-            draw(
+            vdraw(
                 data(cars()) * mapping(:horsepower, :mpg, color=:origin) * visual(Scatter) *
                 config(width=550, height=350, title="Click a button to filter");
                 id="update-demo",

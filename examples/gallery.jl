@@ -97,7 +97,7 @@ const PLOTS = [
             spec = PLOTS[idx][3]()
             h.div(
                 nav_bar(id),
-                draw(spec),
+                vdraw(spec),
             )
         end
     end

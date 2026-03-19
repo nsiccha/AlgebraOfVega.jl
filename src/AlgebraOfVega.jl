@@ -26,7 +26,7 @@ export Scatter, Lines, ScatterLines, BarPlot, Heatmap, BoxPlot,
     Contour, Violin, RainClouds, Rangebars, CrossBar, ECDFPlot
 
 # AlgebraOfVega exports
-export config, draw, vlspec
+export config, vdraw, vlspec
 export to_vegalite, to_json, to_html, to_node, vega_head
 export vega_runtime, update_data, vega_cdn_urls
 # Tidybayes-style analysis exports
@@ -2249,11 +2249,12 @@ function to_html(spec; id=nothing, width=nothing, height=nothing)
 end
 
 """
-    draw(spec; kwargs...)
+    vdraw(spec; kwargs...)
 
-Convenience alias for `to_node(spec; kwargs...)`.
+Render an AoG spec as a Vega-Lite HTML node. Convenience alias for `to_node(spec; kwargs...)`.
+Named `vdraw` to avoid clashing with `AlgebraOfGraphics.draw` (Makie rendering).
 """
-draw(spec; kwargs...) = to_node(spec; kwargs...)
+vdraw(spec; kwargs...) = to_node(spec; kwargs...)
 
 # --- Renderer-agnostic dependency declaration ---
 
