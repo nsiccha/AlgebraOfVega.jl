@@ -35,7 +35,7 @@ export pointinterval, gradient_interval, lineribbon, ribbon, dotinterval
 export sample_cars, sample_tips, sample_stocks, sample_temperatures,
     sample_population, melt_population, sample_monthly_sales, melt_sales,
     sample_posterior_draws, sample_regression_predictions,
-    sample_grouped_regression_predictions,
+    sample_grouped_regression_predictions, sample_faceted_regression_predictions,
     randn_bm, classify_columns, table_to_rows
 # Explorer exports
 export default_explorer_datasets, explorer_widget, write_explorer_assets,
@@ -564,58 +564,66 @@ so `0.95` becomes `0_95`: e.g. `_vl_prob_field("lo", 0.95)` → `"lo_0_95_"`.
 """
 _vl_prob_field(prefix, prob) = "$(prefix)_$(replace(string(prob), "." => "_"))_"
 
+# --- Facet helpers for TidybayesAnalysis ---
+
+"""Extract `:col`/`:row` from a layer's named mappings, returning a VL facet dict and field name list."""
+function _extract_facet_info(layer)
+    col_field = haskey(layer.named, :col) ? string(layer.named[:col]) : nothing
+    row_field = haskey(layer.named, :row) ? string(layer.named[:row]) : nothing
+    facet = Dict{String,Any}()
+    !isnothing(col_field) && (facet["column"] = Dict{String,Any}("field" => col_field, "type" => "nominal"))
+    !isnothing(row_field) && (facet["row"] = Dict{String,Any}("field" => row_field, "type" => "nominal"))
+    facet_fields = String[]
+    !isnothing(col_field) && push!(facet_fields, col_field)
+    !isnothing(row_field) && push!(facet_fields, row_field)
+    facet, facet_fields
+end
+
+"""Wrap a VL spec with a `facet` operator, moving layer/mark/encoding into inner `spec`. Data stays at outer level."""
+function _wrap_with_facet!(spec, facet)
+    isempty(facet) && return spec
+    inner = Dict{String,Any}()
+    for k in keys(spec)
+        k == "\$schema" && continue
+        k == "data" && continue  # data stays at outer level for VL facet
+        inner[k] = spec[k]
+    end
+    for k in keys(inner)
+        delete!(spec, k)
+    end
+    spec["facet"] = facet
+    spec["spec"] = inner
+    spec
+end
+
 # --- Interval summary computation ---
 
-function compute_interval_summary(table, x_field::String, group_field::Union{String,Nothing}, probs::Vector{Float64}, point::Symbol)
+function compute_interval_summary(table, x_field::String, group_field::Union{String,Nothing}, probs::Vector{Float64}, point::Symbol; facet_fields::Vector{String}=String[])
     vals = Tables.getcolumn(table, Symbol(x_field))
     groups = isnothing(group_field) ? nothing : Tables.getcolumn(table, Symbol(group_field))
+    facet_data = [Tables.getcolumn(table, Symbol(f)) for f in facet_fields]
+    facet_combos = isempty(facet_data) ? [()] : sort(unique(collect(zip(facet_data...))))
 
     group_keys = isnothing(groups) ? [nothing] : unique(groups)
     rows = Dict{String,Any}[]
-    for gk in group_keys
-        mask = isnothing(groups) ? trues(length(vals)) : [g == gk for g in groups]
-        v = sort(vals[mask])
-        n = length(v)
-        q(f) = v[clamp(round(Int, f * n), 1, n)]
-        pt = point === :mean ? sum(v) / n : q(0.5)
-        row = Dict{String,Any}("__point__" => pt)
-        if !isnothing(gk)
-            row[group_field] = gk
-        end
-        for prob in probs
-            lo = (1 - prob) / 2
-            hi = 1 - lo
-            row[_vl_prob_field("lo", prob)] = q(lo)
-            row[_vl_prob_field("hi", prob)] = q(hi)
-        end
-        push!(rows, row)
-    end
-    rows
-end
-
-function compute_ribbon_summary(table, x_field::String, y_field::String, group_field::String, probs::Vector{Float64}; color_field::Union{String,Nothing}=nothing)
-    xs = Tables.getcolumn(table, Symbol(x_field))
-    ys = Tables.getcolumn(table, Symbol(y_field))
-    draws = Tables.getcolumn(table, Symbol(group_field))
-    colors = isnothing(color_field) ? nothing : Tables.getcolumn(table, Symbol(color_field))
-
-    unique_xs = sort(unique(xs))
-    color_keys = isnothing(colors) ? [nothing] : sort(unique(colors))
-
-    rows = Dict{String,Any}[]
-    for ck in color_keys
-        for x in unique_xs
-            mask = if isnothing(colors)
-                [xi == x for xi in xs]
-            else
-                [xi == x && ci == ck for (xi, ci) in zip(xs, colors)]
+    for fk in facet_combos
+        for gk in group_keys
+            mask = isnothing(groups) ? trues(length(vals)) : [g == gk for g in groups]
+            for (j, fc) in enumerate(facet_data)
+                mask .&= [fci == fk[j] for fci in fc]
             end
-            v = sort(ys[mask])
+            v = sort(vals[mask])
             n = length(v)
             n == 0 && continue
             q(f) = v[clamp(round(Int, f * n), 1, n)]
-            row = Dict{String,Any}(x_field => x, "__median__" => q(0.5))
-            !isnothing(ck) && (row[color_field] = ck)
+            pt = point === :mean ? sum(v) / n : q(0.5)
+            row = Dict{String,Any}("__point__" => pt)
+            if !isnothing(gk)
+                row[group_field] = gk
+            end
+            for (j, ff) in enumerate(facet_fields)
+                row[ff] = fk[j]
+            end
             for prob in probs
                 lo = (1 - prob) / 2
                 hi = 1 - lo
@@ -628,14 +636,60 @@ function compute_ribbon_summary(table, x_field::String, y_field::String, group_f
     rows
 end
 
+function compute_ribbon_summary(table, x_field::String, y_field::String, group_field::String, probs::Vector{Float64}; color_field::Union{String,Nothing}=nothing, facet_fields::Vector{String}=String[])
+    xs = Tables.getcolumn(table, Symbol(x_field))
+    ys = Tables.getcolumn(table, Symbol(y_field))
+    draws = Tables.getcolumn(table, Symbol(group_field))
+    colors = isnothing(color_field) ? nothing : Tables.getcolumn(table, Symbol(color_field))
+    facet_data = [Tables.getcolumn(table, Symbol(f)) for f in facet_fields]
+    facet_combos = isempty(facet_data) ? [()] : sort(unique(collect(zip(facet_data...))))
+
+    unique_xs = sort(unique(xs))
+    color_keys = isnothing(colors) ? [nothing] : sort(unique(colors))
+
+    rows = Dict{String,Any}[]
+    for fk in facet_combos
+        for ck in color_keys
+            for x in unique_xs
+                mask = if isnothing(colors)
+                    [xi == x for xi in xs]
+                else
+                    [xi == x && ci == ck for (xi, ci) in zip(xs, colors)]
+                end
+                for (j, fc) in enumerate(facet_data)
+                    mask .&= [fci == fk[j] for fci in fc]
+                end
+                v = sort(ys[mask])
+                n = length(v)
+                n == 0 && continue
+                q(f) = v[clamp(round(Int, f * n), 1, n)]
+                row = Dict{String,Any}(x_field => x, "__median__" => q(0.5))
+                !isnothing(ck) && (row[color_field] = ck)
+                for (j, ff) in enumerate(facet_fields)
+                    row[ff] = fk[j]
+                end
+                for prob in probs
+                    lo = (1 - prob) / 2
+                    hi = 1 - lo
+                    row[_vl_prob_field("lo", prob)] = q(lo)
+                    row[_vl_prob_field("hi", prob)] = q(hi)
+                end
+                push!(rows, row)
+            end
+        end
+    end
+    rows
+end
+
 # --- Analysis → Vega-Lite spec ---
 
 function analysis_to_vl(a::PointIntervalAnalysis, layer::AlgebraOfGraphics.Layer; is_sublayer=false)
     table = extract_data(layer)
     x_field = length(layer.positional) >= 1 ? string(layer.positional[1]) : "value"
     y_field = haskey(layer.named, :y) ? string(layer.named[:y]) : nothing
+    facet, facet_fields = _extract_facet_info(layer)
 
-    summary = compute_interval_summary(table, x_field, y_field, a.probs, a.point)
+    summary = compute_interval_summary(table, x_field, y_field, a.probs, a.point; facet_fields)
     summary_data = Dict{String,Any}("values" => summary)
 
     sorted_probs = sort(a.probs, rev=true)
@@ -673,6 +727,7 @@ function analysis_to_vl(a::PointIntervalAnalysis, layer::AlgebraOfGraphics.Layer
     if !is_sublayer
         spec["\$schema"] = "https://vega.github.io/schema/vega-lite/v5.json"
     end
+    _wrap_with_facet!(spec, facet)
     spec
 end
 
@@ -680,8 +735,9 @@ function analysis_to_vl(a::GradientIntervalAnalysis, layer::AlgebraOfGraphics.La
     table = extract_data(layer)
     x_field = length(layer.positional) >= 1 ? string(layer.positional[1]) : "value"
     y_field = haskey(layer.named, :y) ? string(layer.named[:y]) : nothing
+    facet, facet_fields = _extract_facet_info(layer)
 
-    summary = compute_interval_summary(table, x_field, y_field, a.probs, a.point)
+    summary = compute_interval_summary(table, x_field, y_field, a.probs, a.point; facet_fields)
     summary_data = Dict{String,Any}("values" => summary)
 
     sorted_probs = sort(a.probs, rev=true)
@@ -719,6 +775,7 @@ function analysis_to_vl(a::GradientIntervalAnalysis, layer::AlgebraOfGraphics.La
     if !is_sublayer
         spec["\$schema"] = "https://vega.github.io/schema/vega-lite/v5.json"
     end
+    _wrap_with_facet!(spec, facet)
     spec
 end
 
@@ -728,8 +785,9 @@ function analysis_to_vl(a::LineRibbonAnalysis, layer::AlgebraOfGraphics.Layer; i
     y_field = length(layer.positional) >= 2 ? string(layer.positional[2]) : "y"
     group_field = haskey(layer.named, :group) ? string(layer.named[:group]) : "draw"
     color_field = haskey(layer.named, :color) ? string(layer.named[:color]) : nothing
+    facet, facet_fields = _extract_facet_info(layer)
 
-    summary = compute_ribbon_summary(table, x_field, y_field, group_field, a.probs; color_field)
+    summary = compute_ribbon_summary(table, x_field, y_field, group_field, a.probs; color_field, facet_fields)
     summary_data = Dict{String,Any}("values" => summary)
 
     sorted_probs = sort(a.probs, rev=true)
@@ -769,6 +827,7 @@ function analysis_to_vl(a::LineRibbonAnalysis, layer::AlgebraOfGraphics.Layer; i
     if !is_sublayer
         spec["\$schema"] = "https://vega.github.io/schema/vega-lite/v5.json"
     end
+    _wrap_with_facet!(spec, facet)
     spec
 end
 
@@ -776,27 +835,38 @@ function analysis_to_vl(a::DotIntervalAnalysis, layer::AlgebraOfGraphics.Layer; 
     table = extract_data(layer)
     x_field = length(layer.positional) >= 1 ? string(layer.positional[1]) : "value"
     y_field = haskey(layer.named, :y) ? string(layer.named[:y]) : nothing
+    facet, facet_fields = _extract_facet_info(layer)
 
     vals = Tables.getcolumn(table, Symbol(x_field))
     groups = isnothing(y_field) ? nothing : Tables.getcolumn(table, Symbol(y_field))
     group_keys = isnothing(groups) ? [nothing] : unique(groups)
+    facet_data = [Tables.getcolumn(table, Symbol(f)) for f in facet_fields]
+    facet_combos = isempty(facet_data) ? [()] : sort(unique(collect(zip(facet_data...))))
 
     # Quantile dots
     dot_rows = Dict{String,Any}[]
-    for gk in group_keys
-        mask = isnothing(groups) ? trues(length(vals)) : [g == gk for g in groups]
-        v = sort(vals[mask])
-        n = length(v)
-        for i in 1:a.n_dots
-            q = v[clamp(round(Int, (i - 0.5) / a.n_dots * n), 1, n)]
-            row = Dict{String,Any}("quantile" => q)
-            !isnothing(gk) && (row[y_field] = gk)
-            push!(dot_rows, row)
+    for fk in facet_combos
+        for gk in group_keys
+            mask = isnothing(groups) ? trues(length(vals)) : [g == gk for g in groups]
+            for (j, fc) in enumerate(facet_data)
+                mask .&= [fci == fk[j] for fci in fc]
+            end
+            v = sort(vals[mask])
+            n = length(v)
+            for i in 1:a.n_dots
+                q = v[clamp(round(Int, (i - 0.5) / a.n_dots * n), 1, n)]
+                row = Dict{String,Any}("quantile" => q)
+                !isnothing(gk) && (row[y_field] = gk)
+                for (j, ff) in enumerate(facet_fields)
+                    row[ff] = fk[j]
+                end
+                push!(dot_rows, row)
+            end
         end
     end
 
     # Interval summary
-    summary = compute_interval_summary(table, x_field, y_field, a.probs, a.point)
+    summary = compute_interval_summary(table, x_field, y_field, a.probs, a.point; facet_fields)
 
     # Dot layer
     dot_enc = Dict{String,Any}(
@@ -856,6 +926,7 @@ function analysis_to_vl(a::DotIntervalAnalysis, layer::AlgebraOfGraphics.Layer; 
     if !is_sublayer
         spec["\$schema"] = "https://vega.github.io/schema/vega-lite/v5.json"
     end
+    _wrap_with_facet!(spec, facet)
     spec
 end
 

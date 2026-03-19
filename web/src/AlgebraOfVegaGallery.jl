@@ -20,6 +20,7 @@ monthly_sales() = sample_monthly_sales()
 posterior_draws(; kw...) = sample_posterior_draws(; kw...)
 regression_predictions(; kw...) = sample_regression_predictions(; kw...)
 grouped_regression_predictions(; kw...) = sample_grouped_regression_predictions(; kw...)
+faceted_regression_predictions(; kw...) = sample_faceted_regression_predictions(; kw...)
 
 # --- Plot specifications ---
 
@@ -1088,6 +1089,17 @@ end""",
         config(width=500, height=350, title="Grouped Line + Ribbon"),
      "https://mjskay.github.io/ggdist/reference/stat_lineribbon.html"),
 
+    ("lineribbon_faceted", "Faceted Line + Ribbon", "tidybayes-style: line ribbons faceted by column",
+     """data(faceted_regression_predictions()) *
+    mapping(:x, :y, group=:draw, col=:panel) *
+    lineribbon() *
+    config(width=250, height=250, title="Faceted Line + Ribbon")""",
+     () -> data(faceted_regression_predictions()) *
+        mapping(:x, :y, group=:draw, col=:panel) *
+        lineribbon() *
+        config(width=250, height=250, title="Faceted Line + Ribbon"),
+     "https://mjskay.github.io/ggdist/reference/stat_lineribbon.html"),
+
     ("ribbon_only", "Ribbon (no line)", "tidybayes-style: uncertainty ribbons without median line",
      """data(regression_predictions()) *
     mapping(:x, :y, group=:draw) *
@@ -1410,7 +1422,7 @@ end
         ("AoG: Composition Patterns" => ["aog_scatter_regression", "aog_scatter_smooth", "aog_bar_line_combo", "aog_stacked_area", "aog_color_regression"]),
         ("AoG: Layout" => ["aog_facet", "aog_facet_wrap", "aog_facet_multi_layer", "aog_facet_regression"]),
         ("AoG: Applications" => ["aog_timeseries", "aog_timeseries_box", "aog_2d_histogram"]),
-        ("Uncertainty (tidybayes)" => ["pointinterval", "halfeye", "gradient_interval", "lineribbon", "lineribbon_grouped", "ribbon_only", "dotinterval", "raincloud"]),
+        ("Uncertainty (tidybayes)" => ["pointinterval", "halfeye", "gradient_interval", "lineribbon", "lineribbon_grouped", "lineribbon_faceted", "ribbon_only", "dotinterval", "raincloud"]),
     ]
 
     gallery_section(section_title, ids) = begin

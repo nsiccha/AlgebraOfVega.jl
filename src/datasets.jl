@@ -146,6 +146,29 @@ function sample_grouped_regression_predictions(; n_x=30, n_draws=100)
     (x=rows_x, y=rows_y, draw=rows_draw, group=rows_group)
 end
 
+"Simulated faceted regression predictions with columns x, y, draw, panel (for col faceting)."
+function sample_faceted_regression_predictions(; n_x=30, n_draws=100)
+    xs = range(0, 5, length=n_x)
+    rows_x = Float64[]
+    rows_y = Float64[]
+    rows_draw = Int[]
+    rows_panel = String[]
+    for (pname, α0, β0, σ0) in [("Condition A", 2.0, 0.8, 0.8), ("Condition B", 1.0, 1.5, 1.0), ("Condition C", 3.0, -0.5, 0.6)]
+        for d in 1:n_draws
+            α = α0 + 0.5 * randn_bm(1)[1]
+            β = β0 + 0.3 * randn_bm(1)[1]
+            σ = σ0 + 0.2 * abs(randn_bm(1)[1])
+            for x in xs
+                push!(rows_x, x)
+                push!(rows_y, α + β * x + σ * randn_bm(1)[1])
+                push!(rows_draw, d)
+                push!(rows_panel, pname)
+            end
+        end
+    end
+    (x=rows_x, y=rows_y, draw=rows_draw, panel=rows_panel)
+end
+
 # --- Utilities for the explorer widget ---
 
 """
