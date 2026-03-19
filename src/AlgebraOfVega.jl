@@ -597,6 +597,17 @@ function _wrap_with_facet!(spec, facet)
     spec
 end
 
+"""Add tooltip encoding to each sublayer in `layers`, built from the given fields."""
+function _add_analysis_tooltips!(layers::Vector{Dict{String,Any}}, tooltip_fields::Vector{Dict{String,Any}})
+    isempty(tooltip_fields) && return
+    for sl in layers
+        enc = get(sl, "encoding", nothing)
+        isnothing(enc) && continue
+        haskey(enc, "tooltip") && continue
+        enc["tooltip"] = copy(tooltip_fields)
+    end
+end
+
 # --- Interval summary computation ---
 
 function compute_interval_summary(table, x_field::String, group_field::Union{String,Nothing}, probs::Vector{Float64}, point::Symbol; facet_fields::Vector{String}=String[])
@@ -724,6 +735,14 @@ function analysis_to_vl(a::PointIntervalAnalysis, layer::AlgebraOfGraphics.Layer
         "encoding" => pt_enc,
     ))
 
+    # Tooltips: point estimate + widest interval bounds + grouping
+    tt = Dict{String,Any}[Dict{String,Any}("field" => "__point__", "type" => "quantitative", "title" => "$x_field (estimate)")]
+    !isnothing(y_field) && push!(tt, Dict{String,Any}("field" => y_field, "type" => "nominal"))
+    widest = sort(a.probs, rev=true)[1]
+    push!(tt, Dict{String,Any}("field" => _vl_prob_field("lo", widest), "type" => "quantitative", "title" => "$(round(Int, widest*100))% lo"))
+    push!(tt, Dict{String,Any}("field" => _vl_prob_field("hi", widest), "type" => "quantitative", "title" => "$(round(Int, widest*100))% hi"))
+    _add_analysis_tooltips!(layers, tt)
+
     spec = Dict{String,Any}("data" => summary_data, "layer" => layers)
     if !is_sublayer
         spec["\$schema"] = "https://vega.github.io/schema/vega-lite/v5.json"
@@ -771,6 +790,13 @@ function analysis_to_vl(a::GradientIntervalAnalysis, layer::AlgebraOfGraphics.La
         "mark" => Dict{String,Any}("type" => "point", "filled" => true, "size" => 50, "color" => "white"),
         "encoding" => pt_enc,
     ))
+
+    tt = Dict{String,Any}[Dict{String,Any}("field" => "__point__", "type" => "quantitative", "title" => "$x_field (estimate)")]
+    !isnothing(y_field) && push!(tt, Dict{String,Any}("field" => y_field, "type" => "nominal"))
+    widest = sort(a.probs, rev=true)[1]
+    push!(tt, Dict{String,Any}("field" => _vl_prob_field("lo", widest), "type" => "quantitative", "title" => "$(round(Int, widest*100))% lo"))
+    push!(tt, Dict{String,Any}("field" => _vl_prob_field("hi", widest), "type" => "quantitative", "title" => "$(round(Int, widest*100))% hi"))
+    _add_analysis_tooltips!(layers, tt)
 
     spec = Dict{String,Any}("data" => summary_data, "layer" => layers)
     if !is_sublayer
@@ -823,6 +849,16 @@ function analysis_to_vl(a::LineRibbonAnalysis, layer::AlgebraOfGraphics.Layer; i
         end
         push!(layers, Dict{String,Any}("mark" => line_mark, "encoding" => line_enc))
     end
+
+    tt = Dict{String,Any}[
+        Dict{String,Any}("field" => x_field, "type" => "quantitative"),
+        Dict{String,Any}("field" => "__median__", "type" => "quantitative", "title" => "median"),
+    ]
+    !isnothing(color_field) && push!(tt, Dict{String,Any}("field" => color_field, "type" => "nominal"))
+    widest = sort(a.probs, rev=true)[1]
+    push!(tt, Dict{String,Any}("field" => _vl_prob_field("lo", widest), "type" => "quantitative", "title" => "$(round(Int, widest*100))% lo"))
+    push!(tt, Dict{String,Any}("field" => _vl_prob_field("hi", widest), "type" => "quantitative", "title" => "$(round(Int, widest*100))% hi"))
+    _add_analysis_tooltips!(layers, tt)
 
     spec = Dict{String,Any}("data" => summary_data, "layer" => layers)
     if !is_sublayer
@@ -917,6 +953,14 @@ function analysis_to_vl(a::DotIntervalAnalysis, layer::AlgebraOfGraphics.Layer; 
         "mark" => Dict{String,Any}("type" => "point", "filled" => true, "size" => 50, "color" => "white", "stroke" => "#333", "strokeWidth" => 1.5),
         "encoding" => pt_enc,
     ))
+
+    # Tooltips for interval sublayers
+    tt = Dict{String,Any}[Dict{String,Any}("field" => "__point__", "type" => "quantitative", "title" => "$x_field (estimate)")]
+    !isnothing(y_field) && push!(tt, Dict{String,Any}("field" => y_field, "type" => "nominal"))
+    widest = sort(a.probs, rev=true)[1]
+    push!(tt, Dict{String,Any}("field" => _vl_prob_field("lo", widest), "type" => "quantitative", "title" => "$(round(Int, widest*100))% lo"))
+    push!(tt, Dict{String,Any}("field" => _vl_prob_field("hi", widest), "type" => "quantitative", "title" => "$(round(Int, widest*100))% hi"))
+    _add_analysis_tooltips!(interval_layers, tt)
 
     push!(layers, Dict{String,Any}(
         "data" => Dict{String,Any}("values" => summary),
@@ -1978,9 +2022,51 @@ Also skips adding opacity conditions to sublayers whose mark already has an inte
 """
 function add_auto_interactivity!(spec::Dict{String,Any})
     # Don't add interactivity if user already defined params (via config)
-    haskey(spec, "params") && return spec
-    # Don't add to faceted specs (params go in inner spec which is auto-generated)
-    haskey(spec, "facet") && return spec
+    has_user_params = haskey(spec, "params")
+
+    # For faceted specs, add zoom/pan inside "spec" (per-cell), not at facet level
+    if haskey(spec, "facet")
+        inner = get(spec, "spec", nothing)
+        if !isnothing(inner) && !haskey(inner, "params")
+            # Find quantitative axes in inner sublayers
+            inner_layers = get(inner, "layer", nothing)
+            inner_enc = get(inner, "encoding", nothing)
+            zoom_ch = String[]
+            for ch in ("x", "y")
+                is_quant = false
+                if !isnothing(inner_enc) && haskey(inner_enc, ch)
+                    is_quant = get(inner_enc[ch], "type", "") == "quantitative"
+                elseif !isnothing(inner_layers)
+                    for sl in inner_layers
+                        sl_enc = get(sl, "encoding", nothing)
+                        isnothing(sl_enc) && continue
+                        if haskey(sl_enc, ch) && get(sl_enc[ch], "type", "") == "quantitative"
+                            is_quant = true
+                            break
+                        end
+                    end
+                end
+                is_quant && push!(zoom_ch, ch)
+            end
+            if !isempty(zoom_ch)
+                grid_param = Dict{String,Any}(
+                    "name" => "grid",
+                    "select" => Dict{String,Any}("type" => "interval", "encodings" => zoom_ch),
+                    "bind" => "scales",
+                )
+                inner_layers = get(inner, "layer", nothing)
+                if !isnothing(inner_layers) && !isempty(inner_layers)
+                    sl_params = get!(inner_layers[1], "params", Dict{String,Any}[])
+                    push!(sl_params, grid_param)
+                else
+                    inner["params"] = [grid_param]
+                end
+            end
+        end
+        return spec
+    end
+
+    has_user_params && return spec
 
     # Find the encoding — may be top-level or in sublayers
     enc = get(spec, "encoding", nothing)
@@ -1996,6 +2082,40 @@ function add_auto_interactivity!(spec::Dict{String,Any})
     end
 
     params = Dict{String,Any}[]
+
+    # Zoom (scroll) + pan (drag) — only on quantitative axes to avoid duplicate signal errors
+    zoom_encodings = String[]
+    for ch in ("x", "y")
+        is_quant = false
+        if !isnothing(enc) && haskey(enc, ch)
+            is_quant = get(enc[ch], "type", "") == "quantitative"
+        elseif !isnothing(sublayers)
+            for sl in sublayers
+                sl_enc = get(sl, "encoding", nothing)
+                isnothing(sl_enc) && continue
+                if haskey(sl_enc, ch) && get(sl_enc[ch], "type", "") == "quantitative"
+                    is_quant = true
+                    break
+                end
+            end
+        end
+        is_quant && push!(zoom_encodings, ch)
+    end
+    if !isempty(zoom_encodings)
+        grid_param = Dict{String,Any}(
+            "name" => "grid",
+            "select" => Dict{String,Any}("type" => "interval", "encodings" => zoom_encodings),
+            "bind" => "scales",
+        )
+        if !isnothing(sublayers) && !isempty(sublayers)
+            # For layered specs, put bind:scales on the first sublayer to avoid
+            # VL duplicate signal error (grid_tuple created per view in layer array)
+            sl_params = get!(sublayers[1], "params", Dict{String,Any}[])
+            push!(sl_params, grid_param)
+        else
+            push!(params, grid_param)
+        end
+    end
 
     if !isnothing(color_field)
         # Legend click selection: toggle group visibility + hover highlight
