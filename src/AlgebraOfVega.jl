@@ -2054,7 +2054,6 @@ function add_auto_interactivity!(spec::Dict{String,Any})
                     "select" => Dict{String,Any}("type" => "interval", "encodings" => zoom_ch),
                     "bind" => "scales",
                 )
-                inner_layers = get(inner, "layer", nothing)
                 if !isnothing(inner_layers) && !isempty(inner_layers)
                     sl_params = get!(inner_layers[1], "params", Dict{String,Any}[])
                     push!(sl_params, grid_param)
