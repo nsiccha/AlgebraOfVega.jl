@@ -8,7 +8,7 @@ import AlgebraOfGraphics: data, mapping, visual, dims,
     scale, scales, pregrouped
 using Makie: Scatter, Lines, ScatterLines, BarPlot, Heatmap, BoxPlot,
     Band, HLines, VLines, Hist, Density as MakieDensity, Errorbars, Stairs,
-    Contour, Violin, RainClouds, Rangebars, CrossBar,
+    Contour, Violin, RainClouds, Rangebars, CrossBar, ECDFPlot,
     Plot, plot
 import Makie
 using JSON, Tables
@@ -23,7 +23,7 @@ export scale, scales, pregrouped
 # Re-export Makie plot types users need
 export Scatter, Lines, ScatterLines, BarPlot, Heatmap, BoxPlot,
     Band, HLines, VLines, Hist, Errorbars, Stairs,
-    Contour, Violin, RainClouds, Rangebars, CrossBar
+    Contour, Violin, RainClouds, Rangebars, CrossBar, ECDFPlot
 
 # AlgebraOfVega exports
 export config, draw, vlspec
@@ -101,6 +101,7 @@ function plottype_to_mark(T::Type)
     T <: MakieDensity && return "area"
     T <: Errorbars && return "errorbar"
     T <: Stairs && return "line"
+    T <: ECDFPlot && return "line"
     T <: Contour && return "rect"
     T <: Rangebars && return "errorbar"
     T <: CrossBar && return "errorbar"
@@ -1283,6 +1284,106 @@ function expectation_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
     spec
 end
 
+"""
+    extract_ecdf_visual(layer) -> Union{Visual, Nothing}
+
+Detect if a layer uses `visual(ECDFPlot)` and return the Visual if so.
+"""
+function extract_ecdf_visual(layer::AlgebraOfGraphics.Layer)
+    vis = extract_visual(layer)
+    isnothing(vis) && return nothing
+    vis.plottype <: ECDFPlot ? vis : nothing
+end
+
+"""
+    ecdf_to_vl(layer; is_sublayer=false)
+
+Translate AoG's `visual(ECDFPlot)` to a Vega-Lite spec using window transforms
+for cumulative distribution. Produces a step line of the empirical CDF.
+
+Supports `color=` grouping via `groupby` on the window transforms.
+"""
+function ecdf_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
+    table = extract_data(layer)
+    x_field = length(layer.positional) >= 1 ? string(layer.positional[1]) : "x"
+    color_field = haskey(layer.named, :color) ? string(layer.named[:color]) : nothing
+    linestyle_field = haskey(layer.named, :linestyle) ? string(layer.named[:linestyle]) : nothing
+
+    # Window transforms for ECDF:
+    # 1. Sort by x, count cumulative (per group)
+    # 2. Count total (per group)
+    # 3. Calculate ecdf = cumulative / total
+    groupby_fields = String[]
+    !isnothing(color_field) && push!(groupby_fields, color_field)
+    !isnothing(linestyle_field) && push!(groupby_fields, linestyle_field)
+
+    sort_spec = [Dict{String,Any}("field" => x_field)]
+
+    window1 = Dict{String,Any}(
+        "window" => [Dict{String,Any}("op" => "count", "as" => "__cumulative_count__")],
+        "sort" => sort_spec,
+    )
+    window2 = Dict{String,Any}(
+        "window" => [Dict{String,Any}("op" => "count", "as" => "__total_count__")],
+        "frame" => [nothing, nothing],
+    )
+    if !isempty(groupby_fields)
+        window1["groupby"] = groupby_fields
+        window2["groupby"] = groupby_fields
+    end
+
+    calc = Dict{String,Any}(
+        "calculate" => "datum.__cumulative_count__ / datum.__total_count__",
+        "as" => "__ecdf__",
+    )
+
+    encoding = Dict{String,Any}(
+        "x" => Dict{String,Any}("field" => x_field, "type" => "quantitative", "sort" => "ascending"),
+        "y" => Dict{String,Any}("field" => "__ecdf__", "type" => "quantitative", "title" => "Cumulative Proportion"),
+    )
+    if !isnothing(color_field)
+        encoding["color"] = Dict{String,Any}("field" => color_field, "type" => "nominal")
+    end
+    if !isnothing(linestyle_field)
+        encoding["strokeDash"] = Dict{String,Any}("field" => linestyle_field, "type" => "nominal")
+    end
+
+    # Auto tooltip
+    tooltip_fields = Dict{String,Any}[]
+    for (ch, enc) in encoding
+        enc isa Dict || continue
+        haskey(enc, "field") || continue
+        entry = Dict{String,Any}("field" => enc["field"])
+        haskey(enc, "type") && (entry["type"] = enc["type"])
+        push!(tooltip_fields, entry)
+    end
+    if !isempty(tooltip_fields)
+        encoding["tooltip"] = tooltip_fields
+    end
+
+    vis = extract_visual(layer)
+    mark = Dict{String,Any}("type" => "line", "interpolate" => "step-after")
+    if !isnothing(vis)
+        merge!(mark, visual_attrs_to_mark_props(vis))
+    end
+
+    spec = Dict{String,Any}(
+        "mark" => mark,
+        "transform" => [window1, window2, calc],
+        "encoding" => encoding,
+    )
+    if !isnothing(table)
+        spec["data"] = data_to_vl(table)
+    end
+    if !isnothing(table)
+        infer_types!(encoding, table)
+    end
+    if !is_sublayer
+        spec["\$schema"] = "https://vega.github.io/schema/vega-lite/v5.json"
+    end
+    spec
+end
+
 # --- Core translation ---
 
 function layer_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
@@ -1326,6 +1427,11 @@ function layer_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
     # Check for histogram
     if !isnothing(extract_histogram_analysis(layer))
         return histogram_to_vl(layer; is_sublayer)
+    end
+
+    # Check for ECDFPlot visual
+    if !isnothing(extract_ecdf_visual(layer))
+        return ecdf_to_vl(layer; is_sublayer)
     end
 
     spec = Dict{String,Any}()

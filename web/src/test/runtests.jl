@@ -280,3 +280,27 @@ end
     # pregrouped() returns a single Layer (data * mapping)
     @test AlgebraOfVega.is_pregrouped(layer)
 end
+
+@testset "ECDFPlot" begin
+    # Basic ECDF
+    df = (; x=collect(1.0:10.0))
+    spec_obj = data(df) * mapping(:x) * visual(ECDFPlot)
+    vl = to_vegalite(spec_obj)
+    @test vl["mark"]["type"] == "line"
+    @test vl["mark"]["interpolate"] == "step-after"
+    @test haskey(vl, "transform")
+    @test length(vl["transform"]) == 3  # window, window, calculate
+    @test vl["encoding"]["x"]["field"] == "x"
+    @test vl["encoding"]["y"]["field"] == "__ecdf__"
+    @test vl["encoding"]["y"]["type"] == "quantitative"
+
+    # Grouped ECDF with color
+    df2 = (; x=[1.0, 2.0, 3.0, 4.0], c=["a", "a", "b", "b"])
+    spec_obj2 = data(df2) * mapping(:x, color=:c) * visual(ECDFPlot)
+    vl2 = to_vegalite(spec_obj2)
+    @test haskey(vl2["encoding"], "color")
+    @test vl2["encoding"]["color"]["field"] == "c"
+    # Check that groupby is set on window transforms
+    @test vl2["transform"][1]["groupby"] == ["c"]
+    @test vl2["transform"][2]["groupby"] == ["c"]
+end

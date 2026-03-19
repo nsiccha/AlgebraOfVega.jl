@@ -778,6 +778,42 @@ end""",
      end,
      "https://aog.makie.org/stable/examples/statistical-analyses/density-plots"),
 
+    # --- Statistical Analyses: ECDF ---
+
+    ("aog_ecdf", "ECDF Plot",
+     "Empirical cumulative distribution function",
+     """let n = 200
+    x = randn_bm(n)
+    df = (; x)
+    data(df) * mapping(:x) * visual(ECDFPlot) *
+        config(title="ECDF Plot")
+end""",
+     () -> let
+        n = 200
+        x = randn_bm(n)
+        df = (; x)
+        data(df) * mapping(:x) * visual(ECDFPlot) *
+            config(title="ECDF Plot")
+     end),
+
+    ("aog_ecdf_grouped", "Grouped ECDF",
+     "ECDF with color grouping",
+     """let n = 200
+    x = [randn_bm(n); 1.5 .+ randn_bm(n)]
+    c = [fill("a", n); fill("b", n)]
+    df = (; x, c)
+    data(df) * mapping(:x, color=:c) * visual(ECDFPlot) *
+        config(title="Grouped ECDF")
+end""",
+     () -> let
+        n = 200
+        x = [randn_bm(n); 1.5 .+ randn_bm(n)]
+        c = [fill("a", n); fill("b", n)]
+        df = (; x, c)
+        data(df) * mapping(:x, color=:c) * visual(ECDFPlot) *
+            config(title="Grouped ECDF")
+     end),
+
     # --- Statistical Analyses: Histograms ---
 
     ("aog_histogram_basic", "Basic Histogram",
@@ -1370,7 +1406,7 @@ end
         ("AoG: Data Manipulations" => ["aog_wide_lines", "aog_wide_scatter", "aog_presorted_bar"]),
         ("AoG: Pregrouped" => ["pregrouped_boxplot", "pregrouped_boxplot_plain", "pregrouped_dose_response"]),
         ("AoG: Scales" => ["aog_log_transform", "aog_discrete_boxplot", "aog_combined_boxplot", "aog_barplot_names", "aog_dodge", "aog_legend_merge", "aog_multi_color"]),
-        ("AoG: Statistical Analyses" => ["aog_density", "aog_histogram_basic", "aog_histogram", "aog_frequency", "aog_expectation", "aog_frequency_color", "aog_linear", "aog_smooth", "aog_linear_band", "aog_smooth_band"]),
+        ("AoG: Statistical Analyses" => ["aog_density", "aog_ecdf", "aog_ecdf_grouped", "aog_histogram_basic", "aog_histogram", "aog_frequency", "aog_expectation", "aog_frequency_color", "aog_linear", "aog_smooth", "aog_linear_band", "aog_smooth_band"]),
         ("AoG: Composition Patterns" => ["aog_scatter_regression", "aog_scatter_smooth", "aog_bar_line_combo", "aog_stacked_area", "aog_color_regression"]),
         ("AoG: Layout" => ["aog_facet", "aog_facet_wrap", "aog_facet_multi_layer", "aog_facet_regression"]),
         ("AoG: Applications" => ["aog_timeseries", "aog_timeseries_box", "aog_2d_histogram"]),

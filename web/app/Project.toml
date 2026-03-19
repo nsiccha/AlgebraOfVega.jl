@@ -1,4 +1,5 @@
 [deps]
+AlgebraOfVega = "a2420894-485a-4f42-a4fc-c4323ec6fb2b"
 AlgebraOfVegaGallery = "e3a1b2c4-d5e6-4f7a-8b9c-0d1e2f3a4b5c"
 DynamicObjects = "23d02862-63fe-4c6e-8fdb-1d52cbbd39d5"
 HTMX = "27f3e1ef-6ef8-44dc-9e9a-2fb23ed44e83"
