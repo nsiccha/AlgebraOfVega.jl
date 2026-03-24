@@ -509,9 +509,9 @@ end""",
 
     ("aog_boxplot", "Box Plot",
      "Box plot by category with color dodge",
-     """let species = rand(["Adelie","Chinstrap","Gentoo"], 200)
-    sex = rand(["male","female"], 200)
-    depth = [s == "Adelie" ? 18.0 : s == "Chinstrap" ? 18.5 : 15.0 for s in species] .+ randn_bm(200)
+     """let species = [["Adelie","Chinstrap","Gentoo"][mod1(k,3)] for k in 1:200]
+    sex = [isodd(k) ? "male" : "female" for k in 1:200]
+    depth = [s == "Adelie" ? 18.0 : s == "Chinstrap" ? 18.5 : 15.0 for s in species] .+ randn(200)
     df = (; species, bill_depth=depth, sex)
     data(df) * visual(BoxPlot) * mapping(:species, :bill_depth, color=:sex, dodge_x=:sex) *
         config(title="Box Plot by Species & Sex")
@@ -519,7 +519,7 @@ end""",
      () -> let
         species = [["Adelie","Chinstrap","Gentoo"][mod1(k,3)] for k in 1:200]
         sex = [isodd(k) ? "male" : "female" for k in 1:200]
-        depth = [s == "Adelie" ? 18.0 : s == "Chinstrap" ? 18.5 : 15.0 for s in species] .+ randn_bm(200)
+        depth = [s == "Adelie" ? 18.0 : s == "Chinstrap" ? 18.5 : 15.0 for s in species] .+ randn(200)
         df = (; species, bill_depth=depth, sex)
         data(df) * visual(BoxPlot) * mapping(:species, :bill_depth, color=:sex, dodge_x=:sex) *
             config(title="Box Plot by Species & Sex")
@@ -605,7 +605,7 @@ end""",
 
     ("aog_discrete_boxplot", "Discrete Box Plot",
      "Box plot with categorical x axis",
-     """let df = (x=rand(["a","b","c"], 100), y=rand(100))
+     """let df = (x=[["a","b","c"][mod1(k,3)] for k in 1:100], y=rand(100))
     data(df) * mapping(:x, :y) * visual(BoxPlot) *
         config(title="Box Plot with Categories")
 end""",
@@ -618,14 +618,14 @@ end""",
 
     ("aog_combined_boxplot", "Combined Categories",
      "Two datasets with unified categories",
-     """let df1 = (; x=rand(["one","two"], 100), y=randn_bm(100))
-    df2 = (; x=rand(["three","four"], 50), y=randn_bm(50))
+     """let df1 = (; x=[isodd(k) ? "one" : "two" for k in 1:100], y=randn(100))
+    df2 = (; x=[isodd(k) ? "three" : "four" for k in 1:50], y=randn(50))
     (data(df1) + data(df2)) * mapping(:x, :y) * visual(BoxPlot) *
         config(title="Combined Categories")
 end""",
      () -> let
-        df1 = (; x=[isodd(k) ? "one" : "two" for k in 1:100], y=randn_bm(100))
-        df2 = (; x=[isodd(k) ? "three" : "four" for k in 1:50], y=randn_bm(50))
+        df1 = (; x=[isodd(k) ? "one" : "two" for k in 1:100], y=randn(100))
+        df2 = (; x=[isodd(k) ? "three" : "four" for k in 1:50], y=randn(50))
         (data(df1) + data(df2)) * mapping(:x, :y) * visual(BoxPlot) *
             config(title="Combined Categories")
      end,
@@ -642,7 +642,7 @@ end""",
     config(title="Pregrouped Box Plot")""",
      () -> pregrouped(
         fill.(1:3, 10) => renamer(["A", "B", "C"]),
-        [randn_bm(10) for _ in 1:3]
+        [randn(10) for _ in 1:3]
     ) * visual(BoxPlot) *
         config(title="Pregrouped Box Plot")),
 
@@ -655,7 +655,7 @@ end""",
     config(title="Pregrouped (no renamer)")""",
      () -> pregrouped(
         fill.(1:4, 20),
-        [randn_bm(20) .+ i for i in 1:4]
+        [randn(20) .+ i for i in 1:4]
     ) * visual(BoxPlot) *
         config(title="Pregrouped (no renamer)")),
 
@@ -674,8 +674,8 @@ end""",
      () -> let
         doses = ["Placebo", "Low", "Medium", "High"]
         n = 30
-        effects = [randn_bm(n) .* 2, randn_bm(n) .* 2 .+ 1,
-                   randn_bm(n) .* 2 .+ 3, randn_bm(n) .* 2 .+ 5]
+        effects = [randn(n) .* 2, randn(n) .* 2 .+ 1,
+                   randn(n) .* 2 .+ 3, randn(n) .* 2 .+ 5]
         pregrouped(
             fill.(1:4, n) => renamer(doses),
             effects
@@ -717,7 +717,7 @@ end""",
      "Lines + Scatter sharing color legend",
      """let N = 40
     x = [1:N; 1:N]
-    y = cumsum(randn_bm(2N))
+    y = cumsum(randn(2N))
     grp = [fill("a", N); fill("b", N)]
     df = (; x, y, grp)
     (visual(Lines) + visual(Scatter)) *
@@ -727,7 +727,7 @@ end""",
      () -> let
         N = 40
         x = [collect(1:N); collect(1:N)]
-        y = cumsum(randn_bm(2N))
+        y = cumsum(randn(2N))
         grp = [fill("a", N); fill("b", N)]
         df = (; x, y, grp)
         (visual(Lines) + visual(Scatter)) *
@@ -764,7 +764,7 @@ end""",
     ("aog_density", "Density Plot",
      "Density with color grouping",
      """let n = 500
-    x = [randn_bm(n); 1.5 .+ randn_bm(n)]
+    x = [randn(n); 1.5 .+ randn(n)]
     c = [fill("a", n); fill("b", n)]
     df = (; x, c)
     data(df) * mapping(:x, color=:c) * density() *
@@ -772,7 +772,7 @@ end""",
 end""",
      () -> let
         n = 500
-        x = [randn_bm(n); 1.5 .+ randn_bm(n)]
+        x = [randn(n); 1.5 .+ randn(n)]
         c = [fill("a", n); fill("b", n)]
         df = (; x, c)
         data(df) * mapping(:x, color=:c) * density() *
@@ -785,14 +785,14 @@ end""",
     ("aog_ecdf", "ECDF Plot",
      "Empirical cumulative distribution function",
      """let n = 200
-    x = randn_bm(n)
+    x = randn(n)
     df = (; x)
     data(df) * mapping(:x) * visual(ECDFPlot) *
         config(title="ECDF Plot")
 end""",
      () -> let
         n = 200
-        x = randn_bm(n)
+        x = randn(n)
         df = (; x)
         data(df) * mapping(:x) * visual(ECDFPlot) *
             config(title="ECDF Plot")
@@ -801,7 +801,7 @@ end""",
     ("aog_ecdf_grouped", "Grouped ECDF",
      "ECDF with color grouping",
      """let n = 200
-    x = [randn_bm(n); 1.5 .+ randn_bm(n)]
+    x = [randn(n); 1.5 .+ randn(n)]
     c = [fill("a", n); fill("b", n)]
     df = (; x, c)
     data(df) * mapping(:x, color=:c) * visual(ECDFPlot) *
@@ -809,7 +809,7 @@ end""",
 end""",
      () -> let
         n = 200
-        x = [randn_bm(n); 1.5 .+ randn_bm(n)]
+        x = [randn(n); 1.5 .+ randn(n)]
         c = [fill("a", n); fill("b", n)]
         df = (; x, c)
         data(df) * mapping(:x, color=:c) * visual(ECDFPlot) *
@@ -834,7 +834,7 @@ end""",
     ("aog_histogram", "Stacked Histogram",
      "Histogram with color stacking",
      """let n = 500
-    x = [randn_bm(n); 1.0 .+ randn_bm(n)]
+    x = [randn(n); 1.0 .+ randn(n)]
     c = [fill("a", n); fill("b", n)]
     df = (; x, c)
     data(df) * mapping(:x, color=:c, stack=:c) * histogram() *
@@ -842,7 +842,7 @@ end""",
 end""",
      () -> let
         n = 500
-        x = [randn_bm(n); 1.0 .+ randn_bm(n)]
+        x = [randn(n); 1.0 .+ randn(n)]
         c = [fill("a", n); fill("b", n)]
         df = (; x, c)
         data(df) * mapping(:x, color=:c, stack=:c) * histogram() *
@@ -855,14 +855,14 @@ end""",
     ("aog_linear", "Linear Regression",
      "linear() + Scatter",
      """let x = [0.01i for i in 1:100]
-    y = [xi + 0.3 * randn_bm(1)[1] for xi in x]
+    y = [xi + 0.3 * randn(1)[1] for xi in x]
     df = (; x, y)
     data(df) * mapping(:x, :y) * (linear() + visual(Scatter)) *
         config(title="Scatter + Linear Regression")
 end""",
      () -> let
         x = [0.01i for i in 1:100]
-        y = [xi + 0.3*randn_bm(1)[1] for xi in x]
+        y = [xi + 0.3*randn(1)[1] for xi in x]
         df = (; x, y)
         data(df) * mapping(:x, :y) * (linear() + visual(Scatter)) *
             config(title="Scatter + Linear Regression")
@@ -872,14 +872,14 @@ end""",
     ("aog_smooth", "Smooth Regression",
      "smooth() + Scatter (loess)",
      """let x = [0.01i for i in 1:100]
-    y = [5*xi^2 + 0.3*randn_bm(1)[1] for xi in x]
+    y = [5*xi^2 + 0.3*randn(1)[1] for xi in x]
     df = (; x, y)
     data(df) * mapping(:x, :y) * (smooth() + visual(Scatter)) *
         config(title="Scatter + Smooth (Loess)")
 end""",
      () -> let
         x = [0.01i for i in 1:100]
-        y = [5*xi^2 + 0.3*randn_bm(1)[1] for xi in x]
+        y = [5*xi^2 + 0.3*randn(1)[1] for xi in x]
         df = (; x, y)
         data(df) * mapping(:x, :y) * (smooth() + visual(Scatter)) *
             config(title="Scatter + Smooth (Loess)")
@@ -890,7 +890,7 @@ end""",
      "Linear regression with confidence ribbon (AoG linear(interval=:confidence))",
      """let x = [0.05i for i in 1:200]
     a = [isodd(i) ? "1" : "2" for i in 1:200]
-    y = [1.2*xi*parse(Int,ai) + parse(Int,ai) + 5*randn_bm(1)[1] for (xi,ai) in zip(x,a)]
+    y = [1.2*xi*parse(Int,ai) + parse(Int,ai) + 5*randn(1)[1] for (xi,ai) in zip(x,a)]
     df = (; x, y, a)
     data(df) * mapping(:x, :y, color=:a) * (linear(interval=:confidence) + visual(Scatter)) *
         config(title="Linear + Confidence Band")
@@ -898,7 +898,7 @@ end""",
      () -> let
         x = [0.05i for i in 1:200]
         a = [isodd(i) ? "1" : "2" for i in 1:200]
-        y = [1.2*xi*parse(Int,ai) + parse(Int,ai) + 5*randn_bm(1)[1] for (xi,ai) in zip(x,a)]
+        y = [1.2*xi*parse(Int,ai) + parse(Int,ai) + 5*randn(1)[1] for (xi,ai) in zip(x,a)]
         df = (; x, y, a)
         data(df) * mapping(:x, :y, color=:a) * (linear(interval=:confidence) + visual(Scatter)) *
             config(height=300, title="Linear + Confidence Band")
@@ -909,7 +909,7 @@ end""",
      "Smooth regression with confidence ribbon (AoG smooth())",
      """let x = [0.05i for i in 1:200]
     a = [isodd(i) ? "1" : "2" for i in 1:200]
-    y = [sin(xi)*parse(Int,ai) + parse(Int,ai) + 0.5*randn_bm(1)[1] for (xi,ai) in zip(x,a)]
+    y = [sin(xi)*parse(Int,ai) + parse(Int,ai) + 0.5*randn(1)[1] for (xi,ai) in zip(x,a)]
     df = (; x, y, a)
     data(df) * mapping(:x, :y, color=:a) * (smooth(interval=:confidence) + visual(Scatter)) *
         config(title="Smooth + Confidence Band")
@@ -917,7 +917,7 @@ end""",
      () -> let
         x = [0.05i for i in 1:200]
         a = [isodd(i) ? "1" : "2" for i in 1:200]
-        y = [sin(xi)*parse(Int,ai) + parse(Int,ai) + 0.5*randn_bm(1)[1] for (xi,ai) in zip(x,a)]
+        y = [sin(xi)*parse(Int,ai) + parse(Int,ai) + 0.5*randn(1)[1] for (xi,ai) in zip(x,a)]
         df = (; x, y, a)
         data(df) * mapping(:x, :y, color=:a) * (smooth(interval=:confidence) + visual(Scatter)) *
             config(height=300, title="Smooth + Confidence Band")
@@ -931,7 +931,9 @@ end""",
      """let N = 200
     i = [isodd(k) ? "α" : "β" for k in 1:N]
     j = [["a","b","c"][mod1(k,3)] for k in 1:N]
-    df = (; x=rand(N), y=rand(N), i, j)
+    x = [0.01k + 0.3*randn(1)[1] for k in 1:N]
+    y = [0.01k + 0.3*randn(1)[1] for k in 1:N]
+    df = (; x, y, i, j)
     data(df) * mapping(:x, :y, row=:i, col=:j) * visual(Scatter) *
         config(title="Facet Grid")
 end""",
@@ -939,8 +941,8 @@ end""",
         N = 200
         i = [isodd(k) ? "α" : "β" for k in 1:N]
         j = [["a","b","c"][mod1(k,3)] for k in 1:N]
-        x = [0.01k + 0.3*randn_bm(1)[1] for k in 1:N]
-        y = [0.01k + 0.3*randn_bm(1)[1] for k in 1:N]
+        x = [0.01k + 0.3*randn(1)[1] for k in 1:N]
+        y = [0.01k + 0.3*randn(1)[1] for k in 1:N]
         df = (; x, y, i, j)
         data(df) * mapping(:x, :y, row=:i, col=:j) * visual(Scatter) *
             config(title="Facet Grid")
@@ -949,7 +951,7 @@ end""",
 
     ("aog_facet_wrap", "Facet Wrap",
      "Layout wrapping with 5 groups",
-     """let df = (x=rand(100), y=rand(100), l=rand(["a","b","c","d","e"], 100))
+     """let df = (x=rand(100), y=rand(100), l=[["a","b","c","d","e"][mod1(k,5)] for k in 1:100])
     data(df) * mapping(:x, :y, col=:l) * visual(Scatter) *
         config(title="Facet Wrap", columns=3)
 end""",
@@ -962,7 +964,9 @@ end""",
 
     ("aog_facet_multi_layer", "Faceted Multi-Layer",
      "Scatter + Lines across facets from different data",
-     """let df1 = (x=rand(100), y=rand(100), i=rand(["a","b","c"], 100), j=rand(["d","e","f"], 100))
+     """let df1 = (x=rand(100), y=rand(100),
+               i=[["a","b","c"][mod1(k,3)] for k in 1:100],
+               j=[["d","e","f"][mod1(k,3)] for k in 1:100])
     df2 = (x=[0.0,1.0], y=[0.5,0.5], i=["a","a"], j=["e","e"])
     layers = data(df1) * visual(Scatter) + data(df2) * visual(Lines)
     layers * mapping(:x, :y, col=:i, row=:j) *
@@ -984,8 +988,8 @@ end""",
     ("aog_timeseries", "Time Series",
      "Multi-series line plot over dates",
      """let dates = ["2025-01-\$(lpad(d,2,'0'))" for d in 1:31]
-    y1 = cumsum(randn_bm(31))
-    y2 = cumsum(randn_bm(31))
+    y1 = cumsum(randn(31))
+    y2 = cumsum(randn(31))
     n = length(dates)
     df = (; date=[dates;dates], value=[y1;y2], series=[fill("y",n);fill("z",n)])
     data(df) * mapping(:date, :value, color=:series) * visual(Lines) *
@@ -993,8 +997,8 @@ end""",
 end""",
      () -> let
         dates = ["2025-01-$(lpad(d,2,'0'))" for d in 1:31]
-        y1 = cumsum(randn_bm(31))
-        y2 = cumsum(randn_bm(31))
+        y1 = cumsum(randn(31))
+        y2 = cumsum(randn(31))
         n = length(dates)
         df = (; date=[dates;dates], value=[y1;y2], series=[fill("y",n);fill("z",n)])
         data(df) * mapping(:date, :value, color=:series) * visual(Lines) *
@@ -1005,7 +1009,7 @@ end""",
     ("aog_timeseries_box", "Time Series Box Plot",
      "Box plot of observations per date",
      """let dates = ["2025-01-\$(lpad(d,2,'0'))" for d in 1:15]
-    trend = cumsum(randn_bm(15))
+    trend = cumsum(randn(15))
     rows_date = String[]
     rows_obs = Float64[]
     for _ in 1:500
@@ -1019,7 +1023,7 @@ end""",
 end""",
      () -> let
         dates = ["2025-01-$(lpad(d,2,'0'))" for d in 1:15]
-        trend = cumsum(randn_bm(15))
+        trend = cumsum(randn(15))
         rows_date = String[]
         rows_obs = Float64[]
         for _ in 1:500
@@ -1115,6 +1119,16 @@ obs = data(faceted_observations()) *
         (pred + obs) * config(width=180, height=120, title="Ribbon + Observations")
      end,
      "https://mjskay.github.io/ggdist/reference/stat_lineribbon.html"),
+
+    ("ppc_overlay", "PPC Overlay", "ppc_overlay recipe: observations + predictions + truth with independent scales",
+     """ppc_overlay(
+    faceted_observations(), faceted_regression_predictions();
+    x=:x, y=:y, col=:panel, row=:site, group=:draw,
+) * config(width=180, height=120, independent_scales=true) |> vdraw""",
+     () -> ppc_overlay(
+        faceted_observations(), faceted_regression_predictions();
+        x=:x, y=:y, col=:panel, row=:site, group=:draw,
+    ) * config(width=180, height=120, independent_scales=true)),
 
     ("ribbon_only", "Ribbon (no line)", "tidybayes-style: uncertainty ribbons without median line",
      """data(regression_predictions()) *
@@ -1382,7 +1396,6 @@ end
 
 @htmx struct AppContext
     req = nothing
-    md = wants_markdown(req)
 
     flag_button(id) = begin
         flagged = id in load_flags()
@@ -1438,7 +1451,7 @@ end
         ("AoG: Composition Patterns" => ["aog_scatter_regression", "aog_scatter_smooth", "aog_bar_line_combo", "aog_stacked_area", "aog_color_regression"]),
         ("AoG: Layout" => ["aog_facet", "aog_facet_wrap", "aog_facet_multi_layer", "aog_facet_regression"]),
         ("AoG: Applications" => ["aog_timeseries", "aog_timeseries_box", "aog_2d_histogram"]),
-        ("Uncertainty (tidybayes)" => ["pointinterval", "halfeye", "gradient_interval", "lineribbon", "lineribbon_grouped", "lineribbon_faceted", "lineribbon_overlay", "ribbon_only", "dotinterval", "raincloud"]),
+        ("Uncertainty (tidybayes)" => ["pointinterval", "halfeye", "gradient_interval", "lineribbon", "lineribbon_grouped", "lineribbon_faceted", "lineribbon_overlay", "ppc_overlay", "ribbon_only", "dotinterval", "raincloud"]),
     ]
 
     gallery_section(section_title, ids) = begin
@@ -1527,24 +1540,15 @@ end
         extra_head=vega_head(),
     )
 
-    @get index = if md
-        markdown_response(join(["$(p[1]): $(p[2]) — $(p[3])" for p in PLOTS], "\n"))
-    else
-        page[gallery_index]
-    end
+    @get index = gallery_index
 
     @get plot(id) = begin
         entry = find_plot(id)
-        if !isnothing(entry) && md
+        if !isnothing(entry) && wants_markdown(req)
             spec = entry[5]()
             json_response(JSON.json(to_vegalite(spec), 2))
         else
-            fragment = plot_detail[id]
-            if is_htmx(req)
-                fragment
-            else
-                page[fragment]
-            end
+            plot_detail[id]
         end
     end
 
@@ -1594,7 +1598,7 @@ end
                 ),
             )
         end
-        page[content]
+        content
     end
 
     @get spec(id) = begin
@@ -1655,17 +1659,17 @@ end
         # Test case 1: basic with renamer
         spec1 = pregrouped(
             fill.(1:3, 100) => renamer(["A", "B", "C"]),
-            [randn_bm(100) for _ in 1:3]
+            [randn(100) for _ in 1:3]
         ) * visual(BoxPlot) * config(title="1. Basic with renamer")
 
         # Test case 2: without renamer
         spec2 = pregrouped(
             fill.(1:2, 50),
-            [randn_bm(50) for _ in 1:2]
+            [randn(50) for _ in 1:2]
         ) * visual(BoxPlot) * config(title="2. Without renamer")
 
         # Test case 3: Bruno QT pattern (axes/eachcol)
-        cdslope = randn_bm(5000)
+        cdslope = randn(5000)
         cdslope_mat = reshape(cdslope, 1000, 5)
         spec3 = pregrouped(
             fill.(axes(cdslope_mat, 2), size(cdslope_mat, 1)) => renamer(string.([0, 10, 20, 40, 80])),
@@ -1701,13 +1705,10 @@ end
 
     EXPLORER_DATASETS = default_explorer_datasets()
 
-    @get explorer = begin
-        content = h.div(
-            explorer_widget(EXPLORER_DATASETS),
-            h.a("← Back to gallery"; href="/", style="display:inline-block; margin-top:1rem;"),
-        )
-        page[content]
-    end
+    @get explorer = h.div(
+        explorer_widget(EXPLORER_DATASETS),
+        h.a("← Back to gallery"; href="/", style="display:inline-block; margin-top:1rem;"),
+    )
 
     # --- Interactive demo: Brush → Server Stats ---
 
@@ -1769,8 +1770,7 @@ end
         end
     end
 
-    @get demo_brush = begin
-        fragment = h.div(
+    @get demo_brush = h.div(
             plot_nav("demo_brush"),
             h.h2("Brush → Server Stats"),
             h.p("Drag a selection on the scatter plot. The brush bounds are sent to the server via HTMX, ",
@@ -1793,19 +1793,13 @@ vdraw(spec;
 #   GET /brush_stats?horsepower=[50,200]&mpg=[15,30]
 # Server computes stats and returns HTML fragment.""");
                 style="background:var(--pico-code-background-color); padding:1rem; border-radius:0.5rem; overflow-x:auto;"),
-        )
-        if is_htmx(req)
-            fragment
-        else
-            page[fragment]
-        end
-    end
+    )
 
     # --- Interactive demo: Server-side data update ---
 
     @get demo_update = begin
         origins = ["All", "USA", "Europe", "Japan"]
-        fragment = h.div(
+        h.div(
             plot_nav("demo_update"),
             h.h2("Server-Side Data Filtering"),
             h.p("Click a button to fetch filtered data from the server. ",
@@ -1835,11 +1829,6 @@ vdraw(spec;
 end""");
                 style="background:var(--pico-code-background-color); padding:1rem; border-radius:0.5rem; overflow-x:auto;"),
         )
-        if is_htmx(req)
-            fragment
-        else
-            page[fragment]
-        end
     end
 
     @get filter_data(origin) = begin
