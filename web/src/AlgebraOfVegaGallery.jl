@@ -5,9 +5,7 @@ using AlgebraOfVega
 using JSON
 using TestModules, Random, Tables
 
-TestModules.defer!()
 include("test/runtests.jl")
-TestModules.undefer!()
 
 # --- Sample datasets (from AlgebraOfVega.datasets) ---
 # Local aliases to keep existing plot code unchanged
