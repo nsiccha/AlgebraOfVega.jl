@@ -1,6 +1,8 @@
 using TestModules
 using AlgebraOfVega
+using AlgebraOfGraphics
 using Tables
+using HTMX
 
 @testset "classify_columns" begin
     nt = AlgebraOfVega.sample_cars()
@@ -279,6 +281,207 @@ end
     layer = pregrouped(fill.(1:2, 5), [randn(5) for _ in 1:2])
     # pregrouped() returns a single Layer (data * mapping)
     @test AlgebraOfVega.is_pregrouped(layer)
+end
+
+@testset "vdata alias" begin
+    df = (; x=[1, 2, 3], y=[4, 5, 6])
+    # vdata should work identically to data
+    spec1 = data(df) * mapping(:x, :y) * visual(Scatter)
+    spec2 = vdata(df) * mapping(:x, :y) * visual(Scatter)
+    @test to_vegalite(spec1) == to_vegalite(spec2)
+end
+
+@testset "independent_scales config" begin
+    df = (; x=[1, 2], y=[3, 4], g=["a", "b"])
+
+    # independent_scales=true → resolve both axes
+    spec = data(df) * mapping(:x, :y, col=:g) * visual(Scatter) *
+        config(independent_scales=true)
+    vl = to_vegalite(spec)
+    @test haskey(vl, "resolve")
+    @test vl["resolve"]["scale"]["x"] == "independent"
+    @test vl["resolve"]["scale"]["y"] == "independent"
+
+    # independent_scales=:x → only x
+    spec2 = data(df) * mapping(:x, :y) * visual(Scatter) *
+        config(independent_scales=:x)
+    vl2 = to_vegalite(spec2)
+    @test vl2["resolve"]["scale"]["x"] == "independent"
+    @test !haskey(vl2["resolve"]["scale"], "y")
+
+    # independent_scales=(:x, :y) → explicit tuple
+    spec3 = data(df) * mapping(:x, :y) * visual(Scatter) *
+        config(independent_scales=(:x, :y))
+    vl3 = to_vegalite(spec3)
+    @test vl3["resolve"]["scale"]["x"] == "independent"
+    @test vl3["resolve"]["scale"]["y"] == "independent"
+end
+
+@testset "VL helpers" begin
+    # vl_enc
+    enc = AlgebraOfVega.vl_enc(:x; type="quantitative", title="X axis")
+    @test enc["field"] == "x"
+    @test enc["type"] == "quantitative"
+    @test enc["title"] == "X axis"
+
+    # vl_enc filters nothing
+    enc2 = AlgebraOfVega.vl_enc(:y; type=nothing)
+    @test enc2["field"] == "y"
+    @test !haskey(enc2, "type")
+
+    # vl_mark — string when no kwargs
+    @test AlgebraOfVega.vl_mark("point") == "point"
+
+    # vl_mark — dict with kwargs
+    m = AlgebraOfVega.vl_mark("line"; strokeWidth=2, color="red")
+    @test m["type"] == "line"
+    @test m["strokeWidth"] == 2
+    @test m["color"] == "red"
+
+    # vl_tooltips
+    encoding = Dict{String,Any}(
+        "x" => Dict{String,Any}("field" => "hp", "type" => "quantitative"),
+        "y" => Dict{String,Any}("field" => "mpg", "type" => "quantitative"),
+        "color" => Dict{String,Any}("field" => "origin", "type" => "nominal"),
+        "opacity" => Dict{String,Any}("value" => 0.5),  # no field → skipped
+    )
+    tt = AlgebraOfVega.vl_tooltips(encoding)
+    @test length(tt) == 3
+    fields = Set(d["field"] for d in tt)
+    @test fields == Set(["hp", "mpg", "origin"])
+end
+
+@testset "extract_transformation generic" begin
+    # TidybayesAnalysis
+    layer = data((; x=[1.0], y=[1.0])) * mapping(:x, :y, group=:x) * lineribbon()
+    a = AlgebraOfVega.extract_transformation(layer, AlgebraOfVega.TidybayesAnalysis)
+    @test a isa AlgebraOfVega.LineRibbonAnalysis
+
+    # DensityAnalysis
+    layer2 = data((; x=[1.0])) * mapping(:x) * density()
+    a2 = AlgebraOfVega.extract_transformation(layer2, AlgebraOfGraphics.DensityAnalysis)
+    @test !isnothing(a2)
+
+    # Returns nothing for wrong type
+    a3 = AlgebraOfVega.extract_transformation(layer, AlgebraOfGraphics.DensityAnalysis)
+    @test isnothing(a3)
+
+    # Plain visual layer → no analysis
+    layer3 = data((; x=[1.0])) * mapping(:x) * visual(Scatter)
+    a4 = AlgebraOfVega.extract_transformation(layer3, AlgebraOfVega.TidybayesAnalysis)
+    @test isnothing(a4)
+end
+
+@testset "layer_to_vl dispatch" begin
+    # Plain layer
+    df = (; x=[1, 2], y=[3, 4])
+    vl = to_vegalite(data(df) * mapping(:x, :y) * visual(Scatter))
+    @test vl["mark"] == "point"
+    @test haskey(vl, "\$schema")
+
+    # Density → dispatched correctly
+    vl2 = to_vegalite(data(df) * mapping(:x) * density())
+    @test haskey(vl2, "transform")
+
+    # Histogram → dispatched correctly
+    vl3 = to_vegalite(data(df) * mapping(:x) * histogram())
+    @test vl3["mark"] == "bar"
+    @test vl3["encoding"]["x"]["bin"] == true
+
+    # Lineribbon → dispatched correctly
+    pred = (; x=[1.0, 1.0, 2.0, 2.0], y=[3.0, 4.0, 5.0, 6.0], d=[1, 2, 1, 2])
+    vl4 = to_vegalite(data(pred) * mapping(:x, :y, group=:d) * lineribbon())
+    @test haskey(vl4, "layer")
+
+    # ECDF → dispatched correctly
+    vl5 = to_vegalite(data(df) * mapping(:x) * visual(ECDFPlot))
+    @test vl5["mark"]["interpolate"] == "step-after"
+
+    # Schema only at top level, not in sublayers
+    layers = data(df) * mapping(:x, :y) * (visual(Scatter) + visual(Lines))
+    vl6 = to_vegalite(layers)
+    @test haskey(vl6, "\$schema")
+    for sl in vl6["layer"]
+        @test !haskey(sl, "\$schema")
+    end
+end
+
+@testset "ecdf_grid" begin
+    tbl = (; alpha=collect(1.0:10.0), beta=collect(11.0:20.0), chain=repeat(1:2, 5))
+    grid = ecdf_grid(tbl, [:alpha, :beta]; group=:chain)
+    @test grid isa HTMX.Node
+    s = string(grid)
+    @test occursin("alpha", s)
+    @test occursin("beta", s)
+
+    # Without group
+    grid2 = ecdf_grid(tbl, [:alpha])
+    @test grid2 isa HTMX.Node
+end
+
+@testset "ppc_overlay" begin
+    obs = (; x=[1.0, 2.0, 3.0], y=[4.0, 5.0, 6.0])
+    pred = (; x=[1.0, 1.0, 2.0, 2.0, 3.0, 3.0], y=[3.5, 4.5, 4.5, 5.5, 5.5, 6.5], draw=[1, 2, 1, 2, 1, 2])
+
+    # Basic overlay returns Layers
+    layers = ppc_overlay(obs, pred; x=:x, y=:y, group=:draw)
+    @test layers isa AlgebraOfGraphics.Layers
+
+    # Composable with config
+    spec = layers * config(width=300, height=200, independent_scales=true)
+    vl = to_vegalite(spec)
+    @test haskey(vl, "resolve")
+
+    # With truth data
+    truth = (; x=[1.0, 2.0, 3.0], y=[4.1, 5.1, 6.1])
+    layers2 = ppc_overlay(obs, pred; x=:x, y=:y, group=:draw, truth=truth)
+    @test layers2 isa AlgebraOfGraphics.Layers
+    # truth adds a third layer
+    @test length(layers2.layers) == length(layers.layers) + 1
+
+    # With color (model comparison)
+    pred2 = (; x=pred.x, y=pred.y, draw=pred.draw, model=repeat(["A"], 6))
+    layers3 = ppc_overlay(obs, pred2; x=:x, y=:y, group=:draw, color=:model)
+    @test layers3 isa AlgebraOfGraphics.Layers
+end
+
+@testset "VL_SCHEMA constant" begin
+    @test AlgebraOfVega.VL_SCHEMA == "https://vega.github.io/schema/vega-lite/v5.json"
+
+    # All top-level specs should have schema
+    df = (; x=[1], y=[2])
+    vl = to_vegalite(data(df) * mapping(:x, :y) * visual(Scatter))
+    @test vl["\$schema"] == AlgebraOfVega.VL_SCHEMA
+end
+
+@testset "lookup tables" begin
+    # _MARK_MAP coverage
+    @test AlgebraOfVega.plottype_to_mark(Scatter) == "point"
+    @test AlgebraOfVega.plottype_to_mark(Lines) == "line"
+    @test AlgebraOfVega.plottype_to_mark(BarPlot) == "bar"
+    @test AlgebraOfVega.plottype_to_mark(BoxPlot) == "boxplot"
+    @test AlgebraOfVega.plottype_to_mark(ECDFPlot) == "line"
+    @test_throws ErrorException AlgebraOfVega.plottype_to_mark(Int)  # unsupported
+
+    # _MARK_PROPS
+    @test AlgebraOfVega.plottype_to_mark_props(ScatterLines) == Dict{String,Any}("point" => true)
+    @test AlgebraOfVega.plottype_to_mark_props(Stairs) == Dict{String,Any}("interpolate" => "step-after")
+    @test AlgebraOfVega.plottype_to_mark_props(Scatter) == Dict{String,Any}()
+
+    # _CHANNEL_MAP
+    @test AlgebraOfVega.aog_named_to_vl_channel(:color) == "color"
+    @test AlgebraOfVega.aog_named_to_vl_channel(:col) == "column"
+    @test AlgebraOfVega.aog_named_to_vl_channel(:row) == "row"
+    @test AlgebraOfVega.aog_named_to_vl_channel(:group) == "detail"
+    @test AlgebraOfVega.aog_named_to_vl_channel(:stack) === nothing
+    @test AlgebraOfVega.aog_named_to_vl_channel(:unknown_thing) == "unknown_thing"  # passthrough
+
+    # selector_to_field dispatch
+    @test AlgebraOfVega.selector_to_field(:foo)["field"] == "foo"
+    @test AlgebraOfVega.selector_to_field(3)["field"] == "column_3"
+    p = AlgebraOfVega.selector_to_field(:col => "Label")
+    @test p["field"] == "col"
+    @test p["title"] == "Label"
 end
 
 @testset "ECDFPlot" begin
