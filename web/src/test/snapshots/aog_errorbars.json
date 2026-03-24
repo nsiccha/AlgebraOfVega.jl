@@ -1,0 +1,106 @@
+{
+  "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+  "layer": [
+    {
+      "encoding": {
+        "tooltip": [
+          {
+            "field": "category",
+            "type": "nominal"
+          },
+          {
+            "field": "mean",
+            "type": "quantitative"
+          }
+        ],
+        "x": {
+          "field": "category",
+          "type": "nominal"
+        },
+        "y": {
+          "field": "mean",
+          "type": "quantitative"
+        }
+      },
+      "params": [
+        {
+          "name": "grid",
+          "bind": "scales",
+          "select": {
+            "encodings": [
+              "y"
+            ],
+            "type": "interval"
+          }
+        }
+      ],
+      "mark": "point"
+    },
+    {
+      "encoding": {
+        "tooltip": [
+          {
+            "field": "category",
+            "type": "nominal"
+          },
+          {
+            "field": "hi",
+            "type": "quantitative"
+          },
+          {
+            "field": "lo",
+            "type": "quantitative"
+          }
+        ],
+        "x": {
+          "field": "category",
+          "type": "nominal"
+        },
+        "y2": {
+          "field": "hi",
+          "type": "quantitative"
+        },
+        "y": {
+          "field": "lo",
+          "type": "quantitative"
+        }
+      },
+      "mark": "errorbar"
+    }
+  ],
+  "data": {
+    "values": [
+      {
+        "hi": 4.7,
+        "category": "A",
+        "mean": 4.2,
+        "lo": 3.7
+      },
+      {
+        "hi": 4.1,
+        "category": "B",
+        "mean": 3.8,
+        "lo": 3.5
+      },
+      {
+        "hi": 5.8,
+        "category": "C",
+        "mean": 5.1,
+        "lo": 4.3999999999999995
+      },
+      {
+        "hi": 5.0,
+        "category": "D",
+        "mean": 4.6,
+        "lo": 4.199999999999999
+      },
+      {
+        "hi": 4.1,
+        "category": "E",
+        "mean": 3.5,
+        "lo": 2.9
+      }
+    ]
+  },
+  "title": "Estimates with Error Bars"
+}

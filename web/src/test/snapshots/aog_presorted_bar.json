@@ -1,0 +1,97 @@
+{
+  "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+  "encoding": {
+    "tooltip": [
+      {
+        "field": "countries",
+        "type": "nominal"
+      },
+      {
+        "field": "group",
+        "type": "nominal"
+      },
+      {
+        "field": "value",
+        "type": "quantitative"
+      }
+    ],
+    "x": {
+      "field": "countries",
+      "type": "nominal"
+    },
+    "color": {
+      "field": "group",
+      "type": "nominal"
+    },
+    "opacity": {
+      "condition": {
+        "param": "legend_selection",
+        "value": 1,
+        "empty": true
+      },
+      "value": 0.15
+    },
+    "y": {
+      "field": "value",
+      "type": "quantitative"
+    }
+  },
+  "data": {
+    "values": [
+      {
+        "countries": "Algeria",
+        "value": 2.72,
+        "group": "2"
+      },
+      {
+        "countries": "Bolivia",
+        "value": 0.84,
+        "group": "3"
+      },
+      {
+        "countries": "China",
+        "value": 1.41,
+        "group": "1"
+      },
+      {
+        "countries": "Denmark",
+        "value": 2.72,
+        "group": "1"
+      },
+      {
+        "countries": "Ecuador",
+        "value": 0.84,
+        "group": "3"
+      },
+      {
+        "countries": "France",
+        "value": 1.41,
+        "group": "2"
+      }
+    ]
+  },
+  "title": "Presorted Bar Chart",
+  "params": [
+    {
+      "name": "grid",
+      "bind": "scales",
+      "select": {
+        "encodings": [
+          "y"
+        ],
+        "type": "interval"
+      }
+    },
+    {
+      "name": "legend_selection",
+      "bind": "legend",
+      "select": {
+        "fields": [
+          "group"
+        ],
+        "type": "point"
+      }
+    }
+  ],
+  "mark": "bar"
+}

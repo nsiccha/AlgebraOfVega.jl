@@ -1,0 +1,249 @@
+{
+  "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+  "height": 200,
+  "layer": [
+    {
+      "encoding": {
+        "x2": {
+          "field": "hi_0_95_"
+        },
+        "x": {
+          "field": "lo_0_95_",
+          "title": "value",
+          "type": "quantitative"
+        },
+        "color": {
+          "field": "parameter",
+          "type": "nominal",
+          "legend": null
+        },
+        "tooltip": [
+          {
+            "field": "__point__",
+            "title": "value (estimate)",
+            "type": "quantitative"
+          },
+          {
+            "field": "parameter",
+            "type": "nominal"
+          },
+          {
+            "field": "lo_0_95_",
+            "title": "95% lo",
+            "type": "quantitative"
+          },
+          {
+            "field": "hi_0_95_",
+            "title": "95% hi",
+            "type": "quantitative"
+          }
+        ],
+        "opacity": {
+          "value": 0.2
+        },
+        "y": {
+          "axis": {
+            "title": null
+          },
+          "field": "parameter",
+          "type": "nominal"
+        }
+      },
+      "params": [
+        {
+          "name": "grid",
+          "bind": "scales",
+          "select": {
+            "encodings": [
+              "x"
+            ],
+            "type": "interval"
+          }
+        }
+      ],
+      "mark": {
+        "strokeWidth": 14,
+        "type": "rule"
+      }
+    },
+    {
+      "encoding": {
+        "x2": {
+          "field": "hi_0_8_"
+        },
+        "x": {
+          "field": "lo_0_8_",
+          "title": "value",
+          "type": "quantitative"
+        },
+        "color": {
+          "field": "parameter",
+          "type": "nominal",
+          "legend": null
+        },
+        "tooltip": [
+          {
+            "field": "__point__",
+            "title": "value (estimate)",
+            "type": "quantitative"
+          },
+          {
+            "field": "parameter",
+            "type": "nominal"
+          },
+          {
+            "field": "lo_0_95_",
+            "title": "95% lo",
+            "type": "quantitative"
+          },
+          {
+            "field": "hi_0_95_",
+            "title": "95% hi",
+            "type": "quantitative"
+          }
+        ],
+        "opacity": {
+          "value": 0.45
+        },
+        "y": {
+          "axis": {
+            "title": null
+          },
+          "field": "parameter",
+          "type": "nominal"
+        }
+      },
+      "mark": {
+        "strokeWidth": 14,
+        "type": "rule"
+      }
+    },
+    {
+      "encoding": {
+        "x2": {
+          "field": "hi_0_5_"
+        },
+        "x": {
+          "field": "lo_0_5_",
+          "title": "value",
+          "type": "quantitative"
+        },
+        "color": {
+          "field": "parameter",
+          "type": "nominal",
+          "legend": null
+        },
+        "tooltip": [
+          {
+            "field": "__point__",
+            "title": "value (estimate)",
+            "type": "quantitative"
+          },
+          {
+            "field": "parameter",
+            "type": "nominal"
+          },
+          {
+            "field": "lo_0_95_",
+            "title": "95% lo",
+            "type": "quantitative"
+          },
+          {
+            "field": "hi_0_95_",
+            "title": "95% hi",
+            "type": "quantitative"
+          }
+        ],
+        "opacity": {
+          "value": 0.7
+        },
+        "y": {
+          "axis": {
+            "title": null
+          },
+          "field": "parameter",
+          "type": "nominal"
+        }
+      },
+      "mark": {
+        "strokeWidth": 14,
+        "type": "rule"
+      }
+    },
+    {
+      "encoding": {
+        "tooltip": [
+          {
+            "field": "__point__",
+            "title": "value (estimate)",
+            "type": "quantitative"
+          },
+          {
+            "field": "parameter",
+            "type": "nominal"
+          },
+          {
+            "field": "lo_0_95_",
+            "title": "95% lo",
+            "type": "quantitative"
+          },
+          {
+            "field": "hi_0_95_",
+            "title": "95% hi",
+            "type": "quantitative"
+          }
+        ],
+        "x": {
+          "field": "__point__",
+          "type": "quantitative"
+        },
+        "y": {
+          "field": "parameter",
+          "type": "nominal"
+        }
+      },
+      "mark": {
+        "filled": true,
+        "color": "white",
+        "size": 50,
+        "type": "point"
+      }
+    }
+  ],
+  "data": {
+    "values": [
+      {
+        "parameter": "α",
+        "lo_0_95_": 0.931223453183555,
+        "lo_0_8_": 1.2702177424323537,
+        "hi_0_8_": 2.643646983973496,
+        "hi_0_5_": 2.286664029260455,
+        "__point__": 1.9562244052457878,
+        "hi_0_95_": 2.949552501754273,
+        "lo_0_5_": 1.6320925348880126
+      },
+      {
+        "parameter": "β",
+        "lo_0_95_": 0.12274176556735561,
+        "lo_0_8_": 0.3491826162493364,
+        "hi_0_8_": 1.1749482985682296,
+        "hi_0_5_": 0.9740794774092976,
+        "__point__": 0.772261965294775,
+        "hi_0_95_": 1.39710186320512,
+        "lo_0_5_": 0.5669202906421746
+      },
+      {
+        "parameter": "σ",
+        "lo_0_95_": 1.2053598485905757,
+        "lo_0_8_": 1.224372455751584,
+        "hi_0_8_": 1.539419656919237,
+        "hi_0_5_": 1.4463961930206972,
+        "__point__": 1.338500420509818,
+        "hi_0_95_": 1.6299895692033495,
+        "lo_0_5_": 1.263995932766207
+      }
+    ]
+  },
+  "title": "Gradient Interval (tidybayes-style)",
+  "width": 500
+}

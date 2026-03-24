@@ -1,0 +1,95 @@
+{
+  "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+  "encoding": {
+    "xOffset": {
+      "field": "group",
+      "type": "nominal"
+    },
+    "tooltip": [
+      {
+        "field": "group",
+        "type": "nominal"
+      },
+      {
+        "field": "x",
+        "type": "nominal"
+      },
+      {
+        "field": "group",
+        "type": "nominal"
+      },
+      {
+        "field": "y",
+        "type": "quantitative"
+      }
+    ],
+    "x": {
+      "field": "x",
+      "type": "nominal"
+    },
+    "color": {
+      "field": "group",
+      "type": "nominal"
+    },
+    "opacity": {
+      "condition": {
+        "param": "legend_selection",
+        "value": 1,
+        "empty": true
+      },
+      "value": 0.15
+    },
+    "y": {
+      "field": "y",
+      "type": "quantitative"
+    }
+  },
+  "data": {
+    "values": [
+      {
+        "x": "One",
+        "group": "A",
+        "y": 1
+      },
+      {
+        "x": "One",
+        "group": "B",
+        "y": 2
+      },
+      {
+        "x": "Two",
+        "group": "A",
+        "y": 3
+      },
+      {
+        "x": "Two",
+        "group": "B",
+        "y": 4
+      }
+    ]
+  },
+  "title": "Dodged Bar Plot",
+  "params": [
+    {
+      "name": "grid",
+      "bind": "scales",
+      "select": {
+        "encodings": [
+          "y"
+        ],
+        "type": "interval"
+      }
+    },
+    {
+      "name": "legend_selection",
+      "bind": "legend",
+      "select": {
+        "fields": [
+          "group"
+        ],
+        "type": "point"
+      }
+    }
+  ],
+  "mark": "bar"
+}

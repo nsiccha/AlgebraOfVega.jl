@@ -1,0 +1,116 @@
+{
+  "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+  "spec": {
+    "layer": [
+      {
+        "encoding": {
+          "tooltip": [
+            {
+              "field": "i",
+              "type": "nominal"
+            },
+            {
+              "field": "x",
+              "type": "quantitative"
+            },
+            {
+              "field": "j",
+              "type": "nominal"
+            },
+            {
+              "field": "y",
+              "type": "quantitative"
+            }
+          ],
+          "x": {
+            "field": "x",
+            "type": "quantitative"
+          },
+          "y": {
+            "field": "y",
+            "type": "quantitative"
+          }
+        },
+        "params": [
+          {
+            "name": "grid",
+            "bind": "scales",
+            "select": {
+              "encodings": [
+                "x",
+                "y"
+              ],
+              "type": "interval"
+            }
+          }
+        ],
+        "mark": "point"
+      },
+      {
+        "encoding": {
+          "tooltip": [
+            {
+              "field": "i",
+              "type": "nominal"
+            },
+            {
+              "field": "x",
+              "type": "quantitative"
+            },
+            {
+              "field": "j",
+              "type": "nominal"
+            },
+            {
+              "field": "y",
+              "type": "quantitative"
+            }
+          ],
+          "x": {
+            "field": "x",
+            "type": "quantitative"
+          },
+          "y": {
+            "field": "y",
+            "type": "quantitative"
+          }
+        },
+        "mark": "line",
+        "transform": [
+          {
+            "filter": "datum.__src === '_s1'"
+          }
+        ]
+      }
+    ]
+  },
+  "data": {
+    "values": [
+      {
+        "i": "a",
+        "__src": "_s1",
+        "j": "e",
+        "x": 0.0,
+        "y": 0.5
+      },
+      {
+        "i": "a",
+        "__src": "_s1",
+        "j": "e",
+        "x": 1.0,
+        "y": 0.5
+      }
+    ]
+  },
+  "facet": {
+    "column": {
+      "field": "i",
+      "type": "nominal"
+    },
+    "row": {
+      "field": "j",
+      "type": "nominal"
+    }
+  },
+  "title": "Faceted Multi-Layer"
+}

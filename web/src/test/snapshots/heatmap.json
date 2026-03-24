@@ -1,0 +1,239 @@
+{
+  "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+  "height": 200,
+  "encoding": {
+    "tooltip": [
+      {
+        "field": "month",
+        "type": "nominal"
+      },
+      {
+        "field": "temp",
+        "type": "quantitative"
+      },
+      {
+        "field": "city",
+        "type": "nominal"
+      }
+    ],
+    "x": {
+      "field": "month",
+      "type": "nominal"
+    },
+    "color": {
+      "field": "temp",
+      "type": "quantitative"
+    },
+    "opacity": {
+      "condition": {
+        "param": "legend_selection",
+        "value": 1,
+        "empty": true
+      },
+      "value": 0.15
+    },
+    "y": {
+      "field": "city",
+      "type": "nominal"
+    }
+  },
+  "data": {
+    "values": [
+      {
+        "month": "Jan",
+        "city": "New York",
+        "temp": 0
+      },
+      {
+        "month": "Feb",
+        "city": "New York",
+        "temp": 1
+      },
+      {
+        "month": "Mar",
+        "city": "New York",
+        "temp": 5
+      },
+      {
+        "month": "Apr",
+        "city": "New York",
+        "temp": 12
+      },
+      {
+        "month": "May",
+        "city": "New York",
+        "temp": 18
+      },
+      {
+        "month": "Jun",
+        "city": "New York",
+        "temp": 24
+      },
+      {
+        "month": "Jul",
+        "city": "New York",
+        "temp": 27
+      },
+      {
+        "month": "Aug",
+        "city": "New York",
+        "temp": 26
+      },
+      {
+        "month": "Sep",
+        "city": "New York",
+        "temp": 22
+      },
+      {
+        "month": "Oct",
+        "city": "New York",
+        "temp": 15
+      },
+      {
+        "month": "Nov",
+        "city": "New York",
+        "temp": 8
+      },
+      {
+        "month": "Dec",
+        "city": "New York",
+        "temp": 3
+      },
+      {
+        "month": "Jan",
+        "city": "London",
+        "temp": 5
+      },
+      {
+        "month": "Feb",
+        "city": "London",
+        "temp": 5
+      },
+      {
+        "month": "Mar",
+        "city": "London",
+        "temp": 7
+      },
+      {
+        "month": "Apr",
+        "city": "London",
+        "temp": 10
+      },
+      {
+        "month": "May",
+        "city": "London",
+        "temp": 13
+      },
+      {
+        "month": "Jun",
+        "city": "London",
+        "temp": 16
+      },
+      {
+        "month": "Jul",
+        "city": "London",
+        "temp": 19
+      },
+      {
+        "month": "Aug",
+        "city": "London",
+        "temp": 18
+      },
+      {
+        "month": "Sep",
+        "city": "London",
+        "temp": 15
+      },
+      {
+        "month": "Oct",
+        "city": "London",
+        "temp": 11
+      },
+      {
+        "month": "Nov",
+        "city": "London",
+        "temp": 8
+      },
+      {
+        "month": "Dec",
+        "city": "London",
+        "temp": 5
+      },
+      {
+        "month": "Jan",
+        "city": "Tokyo",
+        "temp": 5
+      },
+      {
+        "month": "Feb",
+        "city": "Tokyo",
+        "temp": 6
+      },
+      {
+        "month": "Mar",
+        "city": "Tokyo",
+        "temp": 9
+      },
+      {
+        "month": "Apr",
+        "city": "Tokyo",
+        "temp": 15
+      },
+      {
+        "month": "May",
+        "city": "Tokyo",
+        "temp": 19
+      },
+      {
+        "month": "Jun",
+        "city": "Tokyo",
+        "temp": 23
+      },
+      {
+        "month": "Jul",
+        "city": "Tokyo",
+        "temp": 27
+      },
+      {
+        "month": "Aug",
+        "city": "Tokyo",
+        "temp": 28
+      },
+      {
+        "month": "Sep",
+        "city": "Tokyo",
+        "temp": 24
+      },
+      {
+        "month": "Oct",
+        "city": "Tokyo",
+        "temp": 18
+      },
+      {
+        "month": "Nov",
+        "city": "Tokyo",
+        "temp": 12
+      },
+      {
+        "month": "Dec",
+        "city": "Tokyo",
+        "temp": 7
+      }
+    ]
+  },
+  "title": "Monthly Temperatures by City",
+  "width": 500,
+  "mark": "rect",
+  "params": [
+    {
+      "name": "legend_selection",
+      "bind": "legend",
+      "select": {
+        "fields": [
+          "temp"
+        ],
+        "type": "point"
+      }
+    }
+  ]
+}
