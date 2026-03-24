@@ -1542,15 +1542,7 @@ end
 
     @get index = gallery_index
 
-    @get plot(id) = begin
-        entry = find_plot(id)
-        if !isnothing(entry) && wants_markdown(req)
-            spec = entry[5]()
-            json_response(JSON.json(to_vegalite(spec), 2))
-        else
-            plot_detail[id]
-        end
-    end
+    @get plot(id) = plot_detail[id]
 
     @get card_plot(id) = begin
         entry = find_plot(id)
@@ -1604,7 +1596,7 @@ end
     @get spec(id) = begin
         entry = find_plot(id)
         if isnothing(entry)
-            markdown_response("Unknown plot: $id")
+            "Unknown plot: $id"
         else
             spec = entry[5]()
             json_response(JSON.json(to_vegalite(spec), 2))
@@ -1632,7 +1624,7 @@ end
             nothing
         end
         if isnothing(layer)
-            markdown_response("Unknown: $expr")
+            "Unknown: $expr"
         else
             lines = String[]
             push!(lines, "typeof: $(typeof(layer))")
@@ -1650,7 +1642,7 @@ end
             if hasproperty(layer, :named)
                 push!(lines, "named: $(layer.named)")
             end
-            markdown_response(join(lines, "\n"))
+            join(lines, "\n")
         end
     end
 
