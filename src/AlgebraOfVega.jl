@@ -26,24 +26,73 @@ export Scatter, Lines, ScatterLines, BarPlot, Heatmap, BoxPlot,
     Contour, Violin, RainClouds, Rangebars, CrossBar, ECDFPlot
 
 # AlgebraOfVega exports
-export config, vdraw, vlspec
+export config, vdraw, vlspec, vdata
 export to_vegalite, to_json, to_html, to_node, vega_head
 export vega_runtime, update_data, vega_cdn_urls
 # Tidybayes-style analysis exports
 export pointinterval, gradient_interval, lineribbon, ribbon, dotinterval
+# High-level widget/recipe exports
+export ecdf_grid, ppc_overlay
 # Dataset exports
 export sample_cars, sample_tips, sample_stocks, sample_temperatures,
     sample_population, melt_population, sample_monthly_sales, melt_sales,
     sample_posterior_draws, sample_regression_predictions,
     sample_grouped_regression_predictions, sample_faceted_regression_predictions,
     sample_faceted_observations,
-    randn_bm, classify_columns, table_to_rows
+    classify_columns, table_to_rows
 # Explorer exports
 export default_explorer_datasets, explorer_widget, write_explorer_assets,
     explorer_controls_html, explorer_js, explorer_data_init_js
 
+"""
+    vdata(args...; kwargs...)
+
+Alias for `AlgebraOfGraphics.data`. Use when `data` clashes with a local variable
+(e.g. an HTMXObjects struct field named `data`).
+"""
+vdata(args...; kwargs...) = data(args...; kwargs...)
+
 include("datasets.jl")
 include("explorer.jl")
+
+# --- Vega-Lite constants and helpers ---
+
+"""Vega-Lite v5 JSON schema URL, injected at top level of every spec."""
+VL_SCHEMA = "https://vega.github.io/schema/vega-lite/v5.json"
+
+"""Build a VL encoding channel dict. Filters out `nothing` values."""
+function vl_enc(field; type=nothing, title=nothing, kwargs...)
+    d = Dict{String,Any}("field" => string(field))
+    !isnothing(type) && (d["type"] = type)
+    !isnothing(title) && (d["title"] = title)
+    for (k, v) in pairs(kwargs)
+        !isnothing(v) && (d[string(k)] = v)
+    end
+    d
+end
+
+"""Build a VL mark dict. If no extra props, returns just the type string."""
+function vl_mark(type; kwargs...)
+    isempty(kwargs) && return type
+    d = Dict{String,Any}("type" => type)
+    for (k, v) in pairs(kwargs)
+        d[string(k)] = v
+    end
+    d
+end
+
+"""Collect tooltip fields from an encoding dict (all channels that have a "field" key)."""
+function vl_tooltips(encoding)
+    tt = Dict{String,Any}[]
+    for (ch, enc) in encoding
+        enc isa Dict || continue
+        haskey(enc, "field") || continue
+        entry = Dict{String,Any}("field" => enc["field"])
+        haskey(enc, "type") && (entry["type"] = enc["type"])
+        push!(tt, entry)
+    end
+    tt
+end
 
 # --- Vega-specific types ---
 
@@ -60,6 +109,8 @@ Create a `Config` with Vega-Lite properties. Common options:
 - `encoding` — deep-merged with auto-generated encodings (add aggregate, scale, axis, etc.)
 - `params`, `transform` — VL interactivity parameters and data transforms
 - `select` — field(s) for client-side dropdown filtering (e.g. `select=:origin`)
+- `independent_scales` — sugar for VL `resolve`. `true` = both axes, `:x`/`:y` = one axis,
+  `(:x, :y)` = explicit. Replaces `resolve=Dict("scale" => Dict("x" => "independent", ...))`.
 
 Config is applied to a spec via `*`: `data(df) * mapping(:x, :y) * visual(Scatter) * config(width=500)`.
 """
@@ -86,38 +137,34 @@ Base.:*(c::Config, v::VegaSpec) = VegaSpec(v.drawable, c)
 
 # --- Makie → Vega-Lite mark mapping ---
 
-# Compare against the Plot{f} type aliases (e.g. Scatter = Plot{scatter})
+"""Makie plot type → VL mark string. Checked via `<:`, order matters for subtypes."""
+_MARK_MAP = [
+    Scatter => "point", Lines => "line", ScatterLines => "line",
+    BarPlot => "bar", Heatmap => "rect", BoxPlot => "boxplot",
+    Violin => "area", Band => "area", HLines => "rule", VLines => "rule",
+    Hist => "bar", MakieDensity => "area", Errorbars => "errorbar",
+    Stairs => "line", ECDFPlot => "line", Contour => "rect",
+    Rangebars => "errorbar", CrossBar => "errorbar", Makie.Text => "text",
+]
+
 function plottype_to_mark(T::Type)
-    T <: Scatter && return "point"
-    T <: Lines && return "line"
-    T <: ScatterLines && return "line"
-    T <: BarPlot && return "bar"
-    T <: Heatmap && return "rect"
-    T <: BoxPlot && return "boxplot"
-    T <: Violin && return "area"
-    T <: Band && return "area"
-    T <: HLines && return "rule"
-    T <: VLines && return "rule"
-    T <: Hist && return "bar"
-    T <: MakieDensity && return "area"
-    T <: Errorbars && return "errorbar"
-    T <: Stairs && return "line"
-    T <: ECDFPlot && return "line"
-    T <: Contour && return "rect"
-    T <: Rangebars && return "errorbar"
-    T <: CrossBar && return "errorbar"
-    T <: Makie.Text && return "text"
+    for (PT, mark) in _MARK_MAP
+        T <: PT && return mark
+    end
     error("Unsupported plot type for Vega-Lite: $T")
 end
 
+"""Extra VL mark properties that depend on Makie plot type (e.g. ScatterLines → point=true)."""
+_MARK_PROPS = [
+    ScatterLines => Dict{String,Any}("point" => true),
+    Stairs => Dict{String,Any}("interpolate" => "step-after"),
+]
+
 function plottype_to_mark_props(T::Type)
-    props = Dict{String,Any}()
-    if T <: ScatterLines
-        props["point"] = true
-    elseif T <: Stairs
-        props["interpolate"] = "step-after"
+    for (PT, props) in _MARK_PROPS
+        T <: PT && return props
     end
-    props
+    Dict{String,Any}()
 end
 
 _COMPOSITE_MARKS = Set(["boxplot", "errorbar", "errorband"])
@@ -130,54 +177,33 @@ end
 
 # --- AoG aesthetic name → Vega-Lite channel ---
 
-function aog_named_to_vl_channel(name::Symbol)
-    name === :color && return "color"
-    name === :strokecolor && return "stroke"
-    name === :marker && return "shape"
-    name === :markersize && return "size"
-    name === :linewidth && return "strokeWidth"
-    name === :linestyle && return "strokeDash"
-    name === :dodge_x && return "xOffset"
-    name === :dodge_y && return "yOffset"
-    name === :col && return "column"
-    name === :row && return "row"
-    name === :layout && return "facet"
-    name === :group && return "detail"
-    name === :stack && return nothing  # handled via stack property
-    return string(name)  # pass through unknown names
-end
+"""AoG aesthetic name → VL encoding channel. Returns `nothing` for `:stack` (handled separately)."""
+_CHANNEL_MAP = Dict{Symbol,Union{String,Nothing}}(
+    :color => "color", :strokecolor => "stroke", :marker => "shape",
+    :markersize => "size", :linewidth => "strokeWidth", :linestyle => "strokeDash",
+    :dodge_x => "xOffset", :dodge_y => "yOffset",
+    :col => "column", :row => "row", :layout => "facet",
+    :group => "detail", :stack => nothing,
+)
+
+aog_named_to_vl_channel(name::Symbol) = get(_CHANNEL_MAP, name, string(name))
 
 # --- Column selector → Vega-Lite field spec ---
 
-function selector_to_field(sel)
-    if sel isa Symbol
-        return Dict{String,Any}("field" => string(sel))
-    elseif sel isa Pair
-        src, dst = sel
-        if dst isa AbstractString
-            # :col => "Label" — rename
-            field = selector_to_field(src)
-            field["title"] = dst
-            return field
-        elseif dst isa Pair
-            # :col => func => "Label"
-            field = selector_to_field(src)
-            field["title"] = last(dst)
-            return field
-        elseif dst isa Function
-            # :col => func — transform (best effort: just use the field)
-            return selector_to_field(src)
-        else
-            return selector_to_field(src)
-        end
-    elseif sel isa Int
-        # Column by index — can't resolve without data, use as-is
-        return Dict{String,Any}("field" => "column_$sel")
-    else
-        # DirectData, Presorted, etc. — pass through as value
-        return Dict{String,Any}("value" => sel)
+selector_to_field(sel::Symbol) = Dict{String,Any}("field" => string(sel))
+selector_to_field(sel::Int) = Dict{String,Any}("field" => "column_$sel")
+function selector_to_field(sel::Pair)
+    src, dst = sel
+    field = selector_to_field(src)
+    if dst isa AbstractString
+        field["title"] = dst
+    elseif dst isa Pair
+        field["title"] = last(dst)
     end
+    # dst isa Function → transform (best effort: just use the field)
+    field
 end
+selector_to_field(sel) = Dict{String,Any}("value" => sel)  # DirectData, Presorted, etc.
 
 # --- Vega-Lite type inference ---
 
@@ -215,28 +241,8 @@ end
 function extract_visual(layer::AlgebraOfGraphics.Layer)
     t = layer.transformation
     t === identity && return nothing
-    if t isa AlgebraOfGraphics.Visual
-        return t
-    end
-    # For composed transformations, try to find the Visual
-    # AoG composes with ⨟ which creates ComposedFunction
-    if t isa ComposedFunction
-        # Walk the composition chain
-        v = extract_visual_from_composed(t)
-        !isnothing(v) && return v
-    end
-    nothing
-end
-
-function extract_visual_from_composed(f::ComposedFunction)
-    for part in (f.outer, f.inner)
-        if part isa AlgebraOfGraphics.Visual
-            return part
-        elseif part isa ComposedFunction
-            v = extract_visual_from_composed(part)
-            !isnothing(v) && return v
-        end
-    end
+    t isa AlgebraOfGraphics.Visual && return t
+    t isa ComposedFunction && return _extract_from_composed(t, AlgebraOfGraphics.Visual)
     nothing
 end
 
@@ -337,17 +343,8 @@ function pregrouped_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
     end
 
     # Auto tooltip
-    tooltip_fields = Dict{String,Any}[]
-    for (ch, enc) in encoding
-        enc isa Dict || continue
-        haskey(enc, "field") || continue
-        entry = Dict{String,Any}("field" => enc["field"])
-        haskey(enc, "type") && (entry["type"] = enc["type"])
-        push!(tooltip_fields, entry)
-    end
-    if !isempty(tooltip_fields)
-        encoding["tooltip"] = tooltip_fields
-    end
+    tt = vl_tooltips(encoding)
+    !isempty(tt) && (encoding["tooltip"] = tt)
 
     spec = Dict{String,Any}(
         "data" => Dict{String,Any}("values" => rows),
@@ -355,9 +352,6 @@ function pregrouped_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
         "encoding" => encoding,
     )
 
-    if !is_sublayer
-        spec["\$schema"] = "https://vega.github.io/schema/vega-lite/v5.json"
-    end
     spec
 end
 
@@ -380,7 +374,7 @@ function visual_attrs_to_mark_props(vis::AlgebraOfGraphics.Visual)
         if k === :opacity || k === :fillOpacity
             props["opacity"] = v
         elseif k === :color
-            props["color"] = v isa Symbol ? string(v) : string(v)
+            props["color"] = string(v)
         elseif k === :strokeDash || k === :linestyle
             props["strokeDash"] = v
         elseif k === :markersize || k === :size
@@ -474,77 +468,6 @@ Quantile dotplot with nested interval overlay.
 dotinterval(; probs=[0.95, 0.5], n_dots=50, point=:median) =
     Layer(transformation=DotIntervalAnalysis(Float64.(probs), n_dots, point))
 
-# Extract analysis from transformation chain
-function extract_analysis(layer::AlgebraOfGraphics.Layer)
-    t = layer.transformation
-    t isa TidybayesAnalysis && return t
-    if t isa ComposedFunction
-        a = _extract_from_composed(t, TidybayesAnalysis)
-        !isnothing(a) && return a
-    end
-    nothing
-end
-
-function extract_density_analysis(layer::AlgebraOfGraphics.Layer)
-    t = layer.transformation
-    t isa AlgebraOfGraphics.DensityAnalysis && return t
-    if t isa ComposedFunction
-        a = _extract_from_composed(t, AlgebraOfGraphics.DensityAnalysis)
-        !isnothing(a) && return a
-    end
-    nothing
-end
-
-function extract_linear_analysis(layer::AlgebraOfGraphics.Layer)
-    t = layer.transformation
-    t isa AlgebraOfGraphics.LinearAnalysis && return t
-    if t isa ComposedFunction
-        a = _extract_from_composed(t, AlgebraOfGraphics.LinearAnalysis)
-        !isnothing(a) && return a
-    end
-    nothing
-end
-
-function extract_smooth_analysis(layer::AlgebraOfGraphics.Layer)
-    t = layer.transformation
-    t isa AlgebraOfGraphics.SmoothAnalysis && return t
-    if t isa ComposedFunction
-        a = _extract_from_composed(t, AlgebraOfGraphics.SmoothAnalysis)
-        !isnothing(a) && return a
-    end
-    nothing
-end
-
-function extract_histogram_analysis(layer::AlgebraOfGraphics.Layer)
-    t = layer.transformation
-    t isa AlgebraOfGraphics.HistogramAnalysis && return t
-    if t isa ComposedFunction
-        a = _extract_from_composed(t, AlgebraOfGraphics.HistogramAnalysis)
-        !isnothing(a) && return a
-    end
-    nothing
-end
-
-function extract_frequency_analysis(layer::AlgebraOfGraphics.Layer)
-    t = layer.transformation
-    t isa AlgebraOfGraphics.FrequencyAnalysis && return t
-    if t isa ComposedFunction
-        a = _extract_from_composed(t, AlgebraOfGraphics.FrequencyAnalysis)
-        !isnothing(a) && return a
-    end
-    nothing
-end
-
-function extract_expectation_analysis(layer::AlgebraOfGraphics.Layer)
-    t = layer.transformation
-    t isa AlgebraOfGraphics.ExpectationAnalysis && return t
-    if t isa ComposedFunction
-        a = _extract_from_composed(t, AlgebraOfGraphics.ExpectationAnalysis)
-        !isnothing(a) && return a
-    end
-    nothing
-end
-
 function _extract_from_composed(f::ComposedFunction, T::Type)
     for part in (f.outer, f.inner)
         part isa T && return part
@@ -553,6 +476,14 @@ function _extract_from_composed(f::ComposedFunction, T::Type)
             !isnothing(r) && return r
         end
     end
+    nothing
+end
+
+"""Extract a transformation of type `T` from a layer's transformation chain."""
+function extract_transformation(layer::AlgebraOfGraphics.Layer, T::Type)
+    t = layer.transformation
+    t isa T && return t
+    t isa ComposedFunction && return _extract_from_composed(t, T)
     nothing
 end
 
@@ -1088,7 +1019,7 @@ function linear_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
     x_field = length(layer.positional) >= 1 ? string(layer.positional[1]) : "x"
     y_field = length(layer.positional) >= 2 ? string(layer.positional[2]) : "y"
     color_field = haskey(layer.named, :color) ? string(layer.named[:color]) : nothing
-    analysis = extract_linear_analysis(layer)
+    analysis = extract_transformation(layer, AlgebraOfGraphics.LinearAnalysis)
     has_band = !isnothing(analysis) && !isnothing(analysis.interval) && !(analysis.interval isa Makie.Automatic)
 
     reg_transform = Dict{String,Any}(
@@ -1158,9 +1089,6 @@ function linear_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
     if !isnothing(table)
         spec["data"] = data_to_vl(table)
     end
-    if !is_sublayer
-        spec["\$schema"] = "https://vega.github.io/schema/vega-lite/v5.json"
-    end
     spec
 end
 
@@ -1216,7 +1144,7 @@ function smooth_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
     x_field = length(layer.positional) >= 1 ? string(layer.positional[1]) : "x"
     y_field = length(layer.positional) >= 2 ? string(layer.positional[2]) : "y"
     color_field = haskey(layer.named, :color) ? string(layer.named[:color]) : nothing
-    analysis = extract_smooth_analysis(layer)
+    analysis = extract_transformation(layer, AlgebraOfGraphics.SmoothAnalysis)
     bandwidth = !isnothing(analysis) ? analysis.span : 0.75
     has_band = !isnothing(analysis) && !isnothing(analysis.interval) && !(analysis.interval isa Makie.Automatic)
 
@@ -1287,9 +1215,6 @@ function smooth_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
     if !isnothing(table)
         spec["data"] = data_to_vl(table)
     end
-    if !is_sublayer
-        spec["\$schema"] = "https://vega.github.io/schema/vega-lite/v5.json"
-    end
     spec
 end
 
@@ -1325,9 +1250,6 @@ function histogram_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
     if !isnothing(table)
         spec["data"] = data_to_vl(table)
     end
-    if !is_sublayer
-        spec["\$schema"] = "https://vega.github.io/schema/vega-lite/v5.json"
-    end
     spec
 end
 
@@ -1358,9 +1280,6 @@ function frequency_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
     spec = Dict{String,Any}("mark" => "bar", "encoding" => encoding)
     if !isnothing(table)
         spec["data"] = data_to_vl(table)
-    end
-    if !is_sublayer
-        spec["\$schema"] = "https://vega.github.io/schema/vega-lite/v5.json"
     end
     spec
 end
@@ -1394,22 +1313,10 @@ function expectation_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
     if !isnothing(table)
         spec["data"] = data_to_vl(table)
     end
-    if !is_sublayer
-        spec["\$schema"] = "https://vega.github.io/schema/vega-lite/v5.json"
-    end
     spec
 end
 
-"""
-    extract_ecdf_visual(layer) -> Union{Visual, Nothing}
-
-Detect if a layer uses `visual(ECDFPlot)` and return the Visual if so.
-"""
-function extract_ecdf_visual(layer::AlgebraOfGraphics.Layer)
-    vis = extract_visual(layer)
-    isnothing(vis) && return nothing
-    vis.plottype <: ECDFPlot ? vis : nothing
-end
+_is_ecdf(layer) = let vis = extract_visual(layer); !isnothing(vis) && vis.plottype <: ECDFPlot end
 
 """
     ecdf_to_vl(layer; is_sublayer=false)
@@ -1465,17 +1372,8 @@ function ecdf_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
     end
 
     # Auto tooltip
-    tooltip_fields = Dict{String,Any}[]
-    for (ch, enc) in encoding
-        enc isa Dict || continue
-        haskey(enc, "field") || continue
-        entry = Dict{String,Any}("field" => enc["field"])
-        haskey(enc, "type") && (entry["type"] = enc["type"])
-        push!(tooltip_fields, entry)
-    end
-    if !isempty(tooltip_fields)
-        encoding["tooltip"] = tooltip_fields
-    end
+    tt = vl_tooltips(encoding)
+    !isempty(tt) && (encoding["tooltip"] = tt)
 
     vis = extract_visual(layer)
     mark = Dict{String,Any}("type" => "line", "interpolate" => "step-after")
@@ -1494,80 +1392,68 @@ function ecdf_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
     if !isnothing(table)
         infer_types!(encoding, table)
     end
-    if !is_sublayer
-        spec["\$schema"] = "https://vega.github.io/schema/vega-lite/v5.json"
-    end
     spec
 end
 
-# --- Core translation ---
+# --- Core translation: dispatch-based layer_to_vl ---
+
+"""Analysis types to check in `_layer_handler`, in priority order."""
+_ANALYSIS_TYPES = Type[
+    TidybayesAnalysis,
+    AlgebraOfGraphics.DensityAnalysis,
+    AlgebraOfGraphics.FrequencyAnalysis,
+    AlgebraOfGraphics.ExpectationAnalysis,
+    AlgebraOfGraphics.LinearAnalysis,
+    AlgebraOfGraphics.SmoothAnalysis,
+    AlgebraOfGraphics.HistogramAnalysis,
+]
+
+"""Find the dispatch key for a layer: an analysis object, Val(:ecdf), or nothing (plain layer)."""
+function _layer_handler(layer::AlgebraOfGraphics.Layer)
+    for T in _ANALYSIS_TYPES
+        a = extract_transformation(layer, T)
+        !isnothing(a) && return a
+    end
+    _is_ecdf(layer) && return Val(:ecdf)
+    nothing
+end
+
+# Dispatch: each handler type → its *_to_vl function
+_layer_to_vl(a::TidybayesAnalysis, layer; kw...) = analysis_to_vl(a, layer; kw...)
+_layer_to_vl(::AlgebraOfGraphics.DensityAnalysis, layer; kw...) = density_to_vl(layer; kw...)
+_layer_to_vl(::AlgebraOfGraphics.FrequencyAnalysis, layer; kw...) = frequency_to_vl(layer; kw...)
+_layer_to_vl(::AlgebraOfGraphics.ExpectationAnalysis, layer; kw...) = expectation_to_vl(layer; kw...)
+_layer_to_vl(::AlgebraOfGraphics.LinearAnalysis, layer; kw...) = linear_to_vl(layer; kw...)
+_layer_to_vl(::AlgebraOfGraphics.SmoothAnalysis, layer; kw...) = smooth_to_vl(layer; kw...)
+_layer_to_vl(::AlgebraOfGraphics.HistogramAnalysis, layer; kw...) = histogram_to_vl(layer; kw...)
+_layer_to_vl(::Val{:ecdf}, layer; kw...) = ecdf_to_vl(layer; kw...)
+_layer_to_vl(::Nothing, layer; kw...) = _plain_layer_to_vl(layer; kw...)
 
 function layer_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
-    # Check for pregrouped data first
     if is_pregrouped(layer)
-        return pregrouped_to_vl(layer; is_sublayer)
+        spec = pregrouped_to_vl(layer; is_sublayer)
+    else
+        handler = _layer_handler(layer)
+        spec = _layer_to_vl(handler, layer; is_sublayer)
     end
+    !is_sublayer && (spec["\$schema"] = VL_SCHEMA)
+    spec
+end
 
-    # Check for tidybayes analysis types first
-    analysis = extract_analysis(layer)
-    if !isnothing(analysis)
-        return analysis_to_vl(analysis, layer; is_sublayer)
-    end
-
-    # Check for density analysis
-    dens = extract_density_analysis(layer)
-    if !isnothing(dens)
-        return density_to_vl(layer; is_sublayer)
-    end
-
-    # Check for frequency analysis
-    if !isnothing(extract_frequency_analysis(layer))
-        return frequency_to_vl(layer; is_sublayer)
-    end
-
-    # Check for expectation analysis
-    if !isnothing(extract_expectation_analysis(layer))
-        return expectation_to_vl(layer; is_sublayer)
-    end
-
-    # Check for linear regression
-    if !isnothing(extract_linear_analysis(layer))
-        return linear_to_vl(layer; is_sublayer)
-    end
-
-    # Check for smooth/loess
-    if !isnothing(extract_smooth_analysis(layer))
-        return smooth_to_vl(layer; is_sublayer)
-    end
-
-    # Check for histogram
-    if !isnothing(extract_histogram_analysis(layer))
-        return histogram_to_vl(layer; is_sublayer)
-    end
-
-    # Check for ECDFPlot visual
-    if !isnothing(extract_ecdf_visual(layer))
-        return ecdf_to_vl(layer; is_sublayer)
-    end
-
+"""Translate a plain (non-analysis, non-pregrouped) AoG layer to VL."""
+function _plain_layer_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
     spec = Dict{String,Any}()
 
-    # Data
     table = extract_data(layer)
-    if !isnothing(table)
-        spec["data"] = data_to_vl(table)
-    end
+    !isnothing(table) && (spec["data"] = data_to_vl(table))
 
     # Visual / mark (default to Scatter like AoG)
     vis = extract_visual(layer)
     if !isnothing(vis)
         mark_type = plottype_to_mark(vis.plottype)
         extra_props = merge(plottype_to_mark_props(vis.plottype), visual_attrs_to_mark_props(vis))
-        if isempty(extra_props)
-            spec["mark"] = mark_type
-        else
-            spec["mark"] = merge(Dict{String,Any}("type" => mark_type), extra_props)
-        end
+        spec["mark"] = isempty(extra_props) ? mark_type :
+            merge(Dict{String,Any}("type" => mark_type), extra_props)
     else
         spec["mark"] = "point"
     end
@@ -1575,14 +1461,13 @@ function layer_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
     # Encoding from positional + named
     encoding = Dict{String,Any}()
 
-    # Choose positional channel mapping based on plot type
     plot_type = !isnothing(vis) ? vis.plottype : Nothing
     positional_channels = if !isnothing(vis) && plot_type <: HLines
-        ["y"]  # HLines: pos[1] → y (horizontal rule)
+        ["y"]
     elseif !isnothing(vis) && plot_type <: VLines
-        ["x"]  # VLines: pos[1] → x (vertical rule)
+        ["x"]
     elseif !isnothing(vis) && plot_type <: Union{Rangebars, Errorbars}
-        ["x", "y", "y2"]  # Rangebars: pos[1] → x, pos[2] → y, pos[3] → y2
+        ["x", "y", "y2"]
     else
         ["x", "y"]
     end
@@ -1591,41 +1476,21 @@ function layer_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
         encoding[positional_channels[i]] = selector_to_field(sel)
     end
 
-    # Named: color=:origin → "color" channel
     for (name, sel) in pairs(layer.named)
         ch = aog_named_to_vl_channel(name)
         isnothing(ch) && continue
         encoding[ch] = selector_to_field(sel)
     end
 
-    # Infer types from data
-    if !isnothing(table)
-        infer_types!(encoding, table)
-    end
+    !isnothing(table) && infer_types!(encoding, table)
 
-    # Auto-generate tooltip from all field-based encodings
+    # Auto-tooltip
     if !isempty(encoding) && !haskey(encoding, "tooltip")
-        tooltip_fields = Dict{String,Any}[]
-        for (ch, enc) in encoding
-            enc isa Dict || continue
-            haskey(enc, "field") || continue
-            entry = Dict{String,Any}("field" => enc["field"])
-            haskey(enc, "type") && (entry["type"] = enc["type"])
-            push!(tooltip_fields, entry)
-        end
-        if !isempty(tooltip_fields)
-            encoding["tooltip"] = tooltip_fields
-        end
+        tt = vl_tooltips(encoding)
+        !isempty(tt) && (encoding["tooltip"] = tt)
     end
 
-    if !isempty(encoding)
-        spec["encoding"] = encoding
-    end
-
-    if !is_sublayer
-        spec["\$schema"] = "https://vega.github.io/schema/vega-lite/v5.json"
-    end
-
+    !isempty(encoding) && (spec["encoding"] = encoding)
     spec
 end
 
@@ -1643,7 +1508,7 @@ function layers_to_vl(layers::AlgebraOfGraphics.Layers)
             shared_data = data_to_vl(table)
             shared_table = table
         end
-        dens = extract_density_analysis(l)
+        dens = extract_transformation(l, AlgebraOfGraphics.DensityAnalysis)
         if !isnothing(dens) && haskey(l.named, :y)
             has_faceted_density = true
             facet_field = string(l.named[:y])
@@ -1655,9 +1520,9 @@ function layers_to_vl(layers::AlgebraOfGraphics.Layers)
     end
 
     # Check if any layer is an analysis type (produces own summarized data)
-    has_analysis = any(l -> !isnothing(extract_analysis(l)), layers.layers)
+    has_analysis = any(l -> !isnothing(extract_transformation(l, TidybayesAnalysis)), layers.layers)
 
-    spec = Dict{String,Any}("\$schema" => "https://vega.github.io/schema/vega-lite/v5.json")
+    spec = Dict{String,Any}("\$schema" => VL_SCHEMA)
     # Only share data at top level when no analysis layers are present
     if !has_analysis && !isnothing(shared_data)
         spec["data"] = shared_data
@@ -1765,11 +1630,11 @@ function _faceted_layers_to_vl(layers, facet_field, shared_table, shared_data)
 
     # Check if we have visual layers alongside density (raincloud-style) — need range scaling
     has_visual_layers = any(l -> begin
-        isnothing(extract_density_analysis(l)) && isnothing(extract_analysis(l)) && !isnothing(extract_visual(l))
+        isnothing(extract_transformation(l, AlgebraOfGraphics.DensityAnalysis)) && isnothing(extract_transformation(l, TidybayesAnalysis)) && !isnothing(extract_visual(l))
     end, layers.layers)
 
     for layer in layers.layers
-        dens = extract_density_analysis(layer)
+        dens = extract_transformation(layer, AlgebraOfGraphics.DensityAnalysis)
         if !isnothing(dens)
             # Density sublayer (unfaceted version)
             x_field = length(layer.positional) >= 1 ? string(layer.positional[1]) : "value"
@@ -1791,7 +1656,7 @@ function _faceted_layers_to_vl(layers, facet_field, shared_table, shared_data)
                 ),
             ))
         else
-            analysis = extract_analysis(layer)
+            analysis = extract_transformation(layer, TidybayesAnalysis)
             if !isnothing(analysis)
                 # Compute interval summary per-group using VL transforms instead
                 x_field = length(layer.positional) >= 1 ? string(layer.positional[1]) : "value"
@@ -1873,7 +1738,7 @@ function _faceted_layers_to_vl(layers, facet_field, shared_table, shared_data)
     end
 
     spec = Dict{String,Any}(
-        "\$schema" => "https://vega.github.io/schema/vega-lite/v5.json",
+        "\$schema" => VL_SCHEMA,
         "data" => shared_data,
         "facet" => Dict{String,Any}("field" => facet_field, "type" => "nominal",
                                      "header" => Dict{String,Any}("title" => nothing, "labelFontSize" => 14)),
@@ -1923,6 +1788,17 @@ function to_vegalite(v::VegaSpec)
             elseif sk in ("width", "height") && haskey(spec, "spec")
                 # For faceted specs, width/height go into the inner spec
                 spec["spec"][sk] = val
+            elseif sk == "independent_scales"
+                # Sugar for VL resolve: independent_scales=true, =:x, =(:x,:y)
+                axes = if val === true
+                    ["x", "y"]
+                elseif val isa Symbol
+                    [string(val)]
+                else
+                    [string(v) for v in val]
+                end
+                resolve_scale = Dict{String,Any}(ax => "independent" for ax in axes)
+                spec["resolve"] = Dict{String,Any}("scale" => resolve_scale)
             elseif sk == "select"
                 # Collect select fields — processed after spec is built
                 select_fields = val isa Symbol ? [val] : val
@@ -2388,6 +2264,93 @@ vega_cdn_urls(; vega=VEGA_VERSION, vegalite=VEGALITE_VERSION, embed=VEGA_EMBED_V
     "https://cdn.jsdelivr.net/npm/vega-lite@$vegalite",
     "https://cdn.jsdelivr.net/npm/vega-embed@$embed",
 ]
+
+# --- High-level widgets and recipes ---
+
+"""
+    ecdf_grid(table, columns; group=nothing, width=250, height=180)
+
+Render a grid of ECDF plots, one per column, colored by `group`.
+Returns an HTMX `h.div` node with flex-wrap layout.
+
+- `table`: any Tables.jl-compatible table (DataFrame, NamedTuple, etc.)
+- `columns`: vector of column names (Symbols) to plot
+- `group`: optional column name for color grouping (e.g. `:chain`, `:model`)
+- `width`, `height`: per-plot dimensions
+
+Example (posterior parameter ECDFs colored by chain):
+```julia
+ecdf_grid(draws_df, [:alpha, :beta, :sigma]; group=:chain)
+```
+"""
+function ecdf_grid(table, columns; group=nothing, width=250, height=180)
+    plots = map(columns) do col
+        vals = Tables.getcolumn(table, col)
+        if !isnothing(group)
+            grp = string.(Tables.getcolumn(table, group))
+            plot_tbl = (; value=vals, _group=grp)
+            spec = data(plot_tbl) * mapping(:value; color=:_group) *
+                visual(ECDFPlot) * config(width=width, height=height)
+        else
+            plot_tbl = (; value=vals)
+            spec = data(plot_tbl) * mapping(:value) *
+                visual(ECDFPlot) * config(width=width, height=height)
+        end
+        (string(col), vdraw(spec))
+    end
+    h.div(; style="display:flex; flex-wrap:wrap; gap:1rem;")(
+        [h.div(h.h5(name), node) for (name, node) in plots]...
+    )
+end
+
+"""
+    ppc_overlay(obs, pred; x, y, col=nothing, row=nothing, group=nothing,
+                color=nothing, truth=nothing, obs_mark=Scatter, obs_size=30,
+                truth_color="red", truth_strokeWidth=2, truth_strokeDash=[4,4])
+
+Build a posterior predictive check overlay: observations + prediction draws + optional truth.
+Returns composable AoG layers — combine with `* config(...)` and pipe to `|> vdraw`.
+
+- `obs`: observation data table
+- `pred`: prediction draws table (one row per draw × observation)
+- `x`, `y`: column names for the axes
+- `col`, `row`: optional faceting columns
+- `group`: draw identifier column (e.g. `:draw_id`) for prediction ribbons
+- `color`: optional color column for predictions (e.g. `:model` for comparisons)
+- `truth`: optional ground-truth data table (rendered as dashed lines)
+
+Example:
+```julia
+ppc_overlay(obs_df, pred_df;
+    x=:time_h, y=:value, col=:assay_name, row=:subject_name,
+    group=:draw_id,
+) * config(width=250, height=100, independent_scales=true) |> vdraw
+```
+"""
+function ppc_overlay(obs, pred; x, y, col=nothing, row=nothing, group=nothing,
+                     color=nothing, truth=nothing, obs_mark=Scatter, obs_size=30,
+                     truth_color="red", truth_strokeWidth=2, truth_strokeDash=[4,4])
+    facet_kw = Dict{Symbol,Any}()
+    !isnothing(col) && (facet_kw[:col] = col)
+    !isnothing(row) && (facet_kw[:row] = row)
+
+    obs_layer = data(obs) * mapping(x, y; facet_kw...) * visual(obs_mark; size=obs_size)
+
+    pred_kw = copy(facet_kw)
+    !isnothing(group) && (pred_kw[:group] = group)
+    !isnothing(color) && (pred_kw[:color] = color)
+    pred_layer = data(pred) * mapping(x, y; pred_kw...) * lineribbon()
+
+    layers = pred_layer + obs_layer
+
+    if !isnothing(truth)
+        truth_layer = data(truth) * mapping(x, y; facet_kw...) *
+            visual(Lines; color=truth_color, strokeWidth=truth_strokeWidth, strokeDash=truth_strokeDash)
+        layers = layers + truth_layer
+    end
+
+    layers
+end
 
 # --- MIME show methods for notebook/Quarto support ---
 

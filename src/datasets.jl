@@ -82,24 +82,12 @@ melt_sales(s) = let
     )
 end
 
-# Simple Box-Muller normal RNG (no dependencies)
-function randn_bm(n)
-    out = Float64[]
-    while length(out) < n
-        u1, u2 = rand(), rand()
-        u1 == 0.0 && continue
-        z0 = sqrt(-2 * log(u1)) * cos(2π * u2)
-        z1 = sqrt(-2 * log(u1)) * sin(2π * u2)
-        push!(out, z0, z1)
-    end
-    out[1:n]
-end
 
 "Simulated posterior draws for 3 parameters (α, β, σ) across 4 chains."
 function sample_posterior_draws(; n=500)
     (;
         parameter = [fill("α", n); fill("β", n); fill("σ", n)],
-        value = [2.0 .+ 0.5 .* randn_bm(n); 0.8 .+ 0.3 .* randn_bm(n); 1.2 .+ 0.2 .* abs.(randn_bm(n))],
+        value = [2.0 .+ 0.5 .* randn(n); 0.8 .+ 0.3 .* randn(n); 1.2 .+ 0.2 .* abs.(randn(n))],
         chain = [repeat(1:4, n÷4); repeat(1:4, n÷4); repeat(1:4, n÷4)],
     )
 end
@@ -111,12 +99,12 @@ function sample_regression_predictions(; n_x=50, n_draws=200)
     rows_y = Float64[]
     rows_draw = Int[]
     for d in 1:n_draws
-        α = 2.0 + 0.5 * randn_bm(1)[1]
-        β = 0.8 + 0.3 * randn_bm(1)[1]
-        σ = 1.2 + 0.2 * abs(randn_bm(1)[1])
+        α = 2.0 + 0.5 * randn(1)[1]
+        β = 0.8 + 0.3 * randn(1)[1]
+        σ = 1.2 + 0.2 * abs(randn(1)[1])
         for x in xs
             push!(rows_x, x)
-            push!(rows_y, α + β * x + σ * randn_bm(1)[1])
+            push!(rows_y, α + β * x + σ * randn(1)[1])
             push!(rows_draw, d)
         end
     end
@@ -132,12 +120,12 @@ function sample_grouped_regression_predictions(; n_x=30, n_draws=100)
     rows_group = String[]
     for (gname, α0, β0) in [("Treatment A", 2.0, 0.8), ("Treatment B", 1.0, 1.5)]
         for d in 1:n_draws
-            α = α0 + 0.5 * randn_bm(1)[1]
-            β = β0 + 0.3 * randn_bm(1)[1]
-            σ = 0.8 + 0.2 * abs(randn_bm(1)[1])
+            α = α0 + 0.5 * randn(1)[1]
+            β = β0 + 0.3 * randn(1)[1]
+            σ = 0.8 + 0.2 * abs(randn(1)[1])
             for x in xs
                 push!(rows_x, x)
-                push!(rows_y, α + β * x + σ * randn_bm(1)[1])
+                push!(rows_y, α + β * x + σ * randn(1)[1])
                 push!(rows_draw, d)
                 push!(rows_group, gname)
             end
@@ -159,12 +147,12 @@ function sample_faceted_regression_predictions(; n_x=30, n_draws=100)
     for (pname, α0, β0, σ0) in conditions
         for (sname, s_offset) in sites
             for d in 1:n_draws
-                α = α0 + s_offset + 0.5 * randn_bm(1)[1]
-                β = β0 + 0.3 * randn_bm(1)[1]
-                σ = σ0 + 0.2 * abs(randn_bm(1)[1])
+                α = α0 + s_offset + 0.5 * randn(1)[1]
+                β = β0 + 0.3 * randn(1)[1]
+                σ = σ0 + 0.2 * abs(randn(1)[1])
                 for x in xs
                     push!(rows_x, x)
-                    push!(rows_y, α + β * x + σ * randn_bm(1)[1])
+                    push!(rows_y, α + β * x + σ * randn(1)[1])
                     push!(rows_draw, d)
                     push!(rows_panel, pname)
                     push!(rows_site, sname)
@@ -188,7 +176,7 @@ function sample_faceted_observations(; n_per_cell=5)
             for _ in 1:n_per_cell
                 x = 5.0 * rand()
                 push!(rows_x, x)
-                push!(rows_y, α0 + s_offset + β0 * x + σ0 * randn_bm(1)[1])
+                push!(rows_y, α0 + s_offset + β0 * x + σ0 * randn(1)[1])
                 push!(rows_panel, pname)
                 push!(rows_site, sname)
             end

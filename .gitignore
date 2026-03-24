@@ -1,4 +1,5 @@
 Manifest.toml
+build/
 web/flagged.txt
 
 CLAUDE.md
