@@ -1585,6 +1585,27 @@ function layers_to_vl(layers::AlgebraOfGraphics.Layers)
         merged_values = Dict{String,Any}[]
         src_id = 0
         seen_data = Dict{UInt,String}()  # objectid(values) → source tag
+
+        # Re-include hoisted shared_data for sublayers that had their data removed
+        hoisted_layers = filter(ls -> !haskey(ls, "data"), layer_specs)
+        if !isnothing(shared_data) && !isempty(hoisted_layers)
+            vals = get(shared_data, "values", nothing)
+            if !isnothing(vals)
+                src_id += 1
+                tag = "_s$(src_id)"
+                seen_data[objectid(vals)] = tag
+                for row in vals
+                    row["__src"] = tag
+                end
+                append!(merged_values, vals)
+                for ls in hoisted_layers
+                    existing = get(ls, "transform", Dict{String,Any}[])
+                    pushfirst!(existing, Dict{String,Any}("filter" => "datum.__src === '$(tag)'"))
+                    ls["transform"] = existing
+                end
+            end
+        end
+
         for ls in layer_specs
             data = get(ls, "data", nothing)
             isnothing(data) && continue
