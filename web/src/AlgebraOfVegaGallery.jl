@@ -1413,7 +1413,7 @@ end
         spec = isnothing(entry) ? nothing : entry[5]()
         code_str = isnothing(entry) ? "" : entry[4]
         json_str = isnothing(spec) ? "" : JSON.json(to_vegalite(spec), 2)
-        h.article(; style="margin:0; padding:0.5rem;")(
+        h.article(; style="margin:0; padding:0.5rem; min-width:0; overflow:hidden;")(
             h.header(; style="padding:0 0 0.25rem; margin:0; display:flex; align-items:center; flex-wrap:wrap;")(
                 h.a(title;
                     href="/standalone/$id", target="_blank",
@@ -1535,10 +1535,31 @@ end
             h.div(content; id="main-content"),
         );
         pico_version="2",
-        extra_head=vega_head(),
+        extra_head=(vega_head()..., h.style(":root { font-size: 14px; }")),
     )
 
     @get index = gallery_index
+
+    compact_card(id) = begin
+        entry = find_plot(id)
+        isnothing(entry) && return h.span()
+        spec = entry[5]()
+        isnothing(spec) && return h.span()
+        h.div(; style="border:1px solid var(--pico-muted-border-color); border-radius:0.2rem; padding:0.2rem; overflow:hidden; min-width:0;")(
+            h.div(entry[2]; style="font-weight:bold; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-bottom:0.1rem;"),
+            vdraw(spec; width="container"),
+        )
+    end
+
+    @get compact = begin
+        all_cards = [compact_card(e[1]) for section in PLOT_SECTIONS for e in filter(!isnothing, [find_plot(id) for id in section[2]])]
+        h.div(; style="width:100vw; padding:0.5rem; font-size:0.5em;")(
+            h.h2("AlgebraOfVega Gallery"; style="margin-bottom:0.5rem;"),
+            h.div(; style="display:grid; grid-template-columns:repeat(16, 1fr); gap:0.25rem;")(
+                all_cards...,
+            ),
+        )
+    end
 
     @get plot(id) = plot_detail[id]
 
