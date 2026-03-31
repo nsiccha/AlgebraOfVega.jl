@@ -135,6 +135,16 @@ Base.:*(c::Config, a::AlgebraOfGraphics.AbstractAlgebraic) = VegaSpec(a, c)
 Base.:*(v::VegaSpec, c::Config) = VegaSpec(v.drawable, c)
 Base.:*(c::Config, v::VegaSpec) = VegaSpec(v.drawable, c)
 
+# Combine VegaSpecs: unwrap drawables, merge configs
+function _merge_configs(a::Union{Config,Nothing}, b::Union{Config,Nothing})
+    isnothing(a) && return b
+    isnothing(b) && return a
+    Config(merge(a.properties, b.properties))
+end
+Base.:+(a::VegaSpec, b::VegaSpec) = VegaSpec(a.drawable + b.drawable, _merge_configs(a.config, b.config))
+Base.:+(a::VegaSpec, b::AlgebraOfGraphics.AbstractAlgebraic) = VegaSpec(a.drawable + b, a.config)
+Base.:+(a::AlgebraOfGraphics.AbstractAlgebraic, b::VegaSpec) = VegaSpec(a + b.drawable, b.config)
+
 # --- Makie → Vega-Lite mark mapping ---
 
 """Makie plot type → VL mark string. Checked via `<:`, order matters for subtypes."""

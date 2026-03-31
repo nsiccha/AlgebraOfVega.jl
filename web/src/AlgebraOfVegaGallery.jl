@@ -1118,6 +1118,22 @@ obs = data(faceted_observations()) *
      end,
      "https://mjskay.github.io/ggdist/reference/stat_lineribbon.html"),
 
+    ("lineribbon_logscale", "Ribbon + Scatter (log scale)", "faceted lineribbon+scatter with config(encoding=...) log scale override",
+     """pred = data(faceted_regression_predictions()) *
+    mapping(:x, :y, group=:draw, col=:panel, row=:site) * lineribbon()
+obs = data(faceted_observations()) *
+    mapping(:x, :y, col=:panel, row=:site) * visual(Scatter; color=:black, size=30)
+(pred + obs) * config(width=180, height=120,
+    encoding=Dict(:y => Dict("scale" => Dict("type" => "log"))))""",
+     () -> begin
+        pred = data(faceted_regression_predictions()) *
+            mapping(:x, :y, group=:draw, col=:panel, row=:site) * lineribbon()
+        obs = data(faceted_observations()) *
+            mapping(:x, :y, col=:panel, row=:site) * visual(Scatter; color=:black, size=30)
+        (pred + obs) * config(width=180, height=120,
+            encoding=Dict(:y => Dict("scale" => Dict("type" => "log"))))
+     end),
+
     ("ppc_overlay", "PPC Overlay", "ppc_overlay recipe: observations + predictions + truth with independent scales",
      """ppc_overlay(
     faceted_observations(), faceted_regression_predictions();
@@ -1449,7 +1465,7 @@ end
         ("AoG: Composition Patterns" => ["aog_scatter_regression", "aog_scatter_smooth", "aog_bar_line_combo", "aog_stacked_area", "aog_color_regression"]),
         ("AoG: Layout" => ["aog_facet", "aog_facet_wrap", "aog_facet_multi_layer", "aog_facet_regression"]),
         ("AoG: Applications" => ["aog_timeseries", "aog_timeseries_box", "aog_2d_histogram"]),
-        ("Uncertainty (tidybayes)" => ["pointinterval", "halfeye", "gradient_interval", "lineribbon", "lineribbon_grouped", "lineribbon_faceted", "lineribbon_overlay", "ppc_overlay", "ribbon_only", "dotinterval", "raincloud"]),
+        ("Uncertainty (tidybayes)" => ["pointinterval", "halfeye", "gradient_interval", "lineribbon", "lineribbon_grouped", "lineribbon_faceted", "lineribbon_overlay", "lineribbon_logscale", "ppc_overlay", "ribbon_only", "dotinterval", "raincloud"]),
     ]
 
     gallery_section(section_title, ids) = begin
