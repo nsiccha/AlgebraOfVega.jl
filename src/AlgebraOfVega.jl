@@ -205,6 +205,8 @@ function selector_to_field(sel::Pair)
 end
 selector_to_field(sel) = Dict{String,Any}("value" => sel)  # DirectData, Presorted, etc.
 
+_field_name(sel) = string(sel isa Pair ? first(sel) : sel)
+
 # --- Vega-Lite type inference ---
 
 function vl_type(col)
@@ -500,8 +502,8 @@ _vl_prob_field(prefix, prob) = "$(prefix)_$(replace(string(prob), "." => "_"))_"
 
 """Extract `:col`/`:row` from a layer's named mappings, returning a VL facet dict and field name list."""
 function _extract_facet_info(layer)
-    col_field = haskey(layer.named, :col) ? string(layer.named[:col]) : nothing
-    row_field = haskey(layer.named, :row) ? string(layer.named[:row]) : nothing
+    col_field = haskey(layer.named, :col) ? _field_name(layer.named[:col]) : nothing
+    row_field = haskey(layer.named, :row) ? _field_name(layer.named[:row]) : nothing
     facet = Dict{String,Any}()
     !isnothing(col_field) && (facet["column"] = Dict{String,Any}("field" => col_field, "type" => "nominal"))
     !isnothing(row_field) && (facet["row"] = Dict{String,Any}("field" => row_field, "type" => "nominal"))
@@ -628,8 +630,8 @@ end
 
 function analysis_to_vl(a::PointIntervalAnalysis, layer::AlgebraOfGraphics.Layer; is_sublayer=false)
     table = extract_data(layer)
-    x_field = length(layer.positional) >= 1 ? string(layer.positional[1]) : "value"
-    y_field = haskey(layer.named, :y) ? string(layer.named[:y]) : nothing
+    x_field = length(layer.positional) >= 1 ? _field_name(layer.positional[1]) : "value"
+    y_field = haskey(layer.named, :y) ? _field_name(layer.named[:y]) : nothing
     facet, facet_fields = _extract_facet_info(layer)
 
     summary = compute_interval_summary(table, x_field, y_field, a.probs, a.point; facet_fields)
@@ -684,8 +686,8 @@ end
 
 function analysis_to_vl(a::GradientIntervalAnalysis, layer::AlgebraOfGraphics.Layer; is_sublayer=false)
     table = extract_data(layer)
-    x_field = length(layer.positional) >= 1 ? string(layer.positional[1]) : "value"
-    y_field = haskey(layer.named, :y) ? string(layer.named[:y]) : nothing
+    x_field = length(layer.positional) >= 1 ? _field_name(layer.positional[1]) : "value"
+    y_field = haskey(layer.named, :y) ? _field_name(layer.named[:y]) : nothing
     facet, facet_fields = _extract_facet_info(layer)
 
     summary = compute_interval_summary(table, x_field, y_field, a.probs, a.point; facet_fields)
@@ -739,10 +741,10 @@ end
 
 function analysis_to_vl(a::LineRibbonAnalysis, layer::AlgebraOfGraphics.Layer; is_sublayer=false)
     table = extract_data(layer)
-    x_field = length(layer.positional) >= 1 ? string(layer.positional[1]) : "x"
-    y_field = length(layer.positional) >= 2 ? string(layer.positional[2]) : "y"
-    group_field = haskey(layer.named, :group) ? string(layer.named[:group]) : "draw"
-    color_field = haskey(layer.named, :color) ? string(layer.named[:color]) : nothing
+    x_field = length(layer.positional) >= 1 ? _field_name(layer.positional[1]) : "x"
+    y_field = length(layer.positional) >= 2 ? _field_name(layer.positional[2]) : "y"
+    group_field = haskey(layer.named, :group) ? _field_name(layer.named[:group]) : "draw"
+    color_field = haskey(layer.named, :color) ? _field_name(layer.named[:color]) : nothing
     facet, facet_fields = _extract_facet_info(layer)
 
     summary = compute_ribbon_summary(table, x_field, y_field, group_field, a.probs; color_field, facet_fields)
@@ -801,8 +803,8 @@ end
 
 function analysis_to_vl(a::DotIntervalAnalysis, layer::AlgebraOfGraphics.Layer; is_sublayer=false)
     table = extract_data(layer)
-    x_field = length(layer.positional) >= 1 ? string(layer.positional[1]) : "value"
-    y_field = haskey(layer.named, :y) ? string(layer.named[:y]) : nothing
+    x_field = length(layer.positional) >= 1 ? _field_name(layer.positional[1]) : "value"
+    y_field = haskey(layer.named, :y) ? _field_name(layer.named[:y]) : nothing
     facet, facet_fields = _extract_facet_info(layer)
 
     vals = Tables.getcolumn(table, Symbol(x_field))
@@ -908,8 +910,8 @@ end
 
 function density_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
     table = extract_data(layer)
-    x_field = length(layer.positional) >= 1 ? string(layer.positional[1]) : "value"
-    y_field = haskey(layer.named, :y) ? string(layer.named[:y]) : nothing
+    x_field = length(layer.positional) >= 1 ? _field_name(layer.positional[1]) : "value"
+    y_field = haskey(layer.named, :y) ? _field_name(layer.named[:y]) : nothing
 
     vis = extract_visual(layer)
     opacity = 0.4
@@ -947,7 +949,7 @@ function density_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
         return spec
     else
         # Check for color grouping
-        color_field = haskey(layer.named, :color) ? string(layer.named[:color]) : nothing
+        color_field = haskey(layer.named, :color) ? _field_name(layer.named[:color]) : nothing
         density_transform = Dict{String,Any}("density" => x_field, "as" => ["val", "dens"])
         if !isnothing(color_field)
             density_transform["groupby"] = [color_field]
@@ -1016,9 +1018,9 @@ When `interval` is set, computes regression CI in Julia and renders as area+y2.
 """
 function linear_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
     table = extract_data(layer)
-    x_field = length(layer.positional) >= 1 ? string(layer.positional[1]) : "x"
-    y_field = length(layer.positional) >= 2 ? string(layer.positional[2]) : "y"
-    color_field = haskey(layer.named, :color) ? string(layer.named[:color]) : nothing
+    x_field = length(layer.positional) >= 1 ? _field_name(layer.positional[1]) : "x"
+    y_field = length(layer.positional) >= 2 ? _field_name(layer.positional[2]) : "y"
+    color_field = haskey(layer.named, :color) ? _field_name(layer.named[:color]) : nothing
     analysis = extract_transformation(layer, AlgebraOfGraphics.LinearAnalysis)
     has_band = !isnothing(analysis) && !isnothing(analysis.interval) && !(analysis.interval isa Makie.Automatic)
 
@@ -1141,9 +1143,9 @@ When `interval` is set, computes smooth CI in Julia and renders as area+y2.
 """
 function smooth_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
     table = extract_data(layer)
-    x_field = length(layer.positional) >= 1 ? string(layer.positional[1]) : "x"
-    y_field = length(layer.positional) >= 2 ? string(layer.positional[2]) : "y"
-    color_field = haskey(layer.named, :color) ? string(layer.named[:color]) : nothing
+    x_field = length(layer.positional) >= 1 ? _field_name(layer.positional[1]) : "x"
+    y_field = length(layer.positional) >= 2 ? _field_name(layer.positional[2]) : "y"
+    color_field = haskey(layer.named, :color) ? _field_name(layer.named[:color]) : nothing
     analysis = extract_transformation(layer, AlgebraOfGraphics.SmoothAnalysis)
     bandwidth = !isnothing(analysis) ? analysis.span : 0.75
     has_band = !isnothing(analysis) && !isnothing(analysis.interval) && !(analysis.interval isa Makie.Automatic)
@@ -1225,7 +1227,7 @@ Translate AoG's `histogram()` to Vega-Lite's bar mark with bin + count aggregati
 """
 function histogram_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
     table = extract_data(layer)
-    x_field = length(layer.positional) >= 1 ? string(layer.positional[1]) : "x"
+    x_field = length(layer.positional) >= 1 ? _field_name(layer.positional[1]) : "x"
 
     encoding = Dict{String,Any}(
         "x" => Dict{String,Any}("field" => x_field, "type" => "quantitative", "bin" => true),
@@ -1260,7 +1262,7 @@ Translate AoG's `frequency()` to a Vega-Lite bar chart with `aggregate: "count"`
 """
 function frequency_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
     table = extract_data(layer)
-    x_field = length(layer.positional) >= 1 ? string(layer.positional[1]) : "x"
+    x_field = length(layer.positional) >= 1 ? _field_name(layer.positional[1]) : "x"
 
     encoding = Dict{String,Any}(
         "x" => Dict{String,Any}("field" => x_field, "type" => "nominal"),
@@ -1291,8 +1293,8 @@ Translate AoG's `expectation()` to a Vega-Lite bar chart with `aggregate: "mean"
 """
 function expectation_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
     table = extract_data(layer)
-    x_field = length(layer.positional) >= 1 ? string(layer.positional[1]) : "x"
-    y_field = length(layer.positional) >= 2 ? string(layer.positional[2]) : "y"
+    x_field = length(layer.positional) >= 1 ? _field_name(layer.positional[1]) : "x"
+    y_field = length(layer.positional) >= 2 ? _field_name(layer.positional[2]) : "y"
 
     encoding = Dict{String,Any}(
         "x" => Dict{String,Any}("field" => x_field, "type" => "nominal"),
@@ -1328,9 +1330,9 @@ Supports `color=` grouping via `groupby` on the window transforms.
 """
 function ecdf_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
     table = extract_data(layer)
-    x_field = length(layer.positional) >= 1 ? string(layer.positional[1]) : "x"
-    color_field = haskey(layer.named, :color) ? string(layer.named[:color]) : nothing
-    linestyle_field = haskey(layer.named, :linestyle) ? string(layer.named[:linestyle]) : nothing
+    x_field = length(layer.positional) >= 1 ? _field_name(layer.positional[1]) : "x"
+    color_field = haskey(layer.named, :color) ? _field_name(layer.named[:color]) : nothing
+    linestyle_field = haskey(layer.named, :linestyle) ? _field_name(layer.named[:linestyle]) : nothing
 
     # Window transforms for ECDF:
     # 1. Sort by x, count cumulative (per group)
@@ -1658,7 +1660,7 @@ function _faceted_layers_to_vl(layers, facet_field, shared_table, shared_data)
         dens = extract_transformation(layer, AlgebraOfGraphics.DensityAnalysis)
         if !isnothing(dens)
             # Density sublayer (unfaceted version)
-            x_field = length(layer.positional) >= 1 ? string(layer.positional[1]) : "value"
+            x_field = length(layer.positional) >= 1 ? _field_name(layer.positional[1]) : "value"
             vis = extract_visual(layer)
             opacity = 0.4
             if !isnothing(vis) && haskey(vis.attributes, :opacity)
@@ -1680,7 +1682,7 @@ function _faceted_layers_to_vl(layers, facet_field, shared_table, shared_data)
             analysis = extract_transformation(layer, TidybayesAnalysis)
             if !isnothing(analysis)
                 # Compute interval summary per-group using VL transforms instead
-                x_field = length(layer.positional) >= 1 ? string(layer.positional[1]) : "value"
+                x_field = length(layer.positional) >= 1 ? _field_name(layer.positional[1]) : "value"
                 probs = analysis isa Union{PointIntervalAnalysis, GradientIntervalAnalysis} ? analysis.probs :
                          analysis isa DotIntervalAnalysis ? analysis.probs : [0.95, 0.5]
                 point_sym = hasproperty(analysis, :point) ? analysis.point : :median
@@ -1729,7 +1731,7 @@ function _faceted_layers_to_vl(layers, facet_field, shared_table, shared_data)
             else
                 # Standard layer (e.g. visual(Scatter, BoxPlot)) inside facet
                 # Strip the facet field from encoding — it's handled by facet, not y axis
-                x_field = length(layer.positional) >= 1 ? string(layer.positional[1]) : "value"
+                x_field = length(layer.positional) >= 1 ? _field_name(layer.positional[1]) : "value"
                 vis = extract_visual(layer)
                 if !isnothing(vis)
                     mark_type = plottype_to_mark(vis.plottype)

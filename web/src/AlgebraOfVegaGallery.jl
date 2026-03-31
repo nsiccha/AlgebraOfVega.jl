@@ -1395,8 +1395,7 @@ end
 @htmx struct AppContext
     req = nothing
 
-    flag_button(id) = begin
-        flagged = id in load_flags()
+    flag_button(id) = let flagged = id in load_flags()
         label = flagged ? "flagged" : "flag"
         color = flagged ? "color:var(--pico-del-color);" : "color:var(--pico-muted-color);"
         h.button(label;
@@ -1410,28 +1409,29 @@ end
 
     plot_card(id, title, description, ref_url=nothing) = begin
         entry = find_plot(id)
-        spec = isnothing(entry) ? nothing : entry[5]()
-        code_str = isnothing(entry) ? "" : entry[4]
-        json_str = isnothing(spec) ? "" : JSON.json(to_vegalite(spec), 2)
-        h.article(; style="margin:0; padding:0.5rem; min-width:0; overflow:hidden;")(
-            h.header(; style="padding:0 0 0.25rem; margin:0; display:flex; align-items:center; flex-wrap:wrap;")(
-                h.a(title;
-                    href="/standalone/$id", target="_blank",
-                    style="font-size:0.9em; font-weight:bold; text-decoration:none;",
-                ),
-                flag_button(id),
-                isnothing(ref_url) ? h.span() :
-                    h.a(" [ref]";
-                        href=ref_url, target="_blank",
-                        style="font-size:0.8em; margin-left:0.3em;",
+        let spec = isnothing(entry) ? nothing : entry[5]()
+            code_str = isnothing(entry) ? "" : entry[4]
+            json_str = isnothing(spec) ? "" : JSON.json(to_vegalite(spec), 2)
+            h.article(; style="margin:0; padding:0.5rem; min-width:0; overflow:hidden;")(
+                h.header(; style="padding:0 0 0.25rem; margin:0; display:flex; align-items:center; flex-wrap:wrap;")(
+                    h.a(title;
+                        href="/standalone/$id", target="_blank",
+                        style="font-size:0.9em; font-weight:bold; text-decoration:none;",
                     ),
-            ),
-            isnothing(spec) ? h.p("Unknown plot") : vdraw(spec),
-            h.details(; style="margin-top:0.25rem")(
-                h.summary("Code"; style="font-size:0.8em;"),
-                h.pre(h.code(code_str); style="background:var(--pico-code-background-color); padding:0.5rem; border-radius:0.25rem; overflow-x:auto; font-size:0.75em;"),
-            ),
-        )
+                    flag_button(id),
+                    isnothing(ref_url) ? h.span() :
+                        h.a(" [ref]";
+                            href=ref_url, target="_blank",
+                            style="font-size:0.8em; margin-left:0.3em;",
+                        ),
+                ),
+                isnothing(spec) ? h.p("Unknown plot") : vdraw(spec),
+                h.details(; style="margin-top:0.25rem")(
+                    h.summary("Code"; style="font-size:0.8em;"),
+                    h.pre(h.code(code_str); style="background:var(--pico-code-background-color); padding:0.5rem; border-radius:0.25rem; overflow-x:auto; font-size:0.75em;"),
+                ),
+            )
+        end
     end
 
     # Group plots by category for the index
@@ -1513,20 +1513,21 @@ end
             h.p("Unknown plot: $id")
         else
             title, description, code_str, spec_fn = entry[2], entry[3], entry[4], entry[5]
-            spec = spec_fn()
-            json_str = JSON.json(to_vegalite(spec), 2)
-            h.div(
-                plot_nav(id),
-                h.h2(title),
-                h.p(description),
-                vdraw(spec),
-                h.h4("Julia Code"; style="margin-top:1.5rem"),
-                h.pre(h.code(code_str); style="background:var(--pico-code-background-color); padding:1rem; border-radius:0.5rem; overflow-x:auto;"),
-                h.details(; style="margin-top:1rem")(
-                    h.summary("Vega-Lite JSON Spec"),
-                    h.pre(h.code(escape_html(json_str)); style="background:var(--pico-code-background-color); padding:1rem; border-radius:0.5rem; overflow-x:auto; max-height:400px;"),
-                ),
-            )
+            let spec = spec_fn()
+                json_str = JSON.json(to_vegalite(spec), 2)
+                h.div(
+                    plot_nav(id),
+                    h.h2(title),
+                    h.p(description),
+                    vdraw(spec),
+                    h.h4("Julia Code"; style="margin-top:1.5rem"),
+                    h.pre(h.code(code_str); style="background:var(--pico-code-background-color); padding:1rem; border-radius:0.5rem; overflow-x:auto;"),
+                    h.details(; style="margin-top:1rem")(
+                        h.summary("Vega-Lite JSON Spec"),
+                        h.pre(h.code(escape_html(json_str)); style="background:var(--pico-code-background-color); padding:1rem; border-radius:0.5rem; overflow-x:auto; max-height:400px;"),
+                    ),
+                )
+            end
         end
     end
 
@@ -1543,12 +1544,13 @@ end
     compact_card(id) = begin
         entry = find_plot(id)
         isnothing(entry) && return h.span()
-        spec = entry[5]()
-        isnothing(spec) && return h.span()
-        h.div(; style="border:1px solid var(--pico-muted-border-color); border-radius:0.2rem; padding:0.2rem; overflow:hidden; min-width:0;")(
-            h.div(entry[2]; style="font-weight:bold; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-bottom:0.1rem;"),
-            vdraw(spec; width="container"),
-        )
+        let spec = entry[5]()
+            isnothing(spec) && return h.span()
+            h.div(; style="border:1px solid var(--pico-muted-border-color); border-radius:0.2rem; padding:0.2rem; overflow:hidden; min-width:0;")(
+                h.div(entry[2]; style="font-weight:bold; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-bottom:0.1rem;"),
+                vdraw(spec; width="container"),
+            )
+        end
     end
 
     @get compact = begin
@@ -1569,19 +1571,20 @@ end
             h.p("Unknown plot: $id")
         else
             title, code_str, spec_fn = entry[2], entry[4], entry[5]
-            spec = spec_fn()
-            json_str = JSON.json(to_vegalite(spec), 2)
-            h.div(
-                vdraw(spec),
-                h.details(; style="margin-top:0.5rem")(
-                    h.summary("Julia Code"),
-                    h.pre(h.code(code_str); style="background:var(--pico-code-background-color); padding:0.75rem; border-radius:0.5rem; overflow-x:auto; font-size:0.85em;"),
-                ),
-                h.details(; style="margin-top:0.25rem")(
-                    h.summary("Vega-Lite JSON"),
-                    h.pre(h.code(escape_html(json_str)); style="background:var(--pico-code-background-color); padding:0.75rem; border-radius:0.5rem; overflow-x:auto; max-height:300px; font-size:0.85em;"),
-                ),
-            )
+            let spec = spec_fn()
+                json_str = JSON.json(to_vegalite(spec), 2)
+                h.div(
+                    vdraw(spec),
+                    h.details(; style="margin-top:0.5rem")(
+                        h.summary("Julia Code"),
+                        h.pre(h.code(code_str); style="background:var(--pico-code-background-color); padding:0.75rem; border-radius:0.5rem; overflow-x:auto; font-size:0.85em;"),
+                    ),
+                    h.details(; style="margin-top:0.25rem")(
+                        h.summary("Vega-Lite JSON"),
+                        h.pre(h.code(escape_html(json_str)); style="background:var(--pico-code-background-color); padding:0.75rem; border-radius:0.5rem; overflow-x:auto; max-height:300px; font-size:0.85em;"),
+                    ),
+                )
+            end
         end
     end
 
@@ -1707,8 +1710,9 @@ end
         if isnothing(entry)
             HTTP.Response(404, ["Content-Type" => "text/plain"], body="Unknown plot: $id")
         else
-            spec = entry[5]()
-            HTTP.Response(200, ["Content-Type" => "text/html; charset=utf-8"], body=to_html(spec))
+            let spec = entry[5]()
+                HTTP.Response(200, ["Content-Type" => "text/html; charset=utf-8"], body=to_html(spec))
+            end
         end
     end
 
