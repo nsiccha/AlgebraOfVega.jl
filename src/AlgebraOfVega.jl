@@ -1790,6 +1790,31 @@ function to_vegalite(layers::AlgebraOfGraphics.Layers)
     layers_to_vl(layers)
 end
 
+function _deep_merge_encoding!(target_enc::Dict, config_enc::Dict)
+    for (ek, ev) in config_enc
+        sek = string(ek)
+        if ev isa Dict && haskey(target_enc, sek) && target_enc[sek] isa Dict
+            merge!(target_enc[sek], Dict{String,Any}(string(k2) => v2 for (k2, v2) in ev))
+        else
+            target_enc[sek] = ev
+        end
+    end
+end
+
+function _merge_encoding_config!(spec::Dict, config_enc::Dict)
+    if haskey(spec, "encoding")
+        _deep_merge_encoding!(spec["encoding"], config_enc)
+    end
+    if haskey(spec, "layer")
+        for sublayer in spec["layer"]
+            sublayer isa Dict && _merge_encoding_config!(sublayer, config_enc)
+        end
+    end
+    if haskey(spec, "spec")
+        spec["spec"] isa Dict && _merge_encoding_config!(spec["spec"], config_enc)
+    end
+end
+
 function to_vegalite(v::VegaSpec)
     spec = to_vegalite(v.drawable)
     select_fields = nothing
@@ -1797,16 +1822,8 @@ function to_vegalite(v::VegaSpec)
         for (k, val) in v.config.properties
             sk = string(k)
             # Deep-merge encoding so config adds to (not overwrites) auto-generated channels
-            if sk == "encoding" && val isa Dict && haskey(spec, "encoding")
-                for (ek, ev) in val
-                    sek = string(ek)
-                    if ev isa Dict && haskey(spec["encoding"], sek) && spec["encoding"][sek] isa Dict
-                        # Deep-merge channel: keep auto-generated field/type, add config properties
-                        merge!(spec["encoding"][sek], Dict{String,Any}(string(k2) => v2 for (k2, v2) in ev))
-                    else
-                        spec["encoding"][sek] = ev
-                    end
-                end
+            if sk == "encoding" && val isa Dict
+                _merge_encoding_config!(spec, val)
             elseif sk in ("width", "height") && haskey(spec, "spec")
                 # For faceted specs, width/height go into the inner spec
                 spec["spec"][sk] = val
