@@ -1119,16 +1119,21 @@ obs = data(faceted_observations()) *
      "https://mjskay.github.io/ggdist/reference/stat_lineribbon.html"),
 
     ("lineribbon_logscale", "Ribbon + Scatter (log scale)", "faceted lineribbon+scatter with config(encoding=...) log scale override",
-     """pred = data(faceted_regression_predictions()) *
+     """using Tables
+exp_table(t) = (x=Tables.getcolumn(t,:x), y=exp.(Tables.getcolumn(t,:y)),
+    (k => Tables.getcolumn(t,k) for k in Tables.columnnames(t) if k ∉ (:x,:y))...)
+pred = data(exp_table(faceted_regression_predictions())) *
     mapping(:x, :y, group=:draw, col=:panel, row=:site) * lineribbon()
-obs = data(faceted_observations()) *
+obs = data(exp_table(faceted_observations())) *
     mapping(:x, :y, col=:panel, row=:site) * visual(Scatter; color=:black, size=30)
 (pred + obs) * config(width=180, height=120,
     encoding=Dict(:y => Dict("scale" => Dict("type" => "log"))))""",
      () -> begin
-        pred = data(faceted_regression_predictions()) *
+        exp_table(t) = (x=Tables.getcolumn(t,:x), y=exp.(Tables.getcolumn(t,:y)),
+            (k => Tables.getcolumn(t,k) for k in Tables.columnnames(t) if k ∉ (:x,:y))...)
+        pred = data(exp_table(faceted_regression_predictions())) *
             mapping(:x, :y, group=:draw, col=:panel, row=:site) * lineribbon()
-        obs = data(faceted_observations()) *
+        obs = data(exp_table(faceted_observations())) *
             mapping(:x, :y, col=:panel, row=:site) * visual(Scatter; color=:black, size=30)
         (pred + obs) * config(width=180, height=120,
             encoding=Dict(:y => Dict("scale" => Dict("type" => "log"))))
