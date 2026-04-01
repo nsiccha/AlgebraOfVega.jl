@@ -2138,6 +2138,29 @@ function vega_head(;
     ]
 end
 
+"""Count the number of facet columns in a VL spec by inspecting the data."""
+function _count_facet_cols(vl::Dict)
+    facet = get(vl, "facet", nothing)
+    isnothing(facet) && return 1
+    col_field = nothing
+    if haskey(facet, "column")
+        col_field = get(facet["column"], "field", nothing)
+    elseif haskey(facet, "field")
+        col_field = facet["field"]
+    end
+    isnothing(col_field) && return 1
+    data_vals = get(get(vl, "data", Dict()), "values", nothing)
+    if !isnothing(data_vals) && data_vals isa Vector
+        vals = Set()
+        for row in data_vals
+            row isa Dict && haskey(row, col_field) && push!(vals, row[col_field])
+        end
+        n = length(vals)
+        return n > 0 ? n : 1
+    end
+    1
+end
+
 """
     vega_runtime()
 
@@ -2157,20 +2180,71 @@ function vega_runtime()
         views: {},
         _pending: {},
 
+        _applyResponsiveWidth: function(id, spec) {
+            var el = document.getElementById(id);
+            if (!el) return spec;
+            var containerWidth = el.parentElement ? el.parentElement.clientWidth : null;
+            if (!containerWidth || containerWidth < 50) return spec;
+            var padding = 30; // approximate VL padding
+
+            // Faceted specs: set per-cell width from container / nCols
+            if (spec._aov && spec._aov.nFacetCols && spec.spec) {
+                var nCols = spec._aov.nFacetCols;
+                var cellWidth = Math.floor((containerWidth - padding) / nCols) - padding;
+                if (cellWidth > 50) {
+                    spec.spec = Object.assign({}, spec.spec, {width: cellWidth});
+                }
+                return spec;
+            }
+
+            // Layered/composite specs: set top-level width
+            if (spec.layer || spec._aov) {
+                spec = Object.assign({}, spec, {width: containerWidth - padding});
+                return spec;
+            }
+
+            return spec;
+        },
+
         embed: function(id, spec, opts) {
             opts = opts || {};
             var self = this;
-            return vegaEmbed('#' + id, spec, opts).then(function(result) {
-                self.views[id] = result.view;
-                // Wire up any pending signal listeners
-                if (self._pending[id]) {
-                    self._pending[id].forEach(function(p) {
-                        self.onSignal(id, p.signal, p.callback);
+            // Store original spec for re-embed on resize
+            var origSpec = JSON.parse(JSON.stringify(spec));
+            var sized = self._applyResponsiveWidth(id, JSON.parse(JSON.stringify(origSpec)));
+
+            var doEmbed = function() {
+                var s = self._applyResponsiveWidth(id, JSON.parse(JSON.stringify(origSpec)));
+                return vegaEmbed('#' + id, s, opts).then(function(result) {
+                    self.views[id] = result.view;
+                    if (self._pending[id]) {
+                        self._pending[id].forEach(function(p) {
+                            self.onSignal(id, p.signal, p.callback);
+                        });
+                        delete self._pending[id];
+                    }
+                    return result;
+                }).catch(console.error);
+            };
+
+            // Set up resize observer for responsive re-embed
+            if (spec.layer || spec._aov || (spec.spec && spec.facet)) {
+                var el = document.getElementById(id);
+                if (el && el.parentElement && window.ResizeObserver) {
+                    var timer = null;
+                    var ro = new ResizeObserver(function() {
+                        clearTimeout(timer);
+                        timer = setTimeout(function() { doEmbed(); }, 200);
                     });
-                    delete self._pending[id];
+                    ro.observe(el.parentElement);
+                    // Clean up on element removal
+                    self._observers = self._observers || {};
+                    if (self._observers[id]) { self._observers[id].disconnect(); }
+                    self._observers[id] = ro;
                 }
-                return result;
-            }).catch(console.error);
+            }
+
+            return doEmbed();
         },
 
         updateData: function(id, data, name) {
@@ -2228,6 +2302,7 @@ Requires vega/vega-lite/vega-embed scripts to be loaded (use `vega_head()` in pa
   `(signal="brush", url="/on_brush", target="#detail")` or with optional `swap`, `debounce`.
 """
 function to_node(spec; id=nothing, width=nothing, height=nothing, actions=false, signals=nothing, fit_width=true)
+    # Convert to VL dict
     vl = spec isa Dict ? copy(spec) : to_vegalite(spec)
     !isnothing(width) && (vl["width"] = width)
     !isnothing(height) && (vl["height"] = height)
@@ -2245,14 +2320,19 @@ function to_node(spec; id=nothing, width=nothing, height=nothing, actions=false,
             vl["width"] = "container"
             vl["autosize"] = Dict("type" => "fit", "contains" => "padding")
         elseif is_faceted && haskey(vl, "spec")
-            # For faceted specs, set per-cell width in the inner spec
+            # Inject _aov hint for responsive JS resizing
+            n_facet_cols = _count_facet_cols(vl)
+            vl["_aov"] = Dict{String,Any}("nFacetCols" => n_facet_cols)
             inner = vl["spec"]
             if !haskey(inner, "width")
-                inner["width"] = 400
+                inner["width"] = 400  # fallback, JS overrides
             end
-        elseif !haskey(vl, "width")
-            # For layered/composite specs without explicit width, use a sensible default
-            vl["width"] = 400
+        else
+            # Layered/composite: mark for responsive JS resizing
+            vl["_aov"] = Dict{String,Any}()
+            if !haskey(vl, "width")
+                vl["width"] = 400  # fallback, JS overrides
+            end
         end
     end
     id = something(id, "vega-" * string(abs(hash(JSON.json(vl))), base=16))
