@@ -2,6 +2,7 @@ module AlgebraOfVegaGallery
 
 using HTMXObjects
 using AlgebraOfVega
+import CairoMakie
 using JSON
 using TestModules, Random, Tables
 
@@ -1439,6 +1440,10 @@ end
                         href="/standalone/$id", target="_blank",
                         style="font-size:0.9em; font-weight:bold; text-decoration:none;",
                     ),
+                    h.a("static";
+                        href="/static_plot/$id", target="_blank",
+                        style="font-size:0.7em; margin-left:0.3em; padding:0.1rem 0.3rem; border:1px solid; border-radius:0.2rem; text-decoration:none; color:var(--pico-muted-color);",
+                    ),
                     flag_button(id),
                     isnothing(ref_url) ? h.span() :
                         h.a(" [ref]";
@@ -1528,7 +1533,7 @@ end
         ) for p in PLOTS for (id, title) in ((p[1], p[2]),)]...
     )
 
-    plot_detail[id] = begin
+    plot_detail(id) = begin
         entry = find_plot(id)
         if isnothing(entry)
             h.p("Unknown plot: $id")
@@ -1883,6 +1888,77 @@ end""");
             )
             update_data("update-demo", filtered)
         end
+    end
+
+    plots_dir = let d = joinpath(@__DIR__, "..", "plots"); mkpath(d); d end
+
+    @get static_plot(id) = begin
+        entry = find_plot(id)
+        if isnothing(entry)
+            h.p("Unknown plot: $id")
+        else
+            title, spec_fn = entry[2], entry[5]
+            let spec = spec_fn()
+                path = joinpath(plots_dir, "$id.png")
+                sdraw_file(spec, path; px_per_unit=2)
+                h.div(
+                    h.h3(title),
+                    h.img(; src="/plot_img/$id.png", style="max-width:100%;"),
+                )
+            end
+        end
+    end
+
+    @get plot_img(filename) = begin
+        path = joinpath(plots_dir, filename)
+        if isfile(path)
+            HTTP.Response(200, ["Content-Type" => "image/png"], read(path))
+        else
+            HTTP.Response(404, "Not found")
+        end
+    end
+
+    STATIC_GALLERY_IDS = [
+        "scatter", "bar", "line", "lines_only", "histogram",
+        "layered", "stacked_bar", "grouped_bar",
+        "aog_scatter_basic", "aog_sine_lines", "aog_boxplot",
+        "lineribbon", "lineribbon_grouped", "lineribbon_faceted",
+        "lineribbon_logscale", "ribbon_only",
+    ]
+
+    @get static_gallery = begin
+        cards = map(STATIC_GALLERY_IDS) do id
+            let entry = find_plot(id)
+                if isnothing(entry)
+                    h.article(h.p("Unknown: $id"))
+                else
+                    title, spec_fn = entry[2], entry[5]
+                    let spec = spec_fn()
+                        path = joinpath(plots_dir, "$id.png")
+                        try
+                            sdraw_file(spec, path; px_per_unit=2)
+                            h.article(; style="margin:0; padding:0.5rem;")(
+                                h.h5(title; style="margin:0 0 0.25rem;"),
+                                h.img(; src="/plot_img/$id.png", style="width:100%;"),
+                            )
+                        catch e
+                            h.article(; style="margin:0; padding:0.5rem;")(
+                                h.h5(title; style="margin:0 0 0.25rem;"),
+                                h.p("Error: $(sprint(showerror, e))"; style="color:red; font-size:0.8em;"),
+                            )
+                        end
+                    end
+                end
+            end
+        end
+        page(
+            h.div(
+                h.h2("Static Gallery (Makie/CairoMakie)"),
+                h.div(; style="display:grid; grid-template-columns:repeat(4, 1fr); gap:0.5rem;")(
+                    cards...,
+                ),
+            )
+        )
     end
 
     @include tests = TestRoutes(; req, test_module=@__MODULE__)

@@ -26,7 +26,7 @@ export Scatter, Lines, ScatterLines, BarPlot, Heatmap, BoxPlot,
     Contour, Violin, RainClouds, Rangebars, CrossBar, ECDFPlot
 
 # AlgebraOfVega exports
-export config, vdraw, vlspec, vdata
+export config, vdraw, sdraw, sdraw_file, vlspec, vdata
 export to_vegalite, to_json, to_html, to_node, vega_head
 export vega_runtime, update_data, vega_cdn_urls
 # Tidybayes-style analysis exports
@@ -2418,6 +2418,252 @@ function ppc_overlay(obs, pred; x, y, col=nothing, row=nothing, group=nothing,
     end
 
     layers
+end
+
+# --- Static (Makie) rendering ---
+
+"""
+    _extract_drawable(spec)
+
+Extract the AoG drawable (Layer/Layers) from a spec. Returns `(drawable, config)`.
+"""
+_extract_drawable(layer::AlgebraOfGraphics.Layer) = (layer, nothing)
+_extract_drawable(layers::AlgebraOfGraphics.Layers) = (layers, nothing)
+_extract_drawable(v::VegaSpec) = (v.drawable, v.config)
+
+"""
+    _draw_kwargs(cfg::Union{Config,Nothing})
+
+Translate AoV Config properties into keyword arguments for `AlgebraOfGraphics.draw`.
+"""
+function _is_faceted(drawable)
+    if drawable isa AlgebraOfGraphics.Layer
+        return haskey(drawable.named, :col) || haskey(drawable.named, :row) || haskey(drawable.named, :layout)
+    elseif drawable isa AlgebraOfGraphics.Layers
+        return any(_is_faceted, drawable.layers)
+    end
+    false
+end
+
+function _draw_kwargs(cfg::Union{Config,Nothing}; faceted=false)
+    figure_kw = Dict{Symbol,Any}()
+    facet_kw = Dict{Symbol,Any}()
+    axis_kw = Dict{Symbol,Any}()
+    isnothing(cfg) && return (; figure=NamedTuple(), facet=NamedTuple(), axis=NamedTuple())
+    props = cfg.properties
+    if !faceted
+        w = get(props, :width, nothing)
+        h_val = get(props, :height, nothing)
+        if !isnothing(w) || !isnothing(h_val)
+            figure_kw[:size] = (something(w, 400), something(h_val, 400))
+        end
+    end
+    # Translate VL encoding scale overrides to Makie axis scales
+    enc = get(props, :encoding, nothing)
+    if !isnothing(enc) && enc isa Dict
+        for (ch, ch_props) in enc
+            ch_props isa Dict || continue
+            scale_dict = get(ch_props, "scale", get(ch_props, :scale, nothing))
+            isnothing(scale_dict) && continue
+            scale_type = get(scale_dict, "type", get(scale_dict, :type, nothing))
+            if scale_type == "log"
+                if ch in (:y, "y")
+                    axis_kw[:yscale] = log10
+                elseif ch in (:x, "x")
+                    axis_kw[:xscale] = log10
+                end
+            end
+        end
+    end
+    for (k, v) in props
+        if k in (:width, :height, :encoding)
+            # handled above
+        elseif k === :independent_scales
+            axes = if v === true
+                [:x, :y]
+            elseif v isa Symbol
+                [v]
+            else
+                [Symbol(a) for a in v]
+            end
+            :x in axes && (facet_kw[:linkxaxes] = :none)
+            :y in axes && (facet_kw[:linkyaxes] = :none)
+        end
+    end
+    (; figure=NamedTuple(figure_kw), facet=NamedTuple(facet_kw), axis=NamedTuple(axis_kw))
+end
+
+"""
+    _has_aov_analysis(layer::AlgebraOfGraphics.Layer)
+
+Check if a layer uses an AoV-specific transformation (tidybayes analyses).
+"""
+function _get_analysis(layer::AlgebraOfGraphics.Layer)
+    t = layer.transformation
+    t isa TidybayesAnalysis && return t
+    if t isa ComposedFunction
+        t.outer isa TidybayesAnalysis && return t.outer
+        t.inner isa TidybayesAnalysis && return t.inner
+    end
+    nothing
+end
+
+"""
+    _lineribbon_to_aog(a::LineRibbonAnalysis, layer::AlgebraOfGraphics.Layer)
+
+Convert a LineRibbonAnalysis layer to pure AoG Band + Lines layers.
+"""
+function _lineribbon_to_aog(a::LineRibbonAnalysis, layer::AlgebraOfGraphics.Layer)
+    table = extract_data(layer)
+    x_field = length(layer.positional) >= 1 ? _field_name(layer.positional[1]) : "x"
+    y_field = length(layer.positional) >= 2 ? _field_name(layer.positional[2]) : "y"
+    group_field = haskey(layer.named, :group) ? _field_name(layer.named[:group]) : "draw"
+    color_field = haskey(layer.named, :color) ? _field_name(layer.named[:color]) : nothing
+    facet, facet_fields = _extract_facet_info(layer)
+
+    summary = compute_ribbon_summary(table, x_field, y_field, group_field, a.probs;
+        color_field, facet_fields)
+
+    # Build a columnar NamedTuple from the summary rows
+    cols = collect(keys(summary[1]))
+    col_syms = Tuple(Symbol.(cols))
+    col_vals = Tuple([getindex.(summary, c) for c in cols])
+    summary_nt = NamedTuple{col_syms}(col_vals)
+
+    sorted_probs = sort(a.probs, rev=true)
+    opacities = range(0.2, 0.6, length=length(sorted_probs))
+
+    facet_kw = Dict{Symbol,Any}()
+    for ff in facet_fields
+        sf = Symbol(ff)
+        if haskey(layer.named, :col) && _field_name(layer.named[:col]) == ff
+            facet_kw[:col] = sf
+        elseif haskey(layer.named, :row) && _field_name(layer.named[:row]) == ff
+            facet_kw[:row] = sf
+        end
+    end
+
+    color_kw = isnothing(color_field) ? Dict{Symbol,Any}() :
+        Dict{Symbol,Any}(:color => Symbol(color_field))
+
+    x_sym = Symbol(x_field)
+    result = nothing
+
+    for (i, prob) in enumerate(sorted_probs)
+        lo_sym = Symbol(_vl_prob_field("lo", prob))
+        hi_sym = Symbol(_vl_prob_field("hi", prob))
+        band_layer = data(summary_nt) *
+            mapping(x_sym, lo_sym, hi_sym; color_kw..., facet_kw...) *
+            visual(Band; alpha=opacities[i])
+        result = isnothing(result) ? band_layer : result + band_layer
+    end
+
+    if a.show_line
+        line_layer = data(summary_nt) *
+            mapping(x_sym, Symbol("__median__"); color_kw..., facet_kw...) *
+            visual(Lines)
+        result = isnothing(result) ? line_layer : result + line_layer
+    end
+
+    result
+end
+
+"""
+    _fix_visual_attrs(layer::AlgebraOfGraphics.Layer)
+
+Remap VL-style visual attributes to Makie equivalents (e.g. size → markersize).
+Returns the layer unchanged if no visual or no remapping needed.
+"""
+function _fix_visual_attrs(layer::AlgebraOfGraphics.Layer)
+    vis = extract_visual(layer)
+    isnothing(vis) && return layer
+    attrs = Dict(pairs(vis.attributes))
+    changed = false
+    if haskey(attrs, :size) && !haskey(attrs, :markersize)
+        attrs[:markersize] = pop!(attrs, :size)
+        changed = true
+    end
+    if haskey(attrs, :strokeWidth) && !haskey(attrs, :linewidth)
+        attrs[:linewidth] = pop!(attrs, :strokeWidth)
+        changed = true
+    end
+    if haskey(attrs, :strokeDash) && !haskey(attrs, :linestyle)
+        attrs[:linestyle] = pop!(attrs, :strokeDash)
+        changed = true
+    end
+    if haskey(attrs, :opacity) && !haskey(attrs, :alpha)
+        attrs[:alpha] = pop!(attrs, :opacity)
+        changed = true
+    end
+    !changed && return layer
+    new_vis = AlgebraOfGraphics.Visual(vis.plottype; attrs...)
+    # Rebuild layer with new visual in the transformation
+    t = layer.transformation
+    new_t = if t isa AlgebraOfGraphics.Visual
+        new_vis
+    elseif t isa ComposedFunction
+        t.outer isa AlgebraOfGraphics.Visual ? new_vis ∘ t.inner : t.outer ∘ new_vis
+    else
+        new_vis
+    end
+    AlgebraOfGraphics.Layer(new_t, layer.data, layer.positional, layer.named)
+end
+
+function _convert_single_layer(l::AlgebraOfGraphics.Layer)
+    a = _get_analysis(l)
+    if !isnothing(a)
+        if a isa LineRibbonAnalysis
+            return _lineribbon_to_aog(a, l)
+        end
+        error("sdraw does not yet support $(typeof(a)) — use vdraw for this plot type")
+    end
+    _fix_visual_attrs(l)
+end
+
+function _to_aog_drawable(layers::AlgebraOfGraphics.Layers)
+    converted = map(_convert_single_layer, layers.layers)
+    result = nothing
+    for c in converted
+        result = isnothing(result) ? c : result + c
+    end
+    result
+end
+
+"""
+    sdraw(spec, path::AbstractString; kwargs...)
+
+Render an AoG spec via AlgebraOfGraphics.draw → Makie → file.
+Saves the figure to `path` (format inferred from extension) and returns
+an `h.img` node pointing to `path`.
+
+Requires a Makie backend (e.g. CairoMakie) to be loaded.
+
+Extra `kwargs` are passed to `Makie.save` (e.g. `px_per_unit=2` for retina).
+"""
+function sdraw(spec, path::AbstractString; kwargs...)
+    sdraw_file(spec, path; kwargs...)
+    h.img(; src=path)
+end
+
+"""
+    sdraw_file(spec, path::AbstractString; kwargs...)
+
+Render an AoG spec to a file via AlgebraOfGraphics.draw → Makie.save.
+Returns the path. Extra `kwargs` are passed to `Makie.save`.
+"""
+function sdraw_file(spec, path::AbstractString; kwargs...)
+    drawable, cfg = _extract_drawable(spec)
+    drawable = if drawable isa AlgebraOfGraphics.Layers
+        _to_aog_drawable(drawable)
+    elseif drawable isa AlgebraOfGraphics.Layer
+        _convert_single_layer(drawable)
+    else
+        drawable
+    end
+    kw = _draw_kwargs(cfg; faceted=_is_faceted(drawable))
+    fg = AlgebraOfGraphics.draw(drawable; figure=kw.figure, facet=kw.facet, axis=kw.axis)
+    Makie.save(path, fg; kwargs...)
+    path
 end
 
 # --- MIME show methods for notebook/Quarto support ---
