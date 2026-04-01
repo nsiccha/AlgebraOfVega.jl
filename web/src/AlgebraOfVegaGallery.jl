@@ -1589,6 +1589,37 @@ end
         )
     end
 
+    static_compact_card(id) = begin
+        entry = find_plot(id)
+        isnothing(entry) && return h.span()
+        let spec = entry[5]()
+            isnothing(spec) && return h.span()
+            path = joinpath(plots_dir, "$id.png")
+            try
+                sdraw_file(spec, path; px_per_unit=2)
+                h.div(; style="border:1px solid var(--pico-muted-border-color); border-radius:0.2rem; padding:0.2rem; overflow:hidden; min-width:0;")(
+                    h.div(entry[2]; style="font-weight:bold; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-bottom:0.1rem;"),
+                    h.img(; src="/plot_img/$id.png", style="width:100%;"),
+                )
+            catch
+                h.div(; style="border:1px solid var(--pico-muted-border-color); border-radius:0.2rem; padding:0.2rem; overflow:hidden; min-width:0; opacity:0.4;")(
+                    h.div(entry[2]; style="font-weight:bold; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-bottom:0.1rem;"),
+                    h.div("✗"; style="text-align:center; color:red;"),
+                )
+            end
+        end
+    end
+
+    @get static_compact = begin
+        all_cards = [static_compact_card(e[1]) for section in PLOT_SECTIONS for e in filter(!isnothing, [find_plot(id) for id in section[2]])]
+        h.div(; style="width:100vw; padding:0.5rem; font-size:0.5em;")(
+            h.h2("AlgebraOfVega Static Gallery"; style="margin-bottom:0.5rem;"),
+            h.div(; style="display:grid; grid-template-columns:repeat(16, 1fr); gap:0.25rem;")(
+                all_cards...,
+            ),
+        )
+    end
+
     @get plot(id) = plot_detail[id]
 
     @get card_plot(id) = begin
@@ -1918,48 +1949,53 @@ end""");
         end
     end
 
-    STATIC_GALLERY_IDS = [
-        "scatter", "bar", "line", "lines_only", "histogram",
-        "layered", "stacked_bar", "grouped_bar",
-        "aog_scatter_basic", "aog_sine_lines", "aog_boxplot",
-        "lineribbon", "lineribbon_grouped", "lineribbon_faceted",
-        "lineribbon_logscale", "ribbon_only",
-    ]
-
-    @get static_gallery = begin
-        cards = map(STATIC_GALLERY_IDS) do id
-            let entry = find_plot(id)
-                if isnothing(entry)
-                    h.article(h.p("Unknown: $id"))
-                else
-                    title, spec_fn = entry[2], entry[5]
-                    let spec = spec_fn()
-                        path = joinpath(plots_dir, "$id.png")
-                        try
-                            sdraw_file(spec, path; px_per_unit=2)
-                            h.article(; style="margin:0; padding:0.5rem;")(
-                                h.h5(title; style="margin:0 0 0.25rem;"),
-                                h.img(; src="/plot_img/$id.png", style="width:100%;"),
-                            )
-                        catch e
-                            h.article(; style="margin:0; padding:0.5rem;")(
-                                h.h5(title; style="margin:0 0 0.25rem;"),
-                                h.p("Error: $(sprint(showerror, e))"; style="color:red; font-size:0.8em;"),
-                            )
-                        end
-                    end
+    static_plot_card(id) = begin
+        let entry = find_plot(id)
+            isnothing(entry) && return h.article(h.p("Unknown: $id"))
+            title = entry[2]
+            let spec = entry[5]()
+                path = joinpath(plots_dir, "$id.png")
+                try
+                    sdraw_file(spec, path; px_per_unit=2)
+                    h.article(; style="margin:0; padding:0.5rem; min-width:0; overflow:hidden;")(
+                        h.header(; style="padding:0 0 0.25rem; margin:0; display:flex; align-items:center; flex-wrap:wrap;")(
+                            h.a(title;
+                                href="/static_plot/$id", target="_blank",
+                                style="font-size:0.9em; font-weight:bold; text-decoration:none;",
+                            ),
+                            flag_button(id),
+                        ),
+                        h.img(; src="/plot_img/$id.png", style="width:100%;"),
+                    )
+                catch e
+                    h.article(; style="margin:0; padding:0.5rem; min-width:0; overflow:hidden;")(
+                        h.header(; style="padding:0 0 0.25rem; margin:0; display:flex; align-items:center; flex-wrap:wrap;")(
+                            h.span(title; style="font-size:0.9em; font-weight:bold;"),
+                            flag_button(id),
+                        ),
+                        h.p("Error: $(sprint(showerror, e))"; style="color:red; font-size:0.8em;"),
+                    )
                 end
             end
         end
-        page(
-            h.div(
-                h.h2("Static Gallery (Makie/CairoMakie)"),
-                h.div(; style="display:grid; grid-template-columns:repeat(4, 1fr); gap:0.5rem;")(
-                    cards...,
-                ),
-            )
+    end
+
+    static_gallery_section(section_title, ids) = begin
+        entries = filter(!isnothing, [find_plot(id) for id in ids])
+        h.div(; style="margin-bottom:2rem")(
+            h.h3(section_title; style="margin-bottom:0.5rem"),
+            h.div(; style="display:grid; grid-template-columns:repeat(4, 1fr); gap:0.5rem;")(
+                [static_plot_card(e[1]) for e in entries]...,
+            ),
         )
     end
+
+    @get static_gallery = page(
+        h.div(
+            h.h2("Static Gallery (Makie/CairoMakie)"),
+            [static_gallery_section(title, ids) for (title, ids) in PLOT_SECTIONS]...,
+        )
+    )
 
     @include tests = TestRoutes(; req, test_module=@__MODULE__)
 end
