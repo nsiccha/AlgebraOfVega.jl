@@ -2197,8 +2197,8 @@ function vega_runtime()
                 return spec;
             }
 
-            // Layered/composite specs: set top-level width
-            if (spec.layer || spec._aov) {
+            // Layered/composite specs: set top-level width (only when _aov hint is present)
+            if (spec._aov && !spec._aov.nFacetCols) {
                 spec = Object.assign({}, spec, {width: containerWidth - padding});
                 return spec;
             }
@@ -2227,8 +2227,8 @@ function vega_runtime()
                 }).catch(console.error);
             };
 
-            // Set up resize observer for responsive re-embed
-            if (spec.layer || spec._aov || (spec.spec && spec.facet)) {
+            // Set up resize observer for responsive re-embed (only for _aov-marked specs)
+            if (spec._aov) {
                 var el = document.getElementById(id);
                 if (el && el.parentElement && window.ResizeObserver) {
                     var timer = null;
