@@ -2153,6 +2153,7 @@ function vega_head(;
     vega_embed_version=VEGA_EMBED_VERSION,
     zoom=nothing,
     max_width=nothing,
+    actions=nothing,
 )
     nodes = [
         h.script(src="https://cdn.jsdelivr.net/npm/vega@$vega_version"),
@@ -2163,6 +2164,7 @@ function vega_head(;
     settings = Dict{String,Any}()
     !isnothing(zoom) && (settings["zoom"] = zoom)
     !isnothing(max_width) && (settings["maxWidth"] = max_width)
+    !isnothing(actions) && (settings["defaultActions"] = actions)
     if !isempty(settings)
         !isnothing(zoom) && push!(nodes, h.style(".vega-embed { zoom: $zoom; }"))
         push!(nodes, h.script("window.AoV = Object.assign(window.AoV || {}, $(JSON.json(settings)));"))
@@ -2244,6 +2246,9 @@ function vega_runtime()
 
         embed: function(id, spec, opts) {
             opts = opts || {};
+            if (window.AoV && window.AoV.defaultActions !== undefined) {
+                opts = Object.assign({}, opts, {actions: window.AoV.defaultActions});
+            }
             var self = this;
             // Store original spec for re-embed on resize
             var origSpec = JSON.parse(JSON.stringify(spec));

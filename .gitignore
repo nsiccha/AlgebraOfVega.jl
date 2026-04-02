@@ -1,6 +1,15 @@
 Manifest.toml
 build/
+
+# Override global gitignore — track all web/ contents in this repo
+!web/
+!web/*
+!web/**
+# Re-ignore generated/local files within web/
+web/Manifest.toml
+web/app/Manifest.toml
 web/flagged.txt
+web/plots/
 
 CLAUDE.md
 
