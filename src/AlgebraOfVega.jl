@@ -2232,7 +2232,11 @@ function vega_runtime()
                 var el = document.getElementById(id);
                 if (el && el.parentElement && window.ResizeObserver) {
                     var timer = null;
+                    var lastWidth = el.parentElement.clientWidth;
                     var ro = new ResizeObserver(function() {
+                        var newWidth = el.parentElement ? el.parentElement.clientWidth : 0;
+                        if (newWidth === lastWidth || newWidth < 50) return;
+                        lastWidth = newWidth;
                         clearTimeout(timer);
                         timer = setTimeout(function() { doEmbed(); }, 200);
                     });
