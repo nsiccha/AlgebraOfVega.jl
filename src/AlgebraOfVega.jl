@@ -1882,6 +1882,10 @@ function to_vegalite(v::VegaSpec)
                 hd["titleFontSize"] = round(Int, 11 * fs)
                 tt = get!(cfg, "title", Dict{String,Any}())
                 tt["fontSize"] = round(Int, 13 * fs)
+            elseif sk == "max_width"
+                # Store max width in _aov for JS to cap responsive sizing
+                aov = get!(spec, "_aov", Dict{String,Any}())
+                aov["maxWidth"] = val
             elseif sk == "select"
                 # Collect select fields — processed after spec is built
                 select_fields = val isa Symbol ? [val] : val
@@ -2148,6 +2152,7 @@ function vega_head(;
     vegalite_version=VEGALITE_VERSION,
     vega_embed_version=VEGA_EMBED_VERSION,
     zoom=nothing,
+    max_width=nothing,
 )
     nodes = [
         h.script(src="https://cdn.jsdelivr.net/npm/vega@$vega_version"),
@@ -2155,9 +2160,12 @@ function vega_head(;
         h.script(src="https://cdn.jsdelivr.net/npm/vega-embed@$vega_embed_version"),
         vega_runtime(),
     ]
-    if !isnothing(zoom)
-        push!(nodes, h.style(".vega-embed { zoom: $zoom; }"))
-        push!(nodes, h.script("window.AoV = window.AoV || {}; window.AoV.zoom = $zoom;"))
+    settings = Dict{String,Any}()
+    !isnothing(zoom) && (settings["zoom"] = zoom)
+    !isnothing(max_width) && (settings["maxWidth"] = max_width)
+    if !isempty(settings)
+        !isnothing(zoom) && push!(nodes, h.style(".vega-embed { zoom: $zoom; }"))
+        push!(nodes, h.script("window.AoV = Object.assign(window.AoV || {}, $(JSON.json(settings)));"))
     end
     nodes
 end
@@ -2211,6 +2219,8 @@ function vega_runtime()
             if (!containerWidth || containerWidth < 50) return spec;
             var zoom = (window.AoV && window.AoV.zoom) ? window.AoV.zoom : 1;
             containerWidth = Math.floor(containerWidth / zoom);
+            var maxWidth = (spec._aov && spec._aov.maxWidth) || (window.AoV && window.AoV.maxWidth) || Infinity;
+            containerWidth = Math.min(containerWidth, maxWidth);
             var padding = 30; // approximate VL padding
 
             // Faceted specs: set per-cell width from container / nCols
