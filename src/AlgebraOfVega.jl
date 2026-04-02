@@ -1867,6 +1867,21 @@ function to_vegalite(v::VegaSpec)
                 end
                 resolve_scale = Dict{String,Any}(ax => "independent" for ax in axes)
                 spec["resolve"] = Dict{String,Any}("scale" => resolve_scale)
+            elseif sk == "font_scale"
+                # Scale all default VL font sizes by val
+                fs = Float64(val)
+                cfg = get!(spec, "config", Dict{String,Any}())
+                ax = get!(cfg, "axis", Dict{String,Any}())
+                ax["labelFontSize"] = round(Int, 10 * fs)
+                ax["titleFontSize"] = round(Int, 11 * fs)
+                lg = get!(cfg, "legend", Dict{String,Any}())
+                lg["labelFontSize"] = round(Int, 10 * fs)
+                lg["titleFontSize"] = round(Int, 11 * fs)
+                hd = get!(cfg, "header", Dict{String,Any}())
+                hd["labelFontSize"] = round(Int, 10 * fs)
+                hd["titleFontSize"] = round(Int, 11 * fs)
+                tt = get!(cfg, "title", Dict{String,Any}())
+                tt["fontSize"] = round(Int, 13 * fs)
             elseif sk == "select"
                 # Collect select fields — processed after spec is built
                 select_fields = val isa Symbol ? [val] : val
@@ -2121,21 +2136,30 @@ VEGALITE_VERSION = "5"
 VEGA_EMBED_VERSION = "6"
 
 """
-    vega_head(; vega_version, vegalite_version, vega_embed_version)
+    vega_head(; vega_version, vegalite_version, vega_embed_version, zoom)
 
-Return a vector of `h.script` nodes to include in `htmx(; extra_head=vega_head())`.
+Return a vector of `h.script`/`h.style` nodes to include in `htmx(; extra_head=vega_head())`.
+
+`zoom` uniformly scales all plots (chart area, fonts, axes, legend). Responsive plots
+are sized to `containerWidth / zoom` so they don't overflow their container.
 """
 function vega_head(;
     vega_version=VEGA_VERSION,
     vegalite_version=VEGALITE_VERSION,
     vega_embed_version=VEGA_EMBED_VERSION,
+    zoom=nothing,
 )
-    [
+    nodes = [
         h.script(src="https://cdn.jsdelivr.net/npm/vega@$vega_version"),
         h.script(src="https://cdn.jsdelivr.net/npm/vega-lite@$vegalite_version"),
         h.script(src="https://cdn.jsdelivr.net/npm/vega-embed@$vega_embed_version"),
         vega_runtime(),
     ]
+    if !isnothing(zoom)
+        push!(nodes, h.style(".vega-embed { zoom: $zoom; }"))
+        push!(nodes, h.script("window.AoV = window.AoV || {}; window.AoV.zoom = $zoom;"))
+    end
+    nodes
 end
 
 """Count the number of facet columns in a VL spec by inspecting the data."""
@@ -2185,6 +2209,8 @@ function vega_runtime()
             if (!el) return spec;
             var containerWidth = el.parentElement ? el.parentElement.clientWidth : null;
             if (!containerWidth || containerWidth < 50) return spec;
+            var zoom = (window.AoV && window.AoV.zoom) ? window.AoV.zoom : 1;
+            containerWidth = Math.floor(containerWidth / zoom);
             var padding = 30; // approximate VL padding
 
             // Faceted specs: set per-cell width from container / nCols
