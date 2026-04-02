@@ -2398,6 +2398,7 @@ Render an AoG spec as a Vega-Lite HTML node. Convenience alias for `to_node(spec
 Named `vdraw` to avoid clashing with `AlgebraOfGraphics.draw` (Makie rendering).
 """
 vdraw(spec; kwargs...) = to_node(spec; kwargs...)
+vdraw(; kwargs...) = spec -> vdraw(spec; kwargs...)
 
 # --- Renderer-agnostic dependency declaration ---
 

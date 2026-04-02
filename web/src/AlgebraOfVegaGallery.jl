@@ -1515,6 +1515,7 @@ end
             h.div(; style="display:grid; grid-template-columns:repeat(4, 1fr); gap:0.5rem;")(
                 demo_card("/demo_brush", "Brush → Server Stats", "Brush a scatter plot, server computes stats on selection"),
                 demo_card("/demo_update", "Server-Side Data Update", "Buttons fetch filtered data from server, plot animates update"),
+                demo_card("/demo_responsive", "Responsive Width", "Plots adapt to container width — 50%, side-by-side, faceted"),
             ),
         ),
     )
@@ -1901,6 +1902,38 @@ vdraw(spec;
 end""");
                 style="background:var(--pico-code-background-color); padding:1rem; border-radius:0.5rem; overflow-x:auto;"),
         )
+    end
+
+    @get demo_responsive = begin
+        let spec = data(cars()) * mapping(:horsepower, :mpg, color=:origin) * visual(Scatter)
+            faceted_spec = data(cars()) * mapping(:horsepower, :mpg, col=:origin) * visual(Scatter)
+            h.div(
+                h.h2("Responsive Width Demo"),
+                h.p("Plots adapt to their container width. Resize the browser to see them reflow."),
+
+                h.h4("Full width (layered)"),
+                vdraw(spec + (data(cars()) * mapping(:horsepower, :mpg) * linear())),
+
+                h.h4("50% width"; style="margin-top:1.5rem;"),
+                h.div(; style="width:50%;")(vdraw(spec)),
+
+                h.h4("Side by side (50% each)"; style="margin-top:1.5rem;"),
+                h.div(; style="display:flex; gap:1rem;")(
+                    h.div(; style="flex:1;")(vdraw(spec)),
+                    h.div(; style="flex:1;")(vdraw(spec + (data(cars()) * mapping(:horsepower, :mpg) * linear()))),
+                ),
+
+                h.h4("Faceted — full width"; style="margin-top:1.5rem;"),
+                vdraw(faceted_spec),
+
+                h.h4("Faceted — 60% width"; style="margin-top:1.5rem;"),
+                h.div(; style="width:60%;")(vdraw(faceted_spec)),
+
+                h.h4("Saveable (actions=true)"; style="margin-top:1.5rem;"),
+                h.p("Click the ⋯ menu to Save as PNG/SVG."),
+                vdraw(spec; actions=true),
+            )
+        end
     end
 
     @get filter_data(origin) = begin
