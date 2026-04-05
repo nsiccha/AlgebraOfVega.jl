@@ -785,9 +785,12 @@ end
 function analysis_to_vl(a::LineRibbonAnalysis, layer::AlgebraOfGraphics.Layer; is_sublayer=false)
     table = extract_data(layer)
     x_field = length(layer.positional) >= 1 ? _field_name(layer.positional[1]) : "x"
+    x_label = length(layer.positional) >= 1 ? _field_label(layer.positional[1]) : "x"
     y_field = length(layer.positional) >= 2 ? _field_name(layer.positional[2]) : "y"
+    y_label = length(layer.positional) >= 2 ? _field_label(layer.positional[2]) : "y"
     group_field = haskey(layer.named, :group) ? _field_name(layer.named[:group]) : "draw"
     color_field = haskey(layer.named, :color) ? _field_name(layer.named[:color]) : nothing
+    color_label = haskey(layer.named, :color) ? _field_label(layer.named[:color]) : nothing
     facet, facet_fields = _extract_facet_info(layer)
 
     summary = compute_ribbon_summary(table, x_field, y_field, group_field, a.probs; color_field, facet_fields)
@@ -798,14 +801,18 @@ function analysis_to_vl(a::LineRibbonAnalysis, layer::AlgebraOfGraphics.Layer; i
 
     layers = Dict{String,Any}[]
     for (i, prob) in enumerate(sorted_probs)
+        x_enc = Dict{String,Any}("field" => x_field, "type" => "quantitative")
+        x_label != x_field && (x_enc["title"] = x_label)
         enc = Dict{String,Any}(
-            "x" => Dict{String,Any}("field" => x_field, "type" => "quantitative"),
-            "y" => Dict{String,Any}("field" => _vl_prob_field("lo", prob), "type" => "quantitative", "title" => y_field),
+            "x" => x_enc,
+            "y" => Dict{String,Any}("field" => _vl_prob_field("lo", prob), "type" => "quantitative", "title" => y_label),
             "y2" => Dict{String,Any}("field" => _vl_prob_field("hi", prob)),
         )
         mark = Dict{String,Any}("type" => "area", "opacity" => opacities[i], "line" => false)
         if !isnothing(color_field)
-            enc["color"] = Dict{String,Any}("field" => color_field, "type" => "nominal")
+            color_enc = Dict{String,Any}("field" => color_field, "type" => "nominal")
+            !isnothing(color_label) && color_label != color_field && (color_enc["title"] = color_label)
+            enc["color"] = color_enc
         else
             mark["fill"] = "#1f77b4"
         end
@@ -813,13 +820,17 @@ function analysis_to_vl(a::LineRibbonAnalysis, layer::AlgebraOfGraphics.Layer; i
     end
 
     if a.show_line
+        line_x_enc = Dict{String,Any}("field" => x_field, "type" => "quantitative")
+        x_label != x_field && (line_x_enc["title"] = x_label)
         line_enc = Dict{String,Any}(
-            "x" => Dict{String,Any}("field" => x_field, "type" => "quantitative"),
+            "x" => line_x_enc,
             "y" => Dict{String,Any}("field" => "__median__", "type" => "quantitative"),
         )
         line_mark = Dict{String,Any}("type" => "line", "strokeWidth" => 2)
         if !isnothing(color_field)
-            line_enc["color"] = Dict{String,Any}("field" => color_field, "type" => "nominal")
+            color_enc = Dict{String,Any}("field" => color_field, "type" => "nominal")
+            !isnothing(color_label) && color_label != color_field && (color_enc["title"] = color_label)
+            line_enc["color"] = color_enc
         else
             line_mark["color"] = "#1f77b4"
         end
@@ -827,7 +838,7 @@ function analysis_to_vl(a::LineRibbonAnalysis, layer::AlgebraOfGraphics.Layer; i
     end
 
     tt = Dict{String,Any}[
-        Dict{String,Any}("field" => x_field, "type" => "quantitative"),
+        Dict{String,Any}("field" => x_field, "type" => "quantitative", "title" => x_label),
         Dict{String,Any}("field" => "__median__", "type" => "quantitative", "title" => "median"),
     ]
     !isnothing(color_field) && push!(tt, Dict{String,Any}("field" => color_field, "type" => "nominal"))
@@ -939,6 +950,7 @@ end
 function density_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
     table = extract_data(layer)
     x_field = length(layer.positional) >= 1 ? _field_name(layer.positional[1]) : "value"
+    x_label = length(layer.positional) >= 1 ? _field_label(layer.positional[1]) : "value"
     y_field = haskey(layer.named, :y) ? _field_name(layer.named[:y]) : nothing
 
     vis = extract_visual(layer)
@@ -964,7 +976,7 @@ function density_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
                         "mark" => Dict{String,Any}("type" => "area", "orient" => "vertical", "opacity" => opacity),
                         "transform" => [Dict{String,Any}("density" => x_field, "as" => ["val", "dens"])],
                         "encoding" => Dict{String,Any}(
-                            "x" => Dict{String,Any}("field" => "val", "type" => "quantitative", "title" => x_field),
+                            "x" => Dict{String,Any}("field" => "val", "type" => "quantitative", "title" => x_label),
                             "y" => Dict{String,Any}("field" => "dens", "type" => "quantitative", "title" => nothing, "axis" => nothing),
                         ),
                     ),
@@ -978,17 +990,20 @@ function density_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
     else
         # Check for color grouping
         color_field = haskey(layer.named, :color) ? _field_name(layer.named[:color]) : nothing
+        color_label = haskey(layer.named, :color) ? _field_label(layer.named[:color]) : nothing
         density_transform = Dict{String,Any}("density" => x_field, "as" => ["val", "dens"])
         if !isnothing(color_field)
             density_transform["groupby"] = [color_field]
         end
 
         encoding = Dict{String,Any}(
-            "x" => Dict{String,Any}("field" => "val", "type" => "quantitative", "title" => x_field),
+            "x" => Dict{String,Any}("field" => "val", "type" => "quantitative", "title" => x_label),
             "y" => Dict{String,Any}("field" => "dens", "type" => "quantitative", "title" => nothing, "axis" => nothing),
         )
         if !isnothing(color_field)
-            encoding["color"] = Dict{String,Any}("field" => color_field, "type" => "nominal")
+            color_enc = Dict{String,Any}("field" => color_field, "type" => "nominal")
+            !isnothing(color_label) && color_label != color_field && (color_enc["title"] = color_label)
+            encoding["color"] = color_enc
         end
 
         spec = Dict{String,Any}(
@@ -1047,8 +1062,11 @@ When `interval` is set, computes regression CI in Julia and renders as area+y2.
 function linear_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
     table = extract_data(layer)
     x_field = length(layer.positional) >= 1 ? _field_name(layer.positional[1]) : "x"
+    x_label = length(layer.positional) >= 1 ? _field_label(layer.positional[1]) : "x"
     y_field = length(layer.positional) >= 2 ? _field_name(layer.positional[2]) : "y"
+    y_label = length(layer.positional) >= 2 ? _field_label(layer.positional[2]) : "y"
     color_field = haskey(layer.named, :color) ? _field_name(layer.named[:color]) : nothing
+    color_label = haskey(layer.named, :color) ? _field_label(layer.named[:color]) : nothing
     analysis = extract_transformation(layer, AlgebraOfGraphics.LinearAnalysis)
     has_band = !isnothing(analysis) && !isnothing(analysis.interval) && !(analysis.interval isa Makie.Automatic)
 
@@ -1061,13 +1079,16 @@ function linear_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
         reg_transform["groupby"] = [color_field]
     end
 
-    encoding = Dict{String,Any}(
-        "x" => Dict{String,Any}("field" => x_field, "type" => "quantitative"),
-        "y" => Dict{String,Any}("field" => y_field, "type" => "quantitative"),
-    )
+    x_enc = Dict{String,Any}("field" => x_field, "type" => "quantitative")
+    x_label != x_field && (x_enc["title"] = x_label)
+    y_enc = Dict{String,Any}("field" => y_field, "type" => "quantitative")
+    y_label != y_field && (y_enc["title"] = y_label)
+    encoding = Dict{String,Any}("x" => x_enc, "y" => y_enc)
     line_mark = Dict{String,Any}("type" => "line")
     if !isnothing(color_field)
-        encoding["color"] = Dict{String,Any}("field" => color_field, "type" => "nominal")
+        color_enc = Dict{String,Any}("field" => color_field, "type" => "nominal")
+        !isnothing(color_label) && color_label != color_field && (color_enc["title"] = color_label)
+        encoding["color"] = color_enc
     else
         line_mark["color"] = "firebrick"
     end
@@ -1097,14 +1118,20 @@ function linear_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
             append!(ci_rows, ci)
         end
 
+        band_x_enc = Dict{String,Any}("field" => "x", "type" => "quantitative")
+        x_label != x_field && (band_x_enc["title"] = x_label)
+        band_y_enc = Dict{String,Any}("field" => "y_lo", "type" => "quantitative")
+        y_label != y_field && (band_y_enc["title"] = y_label)
         band_enc = Dict{String,Any}(
-            "x" => Dict{String,Any}("field" => "x", "type" => "quantitative"),
-            "y" => Dict{String,Any}("field" => "y_lo", "type" => "quantitative"),
+            "x" => band_x_enc,
+            "y" => band_y_enc,
             "y2" => Dict{String,Any}("field" => "y_hi"),
         )
         band_mark = Dict{String,Any}("type" => "area", "opacity" => 0.2, "line" => false)
         if !isnothing(color_field)
-            band_enc["color"] = Dict{String,Any}("field" => color_field, "type" => "nominal")
+            color_enc = Dict{String,Any}("field" => color_field, "type" => "nominal")
+            !isnothing(color_label) && color_label != color_field && (color_enc["title"] = color_label)
+            band_enc["color"] = color_enc
         end
         band_layer = Dict{String,Any}(
             "mark" => band_mark,
@@ -1172,8 +1199,11 @@ When `interval` is set, computes smooth CI in Julia and renders as area+y2.
 function smooth_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
     table = extract_data(layer)
     x_field = length(layer.positional) >= 1 ? _field_name(layer.positional[1]) : "x"
+    x_label = length(layer.positional) >= 1 ? _field_label(layer.positional[1]) : "x"
     y_field = length(layer.positional) >= 2 ? _field_name(layer.positional[2]) : "y"
+    y_label = length(layer.positional) >= 2 ? _field_label(layer.positional[2]) : "y"
     color_field = haskey(layer.named, :color) ? _field_name(layer.named[:color]) : nothing
+    color_label = haskey(layer.named, :color) ? _field_label(layer.named[:color]) : nothing
     analysis = extract_transformation(layer, AlgebraOfGraphics.SmoothAnalysis)
     bandwidth = !isnothing(analysis) ? analysis.span : 0.75
     has_band = !isnothing(analysis) && !isnothing(analysis.interval) && !(analysis.interval isa Makie.Automatic)
@@ -1187,13 +1217,16 @@ function smooth_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
         loess_transform["groupby"] = [color_field]
     end
 
-    encoding = Dict{String,Any}(
-        "x" => Dict{String,Any}("field" => x_field, "type" => "quantitative"),
-        "y" => Dict{String,Any}("field" => y_field, "type" => "quantitative"),
-    )
+    x_enc = Dict{String,Any}("field" => x_field, "type" => "quantitative")
+    x_label != x_field && (x_enc["title"] = x_label)
+    y_enc = Dict{String,Any}("field" => y_field, "type" => "quantitative")
+    y_label != y_field && (y_enc["title"] = y_label)
+    encoding = Dict{String,Any}("x" => x_enc, "y" => y_enc)
     line_mark = Dict{String,Any}("type" => "line")
     if !isnothing(color_field)
-        encoding["color"] = Dict{String,Any}("field" => color_field, "type" => "nominal")
+        color_enc = Dict{String,Any}("field" => color_field, "type" => "nominal")
+        !isnothing(color_label) && color_label != color_field && (color_enc["title"] = color_label)
+        encoding["color"] = color_enc
     else
         line_mark["color"] = "firebrick"
     end
@@ -1223,14 +1256,20 @@ function smooth_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
             append!(ci_rows, ci)
         end
 
+        band_x_enc = Dict{String,Any}("field" => "x", "type" => "quantitative")
+        x_label != x_field && (band_x_enc["title"] = x_label)
+        band_y_enc = Dict{String,Any}("field" => "y_lo", "type" => "quantitative")
+        y_label != y_field && (band_y_enc["title"] = y_label)
         band_enc = Dict{String,Any}(
-            "x" => Dict{String,Any}("field" => "x", "type" => "quantitative"),
-            "y" => Dict{String,Any}("field" => "y_lo", "type" => "quantitative"),
+            "x" => band_x_enc,
+            "y" => band_y_enc,
             "y2" => Dict{String,Any}("field" => "y_hi"),
         )
         band_mark = Dict{String,Any}("type" => "area", "opacity" => 0.2, "line" => false)
         if !isnothing(color_field)
-            band_enc["color"] = Dict{String,Any}("field" => color_field, "type" => "nominal")
+            color_enc = Dict{String,Any}("field" => color_field, "type" => "nominal")
+            !isnothing(color_label) && color_label != color_field && (color_enc["title"] = color_label)
+            band_enc["color"] = color_enc
         end
         band_layer = Dict{String,Any}(
             "mark" => band_mark,
@@ -1256,9 +1295,12 @@ Translate AoG's `histogram()` to Vega-Lite's bar mark with bin + count aggregati
 function histogram_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
     table = extract_data(layer)
     x_field = length(layer.positional) >= 1 ? _field_name(layer.positional[1]) : "x"
+    x_label = length(layer.positional) >= 1 ? _field_label(layer.positional[1]) : "x"
 
+    x_enc = Dict{String,Any}("field" => x_field, "type" => "quantitative", "bin" => true)
+    x_label != x_field && (x_enc["title"] = x_label)
     encoding = Dict{String,Any}(
-        "x" => Dict{String,Any}("field" => x_field, "type" => "quantitative", "bin" => true),
+        "x" => x_enc,
         "y" => Dict{String,Any}("aggregate" => "count", "type" => "quantitative"),
     )
 
@@ -1291,9 +1333,12 @@ Translate AoG's `frequency()` to a Vega-Lite bar chart with `aggregate: "count"`
 function frequency_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
     table = extract_data(layer)
     x_field = length(layer.positional) >= 1 ? _field_name(layer.positional[1]) : "x"
+    x_label = length(layer.positional) >= 1 ? _field_label(layer.positional[1]) : "x"
 
+    x_enc = Dict{String,Any}("field" => x_field, "type" => "nominal")
+    x_label != x_field && (x_enc["title"] = x_label)
     encoding = Dict{String,Any}(
-        "x" => Dict{String,Any}("field" => x_field, "type" => "nominal"),
+        "x" => x_enc,
         "y" => Dict{String,Any}("aggregate" => "count", "type" => "quantitative"),
     )
 
@@ -1322,12 +1367,15 @@ Translate AoG's `expectation()` to a Vega-Lite bar chart with `aggregate: "mean"
 function expectation_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
     table = extract_data(layer)
     x_field = length(layer.positional) >= 1 ? _field_name(layer.positional[1]) : "x"
+    x_label = length(layer.positional) >= 1 ? _field_label(layer.positional[1]) : "x"
     y_field = length(layer.positional) >= 2 ? _field_name(layer.positional[2]) : "y"
+    y_label = length(layer.positional) >= 2 ? _field_label(layer.positional[2]) : "y"
 
-    encoding = Dict{String,Any}(
-        "x" => Dict{String,Any}("field" => x_field, "type" => "nominal"),
-        "y" => Dict{String,Any}("field" => y_field, "aggregate" => "mean", "type" => "quantitative"),
-    )
+    x_enc = Dict{String,Any}("field" => x_field, "type" => "nominal")
+    x_label != x_field && (x_enc["title"] = x_label)
+    y_enc = Dict{String,Any}("field" => y_field, "aggregate" => "mean", "type" => "quantitative")
+    y_label != y_field && (y_enc["title"] = y_label)
+    encoding = Dict{String,Any}("x" => x_enc, "y" => y_enc)
 
     for (name, sel) in pairs(layer.named)
         ch = aog_named_to_vl_channel(name)
@@ -1359,8 +1407,11 @@ Supports `color=` grouping via `groupby` on the window transforms.
 function ecdf_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
     table = extract_data(layer)
     x_field = length(layer.positional) >= 1 ? _field_name(layer.positional[1]) : "x"
+    x_label = length(layer.positional) >= 1 ? _field_label(layer.positional[1]) : "x"
     color_field = haskey(layer.named, :color) ? _field_name(layer.named[:color]) : nothing
+    color_label = haskey(layer.named, :color) ? _field_label(layer.named[:color]) : nothing
     linestyle_field = haskey(layer.named, :linestyle) ? _field_name(layer.named[:linestyle]) : nothing
+    linestyle_label = haskey(layer.named, :linestyle) ? _field_label(layer.named[:linestyle]) : nothing
 
     # Window transforms for ECDF:
     # 1. Sort by x, count cumulative (per group)
@@ -1390,15 +1441,21 @@ function ecdf_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
         "as" => "__ecdf__",
     )
 
+    x_enc = Dict{String,Any}("field" => x_field, "type" => "quantitative", "sort" => "ascending")
+    x_label != x_field && (x_enc["title"] = x_label)
     encoding = Dict{String,Any}(
-        "x" => Dict{String,Any}("field" => x_field, "type" => "quantitative", "sort" => "ascending"),
+        "x" => x_enc,
         "y" => Dict{String,Any}("field" => "__ecdf__", "type" => "quantitative", "title" => "Cumulative Proportion"),
     )
     if !isnothing(color_field)
-        encoding["color"] = Dict{String,Any}("field" => color_field, "type" => "nominal")
+        color_enc = Dict{String,Any}("field" => color_field, "type" => "nominal")
+        !isnothing(color_label) && color_label != color_field && (color_enc["title"] = color_label)
+        encoding["color"] = color_enc
     end
     if !isnothing(linestyle_field)
-        encoding["strokeDash"] = Dict{String,Any}("field" => linestyle_field, "type" => "nominal")
+        ls_enc = Dict{String,Any}("field" => linestyle_field, "type" => "nominal")
+        !isnothing(linestyle_label) && linestyle_label != linestyle_field && (ls_enc["title"] = linestyle_label)
+        encoding["strokeDash"] = ls_enc
     end
 
     # Auto tooltip
@@ -1689,6 +1746,7 @@ function _faceted_layers_to_vl(layers, facet_field, shared_table, shared_data)
         if !isnothing(dens)
             # Density sublayer (unfaceted version)
             x_field = length(layer.positional) >= 1 ? _field_name(layer.positional[1]) : "value"
+            x_label = length(layer.positional) >= 1 ? _field_label(layer.positional[1]) : "value"
             vis = extract_visual(layer)
             opacity = 0.4
             if !isnothing(vis) && haskey(vis.attributes, :opacity)
@@ -1702,7 +1760,7 @@ function _faceted_layers_to_vl(layers, facet_field, shared_table, shared_data)
                 "mark" => Dict{String,Any}("type" => "area", "orient" => "vertical", "opacity" => opacity),
                 "transform" => [Dict{String,Any}("density" => x_field, "as" => ["val", "dens"])],
                 "encoding" => Dict{String,Any}(
-                    "x" => Dict{String,Any}("field" => "val", "type" => "quantitative", "title" => x_field),
+                    "x" => Dict{String,Any}("field" => "val", "type" => "quantitative", "title" => x_label),
                     "y" => y_enc,
                 ),
             ))
