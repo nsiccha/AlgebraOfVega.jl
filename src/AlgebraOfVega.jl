@@ -27,7 +27,7 @@ export Scatter, Lines, ScatterLines, BarPlot, Heatmap, BoxPlot,
 
 # AlgebraOfVega exports
 export config, vdraw, sdraw, sdraw_file, vlspec, vdata
-export to_vegalite, to_json, to_html, to_node, vega_head
+export to_vegalite, to_json, to_html, to_node, vega_head, vega_controls
 export vega_runtime, update_data, vega_cdn_urls
 # Tidybayes-style analysis exports
 export pointinterval, gradient_interval, lineribbon, ribbon, dotinterval
@@ -2228,6 +2228,62 @@ function vega_head(;
         push!(nodes, h.script("window.AoV = Object.assign(window.AoV || {}, $(JSON.json(settings)));"))
     end
     nodes
+end
+
+"""
+    vega_controls(; zoom=true, actions=true)
+
+Return an `h.div` node with client-side controls for Vega plots:
+- **Zoom ±**: adjust CSS zoom on all `.vega-embed` elements (like Bruno's sidebar controls)
+- **Actions**: toggle visibility of Vega-Embed's action menu (⋯ button) on all plots
+
+Drop this into a sidebar, header, or anywhere on the page:
+
+    nav_sidebar(items)(vega_controls())
+"""
+function vega_controls(; zoom=true, actions=true)
+    children = []
+    if zoom
+        push!(children, h.span(
+            "Zoom ",
+            h.a("−"; href="#", onclick="document.querySelectorAll('.vega-embed').forEach(e => e.style.zoom = (parseFloat(e.style.zoom||getComputedStyle(e).zoom||1) - 0.1).toFixed(1)); return false;"),
+            " ",
+            h.a("+"; href="#", onclick="document.querySelectorAll('.vega-embed').forEach(e => e.style.zoom = (parseFloat(e.style.zoom||getComputedStyle(e).zoom||1) + 0.1).toFixed(1)); return false;"),
+        ))
+    end
+    if actions
+        push!(children, h.label(; style="cursor:pointer;")(
+            h.input(; type="checkbox", class="aov-actions-toggle",
+                style="vertical-align:middle; margin-right:0.3em;",
+                onchange="""
+                var show = this.checked;
+                var sheet = document.getElementById('aov-actions-hide');
+                if (show) { if (sheet) sheet.disabled = true; }
+                else { if (sheet) sheet.disabled = false; }
+                window.AoV = window.AoV || {};
+                window.AoV.defaultActions = show;
+                """),
+            "Actions",
+        ))
+        # Use a stylesheet to hide .vega-actions — works even for elements created later.
+        # When defaultActions is already true (from vega_head), start with checkbox checked and sheet disabled.
+        push!(children, h.script("""
+            (function() {
+                if (!document.getElementById('aov-actions-hide')) {
+                    var s = document.createElement('style');
+                    s.id = 'aov-actions-hide';
+                    s.textContent = '.vega-actions { display: none !important; }';
+                    document.head.appendChild(s);
+                }
+                var show = window.AoV && window.AoV.defaultActions;
+                var sheet = document.getElementById('aov-actions-hide');
+                if (show && sheet) sheet.disabled = true;
+                var cb = document.querySelector('.aov-actions-toggle');
+                if (cb) cb.checked = !!show;
+            })();
+        """))
+    end
+    h.div(; style="padding:0.5rem 0; font-size:0.75em; opacity:0.6; display:flex; gap:1em; align-items:center;")(children...)
 end
 
 """Count the number of facet columns in a VL spec by inspecting the data."""
