@@ -2217,6 +2217,11 @@ function vega_head(;
         h.script(src="https://cdn.jsdelivr.net/npm/vega@$vega_version"),
         h.script(src="https://cdn.jsdelivr.net/npm/vega-lite@$vegalite_version"),
         h.script(src="https://cdn.jsdelivr.net/npm/vega-embed@$vega_embed_version"),
+        # Fix vega-embed actions SVG sizing when CSS frameworks (Pico) override defaults
+        h.style("""
+            details[title] > summary > svg { width: 14px !important; height: 14px !important; }
+            .chart-wrapper { height: auto !important; }
+        """),
         vega_runtime(),
     ]
     settings = Dict{String,Any}()
