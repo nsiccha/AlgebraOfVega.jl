@@ -182,7 +182,15 @@ _COMPOSITE_MARKS = Set(["boxplot", "errorbar", "errorband"])
 function _is_composite_mark(vl::Dict)
     m = get(vl, "mark", nothing)
     mark_type = m isa String ? m : m isa Dict ? get(m, "type", "") : ""
-    mark_type in _COMPOSITE_MARKS
+    mark_type in _COMPOSITE_MARKS && return true
+    # Check sublayers for composite marks (e.g. layered boxplots)
+    for sl in get(vl, "layer", [])
+        sl isa Dict || continue
+        sm = get(sl, "mark", nothing)
+        st = sm isa String ? sm : sm isa Dict ? get(sm, "type", "") : ""
+        st in _COMPOSITE_MARKS && return true
+    end
+    false
 end
 
 # --- AoG aesthetic name → Vega-Lite channel ---
@@ -2060,6 +2068,17 @@ function add_auto_interactivity!(spec::Dict{String,Any})
     sublayers = get(spec, "layer", nothing)
     mark = get(spec, "mark", nothing)
     mark_type = mark isa Dict ? get(mark, "type", "") : (mark isa String ? mark : "")
+    is_composite = _is_composite_mark(spec)
+
+    # Skip all interactivity for composite marks (boxplot, errorbar, errorband)
+    # — VL doesn't support selections on them
+    is_composite && return spec
+
+    # Check for aggregate encodings (count, mean, etc.) — zoom can't project on those
+    function _has_aggregate(enc_dict, ch)
+        !isnothing(enc_dict) && haskey(enc_dict, ch) && enc_dict[ch] isa Dict &&
+            haskey(enc_dict[ch], "aggregate")
+    end
 
     # Find color field from top-level encoding only.
     # Legend binding doesn't work reliably for layered specs where color is only in sublayers.
@@ -2070,23 +2089,26 @@ function add_auto_interactivity!(spec::Dict{String,Any})
 
     params = Dict{String,Any}[]
 
-    # Zoom (scroll) + pan (drag) — only on quantitative axes to avoid duplicate signal errors
+    # Zoom (scroll) + pan (drag) — only on quantitative non-aggregate axes
     zoom_encodings = String[]
     for ch in ("x", "y")
         is_quant = false
+        has_agg = false
         if !isnothing(enc) && haskey(enc, ch)
             is_quant = get(enc[ch], "type", "") == "quantitative"
+            has_agg = _has_aggregate(enc, ch)
         elseif !isnothing(sublayers)
             for sl in sublayers
                 sl_enc = get(sl, "encoding", nothing)
                 isnothing(sl_enc) && continue
                 if haskey(sl_enc, ch) && get(sl_enc[ch], "type", "") == "quantitative"
                     is_quant = true
+                    has_agg = _has_aggregate(sl_enc, ch)
                     break
                 end
             end
         end
-        is_quant && push!(zoom_encodings, ch)
+        is_quant && !has_agg && push!(zoom_encodings, ch)
     end
     if !isempty(zoom_encodings)
         grid_param = Dict{String,Any}(
@@ -2132,9 +2154,9 @@ function add_auto_interactivity!(spec::Dict{String,Any})
         end
     end
 
-    # Nearest-point tooltip for point/area marks (makes tooltip snap to data).
-    # VL doesn't support "nearest" for line marks — skip those.
-    if mark_type in ("point", "area") && !isnothing(enc) && haskey(enc, "tooltip")
+    # Nearest-point tooltip for point marks only.
+    # VL doesn't support "nearest" for line or area marks.
+    if mark_type == "point" && !isnothing(enc) && haskey(enc, "tooltip")
         push!(params, Dict{String,Any}(
             "name" => "hover_nearest",
             "select" => Dict{String,Any}("type" => "point", "on" => "pointerover", "nearest" => true),
@@ -2344,7 +2366,12 @@ function vega_runtime()
 
             var doEmbed = function() {
                 var s = self._applyResponsiveWidth(id, JSON.parse(JSON.stringify(origSpec)));
+                // Tag VL warnings/errors with the plot ID for easier debugging
+                var _warn = console.warn, _error = console.error;
+                console.warn = function() { var a = Array.from(arguments); a[0] = '[' + id + '] ' + a[0]; _warn.apply(console, a); };
+                console.error = function() { var a = Array.from(arguments); a[0] = '[' + id + '] ' + a[0]; _error.apply(console, a); };
                 return vegaEmbed('#' + id, s, opts).then(function(result) {
+                    console.warn = _warn; console.error = _error;
                     self.views[id] = result.view;
                     if (self._pending[id]) {
                         self._pending[id].forEach(function(p) {
@@ -2353,7 +2380,7 @@ function vega_runtime()
                         delete self._pending[id];
                     }
                     return result;
-                }).catch(console.error);
+                }).catch(function(err) { console.warn = _warn; console.error = _error; _error.call(console, '[' + id + ']', err); });
             };
 
             // Set up resize observer for responsive re-embed (only for _aov-marked specs)
@@ -2595,7 +2622,11 @@ function to_node(spec; id=nothing, width=nothing, height=nothing, actions=false,
     has_explicit_width = haskey(vl, "width") && vl["width"] isa Number
     has_explicit_inner_width = haskey(vl, "spec") && vl["spec"] isa Dict && haskey(vl["spec"], "width")
     if fit_width && !has_explicit_width && !has_explicit_inner_width && !haskey(vl, "hconcat") && !haskey(vl, "vconcat")
-        is_faceted = haskey(vl, "facet") || haskey(vl, "spec")
+        # Detect faceting: explicit facet key, nested spec, or row/column encoding channels
+        _enc = get(vl, "encoding", Dict())
+        _enc = _enc isa Dict ? _enc : Dict()
+        has_enc_facet = haskey(_enc, "row") || haskey(_enc, "column")
+        is_faceted = haskey(vl, "facet") || haskey(vl, "spec") || has_enc_facet
         is_layered = haskey(vl, "layer") || is_faceted || haskey(vl, "concat")
         # VL composite marks (boxplot, errorbar, errorband) internally create layers —
         # "width: container" and "autosize: fit" don't work for them

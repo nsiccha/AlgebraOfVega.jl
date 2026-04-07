@@ -1498,7 +1498,7 @@ end
                             style="font-size:0.8em; margin-left:0.3em;",
                         ),
                 ),
-                isnothing(spec) ? h.p("Unknown plot") : is_node ? spec : vdraw(spec),
+                isnothing(spec) ? h.p("Unknown plot") : is_node ? spec : vdraw(spec; id=id),
                 h.details(; style="margin-top:0.25rem")(
                     h.summary("Code"; style="font-size:0.8em;"),
                     h.pre(h.code(code_str); style="background:var(--pico-code-background-color); padding:0.5rem; border-radius:0.25rem; overflow-x:auto; font-size:0.75em;"),
