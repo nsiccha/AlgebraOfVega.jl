@@ -814,6 +814,20 @@ function analysis_to_vl(a::LineRibbonAnalysis, layer::AlgebraOfGraphics.Layer; i
         nothing
     end
 
+    # VL detail encoding for extra grouping columns (grouped but no visual encoding)
+    detail_enc = if !isempty(detail_strs)
+        length(detail_strs) == 1 ?
+            Dict{String,Any}("field" => detail_strs[1], "type" => "nominal") :
+            [Dict{String,Any}("field" => f, "type" => "nominal") for f in detail_strs]
+    else
+        nothing
+    end
+
+    function _add_shared_enc!(enc)
+        !isnothing(color_enc) && (enc["color"] = copy(color_enc))
+        !isnothing(detail_enc) && (enc["detail"] = deepcopy(detail_enc))
+    end
+
     for (i, prob) in enumerate(sorted_probs)
         x_enc = Dict{String,Any}("field" => x_field, "type" => "quantitative")
         x_label != x_field && (x_enc["title"] = x_label)
@@ -822,7 +836,7 @@ function analysis_to_vl(a::LineRibbonAnalysis, layer::AlgebraOfGraphics.Layer; i
             "y" => Dict{String,Any}("field" => _vl_prob_field("lo", prob), "type" => "quantitative", "title" => y_label),
             "y2" => Dict{String,Any}("field" => _vl_prob_field("hi", prob)),
         )
-        !isnothing(color_enc) && (enc["color"] = copy(color_enc))
+        _add_shared_enc!(enc)
         mark = Dict{String,Any}("type" => "area", "opacity" => opacities[i], "line" => false)
         push!(layers, Dict{String,Any}("mark" => mark, "encoding" => enc))
     end
@@ -834,7 +848,7 @@ function analysis_to_vl(a::LineRibbonAnalysis, layer::AlgebraOfGraphics.Layer; i
             "x" => line_x_enc,
             "y" => Dict{String,Any}("field" => "__median__", "type" => "quantitative"),
         )
-        !isnothing(color_enc) && (line_enc["color"] = copy(color_enc))
+        _add_shared_enc!(line_enc)
         line_mark = Dict{String,Any}("type" => "line", "strokeWidth" => 2)
         push!(layers, Dict{String,Any}("mark" => line_mark, "encoding" => line_enc))
     end
