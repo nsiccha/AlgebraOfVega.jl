@@ -1620,9 +1620,10 @@ end
         isnothing(entry) && return h.span()
         let spec = entry[5]()
             isnothing(spec) && return h.span()
+            is_node = spec isa HTMX.Node
             h.div(; style="border:1px solid var(--pico-muted-border-color); border-radius:0.2rem; padding:0.2rem; overflow:hidden; min-width:0;")(
                 h.div(entry[2]; style="font-weight:bold; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-bottom:0.1rem;"),
-                vdraw(spec; width="container"),
+                is_node ? spec : vdraw(spec; width="container"),
             )
         end
     end

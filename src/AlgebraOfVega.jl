@@ -2726,7 +2726,7 @@ function mapping_controls(id, dimensions;
             uppercasefirst(ch_str) * ": ",
             h.select(;
                 id="aov-remap-$(ch_str)-$(id)",
-                onchange="_aovRemap_$(js_id)()",
+                onchange="_aovRemap_$(js_id)('$(ch_str)')",
             )(options...),
         )
     end
@@ -2737,7 +2737,14 @@ function mapping_controls(id, dimensions;
     # Build a label lookup for display
     dim_labels = JSON.json(Dict(first(d) => last(d) for d in dims))
     js = h.script("""
-    function _aovRemap_$(js_id)() {
+    function _aovRemap_$(js_id)(changed) {
+        // Dedup row/column: if one just got a value, clear the other if it has the same field
+        var rowEl = document.getElementById('aov-remap-row-$(id)');
+        var colEl = document.getElementById('aov-remap-column-$(id)');
+        if (rowEl && colEl && rowEl.value && colEl.value && rowEl.value === colEl.value) {
+            if (changed === 'row') colEl.value = '';
+            else if (changed === 'column') rowEl.value = '';
+        }
         var mapping = {$(ch_reads), _dimensions: $(dim_fields)};
         AoV.remapEncoding('$(id)', mapping);
         var used = {};
@@ -2758,7 +2765,7 @@ function mapping_controls(id, dimensions;
     initial_detail_str = isempty(initial_detail) ? "(none)" : join(initial_detail, ", ")
 
     detail_input = h.label()(
-        "Detail: ",
+        "Ungrouped: ",
         h.input(;
             id="aov-detail-$(id)",
             type="text",
