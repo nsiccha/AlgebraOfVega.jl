@@ -492,6 +492,48 @@ h.div()(
         )
      end),
 
+    ("remap_detail", "Remap with Detail", "Lineribbon with extra grouping dimensions via detail= for client-side remapping",
+     """# Simulate PK-style data: 2 assays × 2 groups × 2 sites × 50 draws
+id = "remap-detail"
+using Random
+rng = Random.MersenneTwister(42)
+rows = NamedTuple[]
+for assay in ["CSF", "PBMC"], grp in ["Healthy", "PD"], site in ["US", "EU"]
+    offset = (assay == "CSF" ? 0.0 : -2.0) + (grp == "PD" ? 1.5 : 0.0) + (site == "EU" ? 0.5 : 0.0)
+    for d in 1:50, x in range(0, 5, length=20)
+        push!(rows, (x=x, y=offset + 0.8x + 0.5randn(rng), draw=d, assay=assay, health=grp, site=site))
+    end
+end
+df = (; (k => getindex.(rows, k) for k in keys(rows[1]))...)
+h.div()(
+    mapping_controls(id, [:health => "Health", :site => "Site"];
+        color_default="health", fixed=Dict(:column => "assay"), table=df),
+    to_node(
+        data(df) * mapping(:x, :y, group=:draw, color=:health, col=:assay) *
+        lineribbon(; detail=[:site]) * config(title="Remap with Detail");
+        id=id),
+)""",
+     () -> begin
+        id = "remap-detail"
+        rng = Random.MersenneTwister(42)
+        rows = NamedTuple[]
+        for assay in ["CSF", "PBMC"], grp in ["Healthy", "PD"], site in ["US", "EU"]
+            offset = (assay == "CSF" ? 0.0 : -2.0) + (grp == "PD" ? 1.5 : 0.0) + (site == "EU" ? 0.5 : 0.0)
+            for d in 1:50, x in range(0, 5, length=20)
+                push!(rows, (x=x, y=offset + 0.8x + 0.5randn(rng), draw=d, assay=assay, health=grp, site=site))
+            end
+        end
+        df = (; (k => getindex.(rows, k) for k in keys(rows[1]))...)
+        h.div()(
+            mapping_controls(id, [:health => "Health", :site => "Site"];
+                color_default="health", fixed=Dict(:column => "assay"), table=df),
+            to_node(
+                data(df) * mapping(:x, :y, group=:draw, color=:health, col=:assay) *
+                lineribbon(; detail=[:site]) * config(title="Remap with Detail");
+                id=id),
+        )
+     end),
+
     # === AoG gallery replications (https://aog.makie.org/stable/) ===
 
     # --- Basic Visualizations: Lines and Markers ---
@@ -1512,7 +1554,7 @@ end
         ("Interactive Filtering" => ["filter_origin", "filter_multi", "filter_tips", "filter_histogram", "filter_regression", "filter_bar"]),
         ("Basic" => ["scatter", "bar", "line", "lines_only", "area", "histogram", "heatmap", "boxplot"]),
         ("Composition" => ["layered", "multi_layer", "stacked_bar", "grouped_bar", "bubble", "scatter_jitter", "custom_config"]),
-        ("Interactive" => ["interactive_brush", "interactive_highlight", "interactive_zoom", "interactive_slider", "interactive_dropdown", "remap_encoding", "remap_lineribbon"]),
+        ("Interactive" => ["interactive_brush", "interactive_highlight", "interactive_zoom", "interactive_slider", "interactive_dropdown", "remap_encoding", "remap_lineribbon", "remap_detail"]),
         ("AoG: Basic Visualizations" => ["aog_scatter_basic", "aog_sine_lines", "aog_lines_scatter", "aog_two_sources", "aog_boxplot"]),
         ("AoG: Additional Marks" => ["aog_step", "aog_rules", "aog_errorbars"]),
         ("AoG: Data Manipulations" => ["aog_wide_lines", "aog_wide_scatter", "aog_presorted_bar"]),
