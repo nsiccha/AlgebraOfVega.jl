@@ -800,41 +800,67 @@ function analysis_to_vl(a::LineRibbonAnalysis, layer::AlgebraOfGraphics.Layer; i
     opacities = range(0.2, 0.6, length=length(sorted_probs))
 
     layers = Dict{String,Any}[]
-    for (i, prob) in enumerate(sorted_probs)
-        x_enc = Dict{String,Any}("field" => x_field, "type" => "quantitative")
-        x_label != x_field && (x_enc["title"] = x_label)
-        enc = Dict{String,Any}(
-            "x" => x_enc,
-            "y" => Dict{String,Any}("field" => _vl_prob_field("lo", prob), "type" => "quantitative", "title" => y_label),
-            "y2" => Dict{String,Any}("field" => _vl_prob_field("hi", prob)),
-        )
-        mark = Dict{String,Any}("type" => "area", "opacity" => opacities[i], "line" => false)
-        if !isnothing(color_field)
-            color_enc = Dict{String,Any}("field" => color_field, "type" => "nominal")
-            !isnothing(color_label) && color_label != color_field && (color_enc["title"] = color_label)
-            enc["color"] = color_enc
-        else
-            mark["fill"] = "#1f77b4"
-        end
-        push!(layers, Dict{String,Any}("mark" => mark, "encoding" => enc))
+
+    # When color grouping is present, emit layers per group so each group's
+    # ribbons+line stack together (group A all below group B), not interleaved.
+    color_groups = if !isnothing(color_field)
+        sort(unique(row[color_field] for row in summary))
+    else
+        [nothing]
     end
 
-    if a.show_line
-        line_x_enc = Dict{String,Any}("field" => x_field, "type" => "quantitative")
-        x_label != x_field && (line_x_enc["title"] = x_label)
-        line_enc = Dict{String,Any}(
-            "x" => line_x_enc,
-            "y" => Dict{String,Any}("field" => "__median__", "type" => "quantitative"),
-        )
-        line_mark = Dict{String,Any}("type" => "line", "strokeWidth" => 2)
-        if !isnothing(color_field)
-            color_enc = Dict{String,Any}("field" => color_field, "type" => "nominal")
-            !isnothing(color_label) && color_label != color_field && (color_enc["title"] = color_label)
-            line_enc["color"] = color_enc
-        else
-            line_mark["color"] = "#1f77b4"
+    # VL default color scale for consistent colors across per-group layers
+    vl_colors = ["#4c78a8","#f58518","#e45756","#72b7b2","#54a24b","#eeca3b","#b279a2","#ff9da6","#9d755d","#bab0ac"]
+
+    for (gi, group) in enumerate(color_groups)
+        color_hex = !isnothing(group) ? vl_colors[mod1(gi, length(vl_colors))] : "#1f77b4"
+        filter_transform = !isnothing(group) ?
+            [Dict{String,Any}("filter" => "datum[$(JSON.json(color_field))] === $(JSON.json(group))")] : nothing
+
+        for (i, prob) in enumerate(sorted_probs)
+            x_enc = Dict{String,Any}("field" => x_field, "type" => "quantitative")
+            x_label != x_field && (x_enc["title"] = x_label)
+            enc = Dict{String,Any}(
+                "x" => x_enc,
+                "y" => Dict{String,Any}("field" => _vl_prob_field("lo", prob), "type" => "quantitative", "title" => y_label),
+                "y2" => Dict{String,Any}("field" => _vl_prob_field("hi", prob)),
+            )
+            mark = Dict{String,Any}("type" => "area", "opacity" => opacities[i], "line" => false, "fill" => color_hex)
+            layer_spec = Dict{String,Any}("mark" => mark, "encoding" => enc)
+            !isnothing(filter_transform) && (layer_spec["transform"] = filter_transform)
+            push!(layers, layer_spec)
         end
-        push!(layers, Dict{String,Any}("mark" => line_mark, "encoding" => line_enc))
+
+        if a.show_line
+            line_x_enc = Dict{String,Any}("field" => x_field, "type" => "quantitative")
+            x_label != x_field && (line_x_enc["title"] = x_label)
+            line_enc = Dict{String,Any}(
+                "x" => line_x_enc,
+                "y" => Dict{String,Any}("field" => "__median__", "type" => "quantitative"),
+            )
+            line_mark = Dict{String,Any}("type" => "line", "strokeWidth" => 2, "color" => color_hex)
+            layer_spec = Dict{String,Any}("mark" => line_mark, "encoding" => line_enc)
+            !isnothing(filter_transform) && (layer_spec["transform"] = filter_transform)
+            push!(layers, layer_spec)
+        end
+    end
+
+    # Add legend when color grouping is present
+    if !isnothing(color_field) && length(color_groups) > 1
+        # Invisible point layer just to generate the color legend
+        legend_enc = Dict{String,Any}(
+            "x" => Dict{String,Any}("field" => x_field, "type" => "quantitative"),
+            "y" => Dict{String,Any}("field" => "__median__", "type" => "quantitative"),
+            "color" => Dict{String,Any}(
+                "field" => color_field, "type" => "nominal",
+                "scale" => Dict{String,Any}("range" => vl_colors[1:min(length(color_groups), length(vl_colors))]),
+            ),
+        )
+        !isnothing(color_label) && color_label != color_field && (legend_enc["color"]["title"] = color_label)
+        push!(layers, Dict{String,Any}(
+            "mark" => Dict{String,Any}("type" => "point", "opacity" => 0),
+            "encoding" => legend_enc,
+        ))
     end
 
     tt = Dict{String,Any}[
