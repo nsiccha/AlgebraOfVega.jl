@@ -28,7 +28,7 @@ export Scatter, Lines, ScatterLines, BarPlot, Heatmap, BoxPlot,
 # AlgebraOfVega exports
 export config, vdraw, sdraw, sdraw_file, vlspec, vdata
 export to_vegalite, to_json, to_html, to_node, vega_head, vega_controls
-export vega_runtime, update_data, vega_cdn_urls
+export vega_runtime, update_data, vega_cdn_urls, mapping_controls
 # Tidybayes-style analysis exports
 export pointinterval, gradient_interval, lineribbon, ribbon, dotinterval
 # High-level widget/recipe exports
@@ -785,66 +785,37 @@ function analysis_to_vl(a::LineRibbonAnalysis, layer::AlgebraOfGraphics.Layer; i
 
     layers = Dict{String,Any}[]
 
-    # When color grouping is present, emit layers per group so each group's
-    # ribbons+line stack together (group A all below group B), not interleaved.
-    color_groups = if !isnothing(color_field)
-        sort(unique(row[color_field] for row in summary))
+    color_enc = if !isnothing(color_field)
+        d = Dict{String,Any}("field" => color_field, "type" => "nominal")
+        !isnothing(color_label) && color_label != color_field && (d["title"] = color_label)
+        d
     else
-        [nothing]
+        nothing
     end
 
-    # VL default color scale for consistent colors across per-group layers
-    vl_colors = ["#4c78a8","#f58518","#e45756","#72b7b2","#54a24b","#eeca3b","#b279a2","#ff9da6","#9d755d","#bab0ac"]
-
-    for (gi, group) in enumerate(color_groups)
-        color_hex = !isnothing(group) ? vl_colors[mod1(gi, length(vl_colors))] : "#1f77b4"
-        filter_transform = !isnothing(group) ?
-            [Dict{String,Any}("filter" => "datum[$(JSON.json(color_field))] === $(JSON.json(group))")] : nothing
-
-        for (i, prob) in enumerate(sorted_probs)
-            x_enc = Dict{String,Any}("field" => x_field, "type" => "quantitative")
-            x_label != x_field && (x_enc["title"] = x_label)
-            enc = Dict{String,Any}(
-                "x" => x_enc,
-                "y" => Dict{String,Any}("field" => _vl_prob_field("lo", prob), "type" => "quantitative", "title" => y_label),
-                "y2" => Dict{String,Any}("field" => _vl_prob_field("hi", prob)),
-            )
-            mark = Dict{String,Any}("type" => "area", "opacity" => opacities[i], "line" => false, "fill" => color_hex)
-            layer_spec = Dict{String,Any}("mark" => mark, "encoding" => enc)
-            !isnothing(filter_transform) && (layer_spec["transform"] = filter_transform)
-            push!(layers, layer_spec)
-        end
-
-        if a.show_line
-            line_x_enc = Dict{String,Any}("field" => x_field, "type" => "quantitative")
-            x_label != x_field && (line_x_enc["title"] = x_label)
-            line_enc = Dict{String,Any}(
-                "x" => line_x_enc,
-                "y" => Dict{String,Any}("field" => "__median__", "type" => "quantitative"),
-            )
-            line_mark = Dict{String,Any}("type" => "line", "strokeWidth" => 2, "color" => color_hex)
-            layer_spec = Dict{String,Any}("mark" => line_mark, "encoding" => line_enc)
-            !isnothing(filter_transform) && (layer_spec["transform"] = filter_transform)
-            push!(layers, layer_spec)
-        end
-    end
-
-    # Add legend when color grouping is present
-    if !isnothing(color_field) && length(color_groups) > 1
-        # Invisible point layer just to generate the color legend
-        legend_enc = Dict{String,Any}(
-            "x" => Dict{String,Any}("field" => x_field, "type" => "quantitative"),
-            "y" => Dict{String,Any}("field" => "__median__", "type" => "quantitative"),
-            "color" => Dict{String,Any}(
-                "field" => color_field, "type" => "nominal",
-                "scale" => Dict{String,Any}("range" => vl_colors[1:min(length(color_groups), length(vl_colors))]),
-            ),
+    for (i, prob) in enumerate(sorted_probs)
+        x_enc = Dict{String,Any}("field" => x_field, "type" => "quantitative")
+        x_label != x_field && (x_enc["title"] = x_label)
+        enc = Dict{String,Any}(
+            "x" => x_enc,
+            "y" => Dict{String,Any}("field" => _vl_prob_field("lo", prob), "type" => "quantitative", "title" => y_label),
+            "y2" => Dict{String,Any}("field" => _vl_prob_field("hi", prob)),
         )
-        !isnothing(color_label) && color_label != color_field && (legend_enc["color"]["title"] = color_label)
-        push!(layers, Dict{String,Any}(
-            "mark" => Dict{String,Any}("type" => "point", "opacity" => 0),
-            "encoding" => legend_enc,
-        ))
+        !isnothing(color_enc) && (enc["color"] = copy(color_enc))
+        mark = Dict{String,Any}("type" => "area", "opacity" => opacities[i], "line" => false)
+        push!(layers, Dict{String,Any}("mark" => mark, "encoding" => enc))
+    end
+
+    if a.show_line
+        line_x_enc = Dict{String,Any}("field" => x_field, "type" => "quantitative")
+        x_label != x_field && (line_x_enc["title"] = x_label)
+        line_enc = Dict{String,Any}(
+            "x" => line_x_enc,
+            "y" => Dict{String,Any}("field" => "__median__", "type" => "quantitative"),
+        )
+        !isnothing(color_enc) && (line_enc["color"] = copy(color_enc))
+        line_mark = Dict{String,Any}("type" => "line", "strokeWidth" => 2)
+        push!(layers, Dict{String,Any}("mark" => line_mark, "encoding" => line_enc))
     end
 
     tt = Dict{String,Any}[
@@ -2328,6 +2299,7 @@ function vega_runtime()
     window.AoV = window.AoV || {
         views: {},
         _pending: {},
+        _origSpecs: {},
 
         _applyResponsiveWidth: function(id, spec) {
             var el = document.getElementById(id);
@@ -2365,8 +2337,9 @@ function vega_runtime()
                 opts = Object.assign({}, opts, {actions: window.AoV.defaultActions});
             }
             var self = this;
-            // Store original spec for re-embed on resize
+            // Store original spec for re-embed on resize and remapEncoding
             var origSpec = JSON.parse(JSON.stringify(spec));
+            self._origSpecs[id] = origSpec;
             var sized = self._applyResponsiveWidth(id, JSON.parse(JSON.stringify(origSpec)));
 
             var doEmbed = function() {
@@ -2443,6 +2416,158 @@ function vega_runtime()
                     htmx.ajax('GET', fullUrl, {target: target, swap: swap || 'innerHTML'});
                 }, debounceMs);
             });
+        },
+
+        // Client-side encoding remapping: swap color/row/column fields without server round-trip
+        remapEncoding: function(id, mapping) {
+            var orig = this._origSpecs[id];
+            if (!orig) { console.warn('AoV.remapEncoding: no stored spec for', id); return; }
+            var spec = JSON.parse(JSON.stringify(orig));
+
+            // Find layers in either simple or faceted structure
+            var isFaceted = !!(spec.facet || (spec.spec && spec.spec.layer));
+            var layers = isFaceted ? (spec.spec && spec.spec.layer || []) : (spec.layer || [spec]);
+
+            // Color remapping
+            if ('color' in mapping) {
+                var cf = mapping.color;
+                layers.forEach(function(l) {
+                    if (!l.encoding) return;
+                    if (cf) {
+                        l.encoding.color = {field: cf, type: 'nominal'};
+                    } else {
+                        delete l.encoding.color;
+                    }
+                    // Sync tooltips: remove old color entries, add new
+                    if (Array.isArray(l.encoding.tooltip)) {
+                        l.encoding.tooltip = l.encoding.tooltip.filter(function(t) {
+                            return t.type !== 'nominal' || t.field === (spec.facet && spec.facet.row && spec.facet.row.field) ||
+                                   t.field === (spec.facet && spec.facet.column && spec.facet.column.field);
+                        });
+                        if (cf) l.encoding.tooltip.push({field: cf, type: 'nominal'});
+                    }
+                });
+            }
+
+            // Count unique values for a field in the data (for nFacetCols hint)
+            function countUnique(field) {
+                var vals = spec.data && spec.data.values;
+                if (!vals) return 1;
+                var seen = {};
+                vals.forEach(function(r) { if (r[field] !== undefined) seen[r[field]] = true; });
+                return Math.max(Object.keys(seen).length, 1);
+            }
+
+            // Helper: wrap a non-faceted spec into faceted structure
+            function wrapFaceted() {
+                if (isFaceted) return;
+                if (spec.layer) {
+                    spec.spec = {layer: spec.layer};
+                    delete spec.layer;
+                } else {
+                    // Single-view spec: move mark+encoding into spec.spec
+                    var inner = {};
+                    ['mark', 'encoding', 'transform', 'selection', 'params'].forEach(function(k) {
+                        if (spec[k] !== undefined) { inner[k] = spec[k]; delete spec[k]; }
+                    });
+                    spec.spec = inner;
+                }
+                spec.facet = {};
+                // Remove single-view-only properties from outer spec
+                delete spec.width;
+                delete spec.autosize;
+                // Add _aov hint for responsive faceted sizing
+                spec._aov = spec._aov || {};
+                isFaceted = true;
+                layers = spec.spec.layer || [spec.spec];
+            }
+
+            // Helper: unwrap faceted spec back to flat
+            function unwrapFaceted() {
+                if (!spec.facet) return;
+                if (spec.facet.column || spec.facet.row) return;
+                var inner = spec.spec || {};
+                if (inner.layer) {
+                    spec.layer = inner.layer;
+                } else {
+                    // Restore single-view keys
+                    Object.keys(inner).forEach(function(k) { spec[k] = inner[k]; });
+                }
+                delete spec.spec;
+                delete spec.facet;
+                if (!spec.layer) {
+                    // Single-view: use VL native responsive width
+                    spec.width = 'container';
+                    spec.autosize = {type: 'fit', contains: 'padding'};
+                    delete spec._aov;
+                } else {
+                    // Layered: use _aov marker for JS responsive sizing
+                    spec._aov = {};
+                }
+                isFaceted = false;
+                layers = spec.layer || [spec];
+            }
+
+            // Row facet remapping
+            if ('row' in mapping) {
+                var rf = mapping.row;
+                if (rf) {
+                    wrapFaceted();
+                    spec.facet.row = {field: rf, type: 'nominal'};
+                } else if (spec.facet) {
+                    delete spec.facet.row;
+                    unwrapFaceted();
+                }
+            }
+
+            // Column facet remapping
+            if ('column' in mapping) {
+                var clf = mapping.column;
+                if (clf) {
+                    wrapFaceted();
+                    spec.facet.column = {field: clf, type: 'nominal'};
+                } else if (spec.facet) {
+                    delete spec.facet.column;
+                    unwrapFaceted();
+                }
+            }
+
+            // Update _aov.nFacetCols for responsive sizing
+            if (isFaceted && spec._aov && spec.facet) {
+                if (spec.facet.column) {
+                    spec._aov.nFacetCols = countUnique(spec.facet.column.field);
+                } else {
+                    delete spec._aov.nFacetCols;
+                }
+            }
+
+            // Detail encoding: put unmapped dimension fields into detail
+            // so VL groups by them without assigning visual properties
+            if (mapping._dimensions) {
+                var used = {};
+                var cf2 = mapping.color || (orig.layer && orig.layer[0] && orig.layer[0].encoding && orig.layer[0].encoding.color && orig.layer[0].encoding.color.field) || '';
+                if (cf2) used[cf2] = true;
+                if (spec.facet) {
+                    if (spec.facet.row) used[spec.facet.row.field] = true;
+                    if (spec.facet.column) used[spec.facet.column.field] = true;
+                }
+                var detailFields = mapping._dimensions.filter(function(d) { return !used[d]; });
+                layers.forEach(function(l) {
+                    if (!l.encoding) return;
+                    if (detailFields.length > 0) {
+                        l.encoding.detail = detailFields.length === 1 ?
+                            {field: detailFields[0], type: 'nominal'} :
+                            detailFields.map(function(f) { return {field: f, type: 'nominal'}; });
+                    } else {
+                        delete l.encoding.detail;
+                    }
+                });
+            }
+
+            // Re-embed, but preserve the TRUE original spec
+            var savedOrig = this._origSpecs[id];
+            this.embed(id, spec);
+            this._origSpecs[id] = savedOrig;
         }
     };
     """)
@@ -2529,6 +2654,92 @@ function update_data(id, table; name="source_0")
     data = [Dict{String,Any}(string(k) => v for (k, v) in pairs(nt)) for nt in rows]
     json = JSON.json(data)
     h.script("AoV.updateData('$id', $json, '$name');")
+end
+
+"""
+    mapping_controls(id, dimensions; color_default="", row_default="", column_default="", channels=[:color, :row])
+
+Client-side dropdowns that remap encoding channels on an already-rendered plot.
+Calls `AoV.remapEncoding(id, {color: ..., row: ...})` — no server round-trip.
+
+- `id`: must match the `id` kwarg passed to `to_node(spec; id=...)`
+- `dimensions`: vector of `Pair{String,String}` (field => label) or bare strings/symbols
+- `channels`: which encoding channels to show controls for (default `:color` and `:row`)
+
+## Example
+```julia
+id = "my-plot"
+h.div()(
+    mapping_controls(id, [:origin => "Origin", :cylinders => "Cylinders"]; color_default="origin"),
+    to_node(data(df) * mapping(:x, :y, color=:origin) * visual(Scatter); id=id),
+)
+```
+"""
+function mapping_controls(id, dimensions;
+    color_default="", row_default="", column_default="",
+    channels=[:color, :row, :column])
+    dims = [(d isa Pair ? (string(first(d)) => string(last(d))) : (string(d) => string(d))) for d in dimensions]
+    # Sanitize id for use in JS function names (hyphens → underscores)
+    js_id = replace(id, "-" => "_")
+
+    selects = map(channels) do ch
+        ch_str = string(ch)
+        default_val = string(ch == :color ? color_default : ch == :row ? row_default : column_default)
+        options = [h.option(; value="")(raw"(none)")]
+        for (field, label) in dims
+            attrs = field == default_val ?
+                (; value=field, selected="selected") : (; value=field)
+            push!(options, h.option(; attrs...)(label))
+        end
+        h.label()(
+            uppercasefirst(ch_str) * ": ",
+            h.select(;
+                id="aov-remap-$(ch_str)-$(id)",
+                onchange="_aovRemap_$(js_id)()",
+            )(options...),
+        )
+    end
+
+    ch_reads = join(["$(ch): document.getElementById('aov-remap-$(ch)-$(id)').value"
+                     for ch in channels], ", ")
+    dim_fields = JSON.json([first(d) for d in dims])
+    # Build a label lookup for display
+    dim_labels = JSON.json(Dict(first(d) => last(d) for d in dims))
+    js = h.script("""
+    function _aovRemap_$(js_id)() {
+        var mapping = {$(ch_reads), _dimensions: $(dim_fields)};
+        AoV.remapEncoding('$(id)', mapping);
+        var used = {};
+        ['color', 'row', 'column'].forEach(function(ch) { if (mapping[ch]) used[mapping[ch]] = true; });
+        var labels = $(dim_labels);
+        var detail = $(dim_fields).filter(function(d) { return !used[d]; }).map(function(d) { return labels[d] || d; });
+        var el = document.getElementById('aov-detail-$(id)');
+        if (el) el.value = detail.length > 0 ? detail.join(', ') : '(none)';
+    }
+    """)
+
+    # Compute initial detail fields (dimensions not assigned to any channel)
+    used_defaults = Set{String}()
+    color_default != "" && push!(used_defaults, string(color_default))
+    row_default != "" && push!(used_defaults, string(row_default))
+    column_default != "" && push!(used_defaults, string(column_default))
+    initial_detail = [last(d) for d in dims if !(first(d) in used_defaults)]
+    initial_detail_str = isempty(initial_detail) ? "(none)" : join(initial_detail, ", ")
+
+    detail_input = h.label()(
+        "Detail: ",
+        h.input(;
+            id="aov-detail-$(id)",
+            type="text",
+            readonly="readonly",
+            value=initial_detail_str,
+            style="background:var(--pico-form-element-disabled-background-color, #f0f0f0); border:1px solid #ccc; padding:0.25rem 0.5rem; min-width:8em;",
+        ),
+    )
+
+    h.div(; style="display:flex; gap:1rem; align-items:center; flex-wrap:wrap; margin-bottom:0.5rem;")(
+        selects..., detail_input, js,
+    )
 end
 
 """

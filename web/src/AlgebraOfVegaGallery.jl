@@ -446,6 +446,52 @@ PLOTS = [
             )],
         )),
 
+    ("remap_encoding", "Remap Encoding", "Client-side color/row switching via mapping_controls — no server round-trip",
+     """id = "remap-demo"
+h.div()(
+    mapping_controls(id, [:origin => "Origin", :cylinders => "Cylinders"];
+        color_default="origin"),
+    to_node(
+        data(cars()) * mapping(:horsepower, :mpg, color=:origin) * visual(Scatter) *
+        config(title="Remap Encoding Demo");
+        id=id),
+)""",
+     () -> begin
+        id = "remap-demo"
+        h.div()(
+            mapping_controls(id, [:origin => "Origin", :cylinders => "Cylinders"];
+                color_default="origin"),
+            to_node(
+                data(cars()) * mapping(:horsepower, :mpg, color=:origin) * visual(Scatter) *
+                config(title="Remap Encoding Demo");
+                id=id),
+        )
+     end),
+
+    ("remap_lineribbon", "Remap Line + Ribbon", "Client-side color/row/col switching on a lineribbon plot",
+     """id = "remap-lr"
+preds = faceted_regression_predictions()
+h.div()(
+    mapping_controls(id, [:panel => "Condition", :site => "Site"];
+        color_default="panel", row_default="site"),
+    to_node(
+        data(preds) * mapping(:x, :y, group=:draw, color=:panel, row=:site) *
+        lineribbon() * config(title="Remap Line + Ribbon");
+        id=id),
+)""",
+     () -> begin
+        id = "remap-lr"
+        preds = faceted_regression_predictions()
+        h.div()(
+            mapping_controls(id, [:panel => "Condition", :site => "Site"];
+                color_default="panel", row_default="site"),
+            to_node(
+                data(preds) * mapping(:x, :y, group=:draw, color=:panel, row=:site) *
+                lineribbon() * config(title="Remap Line + Ribbon");
+                id=id),
+        )
+     end),
+
     # === AoG gallery replications (https://aog.makie.org/stable/) ===
 
     # --- Basic Visualizations: Lines and Markers ---
@@ -1433,14 +1479,15 @@ end
         entry = find_plot(id)
         let spec = isnothing(entry) ? nothing : entry[5]()
             code_str = isnothing(entry) ? "" : entry[4]
-            json_str = isnothing(spec) ? "" : JSON.json(to_vegalite(spec), 2)
+            is_node = spec isa HTMX.Node
+            json_str = isnothing(spec) || is_node ? "" : JSON.json(to_vegalite(spec), 2)
             h.article(; style="margin:0; padding:0.5rem; min-width:0; overflow:hidden;")(
                 h.header(; style="padding:0 0 0.25rem; margin:0; display:flex; align-items:center; flex-wrap:wrap;")(
                     h.a(title;
                         href="/standalone/$id", target="_blank",
                         style="font-size:0.9em; font-weight:bold; text-decoration:none;",
                     ),
-                    h.a("static";
+                    is_node ? h.span() : h.a("static";
                         href="/static_plot/$id", target="_blank",
                         style="font-size:0.7em; margin-left:0.3em; padding:0.1rem 0.3rem; border:1px solid; border-radius:0.2rem; text-decoration:none; color:var(--pico-muted-color);",
                     ),
@@ -1451,7 +1498,7 @@ end
                             style="font-size:0.8em; margin-left:0.3em;",
                         ),
                 ),
-                isnothing(spec) ? h.p("Unknown plot") : vdraw(spec),
+                isnothing(spec) ? h.p("Unknown plot") : is_node ? spec : vdraw(spec),
                 h.details(; style="margin-top:0.25rem")(
                     h.summary("Code"; style="font-size:0.8em;"),
                     h.pre(h.code(code_str); style="background:var(--pico-code-background-color); padding:0.5rem; border-radius:0.25rem; overflow-x:auto; font-size:0.75em;"),
@@ -1465,7 +1512,7 @@ end
         ("Interactive Filtering" => ["filter_origin", "filter_multi", "filter_tips", "filter_histogram", "filter_regression", "filter_bar"]),
         ("Basic" => ["scatter", "bar", "line", "lines_only", "area", "histogram", "heatmap", "boxplot"]),
         ("Composition" => ["layered", "multi_layer", "stacked_bar", "grouped_bar", "bubble", "scatter_jitter", "custom_config"]),
-        ("Interactive" => ["interactive_brush", "interactive_highlight", "interactive_zoom", "interactive_slider", "interactive_dropdown"]),
+        ("Interactive" => ["interactive_brush", "interactive_highlight", "interactive_zoom", "interactive_slider", "interactive_dropdown", "remap_encoding", "remap_lineribbon"]),
         ("AoG: Basic Visualizations" => ["aog_scatter_basic", "aog_sine_lines", "aog_lines_scatter", "aog_two_sources", "aog_boxplot"]),
         ("AoG: Additional Marks" => ["aog_step", "aog_rules", "aog_errorbars"]),
         ("AoG: Data Manipulations" => ["aog_wide_lines", "aog_wide_scatter", "aog_presorted_bar"]),
@@ -1769,7 +1816,11 @@ end
             HTTP.Response(404, ["Content-Type" => "text/plain"], body="Unknown plot: $id")
         else
             let spec = entry[5]()
-                HTTP.Response(200, ["Content-Type" => "text/html; charset=utf-8"], body=to_html(spec))
+                if spec isa HTMX.Node
+                    h.html(h.head(vega_head()...), h.body(spec))
+                else
+                    HTTP.Response(200, ["Content-Type" => "text/html; charset=utf-8"], body=to_html(spec))
+                end
             end
         end
     end
