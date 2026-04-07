@@ -416,22 +416,26 @@ abstract type TidybayesAnalysis end
 struct PointIntervalAnalysis <: TidybayesAnalysis
     probs::Vector{Float64}
     point::Symbol
+    detail_fields::Vector{Symbol}
 end
 
 struct GradientIntervalAnalysis <: TidybayesAnalysis
     probs::Vector{Float64}
     point::Symbol
+    detail_fields::Vector{Symbol}
 end
 
 struct LineRibbonAnalysis <: TidybayesAnalysis
     probs::Vector{Float64}
     show_line::Bool
+    detail_fields::Vector{Symbol}
 end
 
 struct DotIntervalAnalysis <: TidybayesAnalysis
     probs::Vector{Float64}
     n_dots::Int
     point::Symbol
+    detail_fields::Vector{Symbol}
 end
 
 """
@@ -442,8 +446,8 @@ Computes quantile summary in Julia, then generates layered rule + point marks.
 
     data(draws) * mapping(:value, y=:parameter) * pointinterval()
 """
-pointinterval(; probs=[0.95, 0.8, 0.5], point=:median) =
-    Layer(transformation=PointIntervalAnalysis(Float64.(probs), point))
+pointinterval(; probs=[0.95, 0.8, 0.5], point=:median, detail=Symbol[]) =
+    Layer(transformation=PointIntervalAnalysis(Float64.(probs), point, Symbol.(detail)))
 
 """
     gradient_interval(; probs=[0.95, 0.8, 0.5], point=:median)
@@ -452,8 +456,8 @@ Nested credible intervals with uniform width and varying opacity + a point estim
 
     data(draws) * mapping(:value, y=:parameter) * gradient_interval()
 """
-gradient_interval(; probs=[0.95, 0.8, 0.5], point=:median) =
-    Layer(transformation=GradientIntervalAnalysis(Float64.(probs), point))
+gradient_interval(; probs=[0.95, 0.8, 0.5], point=:median, detail=Symbol[]) =
+    Layer(transformation=GradientIntervalAnalysis(Float64.(probs), point, Symbol.(detail)))
 
 """
     lineribbon(; probs=[0.95, 0.8, 0.5])
@@ -465,8 +469,8 @@ multiple groups with separate ribbon bands per group.
     data(preds) * mapping(:x, :y, group=:draw) * lineribbon()
     data(preds) * mapping(:x, :y, group=:draw, color=:treatment) * lineribbon()
 """
-lineribbon(; probs=[0.95, 0.8, 0.5]) =
-    Layer(transformation=LineRibbonAnalysis(Float64.(probs), true))
+lineribbon(; probs=[0.95, 0.8, 0.5], detail=Symbol[]) =
+    Layer(transformation=LineRibbonAnalysis(Float64.(probs), true, Symbol.(detail)))
 
 """
     ribbon(; probs=[0.95, 0.8, 0.5])
@@ -476,8 +480,8 @@ Same as `lineribbon` but omits the central line.
 
     data(preds) * mapping(:x, :y, group=:draw) * ribbon()
 """
-ribbon(; probs=[0.95, 0.8, 0.5]) =
-    Layer(transformation=LineRibbonAnalysis(Float64.(probs), false))
+ribbon(; probs=[0.95, 0.8, 0.5], detail=Symbol[]) =
+    Layer(transformation=LineRibbonAnalysis(Float64.(probs), false, Symbol.(detail)))
 
 """
     dotinterval(; probs=[0.95, 0.5], n_dots=50, point=:median)
@@ -486,8 +490,8 @@ Quantile dotplot with nested interval overlay.
 
     data(draws) * mapping(:value, y=:parameter) * dotinterval()
 """
-dotinterval(; probs=[0.95, 0.5], n_dots=50, point=:median) =
-    Layer(transformation=DotIntervalAnalysis(Float64.(probs), n_dots, point))
+dotinterval(; probs=[0.95, 0.5], n_dots=50, point=:median, detail=Symbol[]) =
+    Layer(transformation=DotIntervalAnalysis(Float64.(probs), n_dots, point, Symbol.(detail)))
 
 function _extract_from_composed(f::ComposedFunction, T::Type)
     for part in (f.outer, f.inner)
@@ -592,9 +596,9 @@ function _key_columns(table; fields::Vector{String})
     cols
 end
 
-function compute_interval_summary(table, x_field::String, group_field::Union{String,Nothing}, probs::Vector{Float64}, point::Symbol; color_field::Union{String,Nothing}=nothing, facet_fields::Vector{String}=String[])
+function compute_interval_summary(table, x_field::String, group_field::Union{String,Nothing}, probs::Vector{Float64}, point::Symbol; color_field::Union{String,Nothing}=nothing, facet_fields::Vector{String}=String[], detail_fields::Vector{String}=String[])
     vals = Tables.getcolumn(table, Symbol(x_field))
-    key_fields = String[f for f in [group_field, color_field, facet_fields...] if !isnothing(f)]
+    key_fields = String[f for f in [group_field, color_field, facet_fields..., detail_fields...] if !isnothing(f)]
     idx_groups = _group_indices(_key_columns(table; fields=key_fields))
 
     rows = Dict{String,Any}[]
@@ -612,6 +616,9 @@ function compute_interval_summary(table, x_field::String, group_field::Union{Str
         for ff in facet_fields
             row[ff] = key[ki += 1]
         end
+        for ff in detail_fields
+            row[ff] = key[ki += 1]
+        end
         for prob in probs
             lo = (1 - prob) / 2
             row[_vl_prob_field("lo", prob)] = q(lo)
@@ -622,10 +629,10 @@ function compute_interval_summary(table, x_field::String, group_field::Union{Str
     rows
 end
 
-function compute_ribbon_summary(table, x_field::String, y_field::String, group_field::String, probs::Vector{Float64}; color_field::Union{String,Nothing}=nothing, facet_fields::Vector{String}=String[])
+function compute_ribbon_summary(table, x_field::String, y_field::String, group_field::String, probs::Vector{Float64}; color_field::Union{String,Nothing}=nothing, facet_fields::Vector{String}=String[], detail_fields::Vector{String}=String[])
     xs = Tables.getcolumn(table, Symbol(x_field))
     ys = Tables.getcolumn(table, Symbol(y_field))
-    key_fields = String[f for f in [x_field, color_field, facet_fields...] if !isnothing(f)]
+    key_fields = String[f for f in [x_field, color_field, facet_fields..., detail_fields...] if !isnothing(f)]
     idx_groups = _group_indices(_key_columns(table; fields=key_fields))
 
     rows = Dict{String,Any}[]
@@ -640,6 +647,9 @@ function compute_ribbon_summary(table, x_field::String, y_field::String, group_f
         row = Dict{String,Any}(x_field => x, "__median__" => q(0.5))
         !isnothing(color_field) && (row[color_field] = key[ki += 1])
         for ff in facet_fields
+            row[ff] = key[ki += 1]
+        end
+        for ff in detail_fields
             row[ff] = key[ki += 1]
         end
         for prob in probs
@@ -713,7 +723,8 @@ end
 
 function analysis_to_vl(a::PointIntervalAnalysis, layer::AlgebraOfGraphics.Layer; is_sublayer=false)
     (; table, x_field, x_label, y_field, y_label, color_field, color_label, facet, facet_fields) = _extract_interval_fields(layer)
-    summary = compute_interval_summary(table, x_field, y_field, a.probs, a.point; color_field, facet_fields)
+    detail_strs = string.(a.detail_fields)
+    summary = compute_interval_summary(table, x_field, y_field, a.probs, a.point; color_field, facet_fields, detail_fields=detail_strs)
 
     sorted_probs = sort(a.probs, rev=true)
     stroke_widths = range(1.5, 8, length=length(sorted_probs))
@@ -744,7 +755,8 @@ end
 
 function analysis_to_vl(a::GradientIntervalAnalysis, layer::AlgebraOfGraphics.Layer; is_sublayer=false)
     (; table, x_field, x_label, y_field, y_label, color_field, color_label, facet, facet_fields) = _extract_interval_fields(layer)
-    summary = compute_interval_summary(table, x_field, y_field, a.probs, a.point; color_field, facet_fields)
+    detail_strs = string.(a.detail_fields)
+    summary = compute_interval_summary(table, x_field, y_field, a.probs, a.point; color_field, facet_fields, detail_fields=detail_strs)
 
     sorted_probs = sort(a.probs, rev=true)
     opacities = range(0.2, 0.7, length=length(sorted_probs))
@@ -785,7 +797,8 @@ function analysis_to_vl(a::LineRibbonAnalysis, layer::AlgebraOfGraphics.Layer; i
     color_label = haskey(layer.named, :color) ? _field_label(layer.named[:color]) : nothing
     facet, facet_fields = _extract_facet_info(layer)
 
-    summary = compute_ribbon_summary(table, x_field, y_field, group_field, a.probs; color_field, facet_fields)
+    detail_strs = string.(a.detail_fields)
+    summary = compute_ribbon_summary(table, x_field, y_field, group_field, a.probs; color_field, facet_fields, detail_fields=detail_strs)
     summary_data = Dict{String,Any}("values" => summary)
 
     sorted_probs = sort(a.probs, rev=true)
@@ -846,9 +859,10 @@ end
 
 function analysis_to_vl(a::DotIntervalAnalysis, layer::AlgebraOfGraphics.Layer; is_sublayer=false)
     (; table, x_field, x_label, y_field, y_label, color_field, color_label, facet, facet_fields) = _extract_interval_fields(layer)
+    detail_strs = string.(a.detail_fields)
 
     vals = Tables.getcolumn(table, Symbol(x_field))
-    key_fields = String[f for f in [y_field, color_field, facet_fields...] if !isnothing(f)]
+    key_fields = String[f for f in [y_field, color_field, facet_fields..., detail_strs...] if !isnothing(f)]
     idx_groups = _group_indices(_key_columns(table; fields=key_fields))
 
     # Quantile dots
@@ -868,11 +882,14 @@ function analysis_to_vl(a::DotIntervalAnalysis, layer::AlgebraOfGraphics.Layer; 
             for ff in facet_fields
                 row[ff] = key[ki += 1]
             end
+            for ff in detail_strs
+                row[ff] = key[ki += 1]
+            end
             push!(dot_rows, row)
         end
     end
 
-    summary = compute_interval_summary(table, x_field, y_field, a.probs, a.point; color_field, facet_fields)
+    summary = compute_interval_summary(table, x_field, y_field, a.probs, a.point; color_field, facet_fields, detail_fields=detail_strs)
 
     # Dot layer
     dot_enc = Dict{String,Any}(
@@ -2344,9 +2361,15 @@ function vega_runtime()
                 return spec;
             }
 
-            // Layered/composite specs: set top-level width (only when _aov hint is present)
+            // Faceted (row-only, no columns) or layered specs: set width responsively
             if (spec._aov && !spec._aov.nFacetCols) {
-                spec = Object.assign({}, spec, {width: containerWidth - padding});
+                var w = containerWidth - padding;
+                if (spec.spec) {
+                    // Row-only faceted: set width on inner spec
+                    spec.spec = Object.assign({}, spec.spec, {width: w});
+                } else {
+                    spec = Object.assign({}, spec, {width: w});
+                }
                 return spec;
             }
 
@@ -2741,12 +2764,26 @@ h.div()(
 function mapping_controls(id, dimensions;
     color_default="", row_default="", column_default="",
     channels=[:color, :row, :column],
-    fixed=Dict{Symbol,Any}())
+    fixed=Dict{Symbol,Any}(),
+    table=nothing)
     dims = [(d isa Pair ? (string(first(d)) => string(last(d))) : (string(d) => string(d))) for d in dimensions]
+
+    # Validate dimension fields exist in the table if provided
+    if !isnothing(table)
+        col_names = Set(string.(Tables.columnnames(table)))
+        for (field, label) in dims
+            field in col_names || error("mapping_controls: dimension field \"$field\" (label \"$label\") not found in table. Available columns: $(sort(collect(col_names)))")
+        end
+        for (ch, field) in fixed
+            string(field) in col_names || error("mapping_controls: fixed channel :$ch field \"$field\" not found in table. Available columns: $(sort(collect(col_names)))")
+        end
+    end
     # Sanitize id for use in JS function names (hyphens → underscores)
     js_id = replace(id, "-" => "_")
     # Normalize fixed channels: Symbol keys, string values
     fixed_js = Dict{String,String}(string(k) => string(v) for (k, v) in fixed)
+    # Remove fixed channels from editable list
+    channels = [ch for ch in channels if !haskey(fixed_js, string(ch))]
 
     selects = map(channels) do ch
         ch_str = string(ch)
@@ -2817,14 +2854,15 @@ function mapping_controls(id, dimensions;
         ),
     )
 
-    fixed_labels = [h.label()(
+    fixed_selects = [h.label()(
         uppercasefirst(k) * ": ",
-        h.input(; type="text", readonly="readonly", value=v,
-            style="background:var(--pico-form-element-disabled-background-color, #f0f0f0); border:1px solid #ccc; padding:0.25rem 0.5rem; min-width:5em; max-width:10em;"),
+        h.select(; disabled="disabled")(
+            h.option(v; value=v, selected="selected"),
+        ),
     ) for (k, v) in fixed_js]
 
     h.div(; style="display:flex; gap:1rem; align-items:center; flex-wrap:wrap; margin-bottom:0.5rem;")(
-        selects..., fixed_labels..., detail_input, js,
+        selects..., fixed_selects..., detail_input, js,
     )
 end
 
@@ -3059,8 +3097,9 @@ function _lineribbon_to_aog(a::LineRibbonAnalysis, layer::AlgebraOfGraphics.Laye
     color_field = haskey(layer.named, :color) ? _field_name(layer.named[:color]) : nothing
     facet, facet_fields = _extract_facet_info(layer)
 
+    detail_strs = string.(a.detail_fields)
     summary = compute_ribbon_summary(table, x_field, y_field, group_field, a.probs;
-        color_field, facet_fields)
+        color_field, facet_fields, detail_fields=detail_strs)
 
     # Build a columnar NamedTuple from the summary rows
     cols = collect(keys(summary[1]))
