@@ -2455,6 +2455,36 @@ function vega_runtime()
             var isFaceted = !!(spec.facet || (spec.spec && spec.spec.layer));
             var layers = isFaceted ? (spec.spec && spec.spec.layer || []) : (spec.layer || [spec]);
 
+            // Migrate encoding-based row/column to facet key structure
+            // (encoding.row/column is VL inline faceting that conflicts with facet key)
+            function _migrateEncodingFacets() {
+                var enc = spec.encoding || (spec.spec && spec.spec.encoding);
+                if (!enc) {
+                    // Check sublayer encodings
+                    layers.forEach(function(l) {
+                        if (!l.encoding) return;
+                        ['row', 'column'].forEach(function(ch) {
+                            if (l.encoding[ch]) {
+                                if (!isFaceted) { wrapFaceted(); }
+                                spec.facet = spec.facet || {};
+                                spec.facet[ch] = spec.facet[ch] || l.encoding[ch];
+                                delete l.encoding[ch];
+                            }
+                        });
+                    });
+                    return;
+                }
+                ['row', 'column'].forEach(function(ch) {
+                    if (enc[ch]) {
+                        if (!isFaceted) { wrapFaceted(); }
+                        spec.facet = spec.facet || {};
+                        spec.facet[ch] = spec.facet[ch] || enc[ch];
+                        delete enc[ch];
+                    }
+                });
+            }
+            _migrateEncodingFacets();
+
             // Color remapping
             if ('color' in mapping) {
                 var cf = mapping.color;
@@ -2695,23 +2725,28 @@ Calls `AoV.remapEncoding(id, {color: ..., row: ...})` — no server round-trip.
 
 - `id`: must match the `id` kwarg passed to `to_node(spec; id=...)`
 - `dimensions`: vector of `Pair{String,String}` (field => label) or bare strings/symbols
-- `channels`: which encoding channels to show controls for (default `:color` and `:row`)
+- `channels`: which encoding channels to show editable dropdowns for (default `[:color, :row, :column]`)
+- `fixed`: `Dict` of channel => field that are always applied but not user-editable (e.g. `Dict(:column => :quantity)`)
 
 ## Example
 ```julia
 id = "my-plot"
 h.div()(
-    mapping_controls(id, [:origin => "Origin", :cylinders => "Cylinders"]; color_default="origin"),
-    to_node(data(df) * mapping(:x, :y, color=:origin) * visual(Scatter); id=id),
+    mapping_controls(id, [:origin => "Origin", :cylinders => "Cylinders"];
+        color_default="origin", fixed=Dict(:column => :cylinders)),
+    to_node(data(df) * mapping(:x, :y, color=:origin, col=:cylinders) * visual(Scatter); id=id),
 )
 ```
 """
 function mapping_controls(id, dimensions;
     color_default="", row_default="", column_default="",
-    channels=[:color, :row, :column])
+    channels=[:color, :row, :column],
+    fixed=Dict{Symbol,Any}())
     dims = [(d isa Pair ? (string(first(d)) => string(last(d))) : (string(d) => string(d))) for d in dimensions]
     # Sanitize id for use in JS function names (hyphens → underscores)
     js_id = replace(id, "-" => "_")
+    # Normalize fixed channels: Symbol keys, string values
+    fixed_js = Dict{String,String}(string(k) => string(v) for (k, v) in fixed)
 
     selects = map(channels) do ch
         ch_str = string(ch)
@@ -2733,6 +2768,7 @@ function mapping_controls(id, dimensions;
 
     ch_reads = join(["$(ch): document.getElementById('aov-remap-$(ch)-$(id)').value"
                      for ch in channels], ", ")
+    fixed_js_str = JSON.json(fixed_js)
     dim_fields = JSON.json([first(d) for d in dims])
     # Build a label lookup for display
     dim_labels = JSON.json(Dict(first(d) => last(d) for d in dims))
@@ -2746,6 +2782,9 @@ function mapping_controls(id, dimensions;
             else if (changed === 'column') rowEl.value = '';
         }
         var mapping = {$(ch_reads), _dimensions: $(dim_fields)};
+        // Merge fixed (non-editable) channel assignments
+        var fixed = $(fixed_js_str);
+        for (var k in fixed) mapping[k] = fixed[k];
         AoV.remapEncoding('$(id)', mapping);
         var used = {};
         ['color', 'row', 'column'].forEach(function(ch) { if (mapping[ch]) used[mapping[ch]] = true; });
@@ -2761,6 +2800,9 @@ function mapping_controls(id, dimensions;
     color_default != "" && push!(used_defaults, string(color_default))
     row_default != "" && push!(used_defaults, string(row_default))
     column_default != "" && push!(used_defaults, string(column_default))
+    for v in values(fixed_js)
+        push!(used_defaults, v)
+    end
     initial_detail = [last(d) for d in dims if !(first(d) in used_defaults)]
     initial_detail_str = isempty(initial_detail) ? "(none)" : join(initial_detail, ", ")
 
@@ -2775,8 +2817,14 @@ function mapping_controls(id, dimensions;
         ),
     )
 
+    fixed_labels = [h.label()(
+        uppercasefirst(k) * ": ",
+        h.input(; type="text", readonly="readonly", value=v,
+            style="background:var(--pico-form-element-disabled-background-color, #f0f0f0); border:1px solid #ccc; padding:0.25rem 0.5rem; min-width:5em; max-width:10em;"),
+    ) for (k, v) in fixed_js]
+
     h.div(; style="display:flex; gap:1rem; align-items:center; flex-wrap:wrap; margin-bottom:0.5rem;")(
-        selects..., detail_input, js,
+        selects..., fixed_labels..., detail_input, js,
     )
 end
 
