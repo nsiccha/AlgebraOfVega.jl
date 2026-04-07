@@ -562,55 +562,54 @@ function _add_analysis_tooltips!(layers::Vector{Dict{String,Any}}, tooltip_field
     end
 end
 
-# --- Interval summary computation ---
+# --- Grouping helper + summary computation ---
+
+# Single-pass O(n) grouping by key columns → Dict{key => Vector{Int}}
+# TODO: consider replacing with a groupby library (DataFrames, SplitApplyCombine)
+function _group_indices(columns::Vector{<:AbstractVector})
+    n = length(first(columns))
+    groups = Dict{Any, Vector{Int}}()
+    for i in 1:n
+        key = Tuple(col[i] for col in columns)
+        push!(get!(Vector{Int}, groups, key), i)
+    end
+    groups
+end
+
+function _key_columns(table; fields::Vector{String})
+    cols = AbstractVector[]
+    for f in fields
+        push!(cols, Tables.getcolumn(table, Symbol(f)))
+    end
+    cols
+end
 
 function compute_interval_summary(table, x_field::String, group_field::Union{String,Nothing}, probs::Vector{Float64}, point::Symbol; color_field::Union{String,Nothing}=nothing, facet_fields::Vector{String}=String[])
     vals = Tables.getcolumn(table, Symbol(x_field))
-    groups = isnothing(group_field) ? nothing : Tables.getcolumn(table, Symbol(group_field))
-    colors = isnothing(color_field) ? nothing : Tables.getcolumn(table, Symbol(color_field))
-    facet_data = [Tables.getcolumn(table, Symbol(f)) for f in facet_fields]
-    facet_combos = isempty(facet_data) ? [()] : sort(unique(collect(zip(facet_data...))))
+    key_fields = String[f for f in [group_field, color_field, facet_fields...] if !isnothing(f)]
+    idx_groups = _group_indices(_key_columns(table; fields=key_fields))
 
-    group_keys = isnothing(groups) ? [nothing] : unique(groups)
-    color_keys = isnothing(colors) ? [nothing] : sort(unique(colors))
     rows = Dict{String,Any}[]
-    for fk in facet_combos
-        for gk in group_keys
-            for ck in color_keys
-                mask = trues(length(vals))
-                if !isnothing(groups)
-                    mask .&= [g == gk for g in groups]
-                end
-                if !isnothing(colors)
-                    mask .&= [c == ck for c in colors]
-                end
-                for (j, fc) in enumerate(facet_data)
-                    mask .&= [fci == fk[j] for fci in fc]
-                end
-                v = sort(vals[mask])
-                n = length(v)
-                n == 0 && continue
-                q(f) = v[clamp(round(Int, f * n), 1, n)]
-                pt = point === :mean ? sum(v) / n : q(0.5)
-                row = Dict{String,Any}("__point__" => pt)
-                if !isnothing(gk)
-                    row[group_field] = gk
-                end
-                if !isnothing(ck)
-                    row[color_field] = ck
-                end
-                for (j, ff) in enumerate(facet_fields)
-                    row[ff] = fk[j]
-                end
-                for prob in probs
-                    lo = (1 - prob) / 2
-                    hi = 1 - lo
-                    row[_vl_prob_field("lo", prob)] = q(lo)
-                    row[_vl_prob_field("hi", prob)] = q(hi)
-                end
-                push!(rows, row)
-            end
+    sizehint!(rows, length(idx_groups))
+    for (key, idxs) in idx_groups
+        v = sort!(vals[idxs])
+        n = length(v)
+        n == 0 && continue
+        q(f) = v[clamp(round(Int, f * n), 1, n)]
+        pt = point === :mean ? sum(v) / n : q(0.5)
+        row = Dict{String,Any}("__point__" => pt)
+        ki = 0
+        !isnothing(group_field) && (row[group_field] = key[ki += 1])
+        !isnothing(color_field) && (row[color_field] = key[ki += 1])
+        for ff in facet_fields
+            row[ff] = key[ki += 1]
         end
+        for prob in probs
+            lo = (1 - prob) / 2
+            row[_vl_prob_field("lo", prob)] = q(lo)
+            row[_vl_prob_field("hi", prob)] = q(1 - lo)
+        end
+        push!(rows, row)
     end
     rows
 end
@@ -618,44 +617,29 @@ end
 function compute_ribbon_summary(table, x_field::String, y_field::String, group_field::String, probs::Vector{Float64}; color_field::Union{String,Nothing}=nothing, facet_fields::Vector{String}=String[])
     xs = Tables.getcolumn(table, Symbol(x_field))
     ys = Tables.getcolumn(table, Symbol(y_field))
-    draws = Tables.getcolumn(table, Symbol(group_field))
-    colors = isnothing(color_field) ? nothing : Tables.getcolumn(table, Symbol(color_field))
-    facet_data = [Tables.getcolumn(table, Symbol(f)) for f in facet_fields]
-    facet_combos = isempty(facet_data) ? [()] : sort(unique(collect(zip(facet_data...))))
-
-    unique_xs = sort(unique(xs))
-    color_keys = isnothing(colors) ? [nothing] : sort(unique(colors))
+    key_fields = String[f for f in [x_field, color_field, facet_fields...] if !isnothing(f)]
+    idx_groups = _group_indices(_key_columns(table; fields=key_fields))
 
     rows = Dict{String,Any}[]
-    for fk in facet_combos
-        for ck in color_keys
-            for x in unique_xs
-                mask = if isnothing(colors)
-                    [xi == x for xi in xs]
-                else
-                    [xi == x && ci == ck for (xi, ci) in zip(xs, colors)]
-                end
-                for (j, fc) in enumerate(facet_data)
-                    mask .&= [fci == fk[j] for fci in fc]
-                end
-                v = sort(ys[mask])
-                n = length(v)
-                n == 0 && continue
-                q(f) = v[clamp(round(Int, f * n), 1, n)]
-                row = Dict{String,Any}(x_field => x, "__median__" => q(0.5))
-                !isnothing(ck) && (row[color_field] = ck)
-                for (j, ff) in enumerate(facet_fields)
-                    row[ff] = fk[j]
-                end
-                for prob in probs
-                    lo = (1 - prob) / 2
-                    hi = 1 - lo
-                    row[_vl_prob_field("lo", prob)] = q(lo)
-                    row[_vl_prob_field("hi", prob)] = q(hi)
-                end
-                push!(rows, row)
-            end
+    sizehint!(rows, length(idx_groups))
+    for (key, idxs) in idx_groups
+        v = sort!(ys[idxs])
+        n = length(v)
+        n == 0 && continue
+        q(f) = v[clamp(round(Int, f * n), 1, n)]
+        ki = 0
+        x = key[ki += 1]
+        row = Dict{String,Any}(x_field => x, "__median__" => q(0.5))
+        !isnothing(color_field) && (row[color_field] = key[ki += 1])
+        for ff in facet_fields
+            row[ff] = key[ki += 1]
         end
+        for prob in probs
+            lo = (1 - prob) / 2
+            row[_vl_prob_field("lo", prob)] = q(lo)
+            row[_vl_prob_field("hi", prob)] = q(1 - lo)
+        end
+        push!(rows, row)
     end
     rows
 end
@@ -885,41 +869,27 @@ function analysis_to_vl(a::DotIntervalAnalysis, layer::AlgebraOfGraphics.Layer; 
     (; table, x_field, x_label, y_field, y_label, color_field, color_label, facet, facet_fields) = _extract_interval_fields(layer)
 
     vals = Tables.getcolumn(table, Symbol(x_field))
-    groups = isnothing(y_field) ? nothing : Tables.getcolumn(table, Symbol(y_field))
-    group_keys = isnothing(groups) ? [nothing] : unique(groups)
-    colors = isnothing(color_field) ? nothing : Tables.getcolumn(table, Symbol(color_field))
-    color_keys = isnothing(colors) ? [nothing] : sort(unique(colors))
-    facet_data = [Tables.getcolumn(table, Symbol(f)) for f in facet_fields]
-    facet_combos = isempty(facet_data) ? [()] : sort(unique(collect(zip(facet_data...))))
+    key_fields = String[f for f in [y_field, color_field, facet_fields...] if !isnothing(f)]
+    idx_groups = _group_indices(_key_columns(table; fields=key_fields))
 
     # Quantile dots
     dot_rows = Dict{String,Any}[]
-    for fk in facet_combos
-        for gk in group_keys
-            for ck in color_keys
-                mask = trues(length(vals))
-                if !isnothing(groups)
-                    mask .&= [g == gk for g in groups]
-                end
-                if !isnothing(colors)
-                    mask .&= [c == ck for c in colors]
-                end
-                for (j, fc) in enumerate(facet_data)
-                    mask .&= [fci == fk[j] for fci in fc]
-                end
-                v = sort(vals[mask])
-                n = length(v)
-                for i in 1:a.n_dots
-                    q = v[clamp(round(Int, (i - 0.5) / a.n_dots * n), 1, n)]
-                    row = Dict{String,Any}("quantile" => q)
-                    !isnothing(gk) && (row[y_field] = gk)
-                    !isnothing(ck) && (row[color_field] = ck)
-                    for (j, ff) in enumerate(facet_fields)
-                        row[ff] = fk[j]
-                    end
-                    push!(dot_rows, row)
-                end
+    for (key, idxs) in idx_groups
+        v = sort!(vals[idxs])
+        n = length(v)
+        ki_base = 0
+        gk = isnothing(y_field) ? nothing : key[ki_base += 1]
+        ck = isnothing(color_field) ? nothing : key[ki_base += 1]
+        for i in 1:a.n_dots
+            q = v[clamp(round(Int, (i - 0.5) / a.n_dots * n), 1, n)]
+            row = Dict{String,Any}("quantile" => q)
+            !isnothing(gk) && (row[y_field] = gk)
+            !isnothing(ck) && (row[color_field] = ck)
+            ki = ki_base
+            for ff in facet_fields
+                row[ff] = key[ki += 1]
             end
+            push!(dot_rows, row)
         end
     end
 
