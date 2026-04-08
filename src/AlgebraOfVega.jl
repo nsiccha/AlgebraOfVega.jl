@@ -2872,6 +2872,7 @@ function mapping_controls(id, dimensions;
     dim_fields = JSON.json([first(d) for d in dims])
     # Build a label lookup for display
     dim_labels = JSON.json(Dict(first(d) => last(d) for d in dims))
+    channels_json = JSON.json([string(ch) for ch in channels])
     js = h.script("""
     function _aovRemap_$(js_id)(changed) {
         // Dedup row/column: if one just got a value, clear the other if it has the same field
@@ -2892,7 +2893,36 @@ function mapping_controls(id, dimensions;
         var detail = $(dim_fields).filter(function(d) { return !used[d]; }).map(function(d) { return labels[d] || d; });
         var el = document.getElementById('aov-detail-$(id)');
         if (el) el.value = detail.length > 0 ? detail.join(', ') : '(none)';
+        // Persist select values to URL params
+        var params = new URLSearchParams(window.location.search);
+        $(channels_json).forEach(function(ch) {
+            var sel = document.getElementById('aov-remap-' + ch + '-$(id)');
+            if (sel) {
+                var key = 'aov_' + ch + '_$(id)';
+                if (sel.value) params.set(key, sel.value);
+                else params.delete(key);
+            }
+        });
+        var qs = params.toString();
+        history.replaceState(null, '', qs ? '?' + qs : window.location.pathname);
     }
+    // Restore mapping from URL params once the spec is embedded
+    (function _aovRestore_$(js_id)() {
+        if (!(typeof AoV !== 'undefined' && AoV._origSpecs && AoV._origSpecs['$(id)'])) {
+            setTimeout(_aovRestore_$(js_id), 50);
+            return;
+        }
+        var params = new URLSearchParams(window.location.search);
+        var restored = false;
+        $(channels_json).forEach(function(ch) {
+            var val = params.get('aov_' + ch + '_$(id)');
+            if (val) {
+                var sel = document.getElementById('aov-remap-' + ch + '-$(id)');
+                if (sel) { sel.value = val; restored = true; }
+            }
+        });
+        if (restored) _aovRemap_$(js_id)('');
+    })();
     """)
 
     # Compute initial detail fields (dimensions not assigned to any channel)
