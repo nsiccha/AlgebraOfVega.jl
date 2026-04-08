@@ -804,16 +804,6 @@ function analysis_to_vl(a::LineRibbonAnalysis, layer::AlgebraOfGraphics.Layer; i
     sorted_probs = sort(a.probs, rev=true)
     opacities = range(0.2, 0.6, length=length(sorted_probs))
 
-    layers = Dict{String,Any}[]
-
-    color_enc = if !isnothing(color_field)
-        d = Dict{String,Any}("field" => color_field, "type" => "nominal")
-        !isnothing(color_label) && color_label != color_field && (d["title"] = color_label)
-        d
-    else
-        nothing
-    end
-
     # VL detail encoding for extra grouping columns (grouped but no visual encoding)
     detail_enc = if !isempty(detail_strs)
         length(detail_strs) == 1 ?
@@ -823,11 +813,8 @@ function analysis_to_vl(a::LineRibbonAnalysis, layer::AlgebraOfGraphics.Layer; i
         nothing
     end
 
-    function _add_shared_enc!(enc)
-        !isnothing(color_enc) && (enc["color"] = copy(color_enc))
-        !isnothing(detail_enc) && (enc["detail"] = deepcopy(detail_enc))
-    end
-
+    # Build template layers (no color encoding, no filter transforms)
+    template_layers = Dict{String,Any}[]
     for (i, prob) in enumerate(sorted_probs)
         x_enc = Dict{String,Any}("field" => x_field, "type" => "quantitative")
         x_label != x_field && (x_enc["title"] = x_label)
@@ -836,11 +823,10 @@ function analysis_to_vl(a::LineRibbonAnalysis, layer::AlgebraOfGraphics.Layer; i
             "y" => Dict{String,Any}("field" => _vl_prob_field("lo", prob), "type" => "quantitative", "title" => y_label),
             "y2" => Dict{String,Any}("field" => _vl_prob_field("hi", prob)),
         )
-        _add_shared_enc!(enc)
+        !isnothing(detail_enc) && (enc["detail"] = deepcopy(detail_enc))
         mark = Dict{String,Any}("type" => "area", "opacity" => opacities[i], "line" => false)
-        push!(layers, Dict{String,Any}("mark" => mark, "encoding" => enc))
+        push!(template_layers, Dict{String,Any}("mark" => mark, "encoding" => enc))
     end
-
     if a.show_line
         line_x_enc = Dict{String,Any}("field" => x_field, "type" => "quantitative")
         x_label != x_field && (line_x_enc["title"] = x_label)
@@ -848,9 +834,28 @@ function analysis_to_vl(a::LineRibbonAnalysis, layer::AlgebraOfGraphics.Layer; i
             "x" => line_x_enc,
             "y" => Dict{String,Any}("field" => "__median__", "type" => "quantitative"),
         )
-        _add_shared_enc!(line_enc)
+        !isnothing(detail_enc) && (line_enc["detail"] = deepcopy(detail_enc))
         line_mark = Dict{String,Any}("type" => "line", "strokeWidth" => 2)
-        push!(layers, Dict{String,Any}("mark" => line_mark, "encoding" => line_enc))
+        push!(template_layers, Dict{String,Any}("mark" => line_mark, "encoding" => line_enc))
+    end
+
+    # Build final layers: per-group layering when color is present
+    layers = Dict{String,Any}[]
+    if !isnothing(color_field)
+        color_enc = Dict{String,Any}("field" => color_field, "type" => "nominal")
+        !isnothing(color_label) && color_label != color_field && (color_enc["title"] = color_label)
+        color_vals = sort(unique(row[color_field] for row in summary if haskey(row, color_field)))
+        for gval in color_vals
+            filter_expr = "datum[$(JSON.json(color_field))] === $(JSON.json(gval))"
+            for tl in template_layers
+                gl = deepcopy(tl)
+                gl["transform"] = [Dict{String,Any}("filter" => filter_expr)]
+                gl["encoding"]["color"] = copy(color_enc)
+                push!(layers, gl)
+            end
+        end
+    else
+        append!(layers, template_layers)
     end
 
     tt = Dict{String,Any}[
@@ -864,6 +869,11 @@ function analysis_to_vl(a::LineRibbonAnalysis, layer::AlgebraOfGraphics.Layer; i
     _add_analysis_tooltips!(layers, tt)
 
     spec = Dict{String,Any}("data" => summary_data, "layer" => layers)
+    # Store template layers for client-side remapEncoding to rebuild per-group layers
+    if !isnothing(color_field)
+        aov = get!(Dict{String,Any}, spec, "_aov")
+        aov["lineribbon"] = Dict{String,Any}("templateLayers" => template_layers)
+    end
     if !is_sublayer
         spec["\$schema"] = "https://vega.github.io/schema/vega-lite/v5.json"
     end
@@ -2525,22 +2535,61 @@ function vega_runtime()
             // Color remapping
             if ('color' in mapping) {
                 var cf = mapping.color;
-                layers.forEach(function(l) {
-                    if (!l.encoding) return;
+                var lrMeta = orig._aov && orig._aov.lineribbon;
+                if (lrMeta && lrMeta.templateLayers) {
+                    // Lineribbon per-group layering: rebuild layers from template
+                    var tmpl = lrMeta.templateLayers;
+                    var newLayers = [];
                     if (cf) {
-                        l.encoding.color = {field: cf, type: 'nominal'};
-                    } else {
-                        delete l.encoding.color;
-                    }
-                    // Sync tooltips: remove old color entries, add new
-                    if (Array.isArray(l.encoding.tooltip)) {
-                        l.encoding.tooltip = l.encoding.tooltip.filter(function(t) {
-                            return t.type !== 'nominal' || t.field === (spec.facet && spec.facet.row && spec.facet.row.field) ||
-                                   t.field === (spec.facet && spec.facet.column && spec.facet.column.field);
+                        // Get unique values of the new color field from data
+                        var vals = spec.data && spec.data.values || [];
+                        var seen = {}; var groups = [];
+                        vals.forEach(function(r) {
+                            var v = r[cf];
+                            if (v !== undefined && !seen[v]) { seen[v] = true; groups.push(v); }
                         });
-                        if (cf) l.encoding.tooltip.push({field: cf, type: 'nominal'});
+                        groups.sort();
+                        groups.forEach(function(gval) {
+                            var filterExpr = 'datum[' + JSON.stringify(cf) + '] === ' + JSON.stringify(gval);
+                            tmpl.forEach(function(tl) {
+                                var gl = JSON.parse(JSON.stringify(tl));
+                                gl.transform = [{filter: filterExpr}];
+                                gl.encoding.color = {field: cf, type: 'nominal'};
+                                newLayers.push(gl);
+                            });
+                        });
+                    } else {
+                        // No color: use template layers as-is
+                        tmpl.forEach(function(tl) {
+                            newLayers.push(JSON.parse(JSON.stringify(tl)));
+                        });
                     }
-                });
+                    // Replace layers in spec
+                    if (isFaceted) {
+                        spec.spec.layer = newLayers;
+                    } else {
+                        spec.layer = newLayers;
+                    }
+                    layers = newLayers;
+                } else {
+                    // Non-lineribbon: standard color remapping
+                    layers.forEach(function(l) {
+                        if (!l.encoding) return;
+                        if (cf) {
+                            l.encoding.color = {field: cf, type: 'nominal'};
+                        } else {
+                            delete l.encoding.color;
+                        }
+                        // Sync tooltips: remove old color entries, add new
+                        if (Array.isArray(l.encoding.tooltip)) {
+                            l.encoding.tooltip = l.encoding.tooltip.filter(function(t) {
+                                return t.type !== 'nominal' || t.field === (spec.facet && spec.facet.row && spec.facet.row.field) ||
+                                       t.field === (spec.facet && spec.facet.column && spec.facet.column.field);
+                            });
+                            if (cf) l.encoding.tooltip.push({field: cf, type: 'nominal'});
+                        }
+                    });
+                }
             }
 
             // Count unique values for a field in the data (for nFacetCols hint)
