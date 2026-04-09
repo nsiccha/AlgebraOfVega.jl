@@ -814,6 +814,9 @@ function analysis_to_vl(a::LineRibbonAnalysis, layer::AlgebraOfGraphics.Layer; i
     end
 
     # Build template layers (no color encoding, no filter transforms)
+    # Each layer is tagged with `_lr_layer=true` so client-side remapEncoding can
+    # preserve non-lineribbon overlays (e.g. cross-source dose VLines) when
+    # rebuilding per-color layers.
     template_layers = Dict{String,Any}[]
     for (i, prob) in enumerate(sorted_probs)
         x_enc = Dict{String,Any}("field" => x_field, "type" => "quantitative")
@@ -825,7 +828,7 @@ function analysis_to_vl(a::LineRibbonAnalysis, layer::AlgebraOfGraphics.Layer; i
         )
         !isnothing(detail_enc) && (enc["detail"] = deepcopy(detail_enc))
         mark = Dict{String,Any}("type" => "area", "opacity" => opacities[i], "line" => false)
-        push!(template_layers, Dict{String,Any}("mark" => mark, "encoding" => enc))
+        push!(template_layers, Dict{String,Any}("mark" => mark, "encoding" => enc, "_lr_layer" => true))
     end
     if a.show_line
         line_x_enc = Dict{String,Any}("field" => x_field, "type" => "quantitative")
@@ -836,7 +839,7 @@ function analysis_to_vl(a::LineRibbonAnalysis, layer::AlgebraOfGraphics.Layer; i
         )
         !isnothing(detail_enc) && (line_enc["detail"] = deepcopy(detail_enc))
         line_mark = Dict{String,Any}("type" => "line", "strokeWidth" => 2)
-        push!(template_layers, Dict{String,Any}("mark" => line_mark, "encoding" => line_enc))
+        push!(template_layers, Dict{String,Any}("mark" => line_mark, "encoding" => line_enc, "_lr_layer" => true))
     end
 
     # Build final layers: per-group layering when color is present
@@ -2400,6 +2403,65 @@ function vega_runtime()
             return spec;
         },
 
+        // ggplot-style "broadcast across all facet panels" pass.
+        // AoV merges layered data into a single spec.data.values with a __src
+        // discriminator column when outer faceting is needed. When a facet field
+        // is absent from some rows (e.g. dose VLines that have no health column),
+        // Vega-Lite renders them in an "undefined" facet panel.
+        // This pass replicates each missing-field row across the unique values
+        // of that field. Layer-level __src filters still route rows correctly.
+        // Idempotent: rows that already have the field are untouched.
+        _broadcastCrossSource: function(spec) {
+            if (!spec || typeof spec !== 'object') return spec;
+            var inner = (spec.spec && typeof spec.spec === 'object') ? spec.spec : null;
+
+            // Collect partition fields from facet config
+            var fields = [];
+            var pushField = function(f) {
+                if (f && f.field && fields.indexOf(f.field) === -1) fields.push(f.field);
+            };
+            if (spec.facet) { pushField(spec.facet.row); pushField(spec.facet.column); }
+            if (!fields.length) return spec;
+
+            // Find the data object whose values carry the merged rows
+            var dataObj = null;
+            if (spec.data && spec.data.values) dataObj = spec.data;
+            else if (inner && inner.data && inner.data.values) dataObj = inner.data;
+            if (!dataObj) return spec;
+            var vals = dataObj.values;
+
+            fields.forEach(function(field) {
+                var uniques = [];
+                var seen = {};
+                for (var i = 0; i < vals.length; i++) {
+                    var v = vals[i];
+                    if (v && Object.prototype.hasOwnProperty.call(v, field)) {
+                        var k = String(v[field]);
+                        if (!seen[k]) { seen[k] = true; uniques.push(v[field]); }
+                    }
+                }
+                if (!uniques.length) return;
+
+                var newVals = [];
+                for (var i = 0; i < vals.length; i++) {
+                    var v = vals[i];
+                    if (!v || Object.prototype.hasOwnProperty.call(v, field)) {
+                        newVals.push(v);
+                    } else {
+                        for (var j = 0; j < uniques.length; j++) {
+                            var nv = Object.assign({}, v);
+                            nv[field] = uniques[j];
+                            newVals.push(nv);
+                        }
+                    }
+                }
+                vals = newVals;
+            });
+            dataObj.values = vals;
+
+            return spec;
+        },
+
         embed: function(id, spec, opts) {
             opts = opts || {};
             if (window.AoV && window.AoV.defaultActions !== undefined) {
@@ -2408,6 +2470,7 @@ function vega_runtime()
             var self = this;
             // Store original spec for re-embed on resize and remapEncoding
             var origSpec = JSON.parse(JSON.stringify(spec));
+            self._broadcastCrossSource(origSpec);
             self._origSpecs[id] = origSpec;
             var sized = self._applyResponsiveWidth(id, JSON.parse(JSON.stringify(origSpec)));
 
@@ -2540,6 +2603,23 @@ function vega_runtime()
                     // Lineribbon per-group layering: rebuild layers from template
                     var tmpl = lrMeta.templateLayers;
                     var newLayers = [];
+                    // When the spec uses merged data (with __src filters added by
+                    // layers_to_vl), the rebuilt LR layers must inherit the same
+                    // __src filter so they don't render rows from other sources.
+                    var srcFilter = null;
+                    for (var li = 0; li < layers.length; li++) {
+                        var lll = layers[li];
+                        if (lll && lll._lr_layer && Array.isArray(lll.transform)) {
+                            for (var ti = 0; ti < lll.transform.length; ti++) {
+                                var tf = lll.transform[ti];
+                                if (tf && typeof tf.filter === 'string' && tf.filter.indexOf('__src') !== -1) {
+                                    srcFilter = tf;
+                                    break;
+                                }
+                            }
+                            if (srcFilter) break;
+                        }
+                    }
                     if (cf) {
                         // Get unique values of the new color field from data
                         var vals = spec.data && spec.data.values || [];
@@ -2553,24 +2633,31 @@ function vega_runtime()
                             var filterExpr = 'datum[' + JSON.stringify(cf) + '] === ' + JSON.stringify(gval);
                             tmpl.forEach(function(tl) {
                                 var gl = JSON.parse(JSON.stringify(tl));
-                                gl.transform = [{filter: filterExpr}];
+                                gl.transform = srcFilter ? [srcFilter, {filter: filterExpr}] : [{filter: filterExpr}];
                                 gl.encoding.color = {field: cf, type: 'nominal'};
+                                gl._lr_layer = true;
                                 newLayers.push(gl);
                             });
                         });
                     } else {
-                        // No color: use template layers as-is
+                        // No color: use template layers as-is (with __src filter if any)
                         tmpl.forEach(function(tl) {
-                            newLayers.push(JSON.parse(JSON.stringify(tl)));
+                            var gl = JSON.parse(JSON.stringify(tl));
+                            if (srcFilter) gl.transform = [srcFilter];
+                            gl._lr_layer = true;
+                            newLayers.push(gl);
                         });
                     }
-                    // Replace layers in spec
+                    // Preserve non-lineribbon layers (e.g. cross-source dose VLines)
+                    // and replace only the tagged lineribbon layers.
+                    var preserved = layers.filter(function(l) { return !(l && l._lr_layer); });
+                    var allLayers = preserved.concat(newLayers);
                     if (isFaceted) {
-                        spec.spec.layer = newLayers;
+                        spec.spec.layer = allLayers;
                     } else {
-                        spec.layer = newLayers;
+                        spec.layer = allLayers;
                     }
-                    layers = newLayers;
+                    layers = allLayers;
                 } else {
                     // Non-lineribbon: standard color remapping
                     layers.forEach(function(l) {
@@ -2707,6 +2794,9 @@ function vega_runtime()
                 });
             }
 
+            // Re-broadcast cross-source layers after row/column/color mutations
+            this._broadcastCrossSource(spec);
+
             // Re-embed, but preserve the TRUE original spec
             var savedOrig = this._origSpecs[id];
             this.embed(id, spec);
@@ -2714,6 +2804,132 @@ function vega_runtime()
         }
     };
     """)
+end
+
+"""
+    _layer_array(vl::Dict)
+
+Return the mutable layer array of a (possibly faceted) Vega-Lite spec, or `nothing`
+if the spec is single-view. Faceted specs nest layers under `spec.spec.layer`; flat
+specs use `spec.layer`.
+"""
+function _layer_array(vl::Dict)
+    if haskey(vl, "spec") && vl["spec"] isa Dict && haskey(vl["spec"], "layer")
+        return vl["spec"]["layer"]
+    elseif haskey(vl, "layer")
+        return vl["layer"]
+    end
+    return nothing
+end
+
+"""
+    _facet_fields(vl::Dict)
+
+Return the list of partition field names declared on a Vega-Lite spec via
+`facet.row/column`, top-level `encoding.row/column`, or sublayer `encoding.row/column`.
+"""
+function _facet_fields(vl::Dict)
+    fields = String[]
+    facet = get(vl, "facet", nothing)
+    if facet isa Dict
+        for ch in ("row", "column")
+            f = get(facet, ch, nothing)
+            if f isa Dict && haskey(f, "field")
+                push!(fields, f["field"])
+            end
+        end
+    end
+    enc = get(vl, "encoding", nothing)
+    if enc isa Dict
+        for ch in ("row", "column")
+            f = get(enc, ch, nothing)
+            if f isa Dict && haskey(f, "field")
+                push!(fields, f["field"])
+            end
+        end
+    end
+    layers = _layer_array(vl)
+    if layers !== nothing
+        for l in layers
+            le = get(l, "encoding", nothing)
+            le isa Dict || continue
+            for ch in ("row", "column")
+                f = get(le, ch, nothing)
+                if f isa Dict && haskey(f, "field")
+                    push!(fields, f["field"])
+                end
+            end
+        end
+    end
+    unique(fields)
+end
+
+"""
+    _broadcast_cross_source_layers!(vl::Dict)
+
+ggplot-style "broadcast across all facet panels". AoV merges layered data into a
+single `spec.data.values` with a `__src` discriminator column when outer faceting
+is needed (see `layers_to_vl`). When a facet field is absent from some rows
+(typically annotation/overlay layers like dose VLines that have no health/vessel
+columns), Vega-Lite renders them in an "undefined" facet panel.
+
+This pass replicates each row that lacks the facet field across the unique values
+of that field, so every cross-source row appears in every facet panel. Layer-level
+`__src` filters still route rows to the correct mark, so replication is safe.
+
+Idempotent: rows that already contain the field are untouched, so caller-side
+replication keeps working unchanged.
+"""
+function _broadcast_cross_source_layers!(vl::Dict)
+    fields = _facet_fields(vl)
+    isempty(fields) && return vl
+
+    # Find the data object whose `values` carry the merged rows. May be at the
+    # outer spec or, for faceted layouts, at `spec.spec.data`.
+    data_obj = nothing
+    if haskey(vl, "data") && vl["data"] isa Dict && haskey(vl["data"], "values")
+        data_obj = vl["data"]
+    elseif haskey(vl, "spec") && vl["spec"] isa Dict
+        inner = vl["spec"]
+        if haskey(inner, "data") && inner["data"] isa Dict && haskey(inner["data"], "values")
+            data_obj = inner["data"]
+        end
+    end
+    data_obj === nothing && return vl
+    vals = data_obj["values"]
+    vals isa AbstractVector || return vl
+
+    for field in fields
+        # Collect unique values from rows that already have this field
+        uniques = Any[]
+        seen = Set{Any}()
+        for v in vals
+            if v isa Dict && haskey(v, field)
+                u = v[field]
+                if !(u in seen)
+                    push!(seen, u)
+                    push!(uniques, u)
+                end
+            end
+        end
+        isempty(uniques) && continue
+
+        new_vals = Vector{Any}()
+        for v in vals
+            if !(v isa Dict) || haskey(v, field)
+                push!(new_vals, v)
+            else
+                for u in uniques
+                    nv = copy(v)
+                    nv[field] = u
+                    push!(new_vals, nv)
+                end
+            end
+        end
+        vals = new_vals
+    end
+    data_obj["values"] = vals
+    vl
 end
 
 """
@@ -2767,6 +2983,7 @@ function to_node(spec; id=nothing, width=nothing, height=nothing, actions=false,
             end
         end
     end
+    _broadcast_cross_source_layers!(vl)
     id = something(id, "vega-" * string(abs(hash(JSON.json(vl))), base=16))
     json = JSON.json(vl)
 
