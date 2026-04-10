@@ -3194,17 +3194,7 @@ function apply_combo!(df, fields, combo_col=:__aov_combo)
     df
 end
 
-function mapping_controls(id, dimensions;
-    color_default=String[], row_default=String[], column_default=String[], detail_default=String[],
-    channels=[:color, :row, :column, :detail],
-    pinned::Symbol=:color,
-    fixed=Dict{Symbol,Any}(),
-    table=nothing,
-    spec=nothing)
-
-    # Resolve channels (single source of truth for default computation)
-    resolved = resolve_channels(dimensions; color_default, row_default, column_default, detail_default,
-                                channels, pinned, fixed)
+function mapping_controls(id, resolved::NamedTuple; table=nothing, spec=nothing)
     dims = resolved.dims
     defaults = resolved.defaults
     fixed_js = resolved.fixed
