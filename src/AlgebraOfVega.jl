@@ -3173,6 +3173,16 @@ function resolve_channels(dimensions;
     column_kw = _channel_kw(:column, column_fields)
     detail = Symbol.(detail_fields)
 
+    # When a channel uses a combo (2+ fields), the individual fields must also
+    # appear in detail so they survive the AoG summary into the VL spec data.
+    # (The combo column carries the visual encoding; detail preserves the components.)
+    for fields in (color_fields, row_fields, column_fields)
+        length(fields) > 1 && for f in fields
+            s = Symbol(f)
+            s in detail || push!(detail, s)
+        end
+    end
+
     # Fixed channels → kwargs
     fixed_kw_parts = NamedTuple[]
     for (ch_str, fs) in fixed_norm
