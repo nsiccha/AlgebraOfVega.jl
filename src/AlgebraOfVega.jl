@@ -3205,6 +3205,20 @@ function apply_combo!(df, fields, combo_col=:__aov_combo)
     df
 end
 
+"""
+    apply_combos!(df, resolved)
+
+Build all synthetic combo columns needed by `resolved` on `df`.
+Handles color (__aov_color), row (__aov_row), and column (__aov_column).
+No-op for channels with 0–1 fields. Returns `df`.
+"""
+function apply_combos!(df, resolved)
+    apply_combo!(df, resolved.color_fields, :__aov_color)
+    apply_combo!(df, resolved.row_fields, :__aov_row)
+    apply_combo!(df, resolved.column_fields, :__aov_column)
+    df
+end
+
 function mapping_controls(id, resolved::NamedTuple; table=nothing, spec=nothing)
     dims = resolved.dims
     defaults = resolved.defaults
