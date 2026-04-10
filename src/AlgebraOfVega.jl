@@ -3110,17 +3110,21 @@ function mapping_controls(id, dimensions;
         end
     end
 
-    # Validate dimension fields survive into the VL spec data (catches fields
-    # dropped during AoG summary — e.g. a column in the raw data that wasn't
-    # in the AoG mapping and got lost during lineribbon/density summarization)
+    # Validate dimension fields survive into the VL spec data and count unique
+    # values per field. Filter out dimensions with ≤1 unique value.
     if !isnothing(spec)
         vl = spec isa Dict ? spec : to_vegalite(spec)
         vl_data = get(vl, "data", get(get(vl, "spec", Dict()), "data", nothing))
         vl_vals = !isnothing(vl_data) && vl_data isa Dict ? get(vl_data, "values", nothing) : nothing
         if !isnothing(vl_vals) && !isempty(vl_vals)
             spec_fields = Set{String}()
+            field_uniques = Dict{String,Set{Any}}()
             for row in vl_vals
-                row isa Dict && union!(spec_fields, keys(row))
+                row isa Dict || continue
+                union!(spec_fields, keys(row))
+                for (field, _) in dims
+                    haskey(row, field) && push!(get!(Set{Any}, field_uniques, field), row[field])
+                end
             end
             for (field, label) in dims
                 if !(field in spec_fields)
@@ -3128,6 +3132,10 @@ function mapping_controls(id, dimensions;
                           "it was likely dropped during AoG summary. Add it to the AoG mapping " *
                           "(e.g. color=:$field or lineribbon(; detail=[:$field])) so it survives into the spec."
                 end
+            end
+            # Remove dims with ≤1 unique value (nothing to facet/color by)
+            dims = filter(dims) do (field, _)
+                length(get(field_uniques, field, Set())) > 1
             end
         end
     end
@@ -3138,13 +3146,17 @@ function mapping_controls(id, dimensions;
     for (k, v) in fixed
         fixed_js[string(k)] = v isa AbstractVector ? string.(v) : [string(v)]
     end
-    # Remove fixed channels from editable list
-    channels = [ch for ch in channels if !haskey(fixed_js, string(ch))]
+    # Separate editable channels (for JS logic) from fixed
+    editable_channels = [ch for ch in channels if !haskey(fixed_js, string(ch))]
+
+    # Build label lookup from dims for resolving field names to human labels.
+    dim_label_map = Dict(first(d) => last(d) for d in dims)
+    _prettify(f) = get(dim_label_map, f, join(uppercasefirst.(split(f, "_")), " "))
 
     # Compute initial pinned channel content: all dims not in any other channel's defaults
     pinned_str = string(pinned)
     assigned_elsewhere = Set{String}()
-    for ch in channels
+    for ch in editable_channels
         ch_str = string(ch)
         ch_str == pinned_str && continue
         for f in get(defaults, ch_str, String[])
@@ -3157,15 +3169,27 @@ function mapping_controls(id, dimensions;
     pinned_auto = [first(d) for d in dims if !(first(d) in assigned_elsewhere)]
     defaults[pinned_str] = pinned_auto
 
-    # Ensure :detail is always last in the channel order
-    channels = vcat(filter(!=(Symbol("detail")), channels),
-                    :detail in channels ? [:detail] : Symbol[])
-    all_ch_strs = [string(ch) for ch in channels]
-    selects = map(channels) do ch
+    # Ensure :detail is always last in the channel order (for both editable and all)
+    editable_channels = vcat(filter(!=(Symbol("detail")), editable_channels),
+                    :detail in editable_channels ? [:detail] : Symbol[])
+    all_ch_strs = [string(ch) for ch in editable_channels]
+
+    # Build unified channel UI: all channels (editable + fixed) rendered identically.
+    # Fixed channels have disabled select + disabled radio.
+    all_ui_channels = vcat(filter(!=(Symbol("detail")), channels),
+                           :detail in channels ? [:detail] : Symbol[])
+    sel_size = string(clamp(length(dims), 2, 4))
+    selects = map(all_ui_channels) do ch
         ch_str = string(ch)
         ch_label = get(_CHANNEL_LABELS, ch_str, uppercasefirst(ch_str))
-        is_pinned = ch_str == pinned_str
-        default_set = Set(get(defaults, ch_str, String[]))
+        is_fixed = haskey(fixed_js, ch_str)
+        is_pinned = !is_fixed && ch_str == pinned_str
+        # Determine which fields are selected
+        default_set = if is_fixed
+            Set(fixed_js[ch_str])
+        else
+            Set(get(defaults, ch_str, String[]))
+        end
         options = [let
             sel = field in default_set ? (; value=field, selected="selected") : (; value=field)
             h.option(; sel...)(label)
@@ -3173,43 +3197,27 @@ function mapping_controls(id, dimensions;
         sel_attrs = (;
             id="aov-remap-$(ch_str)-$(id)",
             multiple="multiple",
-            size=string(clamp(length(dims), 2, 4)),
+            size=sel_size,
             onchange="_aovRemap_$(js_id)('$(ch_str)')",
         )
-        if is_pinned
+        if is_pinned || is_fixed
             sel_attrs = merge(sel_attrs, (; disabled="disabled"))
+        end
+        radio_attrs = (; type="radio", name="aov-pin-$(id)", value=ch_str)
+        if is_pinned
+            radio_attrs = merge(radio_attrs, (; checked="checked"))
+        end
+        if is_fixed
+            radio_attrs = merge(radio_attrs, (; disabled="disabled"))
         end
         h.div()(
             h.label(; style="display:flex; align-items:center; gap:0.3rem;")(
-                h.input(; type="radio", name="aov-pin-$(id)", value=ch_str,
-                    checked=(is_pinned ? "checked" : nothing),
-                    onchange="_aovPin_$(js_id)(this.value)"),
+                h.input(; radio_attrs...),
                 ch_label * ": ",
             ),
             h.select(; sel_attrs...)(options...),
         )
     end
-
-    # Build label lookup from dims for resolving field names to human labels.
-    # Fallback: replace _ with space and titlecase (e.g. "assay_name" → "Assay Name").
-    dim_label_map = Dict(first(d) => last(d) for d in dims)
-    _prettify(f) = get(dim_label_map, f, join(uppercasefirst.(split(f, "_")), " "))
-    fixed_set = Set(vcat(values(fixed_js)...))
-    fixed_selects = [let
-        ch_label = get(_CHANNEL_LABELS, k, uppercasefirst(k))
-        options = [let
-            sel_attrs = field in Set(fs) ? (; value=field, selected="selected") : (; value=field)
-            h.option(; sel_attrs...)(_prettify(field))
-        end for (field, _) in dims]
-        h.div()(
-            h.label(; style="display:flex; align-items:center; gap:0.3rem;")(
-                h.input(; type="radio", name="aov-pin-$(id)", disabled="disabled"),
-                ch_label * ": ",
-            ),
-            h.select(; disabled="disabled", multiple="multiple",
-                       size=string(min(length(dims), 3)))(options...),
-        )
-    end for (k, fs) in fixed_js]
 
     dim_fields = JSON.json([first(d) for d in dims])
     dim_labels = JSON.json(Dict(first(d) => _prettify(first(d)) for d in dims))
@@ -3399,7 +3407,7 @@ function mapping_controls(id, dimensions;
     h.div()(
         hint,
         h.div(; style="display:flex; gap:1rem; align-items:end; flex-wrap:wrap; margin-bottom:0.5rem;")(
-            selects..., fixed_selects..., js,
+            selects..., js,
         ),
     )
 end
