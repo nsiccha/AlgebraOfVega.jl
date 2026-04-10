@@ -3246,6 +3246,7 @@ function mapping_controls(id, resolved::NamedTuple; table=nothing, spec=nothing)
     end
 
     js_id = replace(id, "-" => "_")
+    channels = resolved.channels
     # Separate editable channels (for JS logic) from fixed
     editable_channels = [ch for ch in channels if !haskey(fixed_js, string(ch))]
 
