@@ -3284,7 +3284,8 @@ function mapping_controls(id, resolved::NamedTuple; table=nothing, spec=nothing)
         if is_pinned || is_fixed
             sel_attrs = merge(sel_attrs, (; disabled="disabled"))
         end
-        radio_attrs = (; type="radio", name="aov-pin-$(id)", value=ch_str)
+        radio_attrs = (; type="radio", name="aov-pin-$(id)", value=ch_str,
+            onchange="_aovPin_$(js_id)(this.value)")
         if is_pinned
             radio_attrs = merge(radio_attrs, (; checked="checked"))
         end
