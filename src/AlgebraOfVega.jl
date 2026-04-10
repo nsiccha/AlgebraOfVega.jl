@@ -3077,15 +3077,32 @@ disabled; its contents are computed.
 - `table`: optional table for field validation
 - `spec`: optional AoG spec — if provided, validates that all dimension fields survive into the VL data (warns if a field was dropped during AoG summary)
 """
-function mapping_controls(id, dimensions;
+
+"""
+    resolve_channels(dimensions; color_default, row_default, column_default, detail_default, pinned, fixed, channels)
+
+Compute which dimension field maps to which visual channel, returning kwargs
+ready to splice into `mapping()` and `lineribbon()`. This is the single source
+of truth for channel resolution — both `mapping_controls` and server-side spec
+construction should use this.
+
+Returns a NamedTuple with:
+- `color_kw`: NamedTuple to splat into `mapping(; color_kw...)`
+- `row_kw`: NamedTuple to splat into `mapping(; row_kw...)`
+- `column_kw`: NamedTuple to splat into `mapping(; column_kw...)`  (from non-fixed column defaults)
+- `fixed_kw`: NamedTuple to splat into `mapping(; fixed_kw...)` (from fixed channels)
+- `detail`: `Vector{Symbol}` for `lineribbon(; detail)`
+- `color_fields`, `row_fields`, `column_fields`, `detail_fields`: raw field name vectors
+- `dim_label_map`: `Dict{String,String}` field → human label
+- `dims`: filtered dimension pairs
+- `defaults`: `Dict{String,Vector{String}}` channel → field names (including pinned auto-fill)
+"""
+function resolve_channels(dimensions;
     color_default=String[], row_default=String[], column_default=String[], detail_default=String[],
     channels=[:color, :row, :column, :detail],
     pinned::Symbol=:color,
-    fixed=Dict{Symbol,Any}(),
-    table=nothing,
-    spec=nothing)
+    fixed=Dict{Symbol,Any}())
 
-    # Normalize defaults: accept legacy single-string form
     _norm(v) = v isa AbstractVector ? string.(v) : (v == "" || isnothing(v) ? String[] : [string(v)])
     color_default = _norm(color_default)
     row_default = _norm(row_default)
@@ -3096,16 +3113,114 @@ function mapping_controls(id, dimensions;
 
     dims = [(d isa Pair ? (string(first(d)) => string(last(d))) : (string(d) => string(d))) for d in dimensions]
 
+    # Normalize fixed
+    fixed_norm = Dict{String,Vector{String}}()
+    for (k, v) in fixed
+        fixed_norm[string(k)] = v isa AbstractVector ? string.(v) : [string(v)]
+    end
+
+    # Editable channels (not fixed)
+    editable = [ch for ch in channels if !haskey(fixed_norm, string(ch))]
+
+    # Label lookup
+    dim_label_map = Dict(first(d) => last(d) for d in dims)
+    _pretty(f) = get(dim_label_map, f, join(uppercasefirst.(split(f, "_")), " "))
+
+    # Pinned channel absorbs all unassigned dims
+    pinned_str = string(pinned)
+    assigned_elsewhere = Set{String}()
+    for ch in editable
+        ch_str = string(ch)
+        ch_str == pinned_str && continue
+        for f in get(defaults, ch_str, String[])
+            push!(assigned_elsewhere, f)
+        end
+    end
+    for fs in values(fixed_norm)
+        for f in fs; push!(assigned_elsewhere, f); end
+    end
+    defaults[pinned_str] = [first(d) for d in dims if !(first(d) in assigned_elsewhere)]
+
+    # Build kwargs for a channel's field list
+    function _channel_kw(ch_sym, fields)
+        isempty(fields) && return (;)
+        if length(fields) == 1
+            return (; ch_sym => Symbol(fields[1]) => _pretty(fields[1]))
+        end
+        combo = Symbol("__aov_$(ch_sym)")
+        combo_label = join([_pretty(f) for f in fields], " / ")
+        return (; ch_sym => combo => combo_label)
+    end
+
+    color_fields = get(defaults, "color", String[])
+    row_fields = get(defaults, "row", String[])
+    column_fields = get(defaults, "column", String[])
+    detail_fields = get(defaults, "detail", String[])
+
+    color_kw = _channel_kw(:color, color_fields)
+    row_kw = _channel_kw(:row, row_fields)
+    column_kw = _channel_kw(:column, column_fields)
+    detail = Symbol.(detail_fields)
+
+    # Fixed channels → kwargs
+    fixed_kw_parts = NamedTuple[]
+    for (ch_str, fs) in fixed_norm
+        ch_sym = Symbol(ch_str)
+        ch_sym in (:color, :row, :column) || continue  # detail handled differently
+        kw = _channel_kw(ch_sym, fs)
+        push!(fixed_kw_parts, kw)
+    end
+    # Also add fixed detail fields
+    if haskey(fixed_norm, "detail")
+        append!(detail, Symbol.(fixed_norm["detail"]))
+    end
+    fixed_kw = isempty(fixed_kw_parts) ? (;) : merge(fixed_kw_parts...)
+
+    (; color_kw, row_kw, column_kw, fixed_kw, detail,
+       color_fields, row_fields, column_fields, detail_fields,
+       dim_label_map, dims, defaults, fixed=fixed_norm, pinned, channels)
+end
+
+"""
+    apply_combo!(df, fields, combo_col=:__aov_combo)
+
+Build a synthetic combo column on `df` by joining values of `fields` with " / ".
+No-op if `length(fields) <= 1`. Returns `df`.
+"""
+function apply_combo!(df, fields, combo_col=:__aov_combo)
+    length(fields) <= 1 && return df
+    syms = Symbol.(fields)
+    df[!, combo_col] = [join([string(r[s]) for s in syms], " / ") for r in eachrow(df)]
+    df
+end
+
+function mapping_controls(id, dimensions;
+    color_default=String[], row_default=String[], column_default=String[], detail_default=String[],
+    channels=[:color, :row, :column, :detail],
+    pinned::Symbol=:color,
+    fixed=Dict{Symbol,Any}(),
+    table=nothing,
+    spec=nothing)
+
+    # Resolve channels (single source of truth for default computation)
+    resolved = resolve_channels(dimensions; color_default, row_default, column_default, detail_default,
+                                channels, pinned, fixed)
+    dims = resolved.dims
+    defaults = resolved.defaults
+    fixed_js = resolved.fixed
+    dim_label_map = resolved.dim_label_map
+    _prettify(f) = get(dim_label_map, f, join(uppercasefirst.(split(f, "_")), " "))
+    pinned_str = string(resolved.pinned)
+
     # Validate dimension fields exist in the table if provided
     if !isnothing(table)
         col_names = Set(string.(Tables.columnnames(table)))
         for (field, label) in dims
             field in col_names || error("mapping_controls: dimension field \"$field\" (label \"$label\") not found in table. Available columns: $(sort(collect(col_names)))")
         end
-        for (ch, field) in fixed
-            fs = field isa AbstractVector ? string.(field) : [string(field)]
+        for (ch_str, fs) in fixed_js
             for f in fs
-                f in col_names || error("mapping_controls: fixed channel :$ch field \"$f\" not found in table. Available columns: $(sort(collect(col_names)))")
+                f in col_names || error("mapping_controls: fixed channel :$ch_str field \"$f\" not found in table. Available columns: $(sort(collect(col_names)))")
             end
         end
     end
@@ -3141,33 +3256,8 @@ function mapping_controls(id, dimensions;
     end
 
     js_id = replace(id, "-" => "_")
-    # Normalize fixed: each value becomes a vector of strings
-    fixed_js = Dict{String,Vector{String}}()
-    for (k, v) in fixed
-        fixed_js[string(k)] = v isa AbstractVector ? string.(v) : [string(v)]
-    end
     # Separate editable channels (for JS logic) from fixed
     editable_channels = [ch for ch in channels if !haskey(fixed_js, string(ch))]
-
-    # Build label lookup from dims for resolving field names to human labels.
-    dim_label_map = Dict(first(d) => last(d) for d in dims)
-    _prettify(f) = get(dim_label_map, f, join(uppercasefirst.(split(f, "_")), " "))
-
-    # Compute initial pinned channel content: all dims not in any other channel's defaults
-    pinned_str = string(pinned)
-    assigned_elsewhere = Set{String}()
-    for ch in editable_channels
-        ch_str = string(ch)
-        ch_str == pinned_str && continue
-        for f in get(defaults, ch_str, String[])
-            push!(assigned_elsewhere, f)
-        end
-    end
-    for fs in values(fixed_js)
-        for f in fs; push!(assigned_elsewhere, f); end
-    end
-    pinned_auto = [first(d) for d in dims if !(first(d) in assigned_elsewhere)]
-    defaults[pinned_str] = pinned_auto
 
     # Ensure :detail is always last in the channel order (for both editable and all)
     editable_channels = vcat(filter(!=(Symbol("detail")), editable_channels),
