@@ -3201,6 +3201,8 @@ No-op if `length(fields) <= 1`. Returns `df`.
 function apply_combo!(df, fields, combo_col=:__aov_combo)
     length(fields) <= 1 && return df
     syms = Symbol.(fields)
+    # Skip if any field is missing from the DataFrame
+    all(s -> hasproperty(df, s), syms) || return df
     df[!, combo_col] = [join([string(r[s]) for s in syms], " / ") for r in eachrow(df)]
     df
 end
