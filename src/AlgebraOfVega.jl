@@ -3119,6 +3119,17 @@ function resolve_channels(dimensions;
         fixed_norm[string(k)] = v isa AbstractVector ? string.(v) : [string(v)]
     end
 
+    # Auto-add fixed fields to dims if not already present
+    dim_fields = Set(first.(dims))
+    for fs in values(fixed_norm)
+        for f in fs
+            if !(f in dim_fields)
+                push!(dims, f => join(uppercasefirst.(split(f, "_")), " "))
+                push!(dim_fields, f)
+            end
+        end
+    end
+
     # Editable channels (not fixed)
     editable = [ch for ch in channels if !haskey(fixed_norm, string(ch))]
 
