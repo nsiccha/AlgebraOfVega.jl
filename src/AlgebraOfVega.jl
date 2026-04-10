@@ -3152,15 +3152,18 @@ function resolve_channels(dimensions;
     end
     defaults[pinned_str] = [first(d) for d in dims if !(first(d) in assigned_elsewhere)]
 
-    # Build kwargs for a channel's field list
+    # Build kwargs for a channel's field list.
+    # AoG mapping() uses :col (not :column) for column faceting.
+    _aog_key(ch) = ch == :column ? :col : ch
     function _channel_kw(ch_sym, fields)
         isempty(fields) && return (;)
+        k = _aog_key(ch_sym)
         if length(fields) == 1
-            return (; ch_sym => Symbol(fields[1]) => _pretty(fields[1]))
+            return (; k => Symbol(fields[1]) => _pretty(fields[1]))
         end
         combo = Symbol("__aov_$(ch_sym)")
         combo_label = join([_pretty(f) for f in fields], " / ")
-        return (; ch_sym => combo => combo_label)
+        return (; k => combo => combo_label)
     end
 
     color_fields = get(defaults, "color", String[])
