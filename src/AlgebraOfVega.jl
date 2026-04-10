@@ -835,7 +835,7 @@ function analysis_to_vl(a::LineRibbonAnalysis, layer::AlgebraOfGraphics.Layer; i
         x_label != x_field && (line_x_enc["title"] = x_label)
         line_enc = Dict{String,Any}(
             "x" => line_x_enc,
-            "y" => Dict{String,Any}("field" => "__median__", "type" => "quantitative"),
+            "y" => Dict{String,Any}("field" => "__median__", "type" => "quantitative", "title" => y_label),
         )
         !isnothing(detail_enc) && (line_enc["detail"] = deepcopy(detail_enc))
         line_mark = Dict{String,Any}("type" => "line", "strokeWidth" => 2)
