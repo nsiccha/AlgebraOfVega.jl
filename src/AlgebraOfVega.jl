@@ -2415,12 +2415,19 @@ function vega_runtime()
             if (!spec || typeof spec !== 'object') return spec;
             var inner = (spec.spec && typeof spec.spec === 'object') ? spec.spec : null;
 
-            // Collect partition fields from facet config
+            // Collect partition fields from facet config AND color encodings
             var fields = [];
             var pushField = function(f) {
                 if (f && f.field && fields.indexOf(f.field) === -1) fields.push(f.field);
             };
             if (spec.facet) { pushField(spec.facet.row); pushField(spec.facet.column); }
+            // Also broadcast for color fields (cross-source layers need them too)
+            var layers = inner && inner.layer ? inner.layer : (spec.layer || null);
+            if (layers) {
+                layers.forEach(function(l) {
+                    if (l && l.encoding && l.encoding.color) pushField(l.encoding.color);
+                });
+            }
             if (!fields.length) return spec;
 
             // Find the data object whose values carry the merged rows
@@ -2561,6 +2568,13 @@ function vega_runtime()
             if (!orig) { console.warn('AoV.remapEncoding: no stored spec for', id); return; }
             var spec = JSON.parse(JSON.stringify(orig));
 
+            // If combo data was pre-built by the caller (multi-select picker),
+            // inject it into the cloned spec so combos are available to all channels
+            if (mapping._comboData && mapping._comboData.values) {
+                if (spec.data && spec.data.values) spec.data = mapping._comboData;
+                else if (spec.spec && spec.spec.data) spec.spec.data = mapping._comboData;
+            }
+
             // Find layers in either simple or faceted structure
             var isFaceted = !!(spec.facet || (spec.spec && spec.spec.layer));
             var layers = isFaceted ? (spec.spec && spec.spec.layer || []) : (spec.layer || [spec]);
@@ -2594,6 +2608,10 @@ function vega_runtime()
                 });
             }
             _migrateEncodingFacets();
+
+            // Resolve combo titles for human-readable legend/facet headers
+            var _titles = mapping._comboTitles || {};
+            function _fieldTitle(f) { return _titles[f] || f; }
 
             // Color remapping
             if ('color' in mapping) {
@@ -2634,7 +2652,7 @@ function vega_runtime()
                             tmpl.forEach(function(tl) {
                                 var gl = JSON.parse(JSON.stringify(tl));
                                 gl.transform = srcFilter ? [srcFilter, {filter: filterExpr}] : [{filter: filterExpr}];
-                                gl.encoding.color = {field: cf, type: 'nominal'};
+                                gl.encoding.color = {field: cf, type: 'nominal', title: _fieldTitle(cf)};
                                 gl._lr_layer = true;
                                 newLayers.push(gl);
                             });
@@ -2663,7 +2681,7 @@ function vega_runtime()
                     layers.forEach(function(l) {
                         if (!l.encoding) return;
                         if (cf) {
-                            l.encoding.color = {field: cf, type: 'nominal'};
+                            l.encoding.color = {field: cf, type: 'nominal', title: _fieldTitle(cf)};
                         } else {
                             delete l.encoding.color;
                         }
@@ -2743,7 +2761,7 @@ function vega_runtime()
                 var rf = mapping.row;
                 if (rf) {
                     wrapFaceted();
-                    spec.facet.row = {field: rf, type: 'nominal'};
+                    spec.facet.row = {field: rf, type: 'nominal', title: _fieldTitle(rf)};
                 } else if (spec.facet) {
                     delete spec.facet.row;
                     unwrapFaceted();
@@ -2755,7 +2773,7 @@ function vega_runtime()
                 var clf = mapping.column;
                 if (clf) {
                     wrapFaceted();
-                    spec.facet.column = {field: clf, type: 'nominal'};
+                    spec.facet.column = {field: clf, type: 'nominal', title: _fieldTitle(clf)};
                 } else if (spec.facet) {
                     delete spec.facet.column;
                     unwrapFaceted();
@@ -2771,17 +2789,12 @@ function vega_runtime()
                 }
             }
 
-            // Detail encoding: put unmapped dimension fields into detail
-            // so VL groups by them without assigning visual properties
+            // Detail encoding: put explicitly-specified dimension fields into detail
+            // so VL groups by them without assigning visual properties.
+            // With the multi-select picker, _dimensions is the resolved detail
+            // channel contents (no set subtraction needed).
             if (mapping._dimensions) {
-                var used = {};
-                var cf2 = mapping.color || (orig.layer && orig.layer[0] && orig.layer[0].encoding && orig.layer[0].encoding.color && orig.layer[0].encoding.color.field) || '';
-                if (cf2) used[cf2] = true;
-                if (spec.facet) {
-                    if (spec.facet.row) used[spec.facet.row.field] = true;
-                    if (spec.facet.column) used[spec.facet.column.field] = true;
-                }
-                var detailFields = mapping._dimensions.filter(function(d) { return !used[d]; });
+                var detailFields = mapping._dimensions;
                 layers.forEach(function(l) {
                     if (!l.encoding) return;
                     if (detailFields.length > 0) {
@@ -2853,7 +2866,7 @@ function _facet_fields(vl::Dict)
         for l in layers
             le = get(l, "encoding", nothing)
             le isa Dict || continue
-            for ch in ("row", "column")
+            for ch in ("row", "column", "color")
                 f = get(le, ch, nothing)
                 if f isa Dict && haskey(f, "field")
                     push!(fields, f["field"])
@@ -3041,11 +3054,46 @@ h.div()(
 )
 ```
 """
+const _CHANNEL_LABELS = Dict("color" => "Color", "row" => "Row", "column" => "Column", "detail" => "Ungrouped")
+
+"""
+    mapping_controls(id, dimensions; kwargs...)
+
+Client-side multi-select mapping picker for Vega-Lite encoding channels.
+
+Each channel (color, row, column, ungrouped/detail) is a multi-select. When 2+
+fields are selected for one channel, a synthetic combo column is built on
+`spec.data.values`. One channel is always "pinned" — the catch-all that
+auto-absorbs any dims not in another channel. The pinned channel's select is
+disabled; its contents are computed.
+
+## Keyword arguments
+- `id`: must match the `id` kwarg passed to `to_node(spec; id=...)`
+- `dimensions`: vector of `Pair{String,String}` (field => label) or bare strings/symbols
+- `color_default`, `row_default`, `column_default`, `detail_default`: initial selections (vector or single string)
+- `channels`: which channels to show (default `[:color, :row, :column, :detail]`)
+- `pinned`: which channel is the catch-all (default `:color`)
+- `fixed`: `Dict` of channel => field(s) that are always applied but not user-editable
+- `table`: optional table for field validation
+- `spec`: optional AoG spec — if provided, validates that all dimension fields survive into the VL data (warns if a field was dropped during AoG summary)
+"""
 function mapping_controls(id, dimensions;
-    color_default="", row_default="", column_default="",
-    channels=[:color, :row, :column],
+    color_default=String[], row_default=String[], column_default=String[], detail_default=String[],
+    channels=[:color, :row, :column, :detail],
+    pinned::Symbol=:color,
     fixed=Dict{Symbol,Any}(),
-    table=nothing)
+    table=nothing,
+    spec=nothing)
+
+    # Normalize defaults: accept legacy single-string form
+    _norm(v) = v isa AbstractVector ? string.(v) : (v == "" || isnothing(v) ? String[] : [string(v)])
+    color_default = _norm(color_default)
+    row_default = _norm(row_default)
+    column_default = _norm(column_default)
+    detail_default = _norm(detail_default)
+    defaults = Dict("color" => color_default, "row" => row_default,
+                     "column" => column_default, "detail" => detail_default)
+
     dims = [(d isa Pair ? (string(first(d)) => string(last(d))) : (string(d) => string(d))) for d in dimensions]
 
     # Validate dimension fields exist in the table if provided
@@ -3055,75 +3103,257 @@ function mapping_controls(id, dimensions;
             field in col_names || error("mapping_controls: dimension field \"$field\" (label \"$label\") not found in table. Available columns: $(sort(collect(col_names)))")
         end
         for (ch, field) in fixed
-            string(field) in col_names || error("mapping_controls: fixed channel :$ch field \"$field\" not found in table. Available columns: $(sort(collect(col_names)))")
+            fs = field isa AbstractVector ? string.(field) : [string(field)]
+            for f in fs
+                f in col_names || error("mapping_controls: fixed channel :$ch field \"$f\" not found in table. Available columns: $(sort(collect(col_names)))")
+            end
         end
     end
-    # Sanitize id for use in JS function names (hyphens → underscores)
+
+    # Validate dimension fields survive into the VL spec data (catches fields
+    # dropped during AoG summary — e.g. a column in the raw data that wasn't
+    # in the AoG mapping and got lost during lineribbon/density summarization)
+    if !isnothing(spec)
+        vl = spec isa Dict ? spec : to_vegalite(spec)
+        vl_data = get(vl, "data", get(get(vl, "spec", Dict()), "data", nothing))
+        vl_vals = !isnothing(vl_data) && vl_data isa Dict ? get(vl_data, "values", nothing) : nothing
+        if !isnothing(vl_vals) && !isempty(vl_vals)
+            spec_fields = Set{String}()
+            for row in vl_vals
+                row isa Dict && union!(spec_fields, keys(row))
+            end
+            for (field, label) in dims
+                if !(field in spec_fields)
+                    @warn "mapping_controls: dimension \"$field\" (\"$label\") is not in the VL spec data — " *
+                          "it was likely dropped during AoG summary. Add it to the AoG mapping " *
+                          "(e.g. color=:$field or lineribbon(; detail=[:$field])) so it survives into the spec."
+                end
+            end
+        end
+    end
+
     js_id = replace(id, "-" => "_")
-    # Normalize fixed channels: Symbol keys, string values
-    fixed_js = Dict{String,String}(string(k) => string(v) for (k, v) in fixed)
+    # Normalize fixed: each value becomes a vector of strings
+    fixed_js = Dict{String,Vector{String}}()
+    for (k, v) in fixed
+        fixed_js[string(k)] = v isa AbstractVector ? string.(v) : [string(v)]
+    end
     # Remove fixed channels from editable list
     channels = [ch for ch in channels if !haskey(fixed_js, string(ch))]
 
+    # Compute initial pinned channel content: all dims not in any other channel's defaults
+    pinned_str = string(pinned)
+    assigned_elsewhere = Set{String}()
+    for ch in channels
+        ch_str = string(ch)
+        ch_str == pinned_str && continue
+        for f in get(defaults, ch_str, String[])
+            push!(assigned_elsewhere, f)
+        end
+    end
+    for fs in values(fixed_js)
+        for f in fs; push!(assigned_elsewhere, f); end
+    end
+    pinned_auto = [first(d) for d in dims if !(first(d) in assigned_elsewhere)]
+    defaults[pinned_str] = pinned_auto
+
+    # Ensure :detail is always last in the channel order
+    channels = vcat(filter(!=(Symbol("detail")), channels),
+                    :detail in channels ? [:detail] : Symbol[])
+    all_ch_strs = [string(ch) for ch in channels]
     selects = map(channels) do ch
         ch_str = string(ch)
-        default_val = string(ch == :color ? color_default : ch == :row ? row_default : column_default)
-        options = [h.option(; value="")(raw"(none)")]
-        for (field, label) in dims
-            attrs = field == default_val ?
-                (; value=field, selected="selected") : (; value=field)
-            push!(options, h.option(; attrs...)(label))
+        ch_label = get(_CHANNEL_LABELS, ch_str, uppercasefirst(ch_str))
+        is_pinned = ch_str == pinned_str
+        default_set = Set(get(defaults, ch_str, String[]))
+        options = [let
+            sel = field in default_set ? (; value=field, selected="selected") : (; value=field)
+            h.option(; sel...)(label)
+        end for (field, label) in dims]
+        sel_attrs = (;
+            id="aov-remap-$(ch_str)-$(id)",
+            multiple="multiple",
+            size=string(clamp(length(dims), 2, 4)),
+            onchange="_aovRemap_$(js_id)('$(ch_str)')",
+        )
+        if is_pinned
+            sel_attrs = merge(sel_attrs, (; disabled="disabled"))
         end
-        h.label()(
-            uppercasefirst(ch_str) * ": ",
-            h.select(;
-                id="aov-remap-$(ch_str)-$(id)",
-                onchange="_aovRemap_$(js_id)('$(ch_str)')",
-            )(options...),
+        h.div()(
+            h.label(; style="display:flex; align-items:center; gap:0.3rem;")(
+                h.input(; type="radio", name="aov-pin-$(id)", value=ch_str,
+                    checked=(is_pinned ? "checked" : nothing),
+                    onchange="_aovPin_$(js_id)(this.value)"),
+                ch_label * ": ",
+            ),
+            h.select(; sel_attrs...)(options...),
         )
     end
 
-    ch_reads = join(["$(ch): document.getElementById('aov-remap-$(ch)-$(id)').value"
-                     for ch in channels], ", ")
-    fixed_js_str = JSON.json(fixed_js)
+    # Build label lookup from dims for resolving field names to human labels.
+    # Fallback: replace _ with space and titlecase (e.g. "assay_name" → "Assay Name").
+    dim_label_map = Dict(first(d) => last(d) for d in dims)
+    _prettify(f) = get(dim_label_map, f, join(uppercasefirst.(split(f, "_")), " "))
+    fixed_set = Set(vcat(values(fixed_js)...))
+    fixed_selects = [let
+        ch_label = get(_CHANNEL_LABELS, k, uppercasefirst(k))
+        options = [let
+            sel_attrs = field in Set(fs) ? (; value=field, selected="selected") : (; value=field)
+            h.option(; sel_attrs...)(_prettify(field))
+        end for (field, _) in dims]
+        h.div()(
+            h.label(; style="display:flex; align-items:center; gap:0.3rem;")(
+                h.input(; type="radio", name="aov-pin-$(id)", disabled="disabled"),
+                ch_label * ": ",
+            ),
+            h.select(; disabled="disabled", multiple="multiple",
+                       size=string(min(length(dims), 3)))(options...),
+        )
+    end for (k, fs) in fixed_js]
+
     dim_fields = JSON.json([first(d) for d in dims])
-    # Build a label lookup for display
-    dim_labels = JSON.json(Dict(first(d) => last(d) for d in dims))
-    channels_json = JSON.json([string(ch) for ch in channels])
+    dim_labels = JSON.json(Dict(first(d) => _prettify(first(d)) for d in dims))
+    fixed_js_str = JSON.json(fixed_js)
+    channels_json = JSON.json(all_ch_strs)
+
     js = h.script("""
+    var _aovPin_$(js_id)_current = '$(pinned_str)';
+
+    function _aovPin_$(js_id)(newPin) {
+        var oldPin = _aovPin_$(js_id)_current;
+        _aovPin_$(js_id)_current = newPin;
+        // Enable old pinned, disable new pinned
+        var oldSel = document.getElementById('aov-remap-' + oldPin + '-$(id)');
+        var newSel = document.getElementById('aov-remap-' + newPin + '-$(id)');
+        if (oldSel) oldSel.disabled = false;
+        if (newSel) newSel.disabled = true;
+        _aovRemap_$(js_id)('pin');
+    }
+
     function _aovRemap_$(js_id)(changed) {
-        // Dedup row/column: if one just got a value, clear the other if it has the same field
-        var rowEl = document.getElementById('aov-remap-row-$(id)');
-        var colEl = document.getElementById('aov-remap-column-$(id)');
-        if (rowEl && colEl && rowEl.value && colEl.value && rowEl.value === colEl.value) {
-            if (changed === 'row') colEl.value = '';
-            else if (changed === 'column') rowEl.value = '';
-        }
-        var mapping = {$(ch_reads), _dimensions: $(dim_fields)};
-        // Merge fixed (non-editable) channel assignments
-        var fixed = $(fixed_js_str);
-        for (var k in fixed) mapping[k] = fixed[k];
-        AoV.remapEncoding('$(id)', mapping);
-        var used = {};
-        ['color', 'row', 'column'].forEach(function(ch) { if (mapping[ch]) used[mapping[ch]] = true; });
+        var allDims = $(dim_fields);
         var labels = $(dim_labels);
-        var detail = $(dim_fields).filter(function(d) { return !used[d]; }).map(function(d) { return labels[d] || d; });
-        var el = document.getElementById('aov-detail-$(id)');
-        if (el) el.value = detail.length > 0 ? detail.join(', ') : '(none)';
-        // Persist select values to URL params
-        var params = new URLSearchParams(window.location.search);
-        $(channels_json).forEach(function(ch) {
+        var channels = $(channels_json);
+        var pinned = _aovPin_$(js_id)_current;
+
+        // Read selections from each non-pinned channel
+        function readChannel(ch) {
             var sel = document.getElementById('aov-remap-' + ch + '-$(id)');
-            if (sel) {
-                var key = 'aov_' + ch + '_$(id)';
-                if (sel.value) params.set(key, sel.value);
-                else params.delete(key);
-            }
+            if (!sel) return [];
+            return Array.from(sel.selectedOptions).map(function(o) { return o.value; });
+        }
+
+        var selections = {};
+        channels.forEach(function(ch) {
+            selections[ch] = (ch === pinned) ? [] : readChannel(ch);
         });
+
+        // Pinned channel = all dims not in any other editable channel (or fixed)
+        var fixed = $(fixed_js_str);
+        var elsewhere = {};
+        channels.forEach(function(ch) {
+            if (ch === pinned) return;
+            selections[ch].forEach(function(f) { elsewhere[f] = true; });
+        });
+        for (var k in fixed) { fixed[k].forEach(function(f) { elsewhere[f] = true; }); }
+        selections[pinned] = allDims.filter(function(d) { return !elsewhere[d]; });
+
+        // Update pinned select's visual state
+        var pinnedSel = document.getElementById('aov-remap-' + pinned + '-$(id)');
+        if (pinnedSel) {
+            var pinnedSet = {};
+            selections[pinned].forEach(function(f) { pinnedSet[f] = true; });
+            Array.from(pinnedSel.options).forEach(function(o) {
+                o.selected = !!pinnedSet[o.value];
+            });
+        }
+
+        // Clone origSpec data for combo building
+        var orig = AoV._origSpecs['$(id)'];
+        if (!orig) return;
+        var dataObj = orig.data || (orig.spec && orig.spec.data);
+        var dataClone = dataObj ? JSON.parse(JSON.stringify(dataObj)) : null;
+
+        // Validate: warn about dims not present in the spec data
+        if (dataClone && dataClone.values && dataClone.values.length > 0) {
+            var sampleRow = dataClone.values[0];
+            var allSelected = [].concat(
+                selections.color || [], selections.row || [],
+                selections.column || [], selections.detail || []);
+            allSelected.forEach(function(f) {
+                if (!dataClone.values.some(function(r) { return Object.prototype.hasOwnProperty.call(r, f); })) {
+                    console.warn('[AoV mapping_controls] dimension "' + f + '" (' + (labels[f] || f) +
+                        ') is in the picker but not in the spec data — it was likely dropped during AoG summary. ' +
+                        'Add it to the AoG mapping (e.g. color=:' + f + ' or lineribbon detail) so it survives into the VL spec.');
+                }
+            });
+        }
+
+        // Build synthetic combo field when 2+ fields selected for a channel.
+        // Only sets the combo on rows that have ALL component fields — cross-source
+        // rows (e.g. dose VLines) that lack them are left without the combo, so
+        // _broadcastCrossSource can replicate them across all unique combo values.
+        var comboTitles = {};
+        function resolveChannel(fields, comboName) {
+            if (fields.length === 0) return '';
+            if (fields.length === 1) return fields[0];
+            if (!dataClone || !dataClone.values) return fields[0];
+            var title = fields.map(function(f) { return labels[f] || f; }).join(' / ');
+            comboTitles[comboName] = title;
+            dataClone.values.forEach(function(row) {
+                var hasAll = fields.every(function(f) {
+                    return Object.prototype.hasOwnProperty.call(row, f);
+                });
+                if (hasAll) {
+                    row[comboName] = fields.map(function(f) {
+                        return row[f] != null ? String(row[f]) : '';
+                    }).join(' / ');
+                }
+            });
+            return comboName;
+        }
+
+        var colorField  = resolveChannel(selections.color || [], '__aov_color');
+        var rowField    = resolveChannel(selections.row || [], '__aov_row');
+        var columnField = resolveChannel(selections.column || [], '__aov_column');
+        var detailFields = selections.detail || [];
+
+        // Merge dim labels into comboTitles so single fields also get pretty names
+        for (var f in labels) { if (!comboTitles[f]) comboTitles[f] = labels[f]; }
+        var mapping = {
+            color: colorField,
+            row: rowField,
+            column: columnField,
+            _dimensions: detailFields,
+            _comboData: dataClone,
+            _comboTitles: comboTitles
+        };
+        // Merge fixed channels (resolve combos for multi-field fixed)
+        for (var k in fixed) {
+            var fs = fixed[k];
+            if (k === 'detail') {
+                mapping._dimensions = mapping._dimensions.concat(fs);
+            } else {
+                mapping[k] = fs.length <= 1 ? (fs[0] || '') : resolveChannel(fs, '__aov_' + k);
+            }
+        }
+
+        AoV.remapEncoding('$(id)', mapping);
+
+        // URL persistence: comma-separated field lists + pin state
+        var params = new URLSearchParams(window.location.search);
+        channels.forEach(function(ch) {
+            var key = 'aov_' + ch + '_$(id)';
+            var fields = selections[ch];
+            if (fields && fields.length > 0) params.set(key, fields.join(','));
+            else params.delete(key);
+        });
+        params.set('aov_pin_$(id)', pinned);
         var qs = params.toString();
         history.replaceState(null, '', qs ? '?' + qs : window.location.pathname);
     }
-    // Restore mapping from URL params once the spec is embedded
+
+    // Restore from URL params once the spec is embedded
     (function _aovRestore_$(js_id)() {
         if (!(typeof AoV !== 'undefined' && AoV._origSpecs && AoV._origSpecs['$(id)'])) {
             setTimeout(_aovRestore_$(js_id), 50);
@@ -3131,48 +3361,46 @@ function mapping_controls(id, dimensions;
         }
         var params = new URLSearchParams(window.location.search);
         var restored = false;
-        $(channels_json).forEach(function(ch) {
+        var channels = $(channels_json);
+
+        // Restore pin state first
+        var pinVal = params.get('aov_pin_$(id)');
+        if (pinVal && channels.indexOf(pinVal) !== -1 && pinVal !== _aovPin_$(js_id)_current) {
+            var radio = document.querySelector('input[name="aov-pin-$(id)"][value="' + pinVal + '"]');
+            if (radio) { radio.checked = true; _aovPin_$(js_id)(pinVal); }
+        }
+        var pinned = _aovPin_$(js_id)_current;
+
+        // Restore channel selections (skip pinned — it's computed)
+        channels.forEach(function(ch) {
+            if (ch === pinned) return;
             var val = params.get('aov_' + ch + '_$(id)');
             if (val) {
+                var fields = val.split(',');
                 var sel = document.getElementById('aov-remap-' + ch + '-$(id)');
-                if (sel) { sel.value = val; restored = true; }
+                if (sel) {
+                    Array.from(sel.options).forEach(function(o) {
+                        o.selected = fields.indexOf(o.value) !== -1;
+                    });
+                    restored = true;
+                }
             }
         });
         if (restored) _aovRemap_$(js_id)('');
     })();
     """)
 
-    # Compute initial detail fields (dimensions not assigned to any channel)
-    used_defaults = Set{String}()
-    color_default != "" && push!(used_defaults, string(color_default))
-    row_default != "" && push!(used_defaults, string(row_default))
-    column_default != "" && push!(used_defaults, string(column_default))
-    for v in values(fixed_js)
-        push!(used_defaults, v)
-    end
-    initial_detail = [last(d) for d in dims if !(first(d) in used_defaults)]
-    initial_detail_str = isempty(initial_detail) ? "(none)" : join(initial_detail, ", ")
-
-    detail_input = h.label()(
-        "Ungrouped: ",
-        h.input(;
-            id="aov-detail-$(id)",
-            type="text",
-            readonly="readonly",
-            value=initial_detail_str,
-            style="background:var(--pico-form-element-disabled-background-color, #f0f0f0); border:1px solid #ccc; padding:0.25rem 0.5rem; min-width:8em;",
-        ),
+    hint = h.small(; style="display:block; color:var(--pico-muted-color, #666); margin-bottom:0.3rem;")(
+        "Assign dimensions to channels (multi-select). ",
+        "The pinned channel (", h.strong("●"), ") auto-fills with unassigned dimensions. ",
+        "Selecting 2+ dimensions in one channel combines them.",
     )
 
-    fixed_selects = [h.label()(
-        uppercasefirst(k) * ": ",
-        h.select(; disabled="disabled")(
-            h.option(v; value=v, selected="selected"),
+    h.div()(
+        hint,
+        h.div(; style="display:flex; gap:1rem; align-items:end; flex-wrap:wrap; margin-bottom:0.5rem;")(
+            selects..., fixed_selects..., js,
         ),
-    ) for (k, v) in fixed_js]
-
-    h.div(; style="display:flex; gap:1rem; align-items:center; flex-wrap:wrap; margin-bottom:0.5rem;")(
-        selects..., fixed_selects..., detail_input, js,
     )
 end
 
