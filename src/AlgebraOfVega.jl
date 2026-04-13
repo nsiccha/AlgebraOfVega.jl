@@ -3244,11 +3244,18 @@ way the spec built from `resolved` and the picker rendered by
 """
 function apply_combos!(df, resolved)
     cols = Set(Symbol.(Tables.columnnames(df)))
-    present_dims = filter(d -> Symbol(first(d)) in cols, resolved.dims)
-    refined = if length(present_dims) == length(resolved.dims)
+    # Keep only dims whose column exists in df AND has >1 unique value.
+    # Single-valued columns contribute nothing to the encoding, so stripping
+    # them cleans up auto-generated labels and the pinned catch-all.
+    useful_dims = filter(resolved.dims) do d
+        sym = Symbol(first(d))
+        sym in cols || return false
+        length(unique(Tables.getcolumn(df, sym))) > 1
+    end
+    refined = if length(useful_dims) == length(resolved.dims)
         resolved
     else
-        resolve_channels(present_dims;
+        resolve_channels(useful_dims;
             color_default=get(resolved.defaults, "color", String[]),
             row_default=get(resolved.defaults, "row", String[]),
             column_default=get(resolved.defaults, "column", String[]),
