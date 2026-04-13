@@ -17,7 +17,7 @@ import HTMX: h
 
 # Re-export AoG API
 export data, mapping, visual, dims
-export density, histogram, linear, smooth, expectation, frequency
+export density, histogram, linear, smooth, expectation, frequency 
 export renamer, sorter, nonnumeric, verbatim, presorted, direct
 export scale, scales, pregrouped
 # Re-export Makie plot types users need
@@ -28,7 +28,7 @@ export Scatter, Lines, ScatterLines, BarPlot, Heatmap, BoxPlot,
 # AlgebraOfVega exports
 export config, vdraw, sdraw, sdraw_file, vlspec, vdata
 export to_vegalite, to_json, to_html, to_node, vega_head, vega_controls
-export vega_runtime, update_data, vega_cdn_urls, mapping_controls
+export vega_runtime, update_data, vega_cdn_urls, mapping_controls, resolve_channels, remap_node
 # Tidybayes-style analysis exports
 export pointinterval, gradient_interval, lineribbon, ribbon, dotinterval
 # High-level widget/recipe exports
@@ -3209,29 +3209,110 @@ end
     apply_combo!(df, fields, combo_col=:__aov_combo)
 
 Build a synthetic combo column on `df` by joining values of `fields` with " / ".
-No-op if `length(fields) <= 1`. Returns `df`.
+No-op if `length(fields) <= 1`. Fields missing from `df` are silently skipped;
+if all are missing the combo column is filled with the empty string (so
+downstream AoG encoding still resolves, and the picker filter drops it as
+single-valued). Returns `df`.
 """
 function apply_combo!(df, fields, combo_col=:__aov_combo)
     length(fields) <= 1 && return df
     syms = Symbol.(fields)
-    # Skip if any field is missing from the DataFrame
-    all(s -> hasproperty(df, s), syms) || return df
-    df[!, combo_col] = [join([string(r[s]) for s in syms], " / ") for r in eachrow(df)]
+    present = [s for s in syms if hasproperty(df, s)]
+    if isempty(present)
+        df[!, combo_col] = fill("", nrow(df))
+    else
+        df[!, combo_col] = [join([string(r[s]) for s in present], " / ") for r in eachrow(df)]
+    end
     df
 end
 
 """
-    apply_combos!(df, resolved)
+    apply_combos!(df, resolved) -> refined_resolved
 
-Build all synthetic combo columns needed by `resolved` on `df`.
-Handles color (__aov_color), row (__aov_row), and column (__aov_column).
-No-op for channels with 0–1 fields. Returns `df`.
+Refine `resolved` against `df`'s columns and build the synthetic combo columns
+(`__aov_color`, `__aov_row`, `__aov_column`). Dimensions whose field isn't a
+column of `df` are stripped from the refined `resolved`, which means
+`color_kw`/`row_kw`/`column_kw`, their auto-generated labels, `dims`, and the
+pinned catch-all are all rebuilt to match only the fields that actually exist
+on `df`.
+
+Mutates `df` (adds combo columns) and returns the refined `resolved`.
+Intended usage: `resolved = apply_combos!(df, resolved)` — then splat the
+returned `resolved`'s kwargs into `mapping(...)` / `lineribbon(...)`. That
+way the spec built from `resolved` and the picker rendered by
+`mapping_controls(id, resolved; spec)` agree.
 """
 function apply_combos!(df, resolved)
-    apply_combo!(df, resolved.color_fields, :__aov_color)
-    apply_combo!(df, resolved.row_fields, :__aov_row)
-    apply_combo!(df, resolved.column_fields, :__aov_column)
-    df
+    cols = Set(Symbol.(Tables.columnnames(df)))
+    present_dims = filter(d -> Symbol(first(d)) in cols, resolved.dims)
+    refined = if length(present_dims) == length(resolved.dims)
+        resolved
+    else
+        resolve_channels(present_dims;
+            color_default=get(resolved.defaults, "color", String[]),
+            row_default=get(resolved.defaults, "row", String[]),
+            column_default=get(resolved.defaults, "column", String[]),
+            detail_default=resolved.detail_fields,
+            channels=resolved.channels,
+            pinned=resolved.pinned,
+            fixed=resolved.fixed)
+    end
+    apply_combo!(df, refined.color_fields, :__aov_color)
+    apply_combo!(df, refined.row_fields, :__aov_row)
+    apply_combo!(df, refined.column_fields, :__aov_column)
+    refined
+end
+
+"""
+    _source_tables_from_spec(spec)
+
+Return a `Vector` of all layer source tables in `spec`. Walks `VegaSpec` →
+AoG drawable → layers and collects each layer's unwrapped `.data`. Skips
+`nothing` and `Pregrouped` layers. Multi-layer specs (e.g. `dose_layer + spec`)
+all contribute — uniqueness of a dim is taken across any layer that has it.
+"""
+function _source_tables_from_spec(spec)
+    isnothing(spec) && return Any[]
+    spec isa Dict && return Any[]
+    drawable = spec isa VegaSpec ? spec.drawable : spec
+    layers = if drawable isa AlgebraOfGraphics.Layers
+        drawable.layers
+    elseif drawable isa AlgebraOfGraphics.Layer
+        (drawable,)
+    else
+        ()
+    end
+    out = Any[]
+    for layer in layers
+        t = extract_data(layer)
+        isnothing(t) && continue
+        t isa AlgebraOfGraphics.Pregrouped && continue
+        push!(out, t)
+    end
+    out
+end
+
+function mapping_controls(id, dimensions::AbstractVector; table=nothing, spec=nothing, kwargs...)
+    resolved = resolve_channels(dimensions; kwargs...)
+    mapping_controls(id, resolved; table, spec)
+end
+
+"""
+    remap_node(spec, dimensions; id, table=nothing, kwargs...)
+
+Return a `h.div` bundling a `mapping_controls` picker above the rendered plot
+for `spec`. `kwargs` are forwarded to `resolve_channels` (e.g. `color_default`,
+`fixed`, `pinned`). Equivalent to:
+
+```julia
+h.div()(mapping_controls(id, dimensions; spec, table, kwargs...), to_node(spec; id))
+```
+"""
+function remap_node(spec, dimensions; id, table=nothing, kwargs...)
+    h.div()(
+        mapping_controls(id, dimensions; spec, table, kwargs...),
+        to_node(spec; id),
+    )
 end
 
 function mapping_controls(id, resolved::NamedTuple; table=nothing, spec=nothing)
@@ -3255,33 +3336,21 @@ function mapping_controls(id, resolved::NamedTuple; table=nothing, spec=nothing)
         end
     end
 
-    # Validate dimension fields survive into the VL spec data and count unique
-    # values per field. Filter out dimensions with ≤1 unique value.
-    if !isnothing(spec)
-        vl = spec isa Dict ? spec : to_vegalite(spec)
-        vl_data = get(vl, "data", get(get(vl, "spec", Dict()), "data", nothing))
-        vl_vals = !isnothing(vl_data) && vl_data isa Dict ? get(vl_data, "values", nothing) : nothing
-        if !isnothing(vl_vals) && !isempty(vl_vals)
-            spec_fields = Set{String}()
-            field_uniques = Dict{String,Set{Any}}()
-            for row in vl_vals
-                row isa Dict || continue
-                union!(spec_fields, keys(row))
-                for (field, _) in dims
-                    haskey(row, field) && push!(get!(Set{Any}, field_uniques, field), row[field])
-                end
+    # Filter out dimensions with ≤1 unique value in the source DataFrame(s)
+    # the AoG spec wraps. This is the authoritative source — walking the
+    # post-AoG VL spec drops fields that get collapsed into combo columns
+    # (e.g. row_fields = ["vessel","diet"] → __aov_row) even though `detail`
+    # preserves them for rendering. Multi-layer specs contribute all layers:
+    # a dim is kept iff *some* layer has it with >1 unique values.
+    src_tables = !isnothing(table) ? Any[table] : _source_tables_from_spec(spec)
+    if !isempty(src_tables)
+        dims = filter(dims) do (field, _)
+            sym = Symbol(field)
+            for t in src_tables
+                sym in Tables.columnnames(t) || continue
+                length(unique(Tables.getcolumn(t, sym))) > 1 && return true
             end
-            for (field, label) in dims
-                if !(field in spec_fields)
-                    @warn "mapping_controls: dimension \"$field\" (\"$label\") is not in the VL spec data — " *
-                          "it was likely dropped during AoG summary. Add it to the AoG mapping " *
-                          "(e.g. color=:$field or lineribbon(; detail=[:$field])) so it survives into the spec."
-                end
-            end
-            # Remove dims with ≤1 unique value (nothing to facet/color by)
-            dims = filter(dims) do (field, _)
-                length(get(field_uniques, field, Set())) > 1
-            end
+            false  # no layer has the column, or every layer has ≤1 unique → drop
         end
     end
 

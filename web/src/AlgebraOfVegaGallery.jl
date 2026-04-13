@@ -448,48 +448,32 @@ PLOTS = [
 
     ("remap_encoding", "Remap Encoding", "Client-side color/row switching via mapping_controls — no server round-trip",
      """id = "remap-demo"
-h.div()(
-    mapping_controls(id, [:origin => "Origin", :cylinders => "Cylinders"];
-        color_default="origin"),
-    to_node(
-        data(cars()) * mapping(:horsepower, :mpg, color=:origin) * visual(Scatter) *
-        config(title="Remap Encoding Demo");
-        id=id),
-)""",
+spec = data(cars()) * mapping(:horsepower, :mpg, color=:origin) * visual(Scatter) *
+       config(title="Remap Encoding Demo")
+remap_node(spec, [:origin => "Origin", :cylinders => "Cylinders"];
+    id=id, color_default="origin")""",
      () -> begin
         id = "remap-demo"
-        h.div()(
-            mapping_controls(id, [:origin => "Origin", :cylinders => "Cylinders"];
-                color_default="origin"),
-            to_node(
-                data(cars()) * mapping(:horsepower, :mpg, color=:origin) * visual(Scatter) *
-                config(title="Remap Encoding Demo");
-                id=id),
-        )
+        spec = data(cars()) * mapping(:horsepower, :mpg, color=:origin) * visual(Scatter) *
+               config(title="Remap Encoding Demo")
+        remap_node(spec, [:origin => "Origin", :cylinders => "Cylinders"];
+            id=id, color_default="origin")
      end),
 
     ("remap_lineribbon", "Remap Line + Ribbon", "Client-side color/row/col switching on a lineribbon plot",
      """id = "remap-lr"
 preds = faceted_regression_predictions()
-h.div()(
-    mapping_controls(id, [:panel => "Condition", :site => "Site"];
-        color_default="panel", row_default="site"),
-    to_node(
-        data(preds) * mapping(:x, :y, group=:draw, color=:panel, row=:site) *
-        lineribbon() * config(title="Remap Line + Ribbon");
-        id=id),
-)""",
+spec = data(preds) * mapping(:x, :y, group=:draw, color=:panel, row=:site) *
+       lineribbon() * config(title="Remap Line + Ribbon")
+remap_node(spec, [:panel => "Condition", :site => "Site"];
+    id=id, color_default="panel", row_default="site")""",
      () -> begin
         id = "remap-lr"
         preds = faceted_regression_predictions()
-        h.div()(
-            mapping_controls(id, [:panel => "Condition", :site => "Site"];
-                color_default="panel", row_default="site"),
-            to_node(
-                data(preds) * mapping(:x, :y, group=:draw, color=:panel, row=:site) *
-                lineribbon() * config(title="Remap Line + Ribbon");
-                id=id),
-        )
+        spec = data(preds) * mapping(:x, :y, group=:draw, color=:panel, row=:site) *
+               lineribbon() * config(title="Remap Line + Ribbon")
+        remap_node(spec, [:panel => "Condition", :site => "Site"];
+            id=id, color_default="panel", row_default="site")
      end),
 
     ("remap_detail", "Remap with Detail", "Lineribbon with extra grouping dimensions via detail= for client-side remapping",
@@ -505,14 +489,10 @@ for assay in ["CSF", "PBMC"], grp in ["Healthy", "PD"], site in ["US", "EU"]
     end
 end
 df = (; (k => getindex.(rows, k) for k in keys(rows[1]))...)
-h.div()(
-    mapping_controls(id, [:health => "Health", :site => "Site"];
-        color_default="health", fixed=Dict(:column => "assay"), table=df),
-    to_node(
-        data(df) * mapping(:x, :y, group=:draw, color=:health, col=:assay) *
-        lineribbon(; detail=[:site]) * config(title="Remap with Detail");
-        id=id),
-)""",
+spec = data(df) * mapping(:x, :y, group=:draw, color=:health, col=:assay) *
+       lineribbon(; detail=[:site]) * config(title="Remap with Detail")
+remap_node(spec, [:health => "Health", :site => "Site"];
+    id=id, color_default="health", fixed=Dict(:column => "assay"))""",
      () -> begin
         id = "remap-detail"
         rng = Random.MersenneTwister(42)
@@ -524,14 +504,10 @@ h.div()(
             end
         end
         df = (; (k => getindex.(rows, k) for k in keys(rows[1]))...)
-        h.div()(
-            mapping_controls(id, [:health => "Health", :site => "Site"];
-                color_default="health", fixed=Dict(:column => "assay"), table=df),
-            to_node(
-                data(df) * mapping(:x, :y, group=:draw, color=:health, col=:assay) *
-                lineribbon(; detail=[:site]) * config(title="Remap with Detail");
-                id=id),
-        )
+        spec = data(df) * mapping(:x, :y, group=:draw, color=:health, col=:assay) *
+               lineribbon(; detail=[:site]) * config(title="Remap with Detail")
+        remap_node(spec, [:health => "Health", :site => "Site"];
+            id=id, color_default="health", fixed=Dict(:column => "assay"))
      end),
 
     # === AoG gallery replications (https://aog.makie.org/stable/) ===
