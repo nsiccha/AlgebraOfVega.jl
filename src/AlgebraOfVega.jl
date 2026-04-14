@@ -28,7 +28,7 @@ export Scatter, Lines, ScatterLines, BarPlot, Heatmap, BoxPlot,
 # AlgebraOfVega exports
 export config, vdraw, sdraw, sdraw_file, vlspec, vdata
 export to_vegalite, to_json, to_html, to_node, vega_head, vega_controls
-export vega_runtime, update_data, vega_cdn_urls, mapping_controls, resolve_channels, remap_node
+export vega_runtime, update_data, vega_cdn_urls, mapping_controls, resolve_channels, refine_channels, remap_node, auto_remap_node
 # Tidybayes-style analysis exports
 export pointinterval, gradient_interval, lineribbon, ribbon, dotinterval
 # High-level widget/recipe exports
@@ -802,7 +802,7 @@ function analysis_to_vl(a::LineRibbonAnalysis, layer::AlgebraOfGraphics.Layer; i
     summary_data = Dict{String,Any}("values" => summary)
 
     sorted_probs = sort(a.probs, rev=true)
-    opacities = range(0.2, 0.6, length=length(sorted_probs))
+    opacities = range(0.2, 0.6, length=length(sorted_probs)) 
 
     # VL detail encoding for extra grouping columns (grouped but no visual encoding)
     detail_enc = if !isempty(detail_strs)
@@ -2677,9 +2677,14 @@ function vega_runtime()
                     }
                     layers = allLayers;
                 } else {
-                    // Non-lineribbon: standard color remapping
+                    // Non-lineribbon: standard color remapping. Skip layers
+                    // whose mark statically sets `color` — those layers were
+                    // intentionally given a fixed color (e.g. black observation
+                    // scatters) and should not be data-driven by the picker.
                     layers.forEach(function(l) {
                         if (!l.encoding) return;
+                        var staticColor = l.mark && typeof l.mark === 'object' && l.mark.color;
+                        if (staticColor) return;
                         if (cf) {
                             l.encoding.color = {field: cf, type: 'nominal', title: _fieldTitle(cf)};
                         } else {
@@ -3209,65 +3214,88 @@ end
     apply_combo!(df, fields, combo_col=:__aov_combo)
 
 Build a synthetic combo column on `df` by joining values of `fields` with " / ".
-No-op if `length(fields) <= 1`. Fields missing from `df` are silently skipped;
-if all are missing the combo column is filled with the empty string (so
-downstream AoG encoding still resolves, and the picker filter drops it as
-single-valued). Returns `df`.
+No-op if `length(fields) <= 1`. **Silently skips entirely if any field is
+missing from `df`** — leaving the combo column unset on this layer so the
+downstream cross-source broadcast pass can replicate the layer across every
+unique combo value (this is how secondary layers like dose VLines or
+observation scatters fan out across model facets). Returns `df`.
 """
 function apply_combo!(df, fields, combo_col=:__aov_combo)
     length(fields) <= 1 && return df
     syms = Symbol.(fields)
-    present = [s for s in syms if hasproperty(df, s)]
-    if isempty(present)
-        df[!, combo_col] = fill("", nrow(df))
-    else
-        df[!, combo_col] = [join([string(r[s]) for s in present], " / ") for r in eachrow(df)]
-    end
+    all(s -> hasproperty(df, s), syms) || return df
+    df[!, combo_col] = [join([string(r[s]) for s in syms], " / ") for r in eachrow(df)]
     df
 end
 
 """
-    apply_combos!(df, resolved) -> refined_resolved
+    apply_combos!(df, resolved)
 
-Refine `resolved` against `df`'s columns and build the synthetic combo columns
-(`__aov_color`, `__aov_row`, `__aov_column`). Dimensions whose field isn't a
-column of `df` are stripped from the refined `resolved`, which means
-`color_kw`/`row_kw`/`column_kw`, their auto-generated labels, `dims`, and the
-pinned catch-all are all rebuilt to match only the fields that actually exist
-on `df`.
+Build all synthetic combo columns (`__aov_color`, `__aov_row`, `__aov_column`)
+on `df` for the channels in `resolved`. Per-layer: each channel's combo column
+is built only if `df` has every component field; otherwise it's silently
+skipped so the broadcast pass replicates the layer.
 
-Mutates `df` (adds combo columns) and returns the refined `resolved`.
-Intended usage: `resolved = apply_combos!(df, resolved)` — then splat the
-returned `resolved`'s kwargs into `mapping(...)` / `lineribbon(...)`. That
-way the spec built from `resolved` and the picker rendered by
-`mapping_controls(id, resolved; spec)` agree.
+Returns `df`. **Does not refine `resolved`** — for global stripping of
+absent / single-valued dims (which fixes static-render labels and the picker
+catch-all), call `refine_channels(resolved, dfs...)` before building the
+spec instead.
 """
 function apply_combos!(df, resolved)
-    cols = Set(Symbol.(Tables.columnnames(df)))
-    # Keep only dims whose column exists in df AND has >1 unique value.
-    # Single-valued columns contribute nothing to the encoding, so stripping
-    # them cleans up auto-generated labels and the pinned catch-all.
-    useful_dims = filter(resolved.dims) do d
-        sym = Symbol(first(d))
-        sym in cols || return false
-        length(unique(Tables.getcolumn(df, sym))) > 1
+    apply_combo!(df, resolved.color_fields, :__aov_color)
+    apply_combo!(df, resolved.row_fields, :__aov_row)
+    apply_combo!(df, resolved.column_fields, :__aov_column)
+    df
+end
+
+"""
+    refine_channels(resolved, tables...)
+
+Return a new `resolved` with dimensions stripped if they are absent from
+**every** `table` or have ≤1 unique value in every table that has them.
+Same treatment for fixed-channel assignments. Use this once before building
+your spec so that:
+
+- the static server-side render's auto-generated row/col/color labels only
+  reference dims that actually vary,
+- the pinned catch-all channel doesn't auto-absorb meaningless dims,
+- `mapping_controls`' picker reflects the same set.
+
+Per-layer combo construction is still done by `apply_combos!` against the
+returned (refined) `resolved`. Layers that don't have every component of a
+combo column will have it left unset, and the broadcast pass will replicate
+them across the surviving facet panels.
+"""
+function refine_channels(resolved::NamedTuple, tables...)
+    isempty(tables) && return resolved
+    # A field is "useful" iff some table has it with >1 unique value.
+    cols_per = [Set(Symbol.(Tables.columnnames(t))) for t in tables]
+    _useful = function(field)
+        sym = Symbol(field)
+        for (i, t) in enumerate(tables)
+            sym in cols_per[i] || continue
+            length(unique(Tables.getcolumn(t, sym))) > 1 && return true
+        end
+        false
     end
-    refined = if length(useful_dims) == length(resolved.dims)
-        resolved
-    else
-        resolve_channels(useful_dims;
-            color_default=get(resolved.defaults, "color", String[]),
-            row_default=get(resolved.defaults, "row", String[]),
-            column_default=get(resolved.defaults, "column", String[]),
-            detail_default=resolved.detail_fields,
-            channels=resolved.channels,
-            pinned=resolved.pinned,
-            fixed=resolved.fixed)
+    useful_dims = filter(d -> _useful(first(d)), resolved.dims)
+    useful_fixed = Dict{String,Vector{String}}()
+    for (ch, fs) in resolved.fixed
+        kept = filter(_useful, fs)
+        isempty(kept) || (useful_fixed[ch] = kept)
     end
-    apply_combo!(df, refined.color_fields, :__aov_color)
-    apply_combo!(df, refined.row_fields, :__aov_row)
-    apply_combo!(df, refined.column_fields, :__aov_column)
-    refined
+    unchanged = length(useful_dims) == length(resolved.dims) &&
+                length(useful_fixed) == length(resolved.fixed) &&
+                all(length(useful_fixed[k]) == length(resolved.fixed[k]) for k in keys(resolved.fixed))
+    unchanged && return resolved
+    resolve_channels(useful_dims;
+        color_default=get(resolved.defaults, "color", String[]),
+        row_default=get(resolved.defaults, "row", String[]),
+        column_default=get(resolved.defaults, "column", String[]),
+        detail_default=resolved.detail_fields,
+        channels=resolved.channels,
+        pinned=resolved.pinned,
+        fixed=useful_fixed)
 end
 
 """
@@ -3319,6 +3347,252 @@ function remap_node(spec, dimensions; id, table=nothing, kwargs...)
     h.div()(
         mapping_controls(id, dimensions; spec, table, kwargs...),
         to_node(spec; id),
+    )
+end
+
+# === auto_remap_node ===========================================================
+# `auto_remap_node(plot_id, spec; dims, fixed, pinned)` is the "fully
+# automatic" form (distinct from the simpler `remap_node` above, which is
+# a thin wrapper around `mapping_controls` + `to_node`). The user builds a
+# regular AoG spec — including their normal `mapping(:x, :y; color=…,
+# row=…, col=…)` channel encodings and any `* config(…)` — and
+# auto_remap_node handles channel resolution, refinement against the
+# spec's actual data, cartesian-product broadcast across missing facet
+# dims, combo-column construction, layer rewriting, and picker assembly.
+
+# --- helpers ---
+
+# Walk a spec down to the list of AoG Layers it contains.
+function _spec_layers(spec)
+    drawable = spec isa VegaSpec ? spec.drawable : spec
+    if drawable isa AlgebraOfGraphics.Layers
+        collect(drawable.layers)
+    elseif drawable isa AlgebraOfGraphics.Layer
+        [drawable]
+    else
+        error("remap_node: unsupported spec drawable type $(typeof(drawable))")
+    end
+end
+
+# Read default channel assignments from layers' existing `.named` mappings.
+# Returns a Dict("color"=>[...], "row"=>[...], "column"=>[...]).
+function _layer_channel_defaults(layers)
+    defaults = Dict("color"=>String[], "row"=>String[], "column"=>String[])
+    for layer in layers
+        for (k, v) in pairs(layer.named)
+            ch = k === :col ? "column" : string(k)
+            haskey(defaults, ch) || continue
+            f = _field_name(v)
+            f in defaults[ch] || push!(defaults[ch], f)
+        end
+    end
+    defaults
+end
+
+# Cartesian-product expand `df` by `sym`: every original row is replicated
+# once per `values`, with `sym` filled from `values`. Operates on
+# `NamedTuple` column tables to stay non-mutating and predictable.
+function _expand_with_field(cols::NamedTuple, sym::Symbol, values)
+    isempty(values) && return cols
+    nrows = length(first(cols))
+    val_vec = collect(values)
+    n = length(val_vec)
+    inflated = map(c -> repeat(c, inner=n), cols)
+    merge(inflated, NamedTuple{(sym,)}((repeat(val_vec, outer=nrows),)))
+end
+
+# Append a new column to a column-table (NamedTuple of vectors).
+_with_added_column(cols::NamedTuple, name::Symbol, vals) =
+    merge(cols, NamedTuple{(name,)}((vals,)))
+
+# Build the synthetic combo columns on a NamedTuple column-table per
+# `resolved`. Non-mutating: returns a new NamedTuple with the combo columns
+# appended where buildable. A combo column is built only if every component
+# field is present (mirror of `apply_combo!`'s silent-skip semantics).
+function _with_combos(cols::NamedTuple, resolved)
+    cur = cols
+    for (fields, combo_col) in ((resolved.color_fields,  :__aov_color),
+                                 (resolved.row_fields,    :__aov_row),
+                                 (resolved.column_fields, :__aov_column))
+        length(fields) <= 1 && continue
+        syms = Symbol.(fields)
+        all(s -> haskey(cur, s), syms) || continue
+        n = length(first(cur))
+        combo_vals = [join([string(cur[s][i]) for s in syms], " / ") for i in 1:n]
+        cur = _with_added_column(cur, combo_col, combo_vals)
+    end
+    cur
+end
+
+# Broadcast `cols` across every field in `fields` that's absent from it.
+# For each missing field, collects the union of unique values across
+# `all_cols` and cartesian-product expands `cols` against them. Operates
+# on `NamedTuple` column-tables.
+function _broadcast_missing_fields(cols::NamedTuple, all_cols::Vector, fields)
+    cur = cols
+    for field in fields
+        sym = Symbol(field)
+        haskey(cur, sym) && continue
+        uniques = Any[]
+        seen = Set{Any}()
+        for other in all_cols
+            other === cols && continue
+            haskey(other, sym) || continue
+            for v in other[sym]
+                v in seen || (push!(seen, v); push!(uniques, v))
+            end
+        end
+        isempty(uniques) && continue
+        cur = _expand_with_field(cur, sym, uniques)
+    end
+    cur
+end
+
+# Patch the `detail_fields` of any TidybayesAnalysis in a transformation
+# chain to `new_detail`. Walks through `ComposedFunction` recursively.
+_with_detail(t::PointIntervalAnalysis, d) = PointIntervalAnalysis(t.probs, t.point, d)
+_with_detail(t::GradientIntervalAnalysis, d) = GradientIntervalAnalysis(t.probs, t.point, d)
+_with_detail(t::LineRibbonAnalysis, d) = LineRibbonAnalysis(t.probs, t.show_line, d)
+_with_detail(t::DotIntervalAnalysis, d) = DotIntervalAnalysis(t.probs, t.n_dots, t.point, d)
+
+function _patch_detail(t, new_detail)
+    syms = Symbol.(new_detail)
+    if t isa TidybayesAnalysis
+        return _with_detail(t, syms)
+    elseif t isa ComposedFunction
+        return _patch_detail(t.outer, new_detail) ∘ _patch_detail(t.inner, new_detail)
+    else
+        return t
+    end
+end
+
+# Collect channel keys (e.g. :color, :row, :col) that are statically set on
+# any Visual in a transformation chain. These should NOT be overwritten by
+# data-driven encodings from the resolved channel kws — e.g. a scatter
+# layer with `visual(Scatter; color="black")` keeps its black points
+# regardless of the picker's color channel.
+function _visual_static_channels(t)
+    if t isa AlgebraOfGraphics.Visual
+        return Set{Symbol}(keys(t.attributes))
+    elseif t isa ComposedFunction
+        return union(_visual_static_channels(t.outer), _visual_static_channels(t.inner))
+    else
+        return Set{Symbol}()
+    end
+end
+
+# Rebuild a layer with a new dataframe and resolved channel kws merged in.
+# User-supplied entries on managed channels (color/row/col/column) are
+# dropped first, then resolved kws are merged on top — except where the
+# layer's Visual has already set the same channel statically. lineribbon
+# detail is patched on the transformation.
+function _rebuild_layer(layer, new_df, resolved)
+    # Build merged named NamedTuple
+    base = NamedTuple()
+    for (k, v) in pairs(layer.named)
+        k in (:color, :row, :col, :column) && continue
+        base = merge(base, NamedTuple{(k,)}((v,)))
+    end
+    # If the visual statically sets a channel (typically :color), drop the
+    # data-driven encoding for that channel from this layer's mapping.
+    static = _visual_static_channels(layer.transformation)
+    _drop = (nt, k) -> k in static ? Base.structdiff(nt, NamedTuple{(k,)}) : nt
+    extra = merge(resolved.fixed_kw, resolved.row_kw, resolved.color_kw, resolved.column_kw)
+    for k in (:color, :row, :col, :column)
+        extra = _drop(extra, k)
+    end
+    new_named = merge(base, extra)
+    # Patch detail on the transformation chain
+    new_t = _patch_detail(layer.transformation, resolved.detail)
+    # Compose a fresh layer using AoG operators (so .data, .positional, .named
+    # are constructed in the AoG-native shapes), then swap in the patched
+    # transformation.
+    composed = AlgebraOfGraphics.data(new_df) *
+        AlgebraOfGraphics.mapping(layer.positional...; new_named...)
+    AlgebraOfGraphics.Layer(new_t, composed.data, composed.positional, composed.named)
+end
+
+"""
+    auto_remap_node(plot_id, spec; dims, fixed=Dict(), pinned=:row)
+
+Fully automatic interactive plot. Takes a "normal" AoG spec and produces an
+`h.div(picker, plot_node)`. The user does not call `resolve_channels`,
+`refine_channels`, `apply_combos!`, `mapping_controls`, or `to_node`; this
+function does all of it.
+
+# How channel info is sourced
+
+- **Defaults** are read from each layer's existing `.named` mapping. If a
+  layer says `mapping(:x, :y; color=:source, row=:study)`, then `color_default
+  = "source"` and `row_default = "study"` automatically.
+- **`dims`** is the user-supplied list of remappable dimensions, as
+  `Vector{Pair{String,String}}` (field => human label). Labels here are the
+  single source of truth for picker labels and combo titles.
+- **`fixed`** assigns fields to channels that the picker shouldn't expose as
+  remappable. Same shape as in `resolve_channels`. Labels for fixed fields
+  are picked up from `dims` if present, otherwise snake_case → Title Case.
+- **`pinned`** is the catch-all channel.
+
+# What it does internally
+
+1. Walks `spec` to enumerate layers and their dataframes.
+2. Reads channel defaults from layers' existing mappings.
+3. Calls `resolve_channels(dims; defaults..., fixed, pinned)`.
+4. `refine_channels(resolved, dfs...)` — strips dims absent or single-valued
+   across every layer.
+5. For each layer's df: cartesian-product broadcasts the df across the
+   union of unique values for every row/color/column field it doesn't have
+   (so partial-overlap layers like observation scatters land in every
+   relevant pred panel), then `apply_combos!` builds `__aov_row`/etc.
+6. Rebuilds each layer with the new (broadcast) df and resolved channel
+   kws merged into its mapping. lineribbon/pointinterval/etc. detail is
+   patched on the transformation.
+7. Reassembles layers via `+`, preserves the original `VegaSpec` config,
+   and wraps with `mapping_controls` + `to_node` in an `h.div`.
+
+# Example
+
+```julia
+spec = data(filtered_pred) * mapping(:dose_mg => "Dose (mg)", :qoi => "";
+            group=:draw, color=:source, row=:study) * lineribbon() +
+       data(obs_rows) * mapping(:dose_mg => "Dose (mg)", :qoi => "") *
+            visual(Scatter; size=30, opacity=0.8)
+spec *= config(height=300, independent_scales=true)
+
+remap_node("dose-response-plot", spec;
+    dims=["source"=>"Source", "study"=>"Study", "outcome"=>"Outcome", "method"=>"Method"],
+    fixed=Dict(:column => "assay"),
+    pinned=:row)
+```
+"""
+function auto_remap_node(plot_id, spec; dims, fixed=Dict(), pinned::Symbol=:row)
+    layers = _spec_layers(spec)
+    raw_dfs = [extract_data(l) for l in layers]
+    any(isnothing, raw_dfs) && error("auto_remap_node: every layer must have associated data (no Pregrouped layers supported here)")
+    # Materialize each layer's data as a NamedTuple of vectors so the rest
+    # of the pipeline can stay non-mutating and uniform across input types
+    # (DataFrame / DataFrameColumns / NamedTuple / etc).
+    dfs = NamedTuple[Tables.columntable(d) for d in raw_dfs]
+
+    defaults = _layer_channel_defaults(layers)
+    resolved = resolve_channels(dims;
+        color_default=defaults["color"],
+        row_default=defaults["row"],
+        column_default=defaults["column"],
+        pinned, fixed)
+    resolved = refine_channels(resolved, dfs...)
+
+    # Cartesian-product fill missing facet fields, then build combo columns.
+    bcast_fields = unique(vcat(resolved.color_fields, resolved.row_fields, resolved.column_fields))
+    new_dfs = [_with_combos(_broadcast_missing_fields(df, dfs, bcast_fields), resolved) for df in dfs]
+
+    new_layers = [_rebuild_layer(layer, new_df, resolved) for (layer, new_df) in zip(layers, new_dfs)]
+    new_drawable = reduce(+, new_layers)
+    new_spec = spec isa VegaSpec ? VegaSpec(new_drawable, spec.config) : new_drawable
+
+    h.div()(
+        isempty(resolved.dims) ? "" : mapping_controls(plot_id, resolved; spec=new_spec),
+        to_node(new_spec; id=plot_id),
     )
 end
 
