@@ -3574,7 +3574,12 @@ function auto_remap_node(plot_id, spec; dims, fixed=Dict(), pinned::Symbol=:row)
     # (DataFrame / DataFrameColumns / NamedTuple / etc).
     dfs = NamedTuple[Tables.columntable(d) for d in raw_dfs]
 
+    # Only fields the user listed in `dims` count as remappable defaults.
+    # Layer-internal encodings on other fields (e.g. dose VLines coloring by
+    # :vessel, or per-marker `color="black"`) are ignored.
+    dim_fields = Set{String}(string(d isa Pair ? first(d) : d) for d in dims)
     defaults = _layer_channel_defaults(layers)
+    defaults = Dict(ch => filter(f -> f in dim_fields, fs) for (ch, fs) in defaults)
     resolved = resolve_channels(dims;
         color_default=defaults["color"],
         row_default=defaults["row"],
