@@ -22,7 +22,7 @@ import HTMX: h
 # `_TIC_VERSION` before saving to verify Revise picked the file up.
 # Defined first so any function below can use `@tic` without forward-reference
 # issues at cold-start precompile.
-_TIC_VERSION = 4
+_TIC_VERSION = 5
 mutable struct Tic
     label::String
     _ns::UInt64
@@ -692,10 +692,15 @@ function compute_interval_summary(table, x_field::String, group_field::Union{Str
 end
 
 function compute_ribbon_summary(table, x_field::String, y_field::String, group_field::String, probs::Vector{Float64}; color_field::Union{String,Nothing}=nothing, facet_fields::Vector{String}=String[], detail_fields::Vector{String}=String[])
+    @tic "compute_ribbon_summary start"
     xs = Tables.getcolumn(table, Symbol(x_field))
     ys = Tables.getcolumn(table, Symbol(y_field))
     key_fields = String[f for f in [x_field, color_field, facet_fields..., detail_fields...] if !isnothing(f)]
-    idx_groups = _group_indices(_key_columns(table; fields=key_fields))
+    @tic "getcolumn (n=$(length(ys)))"
+    kc = _key_columns(table; fields=key_fields)
+    @tic "_key_columns"
+    idx_groups = _group_indices(kc)
+    @tic "_group_indices (groups=$(length(idx_groups)))"
 
     rows = Dict{String,Any}[]
     sizehint!(rows, length(idx_groups))
@@ -721,6 +726,7 @@ function compute_ribbon_summary(table, x_field::String, y_field::String, group_f
         end
         push!(rows, row)
     end
+    @tic "ribbon quantile loop"
     rows
 end
 
@@ -1599,9 +1605,11 @@ _layer_to_vl(::Nothing, layer; kw...) = _plain_layer_to_vl(layer; kw...)
 
 function layer_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
     if is_pregrouped(layer)
+        @tic "layer_to_vl -> pregrouped_to_vl"
         spec = pregrouped_to_vl(layer; is_sublayer)
     else
         handler = _layer_handler(layer)
+        @tic "layer_to_vl -> handler=$(typeof(handler))"
         spec = _layer_to_vl(handler, layer; is_sublayer)
     end
     !is_sublayer && (spec["\$schema"] = VL_SCHEMA)
