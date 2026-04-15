@@ -3488,18 +3488,6 @@ function _layer_channel_defaults(layers)
     defaults
 end
 
-# Cartesian-product expand `df` by `sym`: every original row is replicated
-# once per `values`, with `sym` filled from `values`. Operates on
-# `NamedTuple` column tables to stay non-mutating and predictable.
-function _expand_with_field(cols::NamedTuple, sym::Symbol, values)
-    isempty(values) && return cols
-    nrows = length(first(cols))
-    val_vec = collect(values)
-    n = length(val_vec)
-    inflated = map(c -> repeat(c, inner=n), cols)
-    merge(inflated, NamedTuple{(sym,)}((repeat(val_vec, outer=nrows),)))
-end
-
 # Append a new column to a column-table (NamedTuple of vectors).
 _with_added_column(cols::NamedTuple, name::Symbol, vals) =
     merge(cols, NamedTuple{(name,)}((vals,)))
@@ -3516,8 +3504,11 @@ function _with_combos(cols::NamedTuple, resolved)
         length(fields) <= 1 && continue
         syms = Symbol.(fields)
         all(s -> haskey(cur, s), syms) || continue
-        n = length(first(cur))
-        combo_vals = [join([string(cur[s][i]) for s in syms], " / ") for i in 1:n]
+        # Vectorized fold: `string.(acc, " / ", col)` per extra field.
+        combo_vals = string.(cur[syms[1]])
+        for s in @view syms[2:end]
+            combo_vals = string.(combo_vals, " / ", cur[s])
+        end
         cur = _with_added_column(cur, combo_col, combo_vals)
     end
     cur
@@ -3525,13 +3516,17 @@ end
 
 # Broadcast `cols` across every field in `fields` that's absent from it.
 # For each missing field, collects the union of unique values across
-# `all_cols` and cartesian-product expands `cols` against them. Operates
-# on `NamedTuple` column-tables.
+# `all_cols`, then performs ONE cartesian-product expansion against the
+# joint product of all missing fields. This is much faster than expanding
+# field-by-field, which would re-inflate the (already inflated) table on
+# every step. Operates on `NamedTuple` column-tables.
 function _broadcast_missing_fields(cols::NamedTuple, all_cols::Vector, fields)
-    cur = cols
+    # Gather missing fields and their unique values (skip empties).
+    missing_syms = Symbol[]
+    missing_vals = Vector{Vector{Any}}()
     for field in fields
         sym = Symbol(field)
-        haskey(cur, sym) && continue
+        haskey(cols, sym) && continue
         uniques = Any[]
         seen = Set{Any}()
         for other in all_cols
@@ -3542,9 +3537,35 @@ function _broadcast_missing_fields(cols::NamedTuple, all_cols::Vector, fields)
             end
         end
         isempty(uniques) && continue
-        cur = _expand_with_field(cur, sym, uniques)
+        push!(missing_syms, sym)
+        push!(missing_vals, uniques)
     end
-    cur
+    isempty(missing_syms) && return cols
+
+    nrows = length(first(cols))
+    sizes = length.(missing_vals)
+    total_combos = prod(sizes)
+
+    # Each original row is replicated `total_combos` times in a contiguous
+    # block; one allocation per existing column.
+    inflated = map(c -> repeat(c, inner=total_combos), cols)
+
+    # Build each new field column so that within every block of size
+    # `total_combos`, every cartesian combination appears exactly once.
+    # `inner_sz` tracks how many positions a single value of the current
+    # field spans before cycling.
+    added = NamedTuple()
+    inner_sz = 1
+    for (sym, vals) in zip(missing_syms, missing_vals)
+        n_vals = length(vals)
+        outer_sz = total_combos ÷ (inner_sz * n_vals)
+        cycle = repeat(repeat(vals, inner=inner_sz), outer=outer_sz)
+        col = repeat(cycle, outer=nrows)
+        added = merge(added, NamedTuple{(sym,)}((col,)))
+        inner_sz *= n_vals
+    end
+
+    merge(inflated, added)
 end
 
 # Patch the `detail_fields` of any TidybayesAnalysis in a transformation
