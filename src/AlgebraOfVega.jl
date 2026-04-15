@@ -22,7 +22,7 @@ import HTMX: h
 # `_TIC_VERSION` before saving to verify Revise picked the file up.
 # Defined first so any function below can use `@tic` without forward-reference
 # issues at cold-start precompile.
-_TIC_VERSION = 6
+_TIC_VERSION = 7
 mutable struct Tic
     label::String
     _ns::UInt64
@@ -650,14 +650,28 @@ function _group_indices_impl(tcols::Tuple)
     n = length(first(tcols))
     K = Tuple{map(eltype, tcols)...}
     groups = Dict{K, Vector{Int}}()
+    n == 0 && return groups
     sizehint!(groups, min(n, 1 << 16))
-    @inbounds for i in 1:n
-        key = map(c -> c[i], tcols)
-        idxs = get(groups, key, nothing)
-        if idxs === nothing
-            groups[key] = Int[i]
-        else
-            push!(idxs, i)
+    # Cache the last seen (key, vector) so contiguous runs of identical keys
+    # (common in time-series / draw-indexed data) skip the dict lookup entirely.
+    @inbounds begin
+        last_key = map(c -> c[1], tcols)
+        last_vec = Int[1]
+        groups[last_key] = last_vec
+        for i in 2:n
+            key = map(c -> c[i], tcols)
+            if key == last_key
+                push!(last_vec, i)
+            else
+                vec = get(groups, key, nothing)
+                if vec === nothing
+                    vec = Int[]
+                    groups[key] = vec
+                end
+                push!(vec, i)
+                last_key = key
+                last_vec = vec
+            end
         end
     end
     groups
@@ -715,27 +729,51 @@ function compute_ribbon_summary(table, x_field::String, y_field::String, group_f
     idx_groups = _group_indices(kc)
     @tic "_group_indices (groups=$(length(idx_groups)))"
 
+    # Precompute per-prob quantile field names + lo/hi fractions — these are
+    # called O(groups × probs) times so must not re-allocate strings inside.
+    lo_keys = String[_vl_prob_field("lo", p) for p in probs]
+    hi_keys = String[_vl_prob_field("hi", p) for p in probs]
+    lo_fracs = Float64[(1 - p) / 2 for p in probs]
+    row_size = 2 + (color_field === nothing ? 0 : 1) +
+               length(facet_fields) + length(detail_fields) + 2 * length(probs)
+
+    Y = eltype(ys)
+    buf = Vector{Y}(undef, 0)
+
     rows = Dict{String,Any}[]
     sizehint!(rows, length(idx_groups))
     for (key, idxs) in idx_groups
-        v = sort!(ys[idxs])
-        n = length(v)
-        n == 0 && continue
-        q(f) = v[clamp(round(Int, f * n), 1, n)]
-        ki = 0
-        x = key[ki += 1]
-        row = Dict{String,Any}(x_field => x, "__median__" => q(0.5))
-        !isnothing(color_field) && (row[color_field] = key[ki += 1])
+        ng = length(idxs)
+        ng == 0 && continue
+        # Gather + sort into a reusable buffer (avoids allocating ys[idxs] per group).
+        resize!(buf, ng)
+        @inbounds for k in 1:ng
+            buf[k] = ys[idxs[k]]
+        end
+        sort!(buf)
+        qidx(f) = clamp(round(Int, f * ng), 1, ng)
+
+        row = Dict{String,Any}()
+        sizehint!(row, row_size)
+        ki = 1
+        row[x_field] = key[ki]
+        @inbounds row["__median__"] = buf[qidx(0.5)]
+        if color_field !== nothing
+            ki += 1
+            row[color_field] = key[ki]
+        end
         for ff in facet_fields
-            row[ff] = key[ki += 1]
+            ki += 1
+            row[ff] = key[ki]
         end
         for ff in detail_fields
-            row[ff] = key[ki += 1]
+            ki += 1
+            row[ff] = key[ki]
         end
-        for prob in probs
-            lo = (1 - prob) / 2
-            row[_vl_prob_field("lo", prob)] = q(lo)
-            row[_vl_prob_field("hi", prob)] = q(1 - lo)
+        @inbounds for j in eachindex(probs)
+            lo = lo_fracs[j]
+            row[lo_keys[j]] = buf[qidx(lo)]
+            row[hi_keys[j]] = buf[qidx(1 - lo)]
         end
         push!(rows, row)
     end
