@@ -317,6 +317,53 @@ end
     @test vl3["resolve"]["scale"]["y"] == "independent"
 end
 
+@testset "scales / facet config (AoG mirror)" begin
+    df = (; x=[1.0, 2.0], y=[3.0, 4.0], g=["a", "b"])
+
+    # scales(Y=(; scale=log10)) → VL encoding y.scale.type == "log"
+    spec = data(df) * mapping(:x, :y) * visual(Scatter) *
+        config(scales=scales(Y=(; scale=log10)))
+    vl = to_vegalite(spec)
+    @test vl["encoding"]["y"]["scale"]["type"] == "log"
+    @test !haskey(vl["encoding"]["y"]["scale"], "base")
+
+    # scales(X=(; scale=log2)) → base=2
+    spec2 = data(df) * mapping(:x, :y) * visual(Scatter) *
+        config(scales=scales(X=(; scale=log2)))
+    vl2 = to_vegalite(spec2)
+    @test vl2["encoding"]["x"]["scale"]["type"] == "log"
+    @test vl2["encoding"]["x"]["scale"]["base"] == 2
+
+    # scales + independent X+Y on both axes via facet= NamedTuple
+    spec3 = data(df) * mapping(:x, :y, col=:g) * visual(Scatter) *
+        config(scales=scales(Y=(; scale=log10)),
+               facet=(; linkxaxes=:none, linkyaxes=:none))
+    vl3 = to_vegalite(spec3)
+    @test vl3["resolve"]["scale"]["x"] == "independent"
+    @test vl3["resolve"]["scale"]["y"] == "independent"
+
+    # facet=(; linkxaxes=:none) only → only x is independent
+    spec4 = data(df) * mapping(:x, :y, col=:g) * visual(Scatter) *
+        config(facet=(; linkxaxes=:none))
+    vl4 = to_vegalite(spec4)
+    @test vl4["resolve"]["scale"]["x"] == "independent"
+    @test !haskey(vl4["resolve"]["scale"], "y")
+
+    # Explicit user `encoding` overrides `scales` sugar on conflict
+    spec5 = data(df) * mapping(:x, :y) * visual(Scatter) *
+        config(scales=scales(Y=(; scale=log10)),
+               encoding=Dict(:y => Dict("scale" => Dict("type" => "sqrt"))))
+    vl5 = to_vegalite(spec5)
+    @test vl5["encoding"]["y"]["scale"]["type"] == "sqrt"
+
+    # Backwards compat: independent_scales=true still works (emits deprecation)
+    spec6 = data(df) * mapping(:x, :y, col=:g) * visual(Scatter) *
+        config(independent_scales=true)
+    vl6 = (@test_logs (:warn, r"deprecated") match_mode=:any to_vegalite(spec6))
+    @test vl6["resolve"]["scale"]["x"] == "independent"
+    @test vl6["resolve"]["scale"]["y"] == "independent"
+end
+
 @testset "VL helpers" begin
     # vl_enc
     enc = AlgebraOfVega.vl_enc(:x; type="quantitative", title="X axis")

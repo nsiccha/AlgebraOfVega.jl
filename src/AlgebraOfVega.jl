@@ -109,8 +109,13 @@ Create a `Config` with Vega-Lite properties. Common options:
 - `encoding` — deep-merged with auto-generated encodings (add aggregate, scale, axis, etc.)
 - `params`, `transform` — VL interactivity parameters and data transforms
 - `select` — field(s) for client-side dropdown filtering (e.g. `select=:origin`)
-- `independent_scales` — sugar for VL `resolve`. `true` = both axes, `:x`/`:y` = one axis,
-  `(:x, :y)` = explicit. Replaces `resolve=Dict("scale" => Dict("x" => "independent", ...))`.
+- `scales` — an AoG `scales(...)` object, mirroring `draw(spec, scales(...))`. Currently
+  translates X/Y/Z `scale=log`/`log2`/`log10`/`sqrt`/`identity` to VL scale types.
+  Example: `config(scales=scales(Y=(; scale=log10)))`.
+- `facet` — an AoG-style NamedTuple passed to `draw(; facet=...)`. `linkxaxes=:none` /
+  `linkyaxes=:none` translate to VL `resolve.scale.<axis>="independent"`.
+  Example: `config(facet=(; linkxaxes=:none, linkyaxes=:none))`.
+- `independent_scales` — **deprecated**: use `facet=(; linkxaxes=:none, linkyaxes=:none)`.
 
 Config is applied to a spec via `*`: `data(df) * mapping(:x, :y) * visual(Scatter) * config(width=500)`.
 """
@@ -1921,11 +1926,70 @@ function _merge_encoding_config!(spec::Dict, config_enc::Dict)
     end
 end
 
+# --- AoG scales / facet sugar (mirrors AlgebraOfGraphics.draw(spec, scales(...); facet=...)) ---
+
+"""Translate an AoG scale transform function to a VL `scale` object, or `nothing` if unsupported."""
+function _aog_scale_fn_to_vl(f)
+    f === identity && return nothing
+    f === log10 && return Dict{String,Any}("type" => "log")
+    f === log2 && return Dict{String,Any}("type" => "log", "base" => 2)
+    f === log && return Dict{String,Any}("type" => "log", "base" => ℯ)
+    f === sqrt && return Dict{String,Any}("type" => "sqrt")
+    @warn "AlgebraOfVega: cannot translate scale function `$f` to a Vega-Lite scale; leaving axis untransformed. Supported: identity, log, log2, log10, sqrt." maxlog=1
+    nothing
+end
+
+_aog_axis_key_to_vl_channel(k::Symbol) =
+    k === :X ? "x" : k === :Y ? "y" : k === :Z ? "z" : nothing
+
+"""Translate an AoG `Scales` object into a VL encoding-override dict (X/Y/Z scales only)."""
+function _scales_to_encoding_override(sc::AlgebraOfGraphics.Scales)
+    override = Dict{String,Any}()
+    for (axis_key, props) in pairs(sc.dict)
+        ch = _aog_axis_key_to_vl_channel(axis_key)
+        isnothing(ch) && continue
+        scale_fn = get(props, :scale, nothing)
+        isnothing(scale_fn) && continue
+        vl_scale = _aog_scale_fn_to_vl(scale_fn)
+        isnothing(vl_scale) && continue
+        override[ch] = Dict{String,Any}("scale" => vl_scale)
+    end
+    override
+end
+
+"""Merge a VL `resolve.scale` dict into `spec`, preserving any existing entries."""
+function _merge_resolve_scale!(spec::Dict, resolve_scale::Dict)
+    isempty(resolve_scale) && return
+    resolve = get!(spec, "resolve", Dict{String,Any}())
+    existing = get!(resolve, "scale", Dict{String,Any}())
+    merge!(existing, resolve_scale)
+end
+
+"""Translate an AoG-style `facet=(; linkxaxes, linkyaxes)` NamedTuple into a VL `resolve.scale` dict."""
+function _facet_nt_to_resolve_scale(nt)
+    out = Dict{String,Any}()
+    linkx = get(nt, :linkxaxes, nothing)
+    linky = get(nt, :linkyaxes, nothing)
+    (linkx === :none || linkx === false) && (out["x"] = "independent")
+    (linky === :none || linky === false) && (out["y"] = "independent")
+    out
+end
+
 function to_vegalite(v::VegaSpec)
     spec = to_vegalite(v.drawable)
     select_fields = nothing
     if !isnothing(v.config)
-        for (k, val) in v.config.properties
+        props = v.config.properties
+        # First pass: apply AoG-style sugar (scales, facet) so user-supplied
+        # `encoding=Dict(...)` in the second pass can still override on conflict.
+        if haskey(props, :scales) && props[:scales] isa AlgebraOfGraphics.Scales
+            override = _scales_to_encoding_override(props[:scales])
+            isempty(override) || _merge_encoding_config!(spec, override)
+        end
+        if haskey(props, :facet) && props[:facet] isa NamedTuple
+            _merge_resolve_scale!(spec, _facet_nt_to_resolve_scale(props[:facet]))
+        end
+        for (k, val) in props
             sk = string(k)
             # Deep-merge encoding so config adds to (not overwrites) auto-generated channels
             if sk == "encoding" && val isa Dict
@@ -1933,7 +1997,12 @@ function to_vegalite(v::VegaSpec)
             elseif sk in ("width", "height") && haskey(spec, "spec")
                 # For faceted specs, width/height go into the inner spec
                 spec["spec"][sk] = val
+            elseif sk == "scales" && val isa AlgebraOfGraphics.Scales
+                # Handled in first pass
+            elseif sk == "facet" && val isa NamedTuple
+                # Handled in first pass
             elseif sk == "independent_scales"
+                @warn "AlgebraOfVega: `config(independent_scales=$(repr(val)))` is deprecated; use `config(facet=(; linkxaxes=:none, linkyaxes=:none))` to mirror AlgebraOfGraphics." maxlog=1
                 # Sugar for VL resolve: independent_scales=true, =:x, =(:x,:y)
                 axes = if val === true
                     ["x", "y"]
@@ -1942,8 +2011,7 @@ function to_vegalite(v::VegaSpec)
                 else
                     [string(v) for v in val]
                 end
-                resolve_scale = Dict{String,Any}(ax => "independent" for ax in axes)
-                spec["resolve"] = Dict{String,Any}("scale" => resolve_scale)
+                _merge_resolve_scale!(spec, Dict{String,Any}(ax => "independent" for ax in axes))
             elseif sk == "font_scale"
                 # Scale all default VL font sizes by val
                 fs = Float64(val)
@@ -4048,7 +4116,8 @@ function _draw_kwargs(cfg::Union{Config,Nothing}; faceted=false)
     figure_kw = Dict{Symbol,Any}()
     facet_kw = Dict{Symbol,Any}()
     axis_kw = Dict{Symbol,Any}()
-    isnothing(cfg) && return (; figure=NamedTuple(), facet=NamedTuple(), axis=NamedTuple())
+    scales_obj = nothing
+    isnothing(cfg) && return (; figure=NamedTuple(), facet=NamedTuple(), axis=NamedTuple(), scales=nothing)
     props = cfg.properties
     if !faceted
         w = get(props, :width, nothing)
@@ -4057,7 +4126,7 @@ function _draw_kwargs(cfg::Union{Config,Nothing}; faceted=false)
             figure_kw[:size] = (something(w, 400), something(h_val, 400))
         end
     end
-    # Translate VL encoding scale overrides to Makie axis scales
+    # Translate VL encoding scale overrides to Makie axis scales (backwards compat)
     enc = get(props, :encoding, nothing)
     if !isnothing(enc) && enc isa Dict
         for (ch, ch_props) in enc
@@ -4077,7 +4146,14 @@ function _draw_kwargs(cfg::Union{Config,Nothing}; faceted=false)
     for (k, v) in props
         if k in (:width, :height, :encoding)
             # handled above
+        elseif k === :scales && v isa AlgebraOfGraphics.Scales
+            scales_obj = v
+        elseif k === :facet && v isa NamedTuple
+            for (fk, fv) in pairs(v)
+                facet_kw[fk] = fv
+            end
         elseif k === :independent_scales
+            @warn "AlgebraOfVega: `config(independent_scales=$(repr(v)))` is deprecated; use `config(facet=(; linkxaxes=:none, linkyaxes=:none))` to mirror AlgebraOfGraphics." maxlog=1
             axes = if v === true
                 [:x, :y]
             elseif v isa Symbol
@@ -4085,11 +4161,11 @@ function _draw_kwargs(cfg::Union{Config,Nothing}; faceted=false)
             else
                 [Symbol(a) for a in v]
             end
-            :x in axes && (facet_kw[:linkxaxes] = :none)
-            :y in axes && (facet_kw[:linkyaxes] = :none)
+            :x in axes && get!(facet_kw, :linkxaxes, :none)
+            :y in axes && get!(facet_kw, :linkyaxes, :none)
         end
     end
-    (; figure=NamedTuple(figure_kw), facet=NamedTuple(facet_kw), axis=NamedTuple(axis_kw))
+    (; figure=NamedTuple(figure_kw), facet=NamedTuple(facet_kw), axis=NamedTuple(axis_kw), scales=scales_obj)
 end
 
 """
@@ -4261,7 +4337,9 @@ function sdraw_file(spec, path::AbstractString; kwargs...)
         drawable
     end
     kw = _draw_kwargs(cfg; faceted=_is_faceted(drawable))
-    fg = AlgebraOfGraphics.draw(drawable; figure=kw.figure, facet=kw.facet, axis=kw.axis)
+    fg = isnothing(kw.scales) ?
+        AlgebraOfGraphics.draw(drawable; figure=kw.figure, facet=kw.facet, axis=kw.axis) :
+        AlgebraOfGraphics.draw(drawable, kw.scales; figure=kw.figure, facet=kw.facet, axis=kw.axis)
     Makie.save(path, fg; kwargs...)
     path
 end
