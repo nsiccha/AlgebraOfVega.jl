@@ -22,7 +22,7 @@ import HTMX: h
 # `_TIC_VERSION` before saving to verify Revise picked the file up.
 # Defined first so any function below can use `@tic` without forward-reference
 # issues at cold-start precompile.
-_TIC_VERSION = 2
+_TIC_VERSION = 3
 mutable struct Tic
     label::String
     _ns::UInt64
@@ -1659,6 +1659,7 @@ function _plain_layer_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
 end
 
 function layers_to_vl(layers::AlgebraOfGraphics.Layers)
+    @tic "layers_to_vl start (n=$(length(layers.layers)))"
     # Check if any layer is faceted density (density with y group) — needs special handling
     has_faceted_density = false
     facet_field = nothing
@@ -1678,6 +1679,7 @@ function layers_to_vl(layers::AlgebraOfGraphics.Layers)
             facet_field = string(l.named[:y])
         end
     end
+    @tic "shared_data extraction"
 
     if has_faceted_density && !isnothing(facet_field)
         return _faceted_layers_to_vl(layers, facet_field, shared_table, shared_data)
@@ -1696,7 +1698,9 @@ function layers_to_vl(layers::AlgebraOfGraphics.Layers)
     layer_specs = Dict{String,Any}[]
 
     for layer in layers.layers
+        @tic "begin layer_to_vl"
         ls = layer_to_vl(layer; is_sublayer=true)
+        @tic "layer_to_vl"
 
         if haskey(ls, "facet")
             # Faceted analysis spec — lift facet, flatten inner sublayers with their data
@@ -1742,6 +1746,7 @@ function layers_to_vl(layers::AlgebraOfGraphics.Layers)
         haskey(enc, "row") && !haskey(outer_facet, "row") && (outer_facet["row"] = enc["row"])
     end
 
+    @tic "per-layer loop"
     if !isempty(outer_facet)
         # VL facet only filters inherited (outer) data — per-sublayer data is NOT filtered.
         # Fix: merge all sublayer data into one outer dataset tagged with __source__,
@@ -1805,6 +1810,7 @@ function layers_to_vl(layers::AlgebraOfGraphics.Layers)
     else
         spec["layer"] = layer_specs
     end
+    @tic "facet merge + reassemble"
 
     spec
 end
@@ -2049,7 +2055,9 @@ function _axis_nt_to_encoding_override(nt)
 end
 
 function to_vegalite(v::VegaSpec)
+    @tic "to_vegalite(VegaSpec) start"
     spec = to_vegalite(v.drawable)
+    @tic "to_vegalite(drawable)"
     select_fields = nothing
     if !isnothing(v.config)
         props = v.config.properties
@@ -2118,10 +2126,13 @@ function to_vegalite(v::VegaSpec)
             end
         end
     end
+    @tic "to_vegalite config merge"
     if !isnothing(select_fields)
         add_select_filters!(spec, v.drawable, select_fields)
     end
+    @tic "add_select_filters"
     add_auto_interactivity!(spec)
+    @tic "add_auto_interactivity!"
     spec
 end
 
@@ -3573,15 +3584,15 @@ function _global_field_uniques(all_cols::Vector, fields)
     out = Dict{Symbol,Vector{Any}}()
     for field in fields
         sym = Symbol(field)
-        uniques = Any[]
-        seen = Set{Any}()
+        per_layer = Vector{Any}[]
         for cols in all_cols
             haskey(cols, sym) || continue
-            for v in cols[sym]
-                v in seen || (push!(seen, v); push!(uniques, v))
-            end
+            u = unique(cols[sym])
+            isempty(u) || push!(per_layer, collect(Any, u))
         end
-        isempty(uniques) || (out[sym] = uniques)
+        isempty(per_layer) && continue
+        merged = length(per_layer) == 1 ? per_layer[1] : unique(reduce(vcat, per_layer))
+        out[sym] = merged
     end
     out
 end
