@@ -1477,8 +1477,6 @@ end
 # --- HTMXObjects App ---
 
 @htmx struct AppContext
-    req = nothing
-
     flag_button(id) = let flagged = id in load_flags()
         label = flagged ? "flagged" : "flag"
         color = flagged ? "color:var(--pico-del-color);" : "color:var(--pico-muted-color);"
@@ -2098,7 +2096,7 @@ end""");
         )
     )
 
-    @include tests = TestRoutes(; req, test_module=@__MODULE__)
+    @include tests = TestRoutes(; __req__, test_module=@__MODULE__)
 end
 
 function __init__()
