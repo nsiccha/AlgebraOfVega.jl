@@ -3450,6 +3450,51 @@ function remap_node(spec, dimensions; id, table=nothing, kwargs...)
 end
 
 # === auto_remap_node ===========================================================
+
+# Lightweight scoped timer ported from bruno's `web-pkpd/src/ops.jl`. Use
+# `@tic "label"` inside a function body to print the elapsed milliseconds
+# since the previous `@tic` call (the first call seeds the timer). Use
+# `@tic expr` to time and return a single expression without affecting the
+# checkpoint timer.
+mutable struct Tic
+    label::String
+    _ns::UInt64
+end
+macro tic(arg)
+    v = esc(:_tic_)
+    file = String(__source__.file)
+    line = __source__.line
+    if arg isa String || (arg isa Expr && arg.head === :string)
+        label = esc(arg)
+        quote
+            if $(Expr(:isdefined, v))
+                _el = (time_ns() - $v._ns) / 1e6
+                @warn "$($v.label) — $($label): $(round(_el; digits=1))ms" _file=$file _line=$line
+                $v._ns = time_ns()
+            else
+                $v = Tic($label, time_ns())
+            end
+        end
+    else
+        label_str = string(arg)
+        expr = esc(arg)
+        val = gensym(:tic_val)
+        t0 = gensym(:tic_t0)
+        el = gensym(:tic_el)
+        quote
+            $t0 = time_ns()
+            $val = $expr
+            $el = (time_ns() - $t0) / 1e6
+            if $(Expr(:isdefined, v))
+                @warn "$($v.label) — $($label_str): $(round($el; digits=1))ms" _file=$file _line=$line
+            else
+                @warn "$($label_str): $(round($el; digits=1))ms" _file=$file _line=$line
+            end
+            $val
+        end
+    end
+end
+
 # `auto_remap_node(plot_id, spec; dims, fixed, pinned)` is the "fully
 # automatic" form (distinct from the simpler `remap_node` above, which is
 # a thin wrapper around `mapping_controls` + `to_node`). The user builds a
@@ -3686,13 +3731,16 @@ remap_node("dose-response-plot", spec;
 ```
 """
 function auto_remap_node(plot_id, spec; dims, fixed=Dict(), pinned::Symbol=:row)
+    @tic "auto_remap_node[$plot_id]"
     layers = _spec_layers(spec)
     raw_dfs = [extract_data(l) for l in layers]
     any(isnothing, raw_dfs) && error("auto_remap_node: every layer must have associated data (no Pregrouped layers supported here)")
+    @tic "extract_data ($(length(layers)) layers)"
     # Materialize each layer's data as a NamedTuple of vectors so the rest
     # of the pipeline can stay non-mutating and uniform across input types
     # (DataFrame / DataFrameColumns / NamedTuple / etc).
     dfs = NamedTuple[Tables.columntable(d) for d in raw_dfs]
+    @tic "columntable (rows: $(join([length(first(d)) for d in dfs], ',')))"
 
     # Only fields the user listed in `dims` count as remappable defaults.
     # Layer-internal encodings on other fields (e.g. dose VLines coloring by
@@ -3706,19 +3754,27 @@ function auto_remap_node(plot_id, spec; dims, fixed=Dict(), pinned::Symbol=:row)
         column_default=defaults["column"],
         pinned, fixed)
     resolved = refine_channels(resolved, dfs...)
+    @tic "resolve+refine_channels"
 
     # Cartesian-product fill missing facet fields, then build combo columns.
     bcast_fields = unique(vcat(resolved.color_fields, resolved.row_fields, resolved.column_fields))
-    new_dfs = [_with_combos(_broadcast_missing_fields(df, dfs, bcast_fields), resolved) for df in dfs]
+    bcasted = [_broadcast_missing_fields(df, dfs, bcast_fields) for df in dfs]
+    @tic "broadcast_missing_fields (rows: $(join([length(first(d)) for d in bcasted], ',')))"
+    new_dfs = [_with_combos(df, resolved) for df in bcasted]
+    @tic "with_combos"
 
     new_layers = [_rebuild_layer(layer, new_df, resolved) for (layer, new_df) in zip(layers, new_dfs)]
+    @tic "rebuild_layers"
     new_drawable = reduce(+, new_layers)
     new_spec = spec isa VegaSpec ? VegaSpec(new_drawable, spec.config) : new_drawable
+    @tic "reassemble"
 
-    h.div()(
+    out = h.div()(
         isempty(resolved.dims) ? "" : mapping_controls(plot_id, resolved; spec=new_spec),
         to_node(new_spec; id=plot_id),
     )
+    @tic "mapping_controls+to_node"
+    out
 end
 
 function mapping_controls(id, resolved::NamedTuple; table=nothing, spec=nothing)
