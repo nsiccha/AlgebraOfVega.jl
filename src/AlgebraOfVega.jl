@@ -22,7 +22,7 @@ import HTMX: h
 # `_TIC_VERSION` before saving to verify Revise picked the file up.
 # Defined first so any function below can use `@tic` without forward-reference
 # issues at cold-start precompile.
-_TIC_VERSION = 3
+_TIC_VERSION = 4
 mutable struct Tic
     label::String
     _ns::UInt64
@@ -438,11 +438,15 @@ _vl_safe(v) = v isa Number && !isfinite(v) ? nothing : v
 
 function data_to_vl(table)
     isnothing(table) && return nothing
+    @tic "data_to_vl start"
     rows = Tables.rowtable(table)
-    Dict{String,Any}("values" => [
+    @tic "data_to_vl Tables.rowtable (n=$(length(rows)))"
+    vals = [
         Dict{String,Any}(string(k) => _vl_safe(v) for (k, v) in pairs(nt))
         for nt in rows
-    ])
+    ]
+    @tic "data_to_vl row-dict comprehension"
+    Dict{String,Any}("values" => vals)
 end
 
 function visual_attrs_to_mark_props(vis::AlgebraOfGraphics.Visual)
@@ -1606,10 +1610,13 @@ end
 
 """Translate a plain (non-analysis, non-pregrouped) AoG layer to VL."""
 function _plain_layer_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
+    @tic "_plain_layer_to_vl start"
     spec = Dict{String,Any}()
 
     table = extract_data(layer)
+    @tic "extract_data"
     !isnothing(table) && (spec["data"] = data_to_vl(table))
+    @tic "data_to_vl"
 
     # Visual / mark (default to Scatter like AoG)
     vis = extract_visual(layer)
@@ -1647,6 +1654,7 @@ function _plain_layer_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
     end
 
     !isnothing(table) && infer_types!(encoding, table)
+    @tic "encoding + infer_types!"
 
     # Auto-tooltip
     if !isempty(encoding) && !haskey(encoding, "tooltip")
