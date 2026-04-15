@@ -22,7 +22,7 @@ import HTMX: h
 # `_TIC_VERSION` before saving to verify Revise picked the file up.
 # Defined first so any function below can use `@tic` without forward-reference
 # issues at cold-start precompile.
-_TIC_VERSION = 5
+_TIC_VERSION = 6
 mutable struct Tic
     label::String
     _ns::UInt64
@@ -638,14 +638,27 @@ end
 
 # --- Grouping helper + summary computation ---
 
-# Single-pass O(n) grouping by key columns → Dict{key => Vector{Int}}
-# TODO: consider replacing with a groupby library (DataFrames, SplitApplyCombine)
+# Single-pass O(n) grouping by key columns → Dict{key => Vector{Int}}.
+# Function barrier: `_group_indices_impl` sees a concrete `Tuple` of columns,
+# so the key `map` and dict ops specialize on actual eltypes instead of `Any`.
 function _group_indices(columns::Vector{<:AbstractVector})
-    n = length(first(columns))
-    groups = Dict{Any, Vector{Int}}()
-    for i in 1:n
-        key = Tuple(col[i] for col in columns)
-        push!(get!(Vector{Int}, groups, key), i)
+    isempty(columns) && return Dict{Tuple{}, Vector{Int}}()
+    _group_indices_impl(Tuple(columns))
+end
+
+function _group_indices_impl(tcols::Tuple)
+    n = length(first(tcols))
+    K = Tuple{map(eltype, tcols)...}
+    groups = Dict{K, Vector{Int}}()
+    sizehint!(groups, min(n, 1 << 16))
+    @inbounds for i in 1:n
+        key = map(c -> c[i], tcols)
+        idxs = get(groups, key, nothing)
+        if idxs === nothing
+            groups[key] = Int[i]
+        else
+            push!(idxs, i)
+        end
     end
     groups
 end
