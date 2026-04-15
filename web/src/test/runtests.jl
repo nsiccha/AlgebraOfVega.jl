@@ -475,7 +475,7 @@ end
     @test layers isa AlgebraOfGraphics.Layers
 
     # Composable with config
-    spec = layers * config(width=300, height=200, independent_scales=true)
+    spec = layers * config(width=300, height=200, facet=(; linkxaxes=:none, linkyaxes=:none))
     vl = to_vegalite(spec)
     @test haskey(vl, "resolve")
 

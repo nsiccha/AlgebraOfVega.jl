@@ -3625,7 +3625,7 @@ spec = data(filtered_pred) * mapping(:dose_mg => "Dose (mg)", :qoi => "";
             group=:draw, color=:source, row=:study) * lineribbon() +
        data(obs_rows) * mapping(:dose_mg => "Dose (mg)", :qoi => "") *
             visual(Scatter; size=30, opacity=0.8)
-spec *= config(height=300, independent_scales=true)
+spec *= config(height=300, facet=(; linkxaxes=:none, linkyaxes=:none))
 
 remap_node("dose-response-plot", spec;
     dims=["source"=>"Source", "study"=>"Study", "outcome"=>"Outcome", "method"=>"Method"],
@@ -4059,7 +4059,7 @@ Example:
 ppc_overlay(obs_df, pred_df;
     x=:time_h, y=:value, col=:assay_name, row=:subject_name,
     group=:draw_id,
-) * config(width=250, height=100, independent_scales=true) |> vdraw
+) * config(width=250, height=100, facet=(; linkxaxes=:none, linkyaxes=:none)) |> vdraw
 ```
 """
 function ppc_overlay(obs, pred; x, y, col=nothing, row=nothing, group=nothing,
