@@ -3063,8 +3063,10 @@ Requires vega/vega-lite/vega-embed scripts to be loaded (use `vega_head()` in pa
   `(signal="brush", url="/on_brush", target="#detail")` or with optional `swap`, `debounce`.
 """
 function to_node(spec; id=nothing, width=nothing, height=nothing, actions=false, signals=nothing, fit_width=true)
+    @tic "to_node[$(something(id, "?"))]"
     # Convert to VL dict
     vl = spec isa Dict ? copy(spec) : to_vegalite(spec)
+    @tic "to_vegalite"
     !isnothing(width) && (vl["width"] = width)
     !isnothing(height) && (vl["height"] = height)
     # Only apply fit_width defaults if no explicit width was set (via config or kwarg)
@@ -3101,8 +3103,10 @@ function to_node(spec; id=nothing, width=nothing, height=nothing, actions=false,
         end
     end
     _broadcast_cross_source_layers!(vl)
-    id = something(id, "vega-" * string(abs(hash(JSON.json(vl))), base=16))
+    @tic "broadcast_cross_source_layers!"
     json = JSON.json(vl)
+    @tic "JSON.json (size: $(length(json)) bytes)"
+    id = something(id, "vega-" * string(abs(hash(json)), base=16))
 
     # Queue embed for deferred execution (after layout is computed)
     embed_opts = "{actions: $actions}"
@@ -3559,31 +3563,40 @@ function _with_combos(cols::NamedTuple, resolved)
     cur
 end
 
+# Precompute the union of unique values per field across all layers'
+# column-tables. Walks each (layer, field) pair exactly once, instead of
+# once per consuming layer — critical when one layer has millions of rows.
+function _global_field_uniques(all_cols::Vector, fields)
+    out = Dict{Symbol,Vector{Any}}()
+    for field in fields
+        sym = Symbol(field)
+        uniques = Any[]
+        seen = Set{Any}()
+        for cols in all_cols
+            haskey(cols, sym) || continue
+            for v in cols[sym]
+                v in seen || (push!(seen, v); push!(uniques, v))
+            end
+        end
+        isempty(uniques) || (out[sym] = uniques)
+    end
+    out
+end
+
 # Broadcast `cols` across every field in `fields` that's absent from it.
-# For each missing field, collects the union of unique values across
-# `all_cols`, then performs ONE cartesian-product expansion against the
-# joint product of all missing fields. This is much faster than expanding
-# field-by-field, which would re-inflate the (already inflated) table on
-# every step. Operates on `NamedTuple` column-tables.
-function _broadcast_missing_fields(cols::NamedTuple, all_cols::Vector, fields)
+# Performs ONE cartesian-product expansion against the joint product of
+# all missing fields. Unique-value lookup is done via a precomputed
+# `field_uniques` dict so we don't re-walk other layers per call.
+function _broadcast_missing_fields(cols::NamedTuple, fields, field_uniques::Dict{Symbol,Vector{Any}})
     # Gather missing fields and their unique values (skip empties).
     missing_syms = Symbol[]
     missing_vals = Vector{Vector{Any}}()
     for field in fields
         sym = Symbol(field)
         haskey(cols, sym) && continue
-        uniques = Any[]
-        seen = Set{Any}()
-        for other in all_cols
-            other === cols && continue
-            haskey(other, sym) || continue
-            for v in other[sym]
-                v in seen || (push!(seen, v); push!(uniques, v))
-            end
-        end
-        isempty(uniques) && continue
+        haskey(field_uniques, sym) || continue
         push!(missing_syms, sym)
-        push!(missing_vals, uniques)
+        push!(missing_vals, field_uniques[sym])
     end
     isempty(missing_syms) && return cols
 
@@ -3758,7 +3771,9 @@ function auto_remap_node(plot_id, spec; dims, fixed=Dict(), pinned::Symbol=:row)
 
     # Cartesian-product fill missing facet fields, then build combo columns.
     bcast_fields = unique(vcat(resolved.color_fields, resolved.row_fields, resolved.column_fields))
-    bcasted = [_broadcast_missing_fields(df, dfs, bcast_fields) for df in dfs]
+    field_uniques = _global_field_uniques(dfs, bcast_fields)
+    @tic "global_field_uniques"
+    bcasted = [_broadcast_missing_fields(df, bcast_fields, field_uniques) for df in dfs]
     @tic "broadcast_missing_fields (rows: $(join([length(first(d)) for d in bcasted], ',')))"
     new_dfs = [_with_combos(df, resolved) for df in bcasted]
     @tic "with_combos"
@@ -3769,11 +3784,11 @@ function auto_remap_node(plot_id, spec; dims, fixed=Dict(), pinned::Symbol=:row)
     new_spec = spec isa VegaSpec ? VegaSpec(new_drawable, spec.config) : new_drawable
     @tic "reassemble"
 
-    out = h.div()(
-        isempty(resolved.dims) ? "" : mapping_controls(plot_id, resolved; spec=new_spec),
-        to_node(new_spec; id=plot_id),
-    )
-    @tic "mapping_controls+to_node"
+    controls = isempty(resolved.dims) ? "" : mapping_controls(plot_id, resolved; spec=new_spec)
+    @tic "mapping_controls"
+    plot = to_node(new_spec; id=plot_id)
+    @tic "to_node"
+    out = h.div()(controls, plot)
     out
 end
 
