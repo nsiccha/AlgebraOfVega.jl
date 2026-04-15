@@ -15,6 +15,54 @@ using JSON, Tables
 using HTMX
 import HTMX: h
 
+# === Transient @tic timer (delete when done profiling) ========================
+# Lightweight scoped timer ported from bruno's `web-pkpd/src/ops.jl`. Use
+# `@tic "label"` inside a function body to print the elapsed milliseconds
+# since the previous `@tic` call (the first call seeds the timer). Bump
+# `_TIC_VERSION` before saving to verify Revise picked the file up.
+# Defined first so any function below can use `@tic` without forward-reference
+# issues at cold-start precompile.
+_TIC_VERSION = 2
+mutable struct Tic
+    label::String
+    _ns::UInt64
+end
+macro tic(arg)
+    v = esc(:_tic_)
+    file = String(__source__.file)
+    line = __source__.line
+    if arg isa String || (arg isa Expr && arg.head === :string)
+        label = esc(arg)
+        quote
+            if $(Expr(:isdefined, v))
+                _el = (time_ns() - $v._ns) / 1e6
+                @warn "[v$(_TIC_VERSION)] $($v.label) — $($label): $(round(_el; digits=1))ms" _file=$file _line=$line
+                $v._ns = time_ns()
+            else
+                $v = Tic($label, time_ns())
+            end
+        end
+    else
+        label_str = string(arg)
+        expr = esc(arg)
+        val = gensym(:tic_val)
+        t0 = gensym(:tic_t0)
+        el = gensym(:tic_el)
+        quote
+            $t0 = time_ns()
+            $val = $expr
+            $el = (time_ns() - $t0) / 1e6
+            if $(Expr(:isdefined, v))
+                @warn "[v$(_TIC_VERSION)] $($v.label) — $($label_str): $(round($el; digits=1))ms" _file=$file _line=$line
+            else
+                @warn "[v$(_TIC_VERSION)] $($label_str): $(round($el; digits=1))ms" _file=$file _line=$line
+            end
+            $val
+        end
+    end
+end
+# === end @tic =================================================================
+
 # Re-export AoG API
 export data, mapping, visual, dims
 export density, histogram, linear, smooth, expectation, frequency 
@@ -3454,56 +3502,6 @@ function remap_node(spec, dimensions; id, table=nothing, kwargs...)
 end
 
 # === auto_remap_node ===========================================================
-
-# Lightweight scoped timer ported from bruno's `web-pkpd/src/ops.jl`. Use
-# `@tic "label"` inside a function body to print the elapsed milliseconds
-# since the previous `@tic` call (the first call seeds the timer). Use
-# `@tic expr` to time and return a single expression without affecting the
-# checkpoint timer.
-#
-# Every emitted line carries `_TIC_VERSION` — bump the number below before
-# saving to verify that Revise actually picked the file up (look for the
-# new version in the next log line). No `const` so Revise can update it.
-_TIC_VERSION = 1
-mutable struct Tic
-    label::String
-    _ns::UInt64
-end
-macro tic(arg)
-    v = esc(:_tic_)
-    file = String(__source__.file)
-    line = __source__.line
-    if arg isa String || (arg isa Expr && arg.head === :string)
-        label = esc(arg)
-        quote
-            if $(Expr(:isdefined, v))
-                _el = (time_ns() - $v._ns) / 1e6
-                @warn "[v$(_TIC_VERSION)] $($v.label) — $($label): $(round(_el; digits=1))ms" _file=$file _line=$line
-                $v._ns = time_ns()
-            else
-                $v = Tic($label, time_ns())
-            end
-        end
-    else
-        label_str = string(arg)
-        expr = esc(arg)
-        val = gensym(:tic_val)
-        t0 = gensym(:tic_t0)
-        el = gensym(:tic_el)
-        quote
-            $t0 = time_ns()
-            $val = $expr
-            $el = (time_ns() - $t0) / 1e6
-            if $(Expr(:isdefined, v))
-                @warn "[v$(_TIC_VERSION)] $($v.label) — $($label_str): $(round($el; digits=1))ms" _file=$file _line=$line
-            else
-                @warn "[v$(_TIC_VERSION)] $($label_str): $(round($el; digits=1))ms" _file=$file _line=$line
-            end
-            $val
-        end
-    end
-end
-
 # `auto_remap_node(plot_id, spec; dims, fixed, pinned)` is the "fully
 # automatic" form (distinct from the simpler `remap_node` above, which is
 # a thin wrapper around `mapping_controls` + `to_node`). The user builds a
