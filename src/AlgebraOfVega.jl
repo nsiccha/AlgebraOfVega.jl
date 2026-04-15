@@ -115,6 +115,11 @@ Create a `Config` with Vega-Lite properties. Common options:
 - `facet` — an AoG-style NamedTuple passed to `draw(; facet=...)`. `linkxaxes=:none` /
   `linkyaxes=:none` translate to VL `resolve.scale.<axis>="independent"`.
   Example: `config(facet=(; linkxaxes=:none, linkyaxes=:none))`.
+- `axis` — an AoG-style NamedTuple passed to `draw(; axis=...)`. `limits=((xlo, xhi),
+  (ylo, yhi))` (each side may be `nothing`) translates to VL `encoding[x/y].scale.domain`;
+  `clamp=true` additionally sets `scale.clamp=true` on the limited axes (VL-only extension,
+  stripped on the Makie path).
+  Example: `config(axis=(; limits=((1, 100), nothing), clamp=true))`.
 - `independent_scales` — **deprecated**: use `facet=(; linkxaxes=:none, linkyaxes=:none)`.
 
 Config is applied to a spec via `*`: `data(df) * mapping(:x, :y) * visual(Scatter) * config(width=500)`.
@@ -1975,6 +1980,26 @@ function _facet_nt_to_resolve_scale(nt)
     out
 end
 
+"""
+Translate an AoG-style `axis=(; limits=((xlo, xhi), (ylo, yhi)))` NamedTuple into a
+VL encoding-override dict. `limits` entries may be `nothing` to skip an axis.
+`clamp=true` adds `clamp: true` to every axis that has explicit limits.
+"""
+function _axis_nt_to_encoding_override(nt)
+    override = Dict{String,Any}()
+    limits = get(nt, :limits, nothing)
+    (limits isa Tuple && length(limits) == 2) || return override
+    do_clamp = get(nt, :clamp, false) === true
+    for (idx, ch) in enumerate(("x", "y"))
+        lim = limits[idx]
+        (lim isa Tuple && length(lim) == 2) || continue
+        scale_dict = Dict{String,Any}("domain" => [lim[1], lim[2]])
+        do_clamp && (scale_dict["clamp"] = true)
+        override[ch] = Dict{String,Any}("scale" => scale_dict)
+    end
+    override
+end
+
 function to_vegalite(v::VegaSpec)
     spec = to_vegalite(v.drawable)
     select_fields = nothing
@@ -1989,6 +2014,10 @@ function to_vegalite(v::VegaSpec)
         if haskey(props, :facet) && props[:facet] isa NamedTuple
             _merge_resolve_scale!(spec, _facet_nt_to_resolve_scale(props[:facet]))
         end
+        if haskey(props, :axis) && props[:axis] isa NamedTuple
+            override = _axis_nt_to_encoding_override(props[:axis])
+            isempty(override) || _merge_encoding_config!(spec, override)
+        end
         for (k, val) in props
             sk = string(k)
             # Deep-merge encoding so config adds to (not overwrites) auto-generated channels
@@ -2000,6 +2029,8 @@ function to_vegalite(v::VegaSpec)
             elseif sk == "scales" && val isa AlgebraOfGraphics.Scales
                 # Handled in first pass
             elseif sk == "facet" && val isa NamedTuple
+                # Handled in first pass
+            elseif sk == "axis" && val isa NamedTuple
                 # Handled in first pass
             elseif sk == "independent_scales"
                 @warn "AlgebraOfVega: `config(independent_scales=$(repr(val)))` is deprecated; use `config(facet=(; linkxaxes=:none, linkyaxes=:none))` to mirror AlgebraOfGraphics." maxlog=1
@@ -4151,6 +4182,11 @@ function _draw_kwargs(cfg::Union{Config,Nothing}; faceted=false)
         elseif k === :facet && v isa NamedTuple
             for (fk, fv) in pairs(v)
                 facet_kw[fk] = fv
+            end
+        elseif k === :axis && v isa NamedTuple
+            for (ak, av) in pairs(v)
+                ak === :clamp && continue  # VL-only, no Makie analogue
+                axis_kw[ak] = av
             end
         elseif k === :independent_scales
             @warn "AlgebraOfVega: `config(independent_scales=$(repr(v)))` is deprecated; use `config(facet=(; linkxaxes=:none, linkyaxes=:none))` to mirror AlgebraOfGraphics." maxlog=1

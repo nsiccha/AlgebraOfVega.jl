@@ -362,6 +362,44 @@ end
     vl6 = (@test_logs (:warn, r"deprecated") match_mode=:any to_vegalite(spec6))
     @test vl6["resolve"]["scale"]["x"] == "independent"
     @test vl6["resolve"]["scale"]["y"] == "independent"
+
+    # axis=(; limits=((xlo, xhi), nothing)) → encoding.x.scale.domain
+    spec7 = data(df) * mapping(:x, :y) * visual(Scatter) *
+        config(axis=(; limits=((0.0, 10.0), nothing)))
+    vl7 = to_vegalite(spec7)
+    @test vl7["encoding"]["x"]["scale"]["domain"] == [0.0, 10.0]
+    @test !haskey(vl7["encoding"]["y"], "scale") ||
+        !haskey(vl7["encoding"]["y"]["scale"], "domain")
+
+    # axis=(; limits=(nothing, (ylo, yhi)), clamp=true) → y domain + clamp only on y
+    spec8 = data(df) * mapping(:x, :y) * visual(Scatter) *
+        config(axis=(; limits=(nothing, (1.0, 5.0)), clamp=true))
+    vl8 = to_vegalite(spec8)
+    @test vl8["encoding"]["y"]["scale"]["domain"] == [1.0, 5.0]
+    @test vl8["encoding"]["y"]["scale"]["clamp"] == true
+    @test !haskey(get(vl8["encoding"]["x"], "scale", Dict()), "domain")
+
+    # axis=(; limits=((x...), (y...))) both axes
+    spec9 = data(df) * mapping(:x, :y) * visual(Scatter) *
+        config(axis=(; limits=((0.0, 10.0), (1.0, 5.0))))
+    vl9 = to_vegalite(spec9)
+    @test vl9["encoding"]["x"]["scale"]["domain"] == [0.0, 10.0]
+    @test vl9["encoding"]["y"]["scale"]["domain"] == [1.0, 5.0]
+
+    # axis + scales compose: log y-scale with limits on x
+    spec10 = data(df) * mapping(:x, :y) * visual(Scatter) *
+        config(scales=scales(Y=(; scale=log10)),
+               axis=(; limits=((0.0, 10.0), nothing)))
+    vl10 = to_vegalite(spec10)
+    @test vl10["encoding"]["y"]["scale"]["type"] == "log"
+    @test vl10["encoding"]["x"]["scale"]["domain"] == [0.0, 10.0]
+
+    # Explicit user `encoding` overrides `axis` sugar on conflict
+    spec11 = data(df) * mapping(:x, :y) * visual(Scatter) *
+        config(axis=(; limits=((0.0, 10.0), nothing)),
+               encoding=Dict(:x => Dict("scale" => Dict("domain" => [-1.0, 1.0]))))
+    vl11 = to_vegalite(spec11)
+    @test vl11["encoding"]["x"]["scale"]["domain"] == [-1.0, 1.0]
 end
 
 @testset "VL helpers" begin
