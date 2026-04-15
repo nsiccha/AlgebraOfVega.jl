@@ -3460,6 +3460,11 @@ end
 # since the previous `@tic` call (the first call seeds the timer). Use
 # `@tic expr` to time and return a single expression without affecting the
 # checkpoint timer.
+#
+# Every emitted line carries `_TIC_VERSION` — bump the number below before
+# saving to verify that Revise actually picked the file up (look for the
+# new version in the next log line). No `const` so Revise can update it.
+_TIC_VERSION = 1
 mutable struct Tic
     label::String
     _ns::UInt64
@@ -3473,7 +3478,7 @@ macro tic(arg)
         quote
             if $(Expr(:isdefined, v))
                 _el = (time_ns() - $v._ns) / 1e6
-                @warn "$($v.label) — $($label): $(round(_el; digits=1))ms" _file=$file _line=$line
+                @warn "[v$(_TIC_VERSION)] $($v.label) — $($label): $(round(_el; digits=1))ms" _file=$file _line=$line
                 $v._ns = time_ns()
             else
                 $v = Tic($label, time_ns())
@@ -3490,9 +3495,9 @@ macro tic(arg)
             $val = $expr
             $el = (time_ns() - $t0) / 1e6
             if $(Expr(:isdefined, v))
-                @warn "$($v.label) — $($label_str): $(round($el; digits=1))ms" _file=$file _line=$line
+                @warn "[v$(_TIC_VERSION)] $($v.label) — $($label_str): $(round($el; digits=1))ms" _file=$file _line=$line
             else
-                @warn "$($label_str): $(round($el; digits=1))ms" _file=$file _line=$line
+                @warn "[v$(_TIC_VERSION)] $($label_str): $(round($el; digits=1))ms" _file=$file _line=$line
             end
             $val
         end
