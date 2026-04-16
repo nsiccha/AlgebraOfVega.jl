@@ -10,18 +10,14 @@ using Makie: Scatter, Lines, ScatterLines, BarPlot, Heatmap, BoxPlot,
     Band, HLines, VLines, Hist, Density as MakieDensity, Errorbars, Stairs,
     Contour, Violin, RainClouds, Rangebars, CrossBar, ECDFPlot,
     Plot, plot
-import Makie
-using JSON, Tables
+import Makie 
+using JSON, Tables, Statistics
 using HTMX
 import HTMX: h
 
-# === Transient @tic timer (delete when done profiling) ========================
-# Lightweight scoped timer ported from bruno's `web-pkpd/src/ops.jl`. Use
-# `@tic "label"` inside a function body to print the elapsed milliseconds
-# since the previous `@tic` call (the first call seeds the timer). Bump
-# `_TIC_VERSION` before saving to verify Revise picked the file up.
-# Defined first so any function below can use `@tic` without forward-reference
-# issues at cold-start precompile.
+# === @tic timer (for profiling hot paths) =====================================
+# `@tic "label"` inside a function body prints elapsed ms since the previous
+# `@tic` call. `@tic expr` wraps an expression and prints its timing.
 _TIC_VERSION = 7
 mutable struct Tic
     label::String
@@ -438,14 +434,11 @@ _vl_safe(v) = v isa Number && !isfinite(v) ? nothing : v
 
 function data_to_vl(table)
     isnothing(table) && return nothing
-    @tic "data_to_vl start"
     rows = Tables.rowtable(table)
-    @tic "data_to_vl Tables.rowtable (n=$(length(rows)))"
     vals = [
         Dict{String,Any}(string(k) => _vl_safe(v) for (k, v) in pairs(nt))
         for nt in rows
     ]
-    @tic "data_to_vl row-dict comprehension"
     Dict{String,Any}("values" => vals)
 end
 
@@ -723,8 +716,7 @@ function compute_interval_summary(table, x_field::String, group_field::Union{Str
         v = sort!(vals[idxs])
         n = length(v)
         n == 0 && continue
-        q(f) = v[clamp(round(Int, f * n), 1, n)]
-        pt = point === :mean ? sum(v) / n : q(0.5)
+        pt = point === :mean ? sum(v) / n : quantile(v, 0.5; sorted=true)
         row = Dict{String,Any}("__point__" => pt)
         ki = 0
         !isnothing(group_field) && (row[group_field] = key[ki += 1])
@@ -737,8 +729,8 @@ function compute_interval_summary(table, x_field::String, group_field::Union{Str
         end
         for prob in probs
             lo = (1 - prob) / 2
-            row[_vl_prob_field("lo", prob)] = q(lo)
-            row[_vl_prob_field("hi", prob)] = q(1 - lo)
+            row[_vl_prob_field("lo", prob)] = quantile(v, lo; sorted=true)
+            row[_vl_prob_field("hi", prob)] = quantile(v, 1 - lo; sorted=true)
         end
         push!(rows, row)
     end
@@ -746,15 +738,11 @@ function compute_interval_summary(table, x_field::String, group_field::Union{Str
 end
 
 function compute_ribbon_summary(table, x_field::String, y_field::String, group_field::String, probs::Vector{Float64}; color_field::Union{String,Nothing}=nothing, facet_fields::Vector{String}=String[], detail_fields::Vector{String}=String[])
-    @tic "compute_ribbon_summary start"
     xs = Tables.getcolumn(table, Symbol(x_field))
     ys = Tables.getcolumn(table, Symbol(y_field))
     key_fields = String[f for f in [x_field, color_field, facet_fields..., detail_fields...] if !isnothing(f)]
-    @tic "getcolumn (n=$(length(ys)))"
     kc = _key_columns(table; fields=key_fields)
-    @tic "_key_columns"
     idx_groups = _group_indices(kc)
-    @tic "_group_indices (groups=$(length(idx_groups)))"
 
     # Precompute per-prob quantile field names + lo/hi fractions — these are
     # called O(groups × probs) times so must not re-allocate strings inside.
@@ -778,13 +766,12 @@ function compute_ribbon_summary(table, x_field::String, y_field::String, group_f
             buf[k] = ys[idxs[k]]
         end
         sort!(buf)
-        qidx(f) = clamp(round(Int, f * ng), 1, ng)
 
         row = Dict{String,Any}()
         sizehint!(row, row_size)
         ki = 1
         row[x_field] = key[ki]
-        @inbounds row["__median__"] = buf[qidx(0.5)]
+        row["__median__"] = quantile(buf, 0.5; sorted=true)
         if color_field !== nothing
             ki += 1
             row[color_field] = key[ki]
@@ -797,14 +784,13 @@ function compute_ribbon_summary(table, x_field::String, y_field::String, group_f
             ki += 1
             row[ff] = key[ki]
         end
-        @inbounds for j in eachindex(probs)
+        for j in eachindex(probs)
             lo = lo_fracs[j]
-            row[lo_keys[j]] = buf[qidx(lo)]
-            row[hi_keys[j]] = buf[qidx(1 - lo)]
+            row[lo_keys[j]] = quantile(buf, lo; sorted=true)
+            row[hi_keys[j]] = quantile(buf, 1 - lo; sorted=true)
         end
         push!(rows, row)
     end
-    @tic "ribbon quantile loop"
     rows
 end
 
@@ -1091,7 +1077,7 @@ function analysis_to_vl(a::DotIntervalAnalysis, layer::AlgebraOfGraphics.Layer; 
         gk = isnothing(y_field) ? nothing : key[ki_base += 1]
         ck = isnothing(color_field) ? nothing : key[ki_base += 1]
         for i in 1:a.n_dots
-            q = v[clamp(round(Int, (i - 0.5) / a.n_dots * n), 1, n)]
+            q = quantile(v, (i - 0.5) / a.n_dots; sorted=true)
             row = Dict{String,Any}("quantile" => q)
             !isnothing(gk) && (row[y_field] = gk)
             !isnothing(ck) && (row[color_field] = ck)
@@ -1727,11 +1713,9 @@ _layer_to_vl(::Nothing, layer; kw...) = _plain_layer_to_vl(layer; kw...)
 
 function layer_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
     if is_pregrouped(layer)
-        @tic "layer_to_vl -> pregrouped_to_vl"
         spec = pregrouped_to_vl(layer; is_sublayer)
     else
         handler = _layer_handler(layer)
-        @tic "layer_to_vl -> handler=$(typeof(handler))"
         spec = _layer_to_vl(handler, layer; is_sublayer)
     end
     !is_sublayer && (spec["\$schema"] = VL_SCHEMA)
@@ -1740,13 +1724,10 @@ end
 
 """Translate a plain (non-analysis, non-pregrouped) AoG layer to VL."""
 function _plain_layer_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
-    @tic "_plain_layer_to_vl start"
     spec = Dict{String,Any}()
 
     table = extract_data(layer)
-    @tic "extract_data"
     !isnothing(table) && (spec["data"] = data_to_vl(table))
-    @tic "data_to_vl"
 
     # Visual / mark (default to Scatter like AoG)
     vis = extract_visual(layer)
@@ -1784,7 +1765,6 @@ function _plain_layer_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
     end
 
     !isnothing(table) && infer_types!(encoding, table)
-    @tic "encoding + infer_types!"
 
     # Auto-tooltip
     if !isempty(encoding) && !haskey(encoding, "tooltip")
@@ -1797,7 +1777,6 @@ function _plain_layer_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
 end
 
 function layers_to_vl(layers::AlgebraOfGraphics.Layers)
-    @tic "layers_to_vl start (n=$(length(layers.layers)))"
     # Check if any layer is faceted density (density with y group) — needs special handling
     has_faceted_density = false
     facet_field = nothing
@@ -1817,7 +1796,6 @@ function layers_to_vl(layers::AlgebraOfGraphics.Layers)
             facet_field = string(l.named[:y])
         end
     end
-    @tic "shared_data extraction"
 
     if has_faceted_density && !isnothing(facet_field)
         return _faceted_layers_to_vl(layers, facet_field, shared_table, shared_data)
@@ -1836,9 +1814,7 @@ function layers_to_vl(layers::AlgebraOfGraphics.Layers)
     layer_specs = Dict{String,Any}[]
 
     for layer in layers.layers
-        @tic "begin layer_to_vl"
         ls = layer_to_vl(layer; is_sublayer=true)
-        @tic "layer_to_vl"
 
         if haskey(ls, "facet")
             # Faceted analysis spec — lift facet, flatten inner sublayers with their data
@@ -1884,7 +1860,6 @@ function layers_to_vl(layers::AlgebraOfGraphics.Layers)
         haskey(enc, "row") && !haskey(outer_facet, "row") && (outer_facet["row"] = enc["row"])
     end
 
-    @tic "per-layer loop"
     if !isempty(outer_facet)
         # VL facet only filters inherited (outer) data — per-sublayer data is NOT filtered.
         # Fix: merge all sublayer data into one outer dataset tagged with __source__,
@@ -1948,7 +1923,6 @@ function layers_to_vl(layers::AlgebraOfGraphics.Layers)
     else
         spec["layer"] = layer_specs
     end
-    @tic "facet merge + reassemble"
 
     spec
 end
@@ -2193,9 +2167,7 @@ function _axis_nt_to_encoding_override(nt)
 end
 
 function to_vegalite(v::VegaSpec)
-    @tic "to_vegalite(VegaSpec) start"
     spec = to_vegalite(v.drawable)
-    @tic "to_vegalite(drawable)"
     select_fields = nothing
     if !isnothing(v.config)
         props = v.config.properties
@@ -2264,13 +2236,10 @@ function to_vegalite(v::VegaSpec)
             end
         end
     end
-    @tic "to_vegalite config merge"
     if !isnothing(select_fields)
         add_select_filters!(spec, v.drawable, select_fields)
     end
-    @tic "add_select_filters"
     add_auto_interactivity!(spec)
-    @tic "add_auto_interactivity!"
     spec
 end
 
@@ -3260,10 +3229,8 @@ Requires vega/vega-lite/vega-embed scripts to be loaded (use `vega_head()` in pa
   `(signal="brush", url="/on_brush", target="#detail")` or with optional `swap`, `debounce`.
 """
 function to_node(spec; id=nothing, width=nothing, height=nothing, actions=false, signals=nothing, fit_width=true)
-    @tic "to_node[$(something(id, "?"))]"
     # Convert to VL dict
     vl = spec isa Dict ? copy(spec) : to_vegalite(spec)
-    @tic "to_vegalite"
     !isnothing(width) && (vl["width"] = width)
     !isnothing(height) && (vl["height"] = height)
     # Only apply fit_width defaults if no explicit width was set (via config or kwarg)
@@ -3300,9 +3267,7 @@ function to_node(spec; id=nothing, width=nothing, height=nothing, actions=false,
         end
     end
     _broadcast_cross_source_layers!(vl)
-    @tic "broadcast_cross_source_layers!"
     json = JSON.json(vl)
-    @tic "JSON.json (size: $(length(json)) bytes)"
     id = something(id, "vega-" * string(abs(hash(json)), base=16))
 
     # Queue embed for deferred execution (after layout is computed)
@@ -3897,16 +3862,13 @@ remap_node("dose-response-plot", spec;
 ```
 """
 function auto_remap_node(plot_id, spec; dims, fixed=Dict(), pinned::Symbol=:row)
-    @tic "auto_remap_node[$plot_id]"
     layers = _spec_layers(spec)
     raw_dfs = [extract_data(l) for l in layers]
     any(isnothing, raw_dfs) && error("auto_remap_node: every layer must have associated data (no Pregrouped layers supported here)")
-    @tic "extract_data ($(length(layers)) layers)"
     # Materialize each layer's data as a NamedTuple of vectors so the rest
     # of the pipeline can stay non-mutating and uniform across input types
     # (DataFrame / DataFrameColumns / NamedTuple / etc).
     dfs = NamedTuple[Tables.columntable(d) for d in raw_dfs]
-    @tic "columntable (rows: $(join([length(first(d)) for d in dfs], ',')))"
 
     # Only fields the user listed in `dims` count as remappable defaults.
     # Layer-internal encodings on other fields (e.g. dose VLines coloring by
@@ -3920,27 +3882,19 @@ function auto_remap_node(plot_id, spec; dims, fixed=Dict(), pinned::Symbol=:row)
         column_default=defaults["column"],
         pinned, fixed)
     resolved = refine_channels(resolved, dfs...)
-    @tic "resolve+refine_channels"
 
     # Cartesian-product fill missing facet fields, then build combo columns.
     bcast_fields = unique(vcat(resolved.color_fields, resolved.row_fields, resolved.column_fields))
     field_uniques = _global_field_uniques(dfs, bcast_fields)
-    @tic "global_field_uniques"
     bcasted = [_broadcast_missing_fields(df, bcast_fields, field_uniques) for df in dfs]
-    @tic "broadcast_missing_fields (rows: $(join([length(first(d)) for d in bcasted], ',')))"
     new_dfs = [_with_combos(df, resolved) for df in bcasted]
-    @tic "with_combos"
 
     new_layers = [_rebuild_layer(layer, new_df, resolved) for (layer, new_df) in zip(layers, new_dfs)]
-    @tic "rebuild_layers"
     new_drawable = reduce(+, new_layers)
     new_spec = spec isa VegaSpec ? VegaSpec(new_drawable, spec.config) : new_drawable
-    @tic "reassemble"
 
     controls = isempty(resolved.dims) ? "" : mapping_controls(plot_id, resolved; spec=new_spec)
-    @tic "mapping_controls"
     plot = to_node(new_spec; id=plot_id)
-    @tic "to_node"
     out = h.div()(controls, plot)
     out
 end

@@ -72,7 +72,7 @@ const PLOTS = [
 # --- HTMXObjects App ---
 
 @htmx struct AppContext
-    req = nothing
+    
 
     nav_item(id, label, active) = h.a(
         href="/plot/$id",
