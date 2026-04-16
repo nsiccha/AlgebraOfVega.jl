@@ -493,6 +493,12 @@ struct LineRibbonAnalysis <: TidybayesAnalysis
     detail_fields::Vector{Symbol}
 end
 
+struct PrecomputedRibbonAnalysis <: TidybayesAnalysis
+    bands::Vector{Pair{Symbol,Symbol}}
+    show_line::Bool
+    detail_fields::Vector{Symbol}
+end
+
 struct DotIntervalAnalysis <: TidybayesAnalysis
     probs::Vector{Float64}
     n_dots::Int
@@ -523,27 +529,48 @@ gradient_interval(; probs=[0.95, 0.8, 0.5], point=:median, detail=Symbol[]) =
 
 """
     lineribbon(; probs=[0.95, 0.8, 0.5])
+    lineribbon(; bands=[:q025 => :q975, :q25 => :q75])
 
-Uncertainty ribbons (area marks) + median line, for draw-level predictions.
-Groups by x, computes quantiles of y across draws. Supports `color=` for
-multiple groups with separate ribbon bands per group.
+Uncertainty ribbons (area marks) + median line.
+
+With `probs` (default): expects draw-level data. Groups by x, computes quantiles
+of y across draws. Requires `group=:draw` in mapping.
 
     data(preds) * mapping(:x, :y, group=:draw) * lineribbon()
-    data(preds) * mapping(:x, :y, group=:draw, color=:treatment) * lineribbon()
+
+With `bands`: expects pre-aggregated data with quantile columns. The second
+positional in mapping is the median column. Each band is a `lo => hi` pair,
+outermost first.
+
+    data(summary) * mapping(:x, :median => "Response") *
+        lineribbon(bands=[:q025 => :q975, :q25 => :q75])
 """
-lineribbon(; probs=[0.95, 0.8, 0.5], detail=Symbol[]) =
+function lineribbon(; probs=[0.95, 0.8, 0.5], bands=nothing, detail=Symbol[])
+    if !isnothing(bands)
+        parsed = Pair{Symbol,Symbol}[Symbol(first(b)) => Symbol(last(b)) for b in bands]
+        return Layer(transformation=PrecomputedRibbonAnalysis(parsed, true, Symbol.(detail)))
+    end
     Layer(transformation=LineRibbonAnalysis(Float64.(probs), true, Symbol.(detail)))
+end
 
 """
     ribbon(; probs=[0.95, 0.8, 0.5])
+    ribbon(; bands=[:q025 => :q975, :q25 => :q75])
 
 Uncertainty ribbons (area marks) without a median line.
-Same as `lineribbon` but omits the central line.
+Same as `lineribbon` but omits the central line. Accepts the same `bands`
+kwarg for pre-aggregated data.
 
     data(preds) * mapping(:x, :y, group=:draw) * ribbon()
+    data(summary) * mapping(:x, :median) * ribbon(bands=[:q025 => :q975])
 """
-ribbon(; probs=[0.95, 0.8, 0.5], detail=Symbol[]) =
+function ribbon(; probs=[0.95, 0.8, 0.5], bands=nothing, detail=Symbol[])
+    if !isnothing(bands)
+        parsed = Pair{Symbol,Symbol}[Symbol(first(b)) => Symbol(last(b)) for b in bands]
+        return Layer(transformation=PrecomputedRibbonAnalysis(parsed, false, Symbol.(detail)))
+    end
     Layer(transformation=LineRibbonAnalysis(Float64.(probs), false, Symbol.(detail)))
+end
 
 """
     dotinterval(; probs=[0.95, 0.5], n_dots=50, point=:median)
@@ -905,63 +932,53 @@ function analysis_to_vl(a::GradientIntervalAnalysis, layer::AlgebraOfGraphics.La
     spec
 end
 
-function analysis_to_vl(a::LineRibbonAnalysis, layer::AlgebraOfGraphics.Layer; is_sublayer=false)
-    table = extract_data(layer)
-    x_field = length(layer.positional) >= 1 ? _field_name(layer.positional[1]) : "x"
-    x_label = length(layer.positional) >= 1 ? _field_label(layer.positional[1]) : "x"
-    y_field = length(layer.positional) >= 2 ? _field_name(layer.positional[2]) : "y"
-    y_label = length(layer.positional) >= 2 ? _field_label(layer.positional[2]) : "y"
-    group_field = haskey(layer.named, :group) ? _field_name(layer.named[:group]) : "draw"
-    color_field = haskey(layer.named, :color) ? _field_name(layer.named[:color]) : nothing
-    color_label = haskey(layer.named, :color) ? _field_label(layer.named[:color]) : nothing
-    facet, facet_fields = _extract_facet_info(layer)
-
-    detail_strs = string.(a.detail_fields)
-    summary = compute_ribbon_summary(table, x_field, y_field, group_field, a.probs; color_field, facet_fields, detail_fields=detail_strs)
+function _ribbon_to_vl(
+    summary::Vector{<:Dict{String}},
+    x_field::String, x_label::String, y_label::String,
+    median_col::String,
+    band_cols::Vector{Tuple{String,String}};
+    color_field::Union{String,Nothing}=nothing,
+    color_label::Union{String,Nothing}=nothing,
+    detail_fields::Vector{String}=String[],
+    facet=nothing, show_line::Bool=true, is_sublayer::Bool=false,
+    band_labels::Union{Vector{String},Nothing}=nothing
+)
     summary_data = Dict{String,Any}("values" => summary)
+    opacities = range(0.2, 0.6, length=length(band_cols))
 
-    sorted_probs = sort(a.probs, rev=true)
-    opacities = range(0.2, 0.6, length=length(sorted_probs)) 
-
-    # VL detail encoding for extra grouping columns (grouped but no visual encoding)
-    detail_enc = if !isempty(detail_strs)
-        length(detail_strs) == 1 ?
-            Dict{String,Any}("field" => detail_strs[1], "type" => "nominal") :
-            [Dict{String,Any}("field" => f, "type" => "nominal") for f in detail_strs]
+    detail_enc = if !isempty(detail_fields)
+        length(detail_fields) == 1 ?
+            Dict{String,Any}("field" => detail_fields[1], "type" => "nominal") :
+            [Dict{String,Any}("field" => f, "type" => "nominal") for f in detail_fields]
     else
         nothing
     end
 
-    # Build template layers (no color encoding, no filter transforms)
-    # Each layer is tagged with `_lr_layer=true` so client-side remapEncoding can
-    # preserve non-lineribbon overlays (e.g. cross-source dose VLines) when
-    # rebuilding per-color layers.
     template_layers = Dict{String,Any}[]
-    for (i, prob) in enumerate(sorted_probs)
+    for (i, (lo_col, hi_col)) in enumerate(band_cols)
         x_enc = Dict{String,Any}("field" => x_field, "type" => "quantitative")
         x_label != x_field && (x_enc["title"] = x_label)
         enc = Dict{String,Any}(
             "x" => x_enc,
-            "y" => Dict{String,Any}("field" => _vl_prob_field("lo", prob), "type" => "quantitative", "title" => y_label),
-            "y2" => Dict{String,Any}("field" => _vl_prob_field("hi", prob)),
+            "y" => Dict{String,Any}("field" => lo_col, "type" => "quantitative", "title" => y_label),
+            "y2" => Dict{String,Any}("field" => hi_col),
         )
         !isnothing(detail_enc) && (enc["detail"] = deepcopy(detail_enc))
         mark = Dict{String,Any}("type" => "area", "opacity" => opacities[i], "line" => false)
         push!(template_layers, Dict{String,Any}("mark" => mark, "encoding" => enc, "_lr_layer" => true))
     end
-    if a.show_line
+    if show_line
         line_x_enc = Dict{String,Any}("field" => x_field, "type" => "quantitative")
         x_label != x_field && (line_x_enc["title"] = x_label)
         line_enc = Dict{String,Any}(
             "x" => line_x_enc,
-            "y" => Dict{String,Any}("field" => "__median__", "type" => "quantitative", "title" => y_label),
+            "y" => Dict{String,Any}("field" => median_col, "type" => "quantitative", "title" => y_label),
         )
         !isnothing(detail_enc) && (line_enc["detail"] = deepcopy(detail_enc))
         line_mark = Dict{String,Any}("type" => "line", "strokeWidth" => 2)
         push!(template_layers, Dict{String,Any}("mark" => line_mark, "encoding" => line_enc, "_lr_layer" => true))
     end
 
-    # Build final layers: per-group layering when color is present
     layers = Dict{String,Any}[]
     if !isnothing(color_field)
         color_enc = Dict{String,Any}("field" => color_field, "type" => "nominal")
@@ -980,18 +997,20 @@ function analysis_to_vl(a::LineRibbonAnalysis, layer::AlgebraOfGraphics.Layer; i
         append!(layers, template_layers)
     end
 
+    widest_lo, widest_hi = band_cols[1]
+    widest_label = isnothing(band_labels) ? "" : band_labels[1]
+    lo_title = widest_label == "" ? widest_lo : "$(widest_label) lo"
+    hi_title = widest_label == "" ? widest_hi : "$(widest_label) hi"
     tt = Dict{String,Any}[
         Dict{String,Any}("field" => x_field, "type" => "quantitative", "title" => x_label),
-        Dict{String,Any}("field" => "__median__", "type" => "quantitative", "title" => "median"),
+        Dict{String,Any}("field" => median_col, "type" => "quantitative", "title" => "median"),
     ]
     !isnothing(color_field) && push!(tt, Dict{String,Any}("field" => color_field, "type" => "nominal"))
-    widest = sort(a.probs, rev=true)[1]
-    push!(tt, Dict{String,Any}("field" => _vl_prob_field("lo", widest), "type" => "quantitative", "title" => "$(round(Int, widest*100))% lo"))
-    push!(tt, Dict{String,Any}("field" => _vl_prob_field("hi", widest), "type" => "quantitative", "title" => "$(round(Int, widest*100))% hi"))
+    push!(tt, Dict{String,Any}("field" => widest_lo, "type" => "quantitative", "title" => lo_title))
+    push!(tt, Dict{String,Any}("field" => widest_hi, "type" => "quantitative", "title" => hi_title))
     _add_analysis_tooltips!(layers, tt)
 
     spec = Dict{String,Any}("data" => summary_data, "layer" => layers)
-    # Store template layers for client-side remapEncoding to rebuild per-group layers
     if !isnothing(color_field)
         aov = get!(Dict{String,Any}, spec, "_aov")
         aov["lineribbon"] = Dict{String,Any}("templateLayers" => template_layers)
@@ -1001,6 +1020,58 @@ function analysis_to_vl(a::LineRibbonAnalysis, layer::AlgebraOfGraphics.Layer; i
     end
     _wrap_with_facet!(spec, facet)
     spec
+end
+
+function analysis_to_vl(a::LineRibbonAnalysis, layer::AlgebraOfGraphics.Layer; is_sublayer=false)
+    table = extract_data(layer)
+    x_field = length(layer.positional) >= 1 ? _field_name(layer.positional[1]) : "x"
+    x_label = length(layer.positional) >= 1 ? _field_label(layer.positional[1]) : "x"
+    y_field = length(layer.positional) >= 2 ? _field_name(layer.positional[2]) : "y"
+    y_label = length(layer.positional) >= 2 ? _field_label(layer.positional[2]) : "y"
+    group_field = haskey(layer.named, :group) ? _field_name(layer.named[:group]) : "draw"
+    color_field = haskey(layer.named, :color) ? _field_name(layer.named[:color]) : nothing
+    color_label = haskey(layer.named, :color) ? _field_label(layer.named[:color]) : nothing
+    facet, facet_fields = _extract_facet_info(layer)
+
+    detail_strs = string.(a.detail_fields)
+    summary = compute_ribbon_summary(table, x_field, y_field, group_field, a.probs; color_field, facet_fields, detail_fields=detail_strs)
+
+    sorted_probs = sort(a.probs, rev=true)
+    band_cols = Tuple{String,String}[(_vl_prob_field("lo", p), _vl_prob_field("hi", p)) for p in sorted_probs]
+    band_labels = String["$(round(Int, p*100))%" for p in sorted_probs]
+
+    _ribbon_to_vl(summary, x_field, x_label, y_label, "__median__", band_cols;
+        color_field, color_label, detail_fields=detail_strs,
+        facet, show_line=a.show_line, is_sublayer, band_labels)
+end
+
+function analysis_to_vl(a::PrecomputedRibbonAnalysis, layer::AlgebraOfGraphics.Layer; is_sublayer=false)
+    table = extract_data(layer)
+    x_field = length(layer.positional) >= 1 ? _field_name(layer.positional[1]) : error("Pre-aggregated lineribbon requires at least one positional mapping (x)")
+    x_label = _field_label(layer.positional[1])
+    length(layer.positional) >= 2 || error("Pre-aggregated lineribbon requires a second positional mapping (median column)")
+    median_col = _field_name(layer.positional[2])
+    y_label = _field_label(layer.positional[2])
+    haskey(layer.named, :group) && error("Pre-aggregated lineribbon (bands=...) should not have group= in mapping — data is already aggregated")
+    color_field = haskey(layer.named, :color) ? _field_name(layer.named[:color]) : nothing
+    color_label = haskey(layer.named, :color) ? _field_label(layer.named[:color]) : nothing
+    facet, facet_fields = _extract_facet_info(layer)
+    detail_strs = string.(a.detail_fields)
+
+    col_names = Set(string.(Tables.columnnames(table)))
+    median_col in col_names || error("Pre-aggregated lineribbon: median column \"$median_col\" not found in table. Available: $(sort(collect(col_names)))")
+    for (lo, hi) in a.bands
+        los, his = string(lo), string(hi)
+        los in col_names || error("Pre-aggregated lineribbon: band column \"$los\" not found in table. Available: $(sort(collect(col_names)))")
+        his in col_names || error("Pre-aggregated lineribbon: band column \"$his\" not found in table. Available: $(sort(collect(col_names)))")
+    end
+
+    summary = table_to_rows(table)
+    band_cols = Tuple{String,String}[(string(first(b)), string(last(b))) for b in a.bands]
+
+    _ribbon_to_vl(summary, x_field, x_label, y_label, median_col, band_cols;
+        color_field, color_label, detail_fields=detail_strs,
+        facet, show_line=a.show_line, is_sublayer)
 end
 
 function analysis_to_vl(a::DotIntervalAnalysis, layer::AlgebraOfGraphics.Layer; is_sublayer=false)
@@ -3712,6 +3783,7 @@ end
 _with_detail(t::PointIntervalAnalysis, d) = PointIntervalAnalysis(t.probs, t.point, d)
 _with_detail(t::GradientIntervalAnalysis, d) = GradientIntervalAnalysis(t.probs, t.point, d)
 _with_detail(t::LineRibbonAnalysis, d) = LineRibbonAnalysis(t.probs, t.show_line, d)
+_with_detail(t::PrecomputedRibbonAnalysis, d) = PrecomputedRibbonAnalysis(t.bands, t.show_line, d)
 _with_detail(t::DotIntervalAnalysis, d) = DotIntervalAnalysis(t.probs, t.n_dots, t.point, d)
 
 function _patch_detail(t, new_detail)
@@ -4392,6 +4464,50 @@ function _get_analysis(layer::AlgebraOfGraphics.Layer)
     nothing
 end
 
+function _rows_to_columntable(rows::Vector{Dict{String,Any}})
+    cols = collect(keys(rows[1]))
+    col_syms = Tuple(Symbol.(cols))
+    col_vals = Tuple([getindex.(rows, c) for c in cols])
+    NamedTuple{col_syms}(col_vals)
+end
+
+function _ribbon_to_aog(summary_nt::NamedTuple, x_sym::Symbol, median_sym::Symbol,
+    band_syms::Vector{Tuple{Symbol,Symbol}};
+    show_line::Bool=true, color_kw=Dict{Symbol,Any}(), facet_kw=Dict{Symbol,Any}())
+    opacities = range(0.2, 0.6, length=length(band_syms))
+    result = nothing
+    for (i, (lo_sym, hi_sym)) in enumerate(band_syms)
+        band_layer = data(summary_nt) *
+            mapping(x_sym, lo_sym, hi_sym; color_kw..., facet_kw...) *
+            visual(Band; alpha=opacities[i])
+        result = isnothing(result) ? band_layer : result + band_layer
+    end
+    if show_line
+        line_layer = data(summary_nt) *
+            mapping(x_sym, median_sym; color_kw..., facet_kw...) *
+            visual(Lines)
+        result = isnothing(result) ? line_layer : result + line_layer
+    end
+    result
+end
+
+function _extract_aog_facet_color_kw(layer)
+    color_field = haskey(layer.named, :color) ? _field_name(layer.named[:color]) : nothing
+    _, facet_fields = _extract_facet_info(layer)
+    facet_kw = Dict{Symbol,Any}()
+    for ff in facet_fields
+        sf = Symbol(ff)
+        if haskey(layer.named, :col) && _field_name(layer.named[:col]) == ff
+            facet_kw[:col] = sf
+        elseif haskey(layer.named, :row) && _field_name(layer.named[:row]) == ff
+            facet_kw[:row] = sf
+        end
+    end
+    color_kw = isnothing(color_field) ? Dict{Symbol,Any}() :
+        Dict{Symbol,Any}(:color => Symbol(color_field))
+    (; color_field, facet_fields, facet_kw, color_kw)
+end
+
 """
     _lineribbon_to_aog(a::LineRibbonAnalysis, layer::AlgebraOfGraphics.Layer)
 
@@ -4402,55 +4518,31 @@ function _lineribbon_to_aog(a::LineRibbonAnalysis, layer::AlgebraOfGraphics.Laye
     x_field = length(layer.positional) >= 1 ? _field_name(layer.positional[1]) : "x"
     y_field = length(layer.positional) >= 2 ? _field_name(layer.positional[2]) : "y"
     group_field = haskey(layer.named, :group) ? _field_name(layer.named[:group]) : "draw"
-    color_field = haskey(layer.named, :color) ? _field_name(layer.named[:color]) : nothing
-    facet, facet_fields = _extract_facet_info(layer)
+    (; color_field, facet_fields, facet_kw, color_kw) = _extract_aog_facet_color_kw(layer)
 
     detail_strs = string.(a.detail_fields)
     summary = compute_ribbon_summary(table, x_field, y_field, group_field, a.probs;
         color_field, facet_fields, detail_fields=detail_strs)
-
-    # Build a columnar NamedTuple from the summary rows
-    cols = collect(keys(summary[1]))
-    col_syms = Tuple(Symbol.(cols))
-    col_vals = Tuple([getindex.(summary, c) for c in cols])
-    summary_nt = NamedTuple{col_syms}(col_vals)
+    summary_nt = _rows_to_columntable(summary)
 
     sorted_probs = sort(a.probs, rev=true)
-    opacities = range(0.2, 0.6, length=length(sorted_probs))
+    band_syms = Tuple{Symbol,Symbol}[(Symbol(_vl_prob_field("lo", p)), Symbol(_vl_prob_field("hi", p))) for p in sorted_probs]
 
-    facet_kw = Dict{Symbol,Any}()
-    for ff in facet_fields
-        sf = Symbol(ff)
-        if haskey(layer.named, :col) && _field_name(layer.named[:col]) == ff
-            facet_kw[:col] = sf
-        elseif haskey(layer.named, :row) && _field_name(layer.named[:row]) == ff
-            facet_kw[:row] = sf
-        end
-    end
+    _ribbon_to_aog(summary_nt, Symbol(x_field), Symbol("__median__"), band_syms;
+        show_line=a.show_line, color_kw, facet_kw)
+end
 
-    color_kw = isnothing(color_field) ? Dict{Symbol,Any}() :
-        Dict{Symbol,Any}(:color => Symbol(color_field))
+function _precomputed_ribbon_to_aog(a::PrecomputedRibbonAnalysis, layer::AlgebraOfGraphics.Layer)
+    table = extract_data(layer)
+    x_field = length(layer.positional) >= 1 ? _field_name(layer.positional[1]) : "x"
+    median_col = _field_name(layer.positional[2])
+    (; facet_kw, color_kw) = _extract_aog_facet_color_kw(layer)
 
-    x_sym = Symbol(x_field)
-    result = nothing
+    summary_nt = Tables.columntable(table)
+    band_syms = Tuple{Symbol,Symbol}[(first(b), last(b)) for b in a.bands]
 
-    for (i, prob) in enumerate(sorted_probs)
-        lo_sym = Symbol(_vl_prob_field("lo", prob))
-        hi_sym = Symbol(_vl_prob_field("hi", prob))
-        band_layer = data(summary_nt) *
-            mapping(x_sym, lo_sym, hi_sym; color_kw..., facet_kw...) *
-            visual(Band; alpha=opacities[i])
-        result = isnothing(result) ? band_layer : result + band_layer
-    end
-
-    if a.show_line
-        line_layer = data(summary_nt) *
-            mapping(x_sym, Symbol("__median__"); color_kw..., facet_kw...) *
-            visual(Lines)
-        result = isnothing(result) ? line_layer : result + line_layer
-    end
-
-    result
+    _ribbon_to_aog(summary_nt, Symbol(x_field), Symbol(median_col), band_syms;
+        show_line=a.show_line, color_kw, facet_kw)
 end
 
 """
@@ -4499,6 +4591,8 @@ function _convert_single_layer(l::AlgebraOfGraphics.Layer)
     if !isnothing(a)
         if a isa LineRibbonAnalysis
             return _lineribbon_to_aog(a, l)
+        elseif a isa PrecomputedRibbonAnalysis
+            return _precomputed_ribbon_to_aog(a, l)
         end
         error("sdraw does not yet support $(typeof(a)) — use vdraw for this plot type")
     end

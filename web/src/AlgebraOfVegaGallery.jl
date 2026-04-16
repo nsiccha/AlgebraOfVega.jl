@@ -4,7 +4,7 @@ using HTMXObjects
 using AlgebraOfVega
 import CairoMakie
 using JSON
-using TestModules, Random, Tables
+using TestModules, Random, Tables, Statistics
 
 include("test/runtests.jl")
 
@@ -21,6 +21,39 @@ regression_predictions(; kw...) = sample_regression_predictions(; kw...)
 grouped_regression_predictions(; kw...) = sample_grouped_regression_predictions(; kw...)
 faceted_regression_predictions(; kw...) = sample_faceted_regression_predictions(; kw...)
 faceted_observations(; kw...) = sample_faceted_observations(; kw...)
+
+function _preaggregate(raw, group_keys::Symbol...)
+    ct = Tables.columntable(raw)
+    ys = ct.y
+    key_cols = [ct[k] for k in group_keys]
+    nk = length(group_keys)
+    groups = Dict{Any,Vector{Int}}()
+    for i in eachindex(ys)
+        key = nk == 1 ? key_cols[1][i] : Tuple(kc[i] for kc in key_cols)
+        push!(get!(Vector{Int}, groups, key), i)
+    end
+    out_keys = [Any[] for _ in 1:nk]
+    out_q025 = Float64[]; out_q25 = Float64[]; out_med = Float64[]
+    out_q75 = Float64[]; out_q975 = Float64[]
+    for key in sort(collect(keys(groups)))
+        idxs = groups[key]
+        v = sort(ys[idxs])
+        if nk == 1
+            push!(out_keys[1], key)
+        else
+            for (j, k) in enumerate(key)
+                push!(out_keys[j], k)
+            end
+        end
+        push!(out_q025, quantile(v, 0.025))
+        push!(out_q25, quantile(v, 0.25))
+        push!(out_med, quantile(v, 0.5))
+        push!(out_q75, quantile(v, 0.75))
+        push!(out_q975, quantile(v, 0.975))
+    end
+    (; (k => out_keys[i] for (i, k) in enumerate(group_keys))...,
+       q025=out_q025, q25=out_q25, median=out_med, q75=out_q75, q975=out_q975)
+end
 
 # --- Plot specifications ---
 
@@ -1223,6 +1256,46 @@ obs = data(exp_table(faceted_observations())) *
         config(width=500, height=350, title="Ribbon Only (tidybayes-style)"),
      "https://mjskay.github.io/ggdist/reference/stat_ribbon.html"),
 
+    ("precomputed_lineribbon", "Pre-aggregated Line + Ribbon", "lineribbon from pre-computed quantile columns (no draws)",
+     """summary = _preaggregate(regression_predictions(), :x)
+data(summary) * mapping(:x, :median => "Response") *
+    lineribbon(bands=[:q025 => :q975, :q25 => :q75]) *
+    config(width=500, height=350, title="Pre-aggregated Line + Ribbon")""",
+     () -> begin
+        summary = _preaggregate(regression_predictions(), :x)
+        data(summary) * mapping(:x, :median => "Response") *
+            lineribbon(bands=[:q025 => :q975, :q25 => :q75]) *
+            config(width=500, height=350, title="Pre-aggregated Line + Ribbon")
+     end),
+
+    ("precomputed_lineribbon_grouped", "Pre-aggregated Grouped Ribbon", "pre-aggregated lineribbon with color grouping",
+     """summary = _preaggregate(grouped_regression_predictions(), :x, :group)
+data(summary) * mapping(:x, :median, color=:group) *
+    lineribbon(bands=[:q025 => :q975, :q25 => :q75]) *
+    config(width=500, height=350, title="Pre-aggregated Grouped Ribbon")""",
+     () -> begin
+        summary = _preaggregate(grouped_regression_predictions(), :x, :group)
+        data(summary) * mapping(:x, :median, color=:group) *
+            lineribbon(bands=[:q025 => :q975, :q25 => :q75]) *
+            config(width=500, height=350, title="Pre-aggregated Grouped Ribbon")
+     end),
+
+    ("remap_precomputed_lineribbon", "Remap Pre-aggregated Ribbon", "auto_remap_node on pre-aggregated lineribbon with color/row switching",
+     """summary = _preaggregate(faceted_regression_predictions(), :x, :panel, :site)
+spec = data(summary) * mapping(:x, :median, color=:panel, row=:site) *
+       lineribbon(bands=[:q025 => :q975, :q25 => :q75]) *
+       config(title="Remap Pre-aggregated Ribbon")
+auto_remap_node("remap-precomp-lr", spec;
+    dims=["panel" => "Condition", "site" => "Site"])""",
+     () -> begin
+        summary = _preaggregate(faceted_regression_predictions(), :x, :panel, :site)
+        spec = data(summary) * mapping(:x, :median, color=:panel, row=:site) *
+               lineribbon(bands=[:q025 => :q975, :q25 => :q75]) *
+               config(title="Remap Pre-aggregated Ribbon")
+        auto_remap_node("remap-precomp-lr", spec;
+            dims=["panel" => "Condition", "site" => "Site"])
+     end),
+
     ("dotinterval", "Quantile Dotplot", "tidybayes-style: quantile dots with interval overlay",
      """data(posterior_draws()) *
     mapping(:value, y=:parameter) *
@@ -1526,7 +1599,7 @@ end
         ("Interactive Filtering" => ["filter_origin", "filter_multi", "filter_tips", "filter_histogram", "filter_regression", "filter_bar"]),
         ("Basic" => ["scatter", "bar", "line", "lines_only", "area", "histogram", "heatmap", "boxplot"]),
         ("Composition" => ["layered", "multi_layer", "stacked_bar", "grouped_bar", "bubble", "scatter_jitter", "custom_config"]),
-        ("Interactive" => ["interactive_brush", "interactive_highlight", "interactive_zoom", "interactive_slider", "interactive_dropdown", "remap_encoding", "remap_lineribbon", "remap_detail"]),
+        ("Interactive" => ["interactive_brush", "interactive_highlight", "interactive_zoom", "interactive_slider", "interactive_dropdown", "remap_encoding", "remap_lineribbon", "remap_detail", "remap_precomputed_lineribbon"]),
         ("AoG: Basic Visualizations" => ["aog_scatter_basic", "aog_sine_lines", "aog_lines_scatter", "aog_two_sources", "aog_boxplot"]),
         ("AoG: Additional Marks" => ["aog_step", "aog_rules", "aog_errorbars"]),
         ("AoG: Data Manipulations" => ["aog_wide_lines", "aog_wide_scatter", "aog_presorted_bar"]),
@@ -1536,7 +1609,7 @@ end
         ("AoG: Composition Patterns" => ["aog_scatter_regression", "aog_scatter_smooth", "aog_bar_line_combo", "aog_stacked_area", "aog_color_regression"]),
         ("AoG: Layout" => ["aog_facet", "aog_facet_wrap", "aog_facet_multi_layer", "aog_facet_regression"]),
         ("AoG: Applications" => ["aog_timeseries", "aog_timeseries_box", "aog_2d_histogram"]),
-        ("Uncertainty (tidybayes)" => ["pointinterval", "halfeye", "gradient_interval", "lineribbon", "lineribbon_grouped", "lineribbon_faceted", "lineribbon_overlay", "lineribbon_logscale", "ppc_overlay", "ribbon_only", "dotinterval", "raincloud"]),
+        ("Uncertainty (tidybayes)" => ["pointinterval", "halfeye", "gradient_interval", "lineribbon", "lineribbon_grouped", "lineribbon_faceted", "lineribbon_overlay", "lineribbon_logscale", "ppc_overlay", "ribbon_only", "precomputed_lineribbon", "precomputed_lineribbon_grouped", "dotinterval", "raincloud"]),
     ]
 
     gallery_section(section_title, ids) = begin
