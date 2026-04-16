@@ -33,8 +33,8 @@ function _preaggregate(raw, group_keys::Symbol...)
         push!(get!(Vector{Int}, groups, key), i)
     end
     out_keys = [Any[] for _ in 1:nk]
-    out_q025 = Float64[]; out_q25 = Float64[]; out_med = Float64[]
-    out_q75 = Float64[]; out_q975 = Float64[]
+    out_q025 = Float64[]; out_q10 = Float64[]; out_q25 = Float64[]; out_med = Float64[]
+    out_q75 = Float64[]; out_q90 = Float64[]; out_q975 = Float64[]
     for key in sort(collect(keys(groups)))
         idxs = groups[key]
         v = sort(ys[idxs])
@@ -46,13 +46,15 @@ function _preaggregate(raw, group_keys::Symbol...)
             end
         end
         push!(out_q025, quantile(v, 0.025))
+        push!(out_q10, quantile(v, 0.10))
         push!(out_q25, quantile(v, 0.25))
         push!(out_med, quantile(v, 0.5))
         push!(out_q75, quantile(v, 0.75))
+        push!(out_q90, quantile(v, 0.90))
         push!(out_q975, quantile(v, 0.975))
     end
     (; (k => out_keys[i] for (i, k) in enumerate(group_keys))...,
-       q025=out_q025, q25=out_q25, median=out_med, q75=out_q75, q975=out_q975)
+       q025=out_q025, q10=out_q10, q25=out_q25, median=out_med, q75=out_q75, q90=out_q90, q975=out_q975)
 end
 
 # --- Plot specifications ---
@@ -1259,41 +1261,43 @@ obs = data(exp_table(faceted_observations())) *
     ("precomputed_lineribbon", "Pre-aggregated Line + Ribbon", "lineribbon from pre-computed quantile columns (no draws)",
      """summary = _preaggregate(regression_predictions(), :x)
 data(summary) * mapping(:x, :median => "Response") *
-    lineribbon(bands=[:q025 => :q975, :q25 => :q75]) *
+    lineribbon(bands=[:q025 => :q975, :q10 => :q90, :q25 => :q75]) *
     config(width=500, height=350, title="Pre-aggregated Line + Ribbon")""",
      () -> begin
         summary = _preaggregate(regression_predictions(), :x)
         data(summary) * mapping(:x, :median => "Response") *
-            lineribbon(bands=[:q025 => :q975, :q25 => :q75]) *
+            lineribbon(bands=[:q025 => :q975, :q10 => :q90, :q25 => :q75]) *
             config(width=500, height=350, title="Pre-aggregated Line + Ribbon")
      end),
 
     ("precomputed_lineribbon_grouped", "Pre-aggregated Grouped Ribbon", "pre-aggregated lineribbon with color grouping",
      """summary = _preaggregate(grouped_regression_predictions(), :x, :group)
 data(summary) * mapping(:x, :median, color=:group) *
-    lineribbon(bands=[:q025 => :q975, :q25 => :q75]) *
+    lineribbon(bands=[:q025 => :q975, :q10 => :q90, :q25 => :q75]) *
     config(width=500, height=350, title="Pre-aggregated Grouped Ribbon")""",
      () -> begin
         summary = _preaggregate(grouped_regression_predictions(), :x, :group)
         data(summary) * mapping(:x, :median, color=:group) *
-            lineribbon(bands=[:q025 => :q975, :q25 => :q75]) *
+            lineribbon(bands=[:q025 => :q975, :q10 => :q90, :q25 => :q75]) *
             config(width=500, height=350, title="Pre-aggregated Grouped Ribbon")
      end),
 
-    ("remap_precomputed_lineribbon", "Remap Pre-aggregated Ribbon", "auto_remap_node on pre-aggregated lineribbon with color/row switching",
-     """summary = _preaggregate(faceted_regression_predictions(), :x, :panel, :site)
+    ("remap_precomputed_lineribbon", "Remap Pre-aggregated Ribbon", "remap_node on pre-aggregated lineribbon with color/row switching",
+     """id = "remap-precomp-lr"
+summary = _preaggregate(faceted_regression_predictions(), :x, :panel, :site)
 spec = data(summary) * mapping(:x, :median, color=:panel, row=:site) *
-       lineribbon(bands=[:q025 => :q975, :q25 => :q75]) *
+       lineribbon(bands=[:q025 => :q975, :q10 => :q90, :q25 => :q75]) *
        config(title="Remap Pre-aggregated Ribbon")
-auto_remap_node("remap-precomp-lr", spec;
-    dims=["panel" => "Condition", "site" => "Site"])""",
+remap_node(spec, [:panel => "Condition", :site => "Site"];
+    id=id, color_default="panel", row_default="site")""",
      () -> begin
+        id = "remap-precomp-lr"
         summary = _preaggregate(faceted_regression_predictions(), :x, :panel, :site)
         spec = data(summary) * mapping(:x, :median, color=:panel, row=:site) *
-               lineribbon(bands=[:q025 => :q975, :q25 => :q75]) *
+               lineribbon(bands=[:q025 => :q975, :q10 => :q90, :q25 => :q75]) *
                config(title="Remap Pre-aggregated Ribbon")
-        auto_remap_node("remap-precomp-lr", spec;
-            dims=["panel" => "Condition", "site" => "Site"])
+        remap_node(spec, [:panel => "Condition", :site => "Site"];
+            id=id, color_default="panel", row_default="site")
      end),
 
     ("dotinterval", "Quantile Dotplot", "tidybayes-style: quantile dots with interval overlay",
