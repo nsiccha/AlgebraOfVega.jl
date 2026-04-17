@@ -99,6 +99,13 @@ function draws_summary_table end
 # valid HTML id chars but break CSS selector parsing — replace anything outside
 # [A-Za-z0-9_-] with '-'. Idempotent (sanitized ids pass through unchanged).
 _sanitize_id(id) = replace(string(id), r"[^A-Za-z0-9_-]" => "-")
+
+# Introspect a spec for a draws-shaped analysis (PointInterval / GradientInterval
+# / DotIntervalAnalysis) and return args for `draws_summary_table`, or `nothing`
+# if the spec isn't a suitable candidate. Used by the `::VegaSpec` dispatch of
+# `with_plot_caption` to auto-build a pretty summary table. Implemented later in
+# this file once the analysis types and helpers are defined.
+function _auto_summary_args end
 # Tidybayes-style analysis exports
 export pointinterval, gradient_interval, lineribbon, ribbon, dotinterval
 # High-level widget/recipe exports
@@ -3813,10 +3820,14 @@ h.div()(mapping_controls(id, dimensions; spec, table, kwargs...), to_node(spec; 
 ```
 """
 function remap_node(spec, dimensions; id, table=nothing, kwargs...)
-    h.div()(
-        mapping_controls(id, dimensions; spec, table, kwargs...),
-        to_node(spec; id),
-    )
+    controls, plot = _remap_node_parts(spec, dimensions; id, table, kwargs...)
+    h.div()(controls, plot)
+end
+
+# Expose the (controls, plot_node) pair so callers (e.g. `with_plot_caption`)
+# can interleave them with other elements instead of having them pre-wrapped.
+function _remap_node_parts(spec, dimensions; id, table=nothing, kwargs...)
+    (mapping_controls(id, dimensions; spec, table, kwargs...), to_node(spec; id))
 end
 
 # === auto_remap_node ===========================================================
@@ -3841,6 +3852,31 @@ function _spec_layers(spec)
     else
         error("remap_node: unsupported spec drawable type $(typeof(drawable))")
     end
+end
+
+function _auto_summary_args(spec)
+    layers = try
+        _spec_layers(spec)
+    catch
+        return nothing
+    end
+    for layer in layers
+        for T in (PointIntervalAnalysis, GradientIntervalAnalysis, DotIntervalAnalysis)
+            a = extract_transformation(layer, T)
+            isnothing(a) && continue
+            table = extract_data(layer)
+            (isnothing(table) || isempty(layer.positional) || !haskey(layer.named, :y)) && return nothing
+            value = Symbol(_field_name(layer.positional[1]))
+            outcome = Symbol(_field_name(layer.named[:y]))
+            group_cols = Symbol[]
+            for (k, v) in pairs(layer.named)
+                k == :y && continue
+                push!(group_cols, Symbol(_field_name(v)))
+            end
+            return (; table, value, outcome, group_cols)
+        end
+    end
+    return nothing
 end
 
 # Read default channel assignments from layers' existing `.named` mappings.
@@ -4065,7 +4101,14 @@ remap_node("dose-response-plot", spec;
     pinned=:row)
 ```
 """
-function auto_remap_node(plot_id, spec; dims, fixed=Dict(), pinned::Symbol=:row)
+function auto_remap_node(plot_id, spec; kwargs...)
+    controls, plot = _auto_remap_parts(plot_id, spec; kwargs...)
+    h.div()(controls, plot)
+end
+
+# Same idea as `_remap_node_parts`: expose the (controls, plot_node) pair for
+# composition with `with_plot_caption` et al.
+function _auto_remap_parts(plot_id, spec; dims, fixed=Dict(), pinned::Symbol=:row)
     layers = _spec_layers(spec)
     raw_dfs = [extract_data(l) for l in layers]
     any(isnothing, raw_dfs) && error("auto_remap_node: every layer must have associated data (no Pregrouped layers supported here)")
@@ -4099,8 +4142,7 @@ function auto_remap_node(plot_id, spec; dims, fixed=Dict(), pinned::Symbol=:row)
 
     controls = isempty(resolved.dims) ? "" : mapping_controls(plot_id, resolved; spec=new_spec)
     plot = to_node(new_spec; id=plot_id)
-    out = h.div()(controls, plot)
-    out
+    (controls, plot)
 end
 
 function mapping_controls(id, resolved::NamedTuple; table=nothing, spec=nothing)

@@ -1792,6 +1792,34 @@ end
             ),
             HTMXObjects.caption_style(),
             HTMXObjects.sortable_table_js(),
+            HTMXObjects.download_table_js(),
+        )
+    end
+
+    @get captioned_spec_demo = let
+        id = "captioned-spec-demo"
+        draws = sample_posterior_draws()
+        the_spec = data(draws) * mapping(:value, y=:parameter, color=:chain) * pointinterval() *
+                   config(title="Captioned pointinterval (spec dispatch)")
+        caption = HTMXObjects.CaptionSpec(;
+            title = "Captioned pointinterval via spec dispatch",
+            short = "Exercises `with_plot_caption(spec::VegaSpec, caption; auto_remap, summary_table=:auto)` — " *
+                    "controls hoist above the figure, auto-summary table below the plot.",
+            long = "The `::VegaSpec` dispatch builds the plot internally, detects the " *
+                   "PointIntervalAnalysis transformation, and auto-generates a `draws_summary_table` " *
+                   "with one column per parameter (grouped by :chain via the color mapping).",
+        )
+        h.main(class="container")(
+            h.h1("Captioned spec-dispatch demo"),
+            h.p("Verifies auto-summary + auto_remap placement (controls above, caption+plot+summary below)."),
+            with_plot_caption(the_spec, caption;
+                plot_id=id,
+                filename_base="pointinterval",
+                auto_remap=(; dims=[:chain => "Chain"]),
+            ),
+            HTMXObjects.caption_style(),
+            HTMXObjects.sortable_table_js(),
+            HTMXObjects.download_table_js(),
         )
     end
 

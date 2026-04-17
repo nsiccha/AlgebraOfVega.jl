@@ -7,7 +7,8 @@ using HTMX: h
 import JSON
 import Tables
 import Statistics
-import AlgebraOfVega: with_plot_caption, draws_summary_table, _sanitize_id
+import AlgebraOfVega: with_plot_caption, draws_summary_table, _sanitize_id,
+                      _auto_summary_args, _auto_remap_parts, to_node, VegaSpec
 
 """
     with_plot_caption(plot_node, caption::CaptionSpec; plot_id,
@@ -100,6 +101,54 @@ end
 # import CaptionSpec just to label one plot.
 with_plot_caption(plot_node; title, short="", long=nothing, kwargs...) =
     with_plot_caption(plot_node, CaptionSpec(; title, short, long); kwargs...)
+
+"""
+    with_plot_caption(spec::VegaSpec, caption; plot_id,
+                      auto_remap=nothing, summary_table=:auto, kwargs...)
+
+Spec-aware dispatch: takes the original `VegaSpec` (not a pre-rendered node),
+builds the plot internally, and can:
+
+- auto-wire `auto_remap_node` via `auto_remap=(; dims=..., fixed=..., pinned=...)`
+  — controls are hoisted **above** the `<figure>` so they appear before the
+  caption rather than between caption and plot.
+- auto-build a `draws_summary_table` when the spec has a PointInterval /
+  GradientInterval / DotIntervalAnalysis transformation (`summary_table=:auto`,
+  the default). Pass `summary_table=nothing` to disable, or pass an explicit
+  node to override.
+
+Remaining `kwargs` are forwarded to the `plot_node` method.
+"""
+function with_plot_caption(spec::VegaSpec, caption::CaptionSpec;
+                            plot_id::AbstractString,
+                            auto_remap=nothing,
+                            summary_table=:auto,
+                            kwargs...)
+    plot_id_s = _sanitize_id(plot_id)
+
+    controls, plot_node = if isnothing(auto_remap)
+        nothing, to_node(spec; id=plot_id_s)
+    else
+        remap_kw = auto_remap isa NamedTuple ? auto_remap : (;)
+        _auto_remap_parts(plot_id_s, spec; remap_kw...)
+    end
+
+    resolved_summary = if summary_table === :auto
+        args = _auto_summary_args(spec)
+        isnothing(args) ? nothing : draws_summary_table(args.table;
+            value=args.value, outcome=args.outcome, group_cols=args.group_cols)
+    else
+        summary_table
+    end
+
+    figure = with_plot_caption(plot_node, caption;
+        plot_id=plot_id_s, summary_table=resolved_summary, kwargs...)
+
+    isnothing(controls) ? figure : h.div()(controls, figure)
+end
+
+with_plot_caption(spec::VegaSpec; title, short="", long=nothing, kwargs...) =
+    with_plot_caption(spec, CaptionSpec(; title, short, long); kwargs...)
 
 """
     draws_summary_table(table; value, outcome, group_cols=Symbol[], ci_level=0.95,
