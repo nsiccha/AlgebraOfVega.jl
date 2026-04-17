@@ -85,6 +85,12 @@ lazy "Show data" details). Implementation lives in the
 loaded; see that extension's docstring for the full kwargs.
 """
 function with_plot_caption end
+
+# Sanitize a user-supplied id so it is safe both as an HTML id attribute and
+# as a CSS selector (querySelector('#'+id)). Dots, brackets, colons, etc. are
+# valid HTML id chars but break CSS selector parsing — replace anything outside
+# [A-Za-z0-9_-] with '-'. Idempotent (sanitized ids pass through unchanged).
+_sanitize_id(id) = replace(string(id), r"[^A-Za-z0-9_-]" => "-")
 # Tidybayes-style analysis exports
 export pointinterval, gradient_interval, lineribbon, ribbon, dotinterval
 # High-level widget/recipe exports
@@ -3443,7 +3449,7 @@ function to_node(spec; id=nothing, width=nothing, height=nothing, actions=false,
     end
     _broadcast_cross_source_layers!(vl)
     json = JSON.json(vl)
-    id = something(id, "vega-" * string(abs(hash(json)), base=16))
+    id = _sanitize_id(something(id, "vega-" * string(abs(hash(json)), base=16)))
 
     # Queue embed for deferred execution (after layout is computed)
     embed_opts = "{actions: $actions}"
@@ -3472,6 +3478,7 @@ Return an `h.script` node that updates an existing Vega view's dataset.
 Useful for HTMX responses that should update a plot without re-rendering.
 """
 function update_data(id, table; name="source_0")
+    id = _sanitize_id(id)
     rows = Tables.rowtable(table)
     data = [Dict{String,Any}(string(k) => v for (k, v) in pairs(nt)) for nt in rows]
     json = JSON.json(data)
@@ -4075,6 +4082,7 @@ function auto_remap_node(plot_id, spec; dims, fixed=Dict(), pinned::Symbol=:row)
 end
 
 function mapping_controls(id, resolved::NamedTuple; table=nothing, spec=nothing)
+    id = _sanitize_id(id)
     dims = resolved.dims
     defaults = resolved.defaults
     fixed_js = resolved.fixed
@@ -4371,7 +4379,7 @@ function to_html(spec; id=nothing, width=nothing, height=nothing)
     vl = spec isa Dict ? copy(spec) : to_vegalite(spec)
     !isnothing(width) && (vl["width"] = width)
     !isnothing(height) && (vl["height"] = height)
-    id = something(id, "vega-" * string(abs(hash(JSON.json(vl))), base=16))
+    id = _sanitize_id(something(id, "vega-" * string(abs(hash(JSON.json(vl))), base=16)))
     json = JSON.json(vl)
     """
     <div id="$id"></div>

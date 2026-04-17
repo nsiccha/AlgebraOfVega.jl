@@ -5,7 +5,7 @@ using HTMXObjects
 using HTMXObjects: CaptionSpec, with_caption, render_caption
 using HTMX: h
 import JSON
-import AlgebraOfVega: with_plot_caption
+import AlgebraOfVega: with_plot_caption, _sanitize_id
 
 """
     with_plot_caption(plot_node, caption::CaptionSpec; plot_id,
@@ -48,6 +48,7 @@ function with_plot_caption(plot_node, caption::CaptionSpec;
                             filename_base::Union{Nothing,AbstractString}=nothing,
                             layer_labels::Union{Nothing,AbstractDict}=nothing,
                             extra_actions=())
+    plot_id = _sanitize_id(plot_id)
     fname = something(filename_base, plot_id)
     labels_js = isnothing(layer_labels) ? "{}" : JSON.json(Dict(string(k) => string(v) for (k, v) in layer_labels))
 
