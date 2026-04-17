@@ -72,7 +72,7 @@ export Scatter, Lines, ScatterLines, BarPlot, Heatmap, BoxPlot,
 # AlgebraOfVega exports
 export config, vdraw, sdraw, sdraw_file, vlspec, vdata
 export to_vegalite, to_json, to_html, to_node, vega_head, vega_controls
-export vega_runtime, update_data, vega_cdn_urls, mapping_controls, resolve_channels, refine_channels, remap_node, auto_remap_node
+export vega_runtime, update_data, vega_cdn_urls, mapping_controls, resolve_channels, refine_channels, auto_remap_node
 export with_plot_caption, draws_summary_table
 
 """
@@ -3808,37 +3808,14 @@ function mapping_controls(id, dimensions::AbstractVector; table=nothing, spec=no
     mapping_controls(id, resolved; table, spec)
 end
 
-"""
-    remap_node(spec, dimensions; id, table=nothing, kwargs...)
-
-Return a `h.div` bundling a `mapping_controls` picker above the rendered plot
-for `spec`. `kwargs` are forwarded to `resolve_channels` (e.g. `color_default`,
-`fixed`, `pinned`). Equivalent to:
-
-```julia
-h.div()(mapping_controls(id, dimensions; spec, table, kwargs...), to_node(spec; id))
-```
-"""
-function remap_node(spec, dimensions; id, table=nothing, kwargs...)
-    controls, plot = _remap_node_parts(spec, dimensions; id, table, kwargs...)
-    h.div()(controls, plot)
-end
-
-# Expose the (controls, plot_node) pair so callers (e.g. `with_plot_caption`)
-# can interleave them with other elements instead of having them pre-wrapped.
-function _remap_node_parts(spec, dimensions; id, table=nothing, kwargs...)
-    (mapping_controls(id, dimensions; spec, table, kwargs...), to_node(spec; id))
-end
-
 # === auto_remap_node ===========================================================
 # `auto_remap_node(plot_id, spec; dims, fixed, pinned)` is the "fully
-# automatic" form (distinct from the simpler `remap_node` above, which is
-# a thin wrapper around `mapping_controls` + `to_node`). The user builds a
-# regular AoG spec — including their normal `mapping(:x, :y; color=…,
-# row=…, col=…)` channel encodings and any `* config(…)` — and
-# auto_remap_node handles channel resolution, refinement against the
-# spec's actual data, cartesian-product broadcast across missing facet
-# dims, combo-column construction, layer rewriting, and picker assembly.
+# automatic" remap entry point. The user builds a regular AoG spec —
+# including their normal `mapping(:x, :y; color=…, row=…, col=…)` channel
+# encodings and any `* config(…)` — and auto_remap_node handles channel
+# resolution, refinement against the spec's actual data, cartesian-product
+# broadcast across missing facet dims, combo-column construction, layer
+# rewriting, and picker assembly.
 
 # --- helpers ---
 
@@ -3850,7 +3827,7 @@ function _spec_layers(spec)
     elseif drawable isa AlgebraOfGraphics.Layer
         [drawable]
     else
-        error("remap_node: unsupported spec drawable type $(typeof(drawable))")
+        error("auto_remap_node: unsupported spec drawable type $(typeof(drawable))")
     end
 end
 
@@ -4095,7 +4072,7 @@ spec = data(filtered_pred) * mapping(:dose_mg => "Dose (mg)", :qoi => "";
             visual(Scatter; size=30, opacity=0.8)
 spec *= config(height=300, facet=(; linkxaxes=:none, linkyaxes=:none))
 
-remap_node("dose-response-plot", spec;
+auto_remap_node("dose-response-plot", spec;
     dims=["source"=>"Source", "study"=>"Study", "outcome"=>"Outcome", "method"=>"Method"],
     fixed=Dict(:column => "assay"),
     pinned=:row)

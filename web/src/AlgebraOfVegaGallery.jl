@@ -485,14 +485,12 @@ PLOTS = [
      """id = "remap-demo"
 spec = data(cars()) * mapping(:horsepower, :mpg, color=:origin) * visual(Scatter) *
        config(title="Remap Encoding Demo")
-remap_node(spec, [:origin => "Origin", :cylinders => "Cylinders"];
-    id=id, color_default="origin")""",
+auto_remap_node(id, spec; dims=[:origin => "Origin", :cylinders => "Cylinders"])""",
      () -> begin
         id = "remap-demo"
         spec = data(cars()) * mapping(:horsepower, :mpg, color=:origin) * visual(Scatter) *
                config(title="Remap Encoding Demo")
-        remap_node(spec, [:origin => "Origin", :cylinders => "Cylinders"];
-            id=id, color_default="origin")
+        auto_remap_node(id, spec; dims=[:origin => "Origin", :cylinders => "Cylinders"])
      end),
 
     ("remap_lineribbon", "Remap Line + Ribbon", "Client-side color/row/col switching on a lineribbon plot",
@@ -500,15 +498,13 @@ remap_node(spec, [:origin => "Origin", :cylinders => "Cylinders"];
 preds = faceted_regression_predictions()
 spec = data(preds) * mapping(:x, :y, group=:draw, color=:panel, row=:site) *
        lineribbon() * config(title="Remap Line + Ribbon")
-remap_node(spec, [:panel => "Condition", :site => "Site"];
-    id=id, color_default="panel", row_default="site")""",
+auto_remap_node(id, spec; dims=[:panel => "Condition", :site => "Site"])""",
      () -> begin
         id = "remap-lr"
         preds = faceted_regression_predictions()
         spec = data(preds) * mapping(:x, :y, group=:draw, color=:panel, row=:site) *
                lineribbon() * config(title="Remap Line + Ribbon")
-        remap_node(spec, [:panel => "Condition", :site => "Site"];
-            id=id, color_default="panel", row_default="site")
+        auto_remap_node(id, spec; dims=[:panel => "Condition", :site => "Site"])
      end),
 
     ("remap_detail", "Remap with Detail", "Lineribbon with extra grouping dimensions via detail= for client-side remapping",
@@ -526,8 +522,8 @@ end
 df = (; (k => getindex.(rows, k) for k in keys(rows[1]))...)
 spec = data(df) * mapping(:x, :y, group=:draw, color=:health, col=:assay) *
        lineribbon(; detail=[:site]) * config(title="Remap with Detail")
-remap_node(spec, [:health => "Health", :site => "Site"];
-    id=id, color_default="health", fixed=Dict(:column => "assay"))""",
+auto_remap_node(id, spec; dims=[:health => "Health", :site => "Site"],
+    fixed=Dict(:column => "assay"))""",
      () -> begin
         id = "remap-detail"
         rng = Random.MersenneTwister(42)
@@ -541,8 +537,8 @@ remap_node(spec, [:health => "Health", :site => "Site"];
         df = (; (k => getindex.(rows, k) for k in keys(rows[1]))...)
         spec = data(df) * mapping(:x, :y, group=:draw, color=:health, col=:assay) *
                lineribbon(; detail=[:site]) * config(title="Remap with Detail")
-        remap_node(spec, [:health => "Health", :site => "Site"];
-            id=id, color_default="health", fixed=Dict(:column => "assay"))
+        auto_remap_node(id, spec; dims=[:health => "Health", :site => "Site"],
+            fixed=Dict(:column => "assay"))
      end),
 
     # === AoG gallery replications (https://aog.makie.org/stable/) ===
@@ -1282,22 +1278,20 @@ data(summary) * mapping(:x, :median, color=:group) *
             config(width=500, height=350, title="Pre-aggregated Grouped Ribbon")
      end),
 
-    ("remap_precomputed_lineribbon", "Remap Pre-aggregated Ribbon", "remap_node on pre-aggregated lineribbon with color/row switching",
+    ("remap_precomputed_lineribbon", "Remap Pre-aggregated Ribbon", "auto_remap_node on pre-aggregated lineribbon with color/row switching",
      """id = "remap-precomp-lr"
 summary = _preaggregate(faceted_regression_predictions(), :x, :panel, :site)
 spec = data(summary) * mapping(:x, :median, color=:panel, row=:site) *
        lineribbon(bands=[:q025 => :q975, :q10 => :q90, :q25 => :q75]) *
        config(title="Remap Pre-aggregated Ribbon")
-remap_node(spec, [:panel => "Condition", :site => "Site"];
-    id=id, color_default="panel", row_default="site")""",
+auto_remap_node(id, spec; dims=[:panel => "Condition", :site => "Site"])""",
      () -> begin
         id = "remap-precomp-lr"
         summary = _preaggregate(faceted_regression_predictions(), :x, :panel, :site)
         spec = data(summary) * mapping(:x, :median, color=:panel, row=:site) *
                lineribbon(bands=[:q025 => :q975, :q10 => :q90, :q25 => :q75]) *
                config(title="Remap Pre-aggregated Ribbon")
-        remap_node(spec, [:panel => "Condition", :site => "Site"];
-            id=id, color_default="panel", row_default="site")
+        auto_remap_node(id, spec; dims=[:panel => "Condition", :site => "Site"])
      end),
 
     ("dotinterval", "Quantile Dotplot", "tidybayes-style: quantile dots with interval overlay",
@@ -1768,27 +1762,27 @@ end
         the_spec = data(summary) * mapping(:x, :median, color=:panel, row=:site) *
                    lineribbon(bands=[:q025 => :q975, :q10 => :q90, :q25 => :q75]) *
                    config(title="Captioned Pre-aggregated Lineribbon")
-        the_plot = remap_node(the_spec, [:panel => "Condition", :site => "Site"];
-            id=id, color_default="panel", row_default="site")
         caption = HTMXObjects.CaptionSpec(;
             title = "Captioned pre-aggregated lineribbon",
             short = "Posterior medians + 50/80/95% CrIs across 2 conditions × 2 sites. " *
                     "Use the picker to remap color/row; the data button always reflects " *
                     "the underlying summary table.",
-            long = "The plot is built with `remap_node` over a pre-aggregated summary " *
-                   "(median, q025, q10, q25, q75, q90, q975 columns). The CSV button " *
-                   "reads from the live Vega view via `view.data('source_0')`, so " *
-                   "after a remap it still returns the original input rows. The " *
-                   "lazy 'Show data' details below the plot renders the same table " *
-                   "client-side, sortable.",
+            long = "The plot is built via the spec-dispatch `with_plot_caption` with " *
+                   "`auto_remap=(; dims=...)`, over a pre-aggregated summary (median, " *
+                   "q025, q10, q25, q75, q90, q975 columns). Controls appear above the " *
+                   "`<figure>` (controls → caption → plot). The CSV button reads from " *
+                   "the live Vega view via `view.data('source_0')`, so after a remap it " *
+                   "still returns the original input rows. The lazy 'Show data' details " *
+                   "below the plot renders the same table client-side, sortable.",
         )
         h.main(class="container")(
             h.h1("Captioned plot demo"),
             h.p("Verifies the HTMXObjects caption integration on the most common " *
-                "bruno path: pre-aggregated lineribbon + remap_node."),
-            with_plot_caption(the_plot, caption;
+                "bruno path: pre-aggregated lineribbon + auto_remap_node via spec dispatch."),
+            with_plot_caption(the_spec, caption;
                 plot_id=id,
                 filename_base="lineribbon_summary",
+                auto_remap=(; dims=[:panel => "Condition", :site => "Site"]),
             ),
             HTMXObjects.caption_style(),
             HTMXObjects.sortable_table_js(),
