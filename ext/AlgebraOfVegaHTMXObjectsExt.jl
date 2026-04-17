@@ -19,8 +19,8 @@ Wrap `plot_node` (the result of `to_node(spec; id=plot_id)` or
 `auto_remap_node(plot_id, spec; ...)`) in a `<figure>` with a caption header.
 
 Buttons added to the caption actions (in order):
-- "⬇ data" CSV download per layer (when `data_download=true`). For multi-source
-  specs (i.e. data with a `__src` discriminator column), one CSV per source.
+- "⬇ CSV" download per layer (when `data_download=true`). For multi-source
+  specs (i.e. data with a `__src` discriminator column), triggers one CSV per source.
 - "⬇ PNG" / "⬇ SVG" image download per format in `images` (default `(:png, :svg)`).
   Pass `images=()` or `images=nothing` to disable, or e.g. `images=(:png,)` for one.
 - A lazy "Show data" `<details>` rendered below the plot (when `data_preview=true`),
@@ -32,7 +32,7 @@ who don't want that should not set the VL title.
 
 # Keyword arguments
 - `plot_id::AbstractString` (required): the same id passed to `to_node` / `auto_remap_node`
-- `data_download::Bool=true`: add the "⬇ data" button
+- `data_download::Bool=true`: add the "⬇ CSV" button
 - `data_preview::Bool=true`: add the lazy preview details below the plot
 - `images=(:png, :svg)`: image format buttons; pass `()` / `nothing` to disable
 - `filename_base`: base for downloaded filenames (defaults to `plot_id`)
@@ -54,7 +54,7 @@ function with_plot_caption(plot_node, caption::CaptionSpec;
     actions = Any[]
     if data_download
         push!(actions,
-            h.button("⬇ data";
+            h.button("⬇ CSV";
                 type="button", class="outline caption-action",
                 onclick="AoV.downloadPlotData('$(plot_id)', '$(fname)', $(labels_js))"))
     end
