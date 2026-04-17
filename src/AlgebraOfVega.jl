@@ -73,6 +73,18 @@ export Scatter, Lines, ScatterLines, BarPlot, Heatmap, BoxPlot,
 export config, vdraw, sdraw, sdraw_file, vlspec, vdata
 export to_vegalite, to_json, to_html, to_node, vega_head, vega_controls
 export vega_runtime, update_data, vega_cdn_urls, mapping_controls, resolve_channels, refine_channels, remap_node, auto_remap_node
+export with_plot_caption
+
+"""
+    with_plot_caption(plot_node, caption; plot_id, kwargs...)
+
+Wrap an AoV plot node (built via `to_node` or `auto_remap_node`) in a `<figure>`
+with a caption header that includes a CSV-download button (and optionally a
+lazy "Show data" details). Implementation lives in the
+`AlgebraOfVegaHTMXObjectsExt` extension and requires `using HTMXObjects` to be
+loaded; see that extension's docstring for the full kwargs.
+"""
+function with_plot_caption end
 # Tidybayes-style analysis exports
 export pointinterval, gradient_interval, lineribbon, ribbon, dotinterval
 # High-level widget/recipe exports
@@ -2808,6 +2820,153 @@ function vega_runtime()
             view.addSignalListener(signal, function(name, value) {
                 callback(name, value, view);
             });
+        },
+
+        // --- Plot data download / inline preview ---
+        // Read inline data from a plot's view; returns array of objects.
+        // Tries the named source first, falls back to common VL conventions.
+        _plotData: function(id, name) {
+            var view = this.views[id];
+            if (!view) return null;
+            name = name || 'source_0';
+            try { return view.data(name); } catch (e) { /* fall through */ }
+            // Fallback: enumerate runtime data, return first non-empty array
+            try {
+                var runtime = view._runtime && view._runtime.data;
+                if (runtime) {
+                    for (var k in runtime) {
+                        try {
+                            var d = view.data(k);
+                            if (Array.isArray(d) && d.length) return d;
+                        } catch (e) {}
+                    }
+                }
+            } catch (e) {}
+            return null;
+        },
+
+        // Split rows by a discriminator column (e.g. "__src" for multi-source layered specs).
+        // Returns [{label, rows}, ...]. If no rows have the column, returns [{label: null, rows}].
+        _splitBySource: function(rows, col) {
+            col = col || '__src';
+            if (!rows || !rows.length) return [{label: null, rows: rows || []}];
+            var hasCol = rows.some(function(r) { return r && Object.prototype.hasOwnProperty.call(r, col); });
+            if (!hasCol) return [{label: null, rows: rows}];
+            var groups = {};
+            var order = [];
+            rows.forEach(function(r) {
+                var v = r && r[col];
+                var k = v === undefined ? '__none__' : String(v);
+                if (!groups[k]) { groups[k] = []; order.push(k); }
+                // Drop the discriminator from the exported row
+                var clean = {};
+                for (var f in r) { if (f !== col) clean[f] = r[f]; }
+                groups[k].push(clean);
+            });
+            return order.map(function(k) {
+                return {label: k === '__none__' ? null : k, rows: groups[k]};
+            });
+        },
+
+        _csvEscape: function(s) {
+            s = (s === null || s === undefined) ? '' : String(s);
+            return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+        },
+
+        _rowsToCsv: function(rows) {
+            if (!rows || !rows.length) return '';
+            var cols = Object.keys(rows[0]);
+            var self = this;
+            var header = cols.map(self._csvEscape).join(',');
+            var body = rows.map(function(r) {
+                return cols.map(function(c) { return self._csvEscape(r[c]); }).join(',');
+            }).join('\n');
+            return header + '\n' + body;
+        },
+
+        _triggerDownload: function(text, filename, mime) {
+            var blob = new Blob([text], {type: (mime || 'text/csv') + ';charset=utf-8;'});
+            var url = URL.createObjectURL(blob);
+            var a = document.createElement('a');
+            a.href = url; a.download = filename;
+            document.body.appendChild(a); a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        },
+
+        // Public: download the plot's data as CSV. Splits by `__src` if present.
+        // labels: optional {srcValue: humanLabel} override map.
+        downloadPlotData: function(id, filenameBase, labels) {
+            filenameBase = filenameBase || id;
+            labels = labels || {};
+            var rows = this._plotData(id);
+            if (!rows) { console.warn('AoV.downloadPlotData: no data for', id); return; }
+            var groups = this._splitBySource(rows);
+            var self = this;
+            groups.forEach(function(g) {
+                var label = g.label === null ? '' : '_' + (labels[g.label] || g.label).replace(/[^A-Za-z0-9_-]+/g, '_');
+                var fname = filenameBase + label + '.csv';
+                self._triggerDownload(self._rowsToCsv(g.rows), fname);
+            });
+        },
+
+        // Public: render the plot's data as sortable HTML table(s) into `container`.
+        // Builds lazily — call from the <details> "toggle" event.
+        showPlotData: function(id, container, labels) {
+            labels = labels || {};
+            if (container.dataset.aovRendered === '1') return;
+            var rows = this._plotData(id);
+            if (!rows) { container.textContent = '(no data available)'; container.dataset.aovRendered = '1'; return; }
+            var groups = this._splitBySource(rows);
+            container.innerHTML = '';
+            var self = this;
+            groups.forEach(function(g) {
+                if (g.label !== null) {
+                    var h = document.createElement('h6');
+                    h.textContent = labels[g.label] || g.label;
+                    h.style.margin = '0.5rem 0 0.25rem';
+                    container.appendChild(h);
+                }
+                container.appendChild(self._buildSortableTable(g.rows));
+            });
+            container.dataset.aovRendered = '1';
+        },
+
+        _buildSortableTable: function(rows) {
+            var table = document.createElement('table');
+            table.className = 'striped';
+            table.setAttribute('role', 'grid');
+            if (!rows || !rows.length) {
+                table.innerHTML = '<tbody><tr><td>(empty)</td></tr></tbody>';
+                return table;
+            }
+            var cols = Object.keys(rows[0]);
+            var thead = document.createElement('thead');
+            var trh = document.createElement('tr');
+            cols.forEach(function(c, i) {
+                var th = document.createElement('th');
+                th.textContent = c;
+                th.style.cursor = 'pointer';
+                th.onclick = function() {
+                    if (typeof window.sortTable === 'function') window.sortTable(i, th);
+                };
+                trh.appendChild(th);
+            });
+            thead.appendChild(trh);
+            table.appendChild(thead);
+            var tbody = document.createElement('tbody');
+            rows.forEach(function(r) {
+                var tr = document.createElement('tr');
+                cols.forEach(function(c) {
+                    var td = document.createElement('td');
+                    var v = r[c];
+                    td.textContent = (v === null || v === undefined) ? '' : String(v);
+                    tr.appendChild(td);
+                });
+                tbody.appendChild(tr);
+            });
+            table.appendChild(tbody);
+            return table;
         },
 
         // Wire a signal to an HTMX GET request

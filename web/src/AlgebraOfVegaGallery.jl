@@ -1762,6 +1762,39 @@ end
 
     @get plot(id) = plot_detail[id]
 
+    @get captioned_demo = let
+        id = "captioned-demo"
+        summary = _preaggregate(faceted_regression_predictions(), :x, :panel, :site)
+        the_spec = data(summary) * mapping(:x, :median, color=:panel, row=:site) *
+                   lineribbon(bands=[:q025 => :q975, :q10 => :q90, :q25 => :q75]) *
+                   config(title="Captioned Pre-aggregated Lineribbon")
+        the_plot = remap_node(the_spec, [:panel => "Condition", :site => "Site"];
+            id=id, color_default="panel", row_default="site")
+        caption = HTMXObjects.CaptionSpec(;
+            title = "Captioned pre-aggregated lineribbon",
+            short = "Posterior medians + 50/80/95% CrIs across 2 conditions × 2 sites. " *
+                    "Use the picker to remap color/row; the data button always reflects " *
+                    "the underlying summary table.",
+            long = "The plot is built with `remap_node` over a pre-aggregated summary " *
+                   "(median, q025, q10, q25, q75, q90, q975 columns). The CSV button " *
+                   "reads from the live Vega view via `view.data('source_0')`, so " *
+                   "after a remap it still returns the original input rows. The " *
+                   "lazy 'Show data' details below the plot renders the same table " *
+                   "client-side, sortable.",
+        )
+        h.main(class="container")(
+            h.h1("Captioned plot demo"),
+            h.p("Verifies the HTMXObjects caption integration on the most common " *
+                "bruno path: pre-aggregated lineribbon + remap_node."),
+            with_plot_caption(the_plot, caption;
+                plot_id=id,
+                filename_base="lineribbon_summary",
+            ),
+            HTMXObjects.caption_style(),
+            HTMXObjects.sortable_table_js(),
+        )
+    end
+
     @get card_plot(id) = begin
         entry = find_plot(id)
         if isnothing(entry)
