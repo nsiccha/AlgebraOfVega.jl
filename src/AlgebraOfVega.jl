@@ -73,7 +73,7 @@ export Scatter, Lines, ScatterLines, BarPlot, Heatmap, BoxPlot,
 export config, vdraw, sdraw, sdraw_file, vlspec, vdata
 export to_vegalite, to_json, to_html, to_node, vega_head, vega_controls
 export vega_runtime, update_data, vega_cdn_urls, mapping_controls, resolve_channels, refine_channels, remap_node, auto_remap_node
-export with_plot_caption
+export with_plot_caption, draws_summary_table
 
 """
     with_plot_caption(plot_node, caption; plot_id, kwargs...)
@@ -85,6 +85,14 @@ lazy "Show data" details). Implementation lives in the
 loaded; see that extension's docstring for the full kwargs.
 """
 function with_plot_caption end
+
+"""
+    draws_summary_table(table; value, outcome, group_cols=Symbol[], ci_level=0.95, digits=2, caption=nothing, kwargs...)
+
+Build a "median [lo, hi]" summary table from long-format draws data. Implementation
+lives in the `AlgebraOfVegaHTMXObjectsExt` extension (requires `using HTMXObjects`).
+"""
+function draws_summary_table end
 
 # Sanitize a user-supplied id so it is safe both as an HTML id attribute and
 # as a CSS selector (querySelector('#'+id)). Dots, brackets, colons, etc. are
@@ -2962,7 +2970,21 @@ function vega_runtime()
                 table.innerHTML = '<tbody><tr><td>(empty)</td></tr></tbody>';
                 return table;
             }
-            var cols = Object.keys(rows[0]);
+            var rawCols = Object.keys(rows[0]);
+            var stringCols = [], numericCols = [];
+            rawCols.forEach(function(c) {
+                var isNumeric = false;
+                for (var i = 0; i < rows.length; i++) {
+                    var v = rows[i][c];
+                    if (v === null || v === undefined || v === '') continue;
+                    isNumeric = (typeof v === 'number');
+                    break;
+                }
+                (isNumeric ? numericCols : stringCols).push(c);
+            });
+            stringCols.sort();
+            numericCols.sort();
+            var cols = stringCols.concat(numericCols);
             var thead = document.createElement('thead');
             var trh = document.createElement('tr');
             cols.forEach(function(c, i) {
