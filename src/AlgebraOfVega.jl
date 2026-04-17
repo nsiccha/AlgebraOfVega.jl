@@ -2910,6 +2910,22 @@ function vega_runtime()
             });
         },
 
+        // Public: download the plot as a PNG/SVG image via vega view.toImageURL.
+        downloadPlotImage: function(id, format, filenameBase) {
+            filenameBase = filenameBase || id;
+            format = (format || 'png').toLowerCase();
+            var view = this.views[id];
+            if (!view) { console.warn('AoV.downloadPlotImage: no view for', id); return; }
+            view.toImageURL(format).then(function(url) {
+                var a = document.createElement('a');
+                a.href = url; a.download = filenameBase + '.' + format;
+                document.body.appendChild(a); a.click();
+                document.body.removeChild(a);
+            }).catch(function(err) {
+                console.warn('AoV.downloadPlotImage failed:', err);
+            });
+        },
+
         // Public: render the plot's data as sortable HTML table(s) into `container`.
         // Builds lazily — call from the <details> "toggle" event.
         showPlotData: function(id, container, labels) {
