@@ -3020,6 +3020,31 @@ function vega_runtime()
             return table;
         },
 
+        // Public: toggle between Pretty and Raw views inside a captioned plot's
+        // <details>. Triggers lazy raw-data render on first switch to "raw".
+        toggleDataView: function(btn, view) {
+            var details = btn.closest('details');
+            if (!details) return;
+            details.querySelectorAll('.aov-toggle-btn').forEach(function(b) {
+                var on = b.dataset.view === view;
+                b.classList.toggle('aov-toggle-active', on);
+                if (on) b.setAttribute('aria-pressed', 'true');
+                else b.removeAttribute('aria-pressed');
+            });
+            var pretty = details.querySelector('.aov-data-pretty');
+            var raw = details.querySelector('.aov-data-raw');
+            if (pretty) pretty.hidden = view !== 'pretty';
+            if (raw) raw.hidden = view !== 'raw';
+            if (view === 'raw') {
+                var body = raw && raw.querySelector('.aov-data-raw-body');
+                if (body && body.dataset.aovRendered !== '1') {
+                    var pid = body.dataset.aovPlotId;
+                    var labels = body.dataset.aovLabels ? JSON.parse(body.dataset.aovLabels) : {};
+                    if (pid) this.showPlotData(pid, body, labels);
+                }
+            }
+        },
+
         // Wire a signal to an HTMX GET request
         signalToHtmx: function(id, signal, url, target, swap, debounceMs) {
             debounceMs = debounceMs || 300;
@@ -3850,7 +3875,20 @@ function _auto_summary_args(spec)
                 k == :y && continue
                 push!(group_cols, Symbol(_field_name(v)))
             end
-            return (; table, value, outcome, group_cols)
+            return (; kind=:pointinterval, table, value, outcome, group_cols)
+        end
+        a = extract_transformation(layer, LineRibbonAnalysis)
+        if !isnothing(a)
+            table = extract_data(layer)
+            (isnothing(table) || length(layer.positional) < 2) && return nothing
+            x = Symbol(_field_name(layer.positional[1]))
+            value = Symbol(_field_name(layer.positional[2]))
+            group_cols = Symbol[x]
+            for (k, v) in pairs(layer.named)
+                k === :group && continue
+                push!(group_cols, Symbol(_field_name(v)))
+            end
+            return (; kind=:lineribbon, table, value, group_cols)
         end
     end
     return nothing

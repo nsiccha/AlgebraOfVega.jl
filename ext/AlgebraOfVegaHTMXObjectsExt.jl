@@ -77,20 +77,45 @@ function with_plot_caption(plot_node, caption::CaptionSpec;
     end
 
     body = Any[render_caption(caption; actions=tuple(actions...)), plot_node]
-    isnothing(summary_table) || push!(body, summary_table)
 
-    if data_preview
+    has_pretty = !isnothing(summary_table)
+    if data_preview || has_pretty
         preview_id = plot_id * "-data-preview"
-        summary_label = isnothing(summary_table) ? "Show data" : "Show raw data"
-        preview = h.details(; class="aov-data-preview",
-                            ontoggle="if(this.open) AoV.showPlotData('$(plot_id)', this.querySelector('.aov-data-preview-body'), $(labels_js))")(
-            h.summary(summary_label),
-            h.div(; class="aov-data-preview-body", id=preview_id)(),
-        )
-        push!(body, preview)
-    end
-
-    if data_preview || !isnothing(summary_table)
+        if has_pretty && data_preview
+            details = h.details(; class="aov-data-preview")(
+                h.summary("Show data"),
+                h.div(; class="aov-data-toggle", role="group")(
+                    h.button("Pretty"; type="button",
+                        class="outline aov-toggle-btn aov-toggle-active",
+                        data_view="pretty", aria_pressed="true",
+                        onclick="AoV.toggleDataView(this, 'pretty')"),
+                    h.button("Raw"; type="button",
+                        class="outline aov-toggle-btn",
+                        data_view="raw",
+                        onclick="AoV.toggleDataView(this, 'raw')"),
+                ),
+                h.div(; class="aov-data-pretty")(summary_table),
+                h.div(; class="aov-data-raw", hidden=true)(
+                    h.div(; class="aov-data-raw-body", id=preview_id,
+                          data_aov_plot_id=plot_id,
+                          data_aov_labels=labels_js)(),
+                ),
+            )
+            push!(body, details)
+        elseif has_pretty
+            details = h.details(; class="aov-data-preview")(
+                h.summary("Show summary"),
+                summary_table,
+            )
+            push!(body, details)
+        else
+            details = h.details(; class="aov-data-preview",
+                                ontoggle="if(this.open) AoV.showPlotData('$(plot_id)', this.querySelector('.aov-data-preview-body'), $(labels_js))")(
+                h.summary("Show data"),
+                h.div(; class="aov-data-preview-body", id=preview_id)(),
+            )
+            push!(body, details)
+        end
         h.figure(; class="captioned")(body...)
     else
         with_caption(caption, plot_node; actions=tuple(actions...))
@@ -135,8 +160,17 @@ function with_plot_caption(spec::VegaSpec, caption::CaptionSpec;
 
     resolved_summary = if summary_table === :auto
         args = _auto_summary_args(spec)
-        isnothing(args) ? nothing : draws_summary_table(args.table;
-            value=args.value, outcome=args.outcome, group_cols=args.group_cols)
+        if isnothing(args)
+            nothing
+        elseif args.kind === :pointinterval
+            draws_summary_table(args.table;
+                value=args.value, outcome=args.outcome, group_cols=args.group_cols)
+        elseif args.kind === :lineribbon
+            draws_summary_table(args.table;
+                value=args.value, group_cols=args.group_cols)
+        else
+            nothing
+        end
     else
         summary_table
     end
@@ -166,7 +200,7 @@ alphabetically. Extra `kwargs` are forwarded to `render_table`.
 """
 function draws_summary_table(table;
                               value::Symbol,
-                              outcome::Symbol,
+                              outcome::Union{Nothing,Symbol}=nothing,
                               group_cols::Vector{Symbol}=Symbol[],
                               ci_level::Float64=0.95,
                               digits::Int=2,
@@ -174,11 +208,40 @@ function draws_summary_table(table;
                               kwargs...)
     cols = Tables.columns(table)
     vals = Tables.getcolumn(cols, value)
-    outs = Tables.getcolumn(cols, outcome)
     group_vecs = [Tables.getcolumn(cols, c) for c in group_cols]
 
     α = (1 - ci_level) / 2
     fmt(x) = string(round(x; digits=digits))
+
+    if isnothing(outcome)
+        groups = Dict{Tuple,Vector{Int}}()
+        order = Tuple[]
+        n = length(vals)
+        for i in 1:n
+            key = ntuple(j -> group_vecs[j][i], length(group_cols))
+            idxs = get!(groups, key) do
+                push!(order, key)
+                Int[]
+            end
+            push!(idxs, i)
+        end
+        cells = String[]
+        for key in order
+            draws = [vals[i] for i in groups[key]]
+            med = Statistics.median(draws)
+            lo = Statistics.quantile(draws, α)
+            hi = Statistics.quantile(draws, 1 - α)
+            push!(cells, "$(fmt(med)) [$(fmt(lo)), $(fmt(hi))]")
+        end
+        col_pairs = Pair{Symbol,Any}[]
+        for (j, c) in enumerate(group_cols)
+            push!(col_pairs, c => [gkey[j] for gkey in order])
+        end
+        push!(col_pairs, value => cells)
+        return render_table((; col_pairs...); caption, kwargs...)
+    end
+
+    outs = Tables.getcolumn(cols, outcome)
 
     groups = Dict{Tuple,Vector{Int}}()
     order = Tuple[]

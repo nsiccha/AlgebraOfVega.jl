@@ -1817,6 +1817,30 @@ end
         )
     end
 
+    @get captioned_lineribbon_demo = let
+        id = "captioned-lineribbon-demo"
+        the_spec = data(grouped_regression_predictions()) *
+                   mapping(:x, :y, group=:draw, color=:group) *
+                   lineribbon() *
+                   config(width=500, height=350, title="Captioned raw-draws lineribbon")
+        caption = HTMXObjects.CaptionSpec(;
+            title = "Captioned lineribbon (raw draws, auto-summary)",
+            short = "Verifies the lineribbon path of `_auto_summary_args`: long-format draws " *
+                    "table → per-x median [lo, hi] grouped by color, inside the Pretty/Raw toggle.",
+            long = "Uses `lineribbon()` over raw draws (one row per (x, draw, group)). The " *
+                   "summary table groups by [x, color, ...] and reports the value field's " *
+                   "median + 95% CI per group.",
+        )
+        h.main(class="container")(
+            h.h1("Captioned lineribbon (raw draws) demo"),
+            h.p("Verifies auto-summary on raw-draws lineribbon (LineRibbonAnalysis)."),
+            with_plot_caption(the_spec, caption; plot_id=id, filename_base="lineribbon"),
+            HTMXObjects.caption_style(),
+            HTMXObjects.sortable_table_js(),
+            HTMXObjects.download_table_js(),
+        )
+    end
+
     @get card_plot(id) = begin
         entry = find_plot(id)
         if isnothing(entry)
