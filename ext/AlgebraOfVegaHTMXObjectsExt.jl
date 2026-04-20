@@ -10,6 +10,10 @@ import Statistics
 import AlgebraOfVega: with_plot_caption, draws_summary_table, _sanitize_id,
                       _auto_summary_args, _auto_remap_parts, to_node, VegaSpec
 
+# HTMX.jl writes attribute values verbatim (no HTML escape). Escape " and &
+# so JSON payloads survive in data-* attributes.
+_attr_escape(s) = replace(string(s), "&" => "&amp;", "\"" => "&quot;")
+
 """
     with_plot_caption(plot_node, caption::CaptionSpec; plot_id,
                       data_download=true,
@@ -82,7 +86,8 @@ function with_plot_caption(plot_node, caption::CaptionSpec;
     if data_preview || has_pretty
         preview_id = plot_id * "-data-preview"
         if has_pretty && data_preview
-            details = h.details(; class="aov-data-preview")(
+            details = h.details(; class="aov-data-preview",
+                                ontoggle="if(this.open) AoV._lazyRenderDataView(this, 'pretty')")(
                 h.summary("Show data"),
                 h.div(; class="aov-data-toggle", role="group")(
                     h.button("Pretty"; type="button",
@@ -98,14 +103,15 @@ function with_plot_caption(plot_node, caption::CaptionSpec;
                 h.div(; class="aov-data-raw", hidden=true)(
                     h.div(; class="aov-data-raw-body", id=preview_id,
                           data_aov_plot_id=plot_id,
-                          data_aov_labels=labels_js)(),
+                          data_aov_labels=_attr_escape(labels_js))(),
                 ),
             )
             push!(body, details)
         elseif has_pretty
-            details = h.details(; class="aov-data-preview")(
+            details = h.details(; class="aov-data-preview",
+                                ontoggle="if(this.open) AoV._lazyRenderDataView(this, 'pretty')")(
                 h.summary("Show summary"),
-                summary_table,
+                h.div(; class="aov-data-pretty")(summary_table),
             )
             push!(body, details)
         else
@@ -129,7 +135,8 @@ with_plot_caption(plot_node; title, short="", long=nothing, kwargs...) =
 
 """
     with_plot_caption(spec::VegaSpec, caption; plot_id,
-                      auto_remap=nothing, summary_table=:auto, kwargs...)
+                      auto_remap=nothing, summary_table=:auto,
+                      summary_ci=:outer, summary_digits=2, kwargs...)
 
 Spec-aware dispatch: takes the original `VegaSpec` (not a pre-rendered node),
 builds the plot internally, and can:
@@ -137,10 +144,16 @@ builds the plot internally, and can:
 - auto-wire `auto_remap_node` via `auto_remap=(; dims=..., fixed=..., pinned=...)`
   — controls are hoisted **above** the `<figure>` so they appear before the
   caption rather than between caption and plot.
-- auto-build a `draws_summary_table` when the spec has a PointInterval /
-  GradientInterval / DotIntervalAnalysis transformation (`summary_table=:auto`,
-  the default). Pass `summary_table=nothing` to disable, or pass an explicit
-  node to override.
+- emit a lazy pretty-summary shell that the AoV runtime fills client-side
+  from the live Vega view's already-aggregated columns (`__median__` +
+  `lo_<prob>_` / `hi_<prob>_`), when the spec has a PointInterval /
+  GradientInterval / DotInterval / LineRibbon analysis (`summary_table=:auto`,
+  the default). Pass `summary_table=nothing` to disable, or an explicit node
+  to bypass the lazy mechanism.
+
+`summary_ci` controls which interval is shown: `:outer` (default — largest
+prob, typically 95%), `:inner` (smallest), or a `Float64` like `0.8` (closest
+match). `summary_digits` rounds the cells (default 2).
 
 Remaining `kwargs` are forwarded to the `plot_node` method.
 """
@@ -148,6 +161,8 @@ function with_plot_caption(spec::VegaSpec, caption::CaptionSpec;
                             plot_id::AbstractString,
                             auto_remap=nothing,
                             summary_table=:auto,
+                            summary_ci=:outer,
+                            summary_digits::Int=2,
                             kwargs...)
     plot_id_s = _sanitize_id(plot_id)
 
@@ -162,14 +177,17 @@ function with_plot_caption(spec::VegaSpec, caption::CaptionSpec;
         args = _auto_summary_args(spec)
         if isnothing(args)
             nothing
-        elseif args.kind === :pointinterval
-            draws_summary_table(args.table;
-                value=args.value, outcome=args.outcome, group_cols=args.group_cols)
-        elseif args.kind === :lineribbon
-            draws_summary_table(args.table;
-                value=args.value, group_cols=args.group_cols)
         else
-            nothing
+            ci_val = summary_ci isa Symbol ? string(summary_ci) : summary_ci
+            opts = Dict{String,Any}(
+                "ci" => ci_val,
+                "digits" => summary_digits,
+                "value_label" => string(args.value),
+            )
+            h.div(; class="aov-data-pretty-body",
+                  id="$(plot_id_s)-pretty",
+                  data_aov_plot_id=plot_id_s,
+                  data_aov_summary_opts=_attr_escape(JSON.json(opts)))()
         end
     else
         summary_table

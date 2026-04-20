@@ -3021,7 +3021,7 @@ function vega_runtime()
         },
 
         // Public: toggle between Pretty and Raw views inside a captioned plot's
-        // <details>. Triggers lazy raw-data render on first switch to "raw".
+        // <details>. Lazily renders the chosen view on first switch.
         toggleDataView: function(btn, view) {
             var details = btn.closest('details');
             if (!details) return;
@@ -3035,14 +3035,119 @@ function vega_runtime()
             var raw = details.querySelector('.aov-data-raw');
             if (pretty) pretty.hidden = view !== 'pretty';
             if (raw) raw.hidden = view !== 'raw';
+            this._lazyRenderDataView(details, view);
+        },
+
+        _lazyRenderDataView: function(details, view) {
             if (view === 'raw') {
-                var body = raw && raw.querySelector('.aov-data-raw-body');
+                var body = details.querySelector('.aov-data-raw-body');
                 if (body && body.dataset.aovRendered !== '1') {
                     var pid = body.dataset.aovPlotId;
                     var labels = body.dataset.aovLabels ? JSON.parse(body.dataset.aovLabels) : {};
                     if (pid) this.showPlotData(pid, body, labels);
                 }
+            } else if (view === 'pretty') {
+                var body = details.querySelector('.aov-data-pretty-body');
+                if (body && body.dataset.aovRendered !== '1') {
+                    var pid = body.dataset.aovPlotId;
+                    var opts = body.dataset.aovSummaryOpts ? JSON.parse(body.dataset.aovSummaryOpts) : {};
+                    if (pid) this.renderPrettySummary(pid, body, opts);
+                }
             }
+        },
+
+        // Public: render a "median [lo, hi]" pretty summary table from the live
+        // Vega view's source_0 (which already holds the aggregated columns
+        // produced by Julia: __median__ + lo_<prob>_ / hi_<prob>_ for each prob).
+        // No JS quantile — picks one prob per opts.ci.
+        //   opts.ci: 'outer' (default, largest prob) | 'inner' (smallest) | Number
+        //   opts.digits: rounding (default 2)
+        //   opts.value_label: column header for the formatted value (default 'value')
+        renderPrettySummary: function(id, container, opts) {
+            opts = opts || {};
+            if (container.dataset.aovRendered === '1') return;
+            var rows = this._plotData(id);
+            if (!rows || !rows.length) {
+                container.textContent = '(no summary data available)';
+                container.dataset.aovRendered = '1';
+                return;
+            }
+            var groups = this._splitBySource(rows);
+            container.innerHTML = '';
+            var labels = opts.labels || {};
+            var self = this;
+            groups.forEach(function(g) {
+                if (g.label !== null) {
+                    var heading = document.createElement('h6');
+                    heading.textContent = labels[g.label] || g.label;
+                    heading.style.margin = '0.5rem 0 0.25rem';
+                    container.appendChild(heading);
+                }
+                var pretty = self._buildPrettyRows(g.rows, opts);
+                if (!pretty) {
+                    var msg = document.createElement('p');
+                    msg.textContent = '(no aggregated columns found)';
+                    msg.style.fontStyle = 'italic';
+                    container.appendChild(msg);
+                    return;
+                }
+                container.appendChild(self._buildSortableTable(pretty));
+            });
+            container.dataset.aovRendered = '1';
+        },
+
+        _buildPrettyRows: function(rows, opts) {
+            if (!rows || !rows.length) return null;
+            var first = rows[0];
+            if (!('__median__' in first)) return null;
+            var probMap = {};
+            Object.keys(first).forEach(function(c) {
+                var m = /^lo_(\d+(?:_\d+)?)_$/.exec(c);
+                if (m && ('hi_' + m[1] + '_') in first) {
+                    probMap[m[1]] = parseFloat(m[1].replace('_', '.'));
+                }
+            });
+            var probKeys = Object.keys(probMap);
+            if (!probKeys.length) return null;
+            probKeys.sort(function(a, b) { return probMap[a] - probMap[b]; });
+            var pickKey;
+            var ci = opts.ci;
+            if (typeof ci === 'number') {
+                var target = ci, best = probKeys[0], bestDiff = Math.abs(probMap[best] - target);
+                probKeys.forEach(function(k) {
+                    var d = Math.abs(probMap[k] - target);
+                    if (d < bestDiff) { best = k; bestDiff = d; }
+                });
+                pickKey = best;
+            } else if (ci === 'inner') {
+                pickKey = probKeys[0];
+            } else {
+                pickKey = probKeys[probKeys.length - 1];
+            }
+            var loCol = 'lo_' + pickKey + '_';
+            var hiCol = 'hi_' + pickKey + '_';
+            var digits = (opts.digits === undefined) ? 2 : opts.digits;
+            var label = opts.value_label || 'value';
+            var fmt = function(x) {
+                if (x === null || x === undefined || isNaN(x)) return '';
+                var f = Math.pow(10, digits);
+                return String(Math.round(x * f) / f);
+            };
+            var hidden = {'__median__': 1};
+            hidden[loCol] = 1; hidden[hiCol] = 1;
+            probKeys.forEach(function(k) {
+                hidden['lo_' + k + '_'] = 1;
+                hidden['hi_' + k + '_'] = 1;
+            });
+            return rows.map(function(r) {
+                var out = {};
+                Object.keys(r).forEach(function(c) {
+                    if (hidden[c] || c.startsWith('__')) return;
+                    out[c] = r[c];
+                });
+                out[label] = fmt(r['__median__']) + ' [' + fmt(r[loCol]) + ', ' + fmt(r[hiCol]) + ']';
+                return out;
+            });
         },
 
         // Wire a signal to an HTMX GET request
