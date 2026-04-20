@@ -2969,7 +2969,7 @@ function vega_runtime()
             container.dataset.aovRendered = '1';
         },
 
-        _buildSortableTable: function(rows) {
+        _buildSortableTable: function(rows, cols) {
             var table = document.createElement('table');
             table.className = 'striped';
             table.setAttribute('role', 'grid');
@@ -2977,21 +2977,23 @@ function vega_runtime()
                 table.innerHTML = '<tbody><tr><td>(empty)</td></tr></tbody>';
                 return table;
             }
-            var rawCols = Object.keys(rows[0]);
-            var stringCols = [], numericCols = [];
-            rawCols.forEach(function(c) {
-                var isNumeric = false;
-                for (var i = 0; i < rows.length; i++) {
-                    var v = rows[i][c];
-                    if (v === null || v === undefined || v === '') continue;
-                    isNumeric = (typeof v === 'number');
-                    break;
-                }
-                (isNumeric ? numericCols : stringCols).push(c);
-            });
-            stringCols.sort();
-            numericCols.sort();
-            var cols = stringCols.concat(numericCols);
+            if (!cols) {
+                var rawCols = Object.keys(rows[0]);
+                var stringCols = [], numericCols = [];
+                rawCols.forEach(function(c) {
+                    var isNumeric = false;
+                    for (var i = 0; i < rows.length; i++) {
+                        var v = rows[i][c];
+                        if (v === null || v === undefined || v === '') continue;
+                        isNumeric = (typeof v === 'number');
+                        break;
+                    }
+                    (isNumeric ? numericCols : stringCols).push(c);
+                });
+                stringCols.sort();
+                numericCols.sort();
+                cols = stringCols.concat(numericCols);
+            }
             var thead = document.createElement('thead');
             var trh = document.createElement('tr');
             cols.forEach(function(c, i) {
@@ -3056,13 +3058,19 @@ function vega_runtime()
             }
         },
 
-        // Public: render a "median [lo, hi]" pretty summary table from the live
-        // Vega view's source_0 (which already holds the aggregated columns
-        // produced by Julia: __median__ + lo_<prob>_ / hi_<prob>_ for each prob).
-        // No JS quantile — picks one prob per opts.ci.
-        //   opts.ci: 'outer' (default, largest prob) | 'inner' (smallest) | Number
-        //   opts.digits: rounding (default 2)
-        //   opts.value_label: column header for the formatted value (default 'value')
+        // Public: render a "point [lo, hi]" pretty summary table from the live
+        // Vega view's source_0, which already holds the aggregated columns
+        // produced by Julia. Two modes:
+        //   1. Auto-detect: looks for __point__ or __median__ as the central col,
+        //      and lo_<prob>_ / hi_<prob>_ pairs for the intervals (used by
+        //      pointinterval/gradient/dot/lineribbon).
+        //   2. Explicit (opts.bands): caller passes [[loCol, hiCol, label], ...]
+        //      and opts.point_col (used by lineribbon(bands=...) precomputed).
+        //
+        //   opts.ci: 'outer' (default, widest band) | 'inner' | Number (closest prob)
+        //   opts.sigfigs: significant figures for numeric formatting (default 2)
+        //   opts.value_label: header for the formatted value column (default 'value')
+        //   opts.point_label: 'Median' (default) | 'Mean' | custom — used in caption
         renderPrettySummary: function(id, container, opts) {
             opts = opts || {};
             if (container.dataset.aovRendered === '1') return;
@@ -3083,15 +3091,21 @@ function vega_runtime()
                     heading.style.margin = '0.5rem 0 0.25rem';
                     container.appendChild(heading);
                 }
-                var pretty = self._buildPrettyRows(g.rows, opts);
-                if (!pretty) {
+                var built = self._buildPrettyRows(g.rows, opts);
+                if (!built) {
                     var msg = document.createElement('p');
                     msg.textContent = '(no aggregated columns found)';
                     msg.style.fontStyle = 'italic';
                     container.appendChild(msg);
                     return;
                 }
-                container.appendChild(self._buildSortableTable(pretty));
+                if (built.caption) {
+                    var cap = document.createElement('figcaption');
+                    cap.textContent = built.caption;
+                    cap.style.cssText = 'font-size:0.85em;opacity:0.75;margin:0 0 0.25rem';
+                    container.appendChild(cap);
+                }
+                container.appendChild(self._buildSortableTable(built.rows, built.cols));
             });
             container.dataset.aovRendered = '1';
         },
@@ -3099,55 +3113,99 @@ function vega_runtime()
         _buildPrettyRows: function(rows, opts) {
             if (!rows || !rows.length) return null;
             var first = rows[0];
-            if (!('__median__' in first)) return null;
-            var probMap = {};
-            Object.keys(first).forEach(function(c) {
-                var m = /^lo_(\d+(?:_\d+)?)_$/.exec(c);
-                if (m && ('hi_' + m[1] + '_') in first) {
-                    probMap[m[1]] = parseFloat(m[1].replace('_', '.'));
-                }
-            });
-            var probKeys = Object.keys(probMap);
-            if (!probKeys.length) return null;
-            probKeys.sort(function(a, b) { return probMap[a] - probMap[b]; });
-            var pickKey;
-            var ci = opts.ci;
-            if (typeof ci === 'number') {
-                var target = ci, best = probKeys[0], bestDiff = Math.abs(probMap[best] - target);
-                probKeys.forEach(function(k) {
-                    var d = Math.abs(probMap[k] - target);
-                    if (d < bestDiff) { best = k; bestDiff = d; }
+            var pointCol = opts.point_col ||
+                ('__point__' in first ? '__point__' :
+                 ('__median__' in first ? '__median__' : null));
+            if (!pointCol || !(pointCol in first)) return null;
+
+            var bands; // [{lo, hi, label}, ...] sorted inner→outer
+            if (opts.bands && opts.bands.length) {
+                // AoV passes explicit bands outermost-first (lineribbon convention);
+                // internal representation is inner→outer to match the auto-detect path.
+                bands = opts.bands.slice().reverse().map(function(b) {
+                    return {lo: b[0], hi: b[1], label: b[2] || (b[0] + ' / ' + b[1])};
                 });
-                pickKey = best;
-            } else if (ci === 'inner') {
-                pickKey = probKeys[0];
             } else {
-                pickKey = probKeys[probKeys.length - 1];
-            }
-            var loCol = 'lo_' + pickKey + '_';
-            var hiCol = 'hi_' + pickKey + '_';
-            var digits = (opts.digits === undefined) ? 2 : opts.digits;
-            var label = opts.value_label || 'value';
-            var fmt = function(x) {
-                if (x === null || x === undefined || isNaN(x)) return '';
-                var f = Math.pow(10, digits);
-                return String(Math.round(x * f) / f);
-            };
-            var hidden = {'__median__': 1};
-            hidden[loCol] = 1; hidden[hiCol] = 1;
-            probKeys.forEach(function(k) {
-                hidden['lo_' + k + '_'] = 1;
-                hidden['hi_' + k + '_'] = 1;
-            });
-            return rows.map(function(r) {
-                var out = {};
-                Object.keys(r).forEach(function(c) {
-                    if (hidden[c] || c.startsWith('__')) return;
-                    out[c] = r[c];
+                var probMap = {};
+                Object.keys(first).forEach(function(c) {
+                    var m = /^lo_(\d+(?:_\d+)?)_$/.exec(c);
+                    if (m && ('hi_' + m[1] + '_') in first) {
+                        probMap[m[1]] = parseFloat(m[1].replace('_', '.'));
+                    }
                 });
-                out[label] = fmt(r['__median__']) + ' [' + fmt(r[loCol]) + ', ' + fmt(r[hiCol]) + ']';
+                var probKeys = Object.keys(probMap);
+                if (!probKeys.length) return null;
+                probKeys.sort(function(a, b) { return probMap[a] - probMap[b]; });
+                bands = probKeys.map(function(k) {
+                    return {
+                        lo: 'lo_' + k + '_',
+                        hi: 'hi_' + k + '_',
+                        label: Math.round(probMap[k] * 100) + '%',
+                        prob: probMap[k]
+                    };
+                });
+            }
+
+            var pick;
+            var ci = opts.ci;
+            if (typeof ci === 'number' && bands[0].prob !== undefined) {
+                pick = bands[0]; var bestDiff = Math.abs(pick.prob - ci);
+                bands.forEach(function(b) {
+                    var d = Math.abs(b.prob - ci);
+                    if (d < bestDiff) { pick = b; bestDiff = d; }
+                });
+            } else if (ci === 'inner') {
+                pick = bands[0];
+            } else {
+                pick = bands[bands.length - 1];
+            }
+
+            var sigfigs = (opts.sigfigs === undefined) ? 2 : opts.sigfigs;
+            var fmt = function(x) {
+                if (x === null || x === undefined || (typeof x === 'number' && isNaN(x))) return '';
+                if (typeof x !== 'number') return String(x);
+                return parseFloat(x.toPrecision(sigfigs)).toString();
+            };
+            var label = opts.value_label || 'value';
+            var pointLabel = opts.point_label || 'Median';
+
+            var hidden = {};
+            hidden[pointCol] = 1;
+            bands.forEach(function(b) { hidden[b.lo] = 1; hidden[b.hi] = 1; });
+
+            var visibleSourceCols = Object.keys(first).filter(function(c) {
+                if (hidden[c]) return false;
+                if (c.indexOf('__') === 0) return false;
+                return true;
+            });
+            // Categorical first (alpha), then numeric (alpha), then the value col.
+            var stringCols = [], numericCols = [];
+            visibleSourceCols.forEach(function(c) {
+                var isNumeric = false;
+                for (var i = 0; i < rows.length; i++) {
+                    var v = rows[i][c];
+                    if (v === null || v === undefined || v === '') continue;
+                    isNumeric = (typeof v === 'number');
+                    break;
+                }
+                (isNumeric ? numericCols : stringCols).push(c);
+            });
+            stringCols.sort(); numericCols.sort();
+            var orderedCols = stringCols.concat(numericCols).concat([label]);
+
+            var roundNum = function(v) {
+                if (typeof v !== 'number' || isNaN(v)) return v;
+                return parseFloat(v.toPrecision(sigfigs));
+            };
+            var built = rows.map(function(r) {
+                var out = {};
+                visibleSourceCols.forEach(function(c) { out[c] = roundNum(r[c]); });
+                out[label] = fmt(r[pointCol]) + ' [' + fmt(r[pick.lo]) + ', ' + fmt(r[pick.hi]) + ']';
                 return out;
             });
+
+            var caption = pointLabel + ' [' + pick.label + (pick.prob !== undefined ? ' credible interval' : '') + ']';
+            return {rows: built, cols: orderedCols, caption: caption};
         },
 
         // Wire a signal to an HTMX GET request
@@ -3994,6 +4052,18 @@ function _auto_summary_args(spec)
                 push!(group_cols, Symbol(_field_name(v)))
             end
             return (; kind=:lineribbon, table, value, group_cols)
+        end
+        a = extract_transformation(layer, PrecomputedRibbonAnalysis)
+        if !isnothing(a)
+            length(layer.positional) < 2 && return nothing
+            value = Symbol(_field_name(layer.positional[2]))
+            point_col = string(value)
+            # bands as [(lo, hi, label)]: outermost first per AoV convention
+            bands = Tuple{String,String,String}[
+                (string(lo), string(hi), "$(string(lo))/$(string(hi))")
+                for (lo, hi) in a.bands
+            ]
+            return (; kind=:precomputed_ribbon, value, point_col, bands)
         end
     end
     return nothing

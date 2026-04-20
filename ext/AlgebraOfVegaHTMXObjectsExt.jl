@@ -136,7 +136,7 @@ with_plot_caption(plot_node; title, short="", long=nothing, kwargs...) =
 """
     with_plot_caption(spec::VegaSpec, caption; plot_id,
                       auto_remap=nothing, summary_table=:auto,
-                      summary_ci=:outer, summary_digits=2, kwargs...)
+                      summary_ci=:outer, summary_sigfigs=2, kwargs...)
 
 Spec-aware dispatch: takes the original `VegaSpec` (not a pre-rendered node),
 builds the plot internally, and can:
@@ -151,9 +151,10 @@ builds the plot internally, and can:
   the default). Pass `summary_table=nothing` to disable, or an explicit node
   to bypass the lazy mechanism.
 
-`summary_ci` controls which interval is shown: `:outer` (default — largest
-prob, typically 95%), `:inner` (smallest), or a `Float64` like `0.8` (closest
-match). `summary_digits` rounds the cells (default 2).
+`summary_ci` controls which interval is shown: `:outer` (default — widest
+band, typically 95%), `:inner` (narrowest), or a `Float64` like `0.8` (closest
+prob match — auto path only). `summary_sigfigs` rounds cells to N significant
+figures (default 2).
 
 Remaining `kwargs` are forwarded to the `plot_node` method.
 """
@@ -162,7 +163,7 @@ function with_plot_caption(spec::VegaSpec, caption::CaptionSpec;
                             auto_remap=nothing,
                             summary_table=:auto,
                             summary_ci=:outer,
-                            summary_digits::Int=2,
+                            summary_sigfigs::Int=2,
                             kwargs...)
     plot_id_s = _sanitize_id(plot_id)
 
@@ -181,9 +182,14 @@ function with_plot_caption(spec::VegaSpec, caption::CaptionSpec;
             ci_val = summary_ci isa Symbol ? string(summary_ci) : summary_ci
             opts = Dict{String,Any}(
                 "ci" => ci_val,
-                "digits" => summary_digits,
+                "sigfigs" => summary_sigfigs,
                 "value_label" => string(args.value),
             )
+            if args.kind === :precomputed_ribbon
+                opts["point_col"] = args.point_col
+                opts["point_label"] = "Median"
+                opts["bands"] = [Any[lo, hi, label] for (lo, hi, label) in args.bands]
+            end
             h.div(; class="aov-data-pretty-body",
                   id="$(plot_id_s)-pretty",
                   data_aov_plot_id=plot_id_s,
