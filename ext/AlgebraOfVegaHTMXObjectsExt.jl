@@ -65,7 +65,7 @@ function with_plot_caption(plot_node, caption::CaptionSpec;
         push!(actions,
             h.button("⬇ CSV";
                 type="button", class="outline caption-action",
-                onclick="AoV.downloadPlotData('$(plot_id)', '$(fname)', $(labels_js))"))
+                onclick="AoV.downloadPlotData('$(plot_id)', '$(fname)', $(_attr_escape(labels_js)))"))
     end
     if !isnothing(images)
         for fmt in images
@@ -116,9 +116,13 @@ function with_plot_caption(plot_node, caption::CaptionSpec;
             push!(body, details)
         else
             details = h.details(; class="aov-data-preview",
-                                ontoggle="if(this.open) AoV.showPlotData('$(plot_id)', this.querySelector('.aov-data-preview-body'), $(labels_js))")(
+                                ontoggle="if(this.open) AoV._lazyRenderDataView(this, 'raw')")(
                 h.summary("Show data"),
-                h.div(; class="aov-data-preview-body", id=preview_id)(),
+                h.div(; class="aov-data-raw")(
+                    h.div(; class="aov-data-raw-body", id=preview_id,
+                          data_aov_plot_id=plot_id,
+                          data_aov_labels=_attr_escape(labels_js))(),
+                ),
             )
             push!(body, details)
         end
