@@ -3346,6 +3346,7 @@ function vega_runtime()
                     // scatters) and should not be data-driven by the picker.
                     layers.forEach(function(l) {
                         if (!l.encoding) return;
+                        if (l._keep_color) return;  // layer-fixed color (field outside remappable dims)
                         var staticColor = l.mark && typeof l.mark === 'object' && l.mark.color;
                         if (staticColor) return;
                         if (cf) {
@@ -4212,10 +4213,30 @@ end
 # dropped first, then resolved kws are merged on top — except where the
 # layer's Visual has already set the same channel statically. lineribbon
 # detail is patched on the transformation.
-function _rebuild_layer(layer, new_df, resolved)
+#
+# Layer-fixed color preservation: if the layer has `color=<field>` on a field
+# outside `dim_fields` (the set of remappable dims), the layer's own color
+# encoding is preserved verbatim and the resolved color kw is NOT applied to
+# this layer. Returns `(new_layer, keep_color_field)` where `keep_color_field`
+# is `nothing` unless the layer has a preserved, non-remappable color field.
+function _rebuild_layer(layer, new_df, resolved, dim_fields::Set{String})
+    # Detect layer-fixed color: `color=` on a field outside `dim_fields`.
+    # Such layers keep their original color encoding and skip resolved.color_kw.
+    keep_color_field = nothing
+    if haskey(layer.named, :color)
+        cf = _field_name(layer.named[:color])
+        if !(cf in dim_fields)
+            keep_color_field = cf
+        end
+    end
     # Build merged named NamedTuple
     base = NamedTuple()
     for (k, v) in pairs(layer.named)
+        # Keep the original :color if it's layer-fixed (outside dim_fields).
+        if k === :color && !isnothing(keep_color_field)
+            base = merge(base, NamedTuple{(:color,)}((v,)))
+            continue
+        end
         k in (:color, :row, :col, :column) && continue
         base = merge(base, NamedTuple{(k,)}((v,)))
     end
@@ -4227,6 +4248,11 @@ function _rebuild_layer(layer, new_df, resolved)
     for k in (:color, :row, :col, :column)
         extra = _drop(extra, k)
     end
+    # For layer-fixed-color layers, strip resolved.color_kw so it doesn't
+    # override the preserved original color.
+    if !isnothing(keep_color_field) && haskey(extra, :color)
+        extra = Base.structdiff(extra, NamedTuple{(:color,)})
+    end
     new_named = merge(base, extra)
     # Patch detail on the transformation chain
     new_t = _patch_detail(layer.transformation, resolved.detail)
@@ -4235,7 +4261,8 @@ function _rebuild_layer(layer, new_df, resolved)
     # transformation.
     composed = AlgebraOfGraphics.data(new_df) *
         AlgebraOfGraphics.mapping(layer.positional...; new_named...)
-    AlgebraOfGraphics.Layer(new_t, composed.data, composed.positional, composed.named)
+    new_layer = AlgebraOfGraphics.Layer(new_t, composed.data, composed.positional, composed.named)
+    (new_layer, keep_color_field)
 end
 
 """
@@ -4326,13 +4353,37 @@ function _auto_remap_parts(plot_id, spec; dims, fixed=Dict(), pinned::Symbol=:ro
     bcasted = [_broadcast_missing_fields(df, bcast_fields, field_uniques) for df in dfs]
     new_dfs = [_with_combos(df, resolved) for df in bcasted]
 
-    new_layers = [_rebuild_layer(layer, new_df, resolved) for (layer, new_df) in zip(layers, new_dfs)]
+    rebuilt = [_rebuild_layer(layer, new_df, resolved, dim_fields) for (layer, new_df) in zip(layers, new_dfs)]
+    new_layers = [r[1] for r in rebuilt]
+    keep_color_fields = Set{String}(r[2] for r in rebuilt if !isnothing(r[2]))
     new_drawable = reduce(+, new_layers)
     new_spec = spec isa VegaSpec ? VegaSpec(new_drawable, spec.config) : new_drawable
 
+    # Build VL, tag layers whose color field is layer-fixed so JS remapEncoding skips them.
+    vl = to_vegalite(new_spec)
+    isempty(keep_color_fields) || _tag_keep_color_layers!(vl, keep_color_fields)
+
     controls = isempty(resolved.dims) ? "" : mapping_controls(plot_id, resolved; spec=new_spec)
-    plot = to_node(new_spec; id=plot_id)
+    plot = to_node(vl; id=plot_id)
     (controls, plot)
+end
+
+# Walk a VL dict and mark any layer with `encoding.color.field ∈ keep_color_fields`
+# with `_keep_color = true`, so the JS remapEncoding loop leaves it alone.
+function _tag_keep_color_layers!(vl::Dict, keep_color_fields::Set{String})
+    # Faceted specs nest layers under "spec"; plain layered specs use top-level "layer".
+    container = haskey(vl, "spec") && vl["spec"] isa Dict ? vl["spec"] : vl
+    layers = get(container, "layer", nothing)
+    layers isa AbstractVector || return
+    for l in layers
+        l isa Dict || continue
+        enc = get(l, "encoding", nothing)
+        enc isa Dict || continue
+        color = get(enc, "color", nothing)
+        color isa Dict || continue
+        f = get(color, "field", nothing)
+        f isa AbstractString && f in keep_color_fields && (l["_keep_color"] = true)
+    end
 end
 
 function mapping_controls(id, resolved::NamedTuple; table=nothing, spec=nothing)

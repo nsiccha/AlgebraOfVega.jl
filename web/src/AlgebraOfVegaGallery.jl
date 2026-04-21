@@ -1346,6 +1346,148 @@ end""",
             config(title="MPG with Mean Reference Line")
      end),
 
+    ("aog_vlines_faceted_color", "VLines color mapping (bug)",
+     "Two scatter layers (obs + pred) faceted by assay (col) × subject (row), plus a VLines dosing layer with its own color=:vessel mapping. The VLines should render one color per vessel, but the per-layer color mapping is currently ignored.",
+     """let
+    subjects = [\"S1\", \"S2\"]
+    assays   = [\"A\", \"B\"]
+    obs = (;
+        subject = repeat(subjects, inner=20),
+        assay   = repeat(assays, 20),
+        time_h  = repeat(collect(range(0, 24, length=20)), 2),
+        y_obs   = randn(40))
+    pred = (;
+        subject = repeat(subjects, inner=20),
+        assay   = repeat(assays, 20),
+        time_h  = repeat(collect(range(0, 24, length=20)), 2),
+        y_pred  = randn(40) .+ 0.2)
+    dose = (;
+        subject = [\"S1\",\"S1\",\"S1\",\"S2\",\"S2\",\"S2\",\"S1\",\"S1\",\"S2\",\"S2\"],
+        diet    = [\"Fed\",\"Fasted\",\"Fed\",\"Fed\",\"Fasted\",\"Fed\",\"Fed\",\"Fed\",\"Fasted\",\"Fed\"],
+        amount_mug = [10.0, 20.0, 10.0, 10.0, 20.0, 10.0, 5.0, 5.0, 5.0, 5.0],
+        time_h  = [0.0, 8.0, 16.0, 0.0, 8.0, 16.0, 0.0, 12.0, 0.0, 12.0],
+        vessel  = [\"IV\",\"Oral\",\"IV\",\"Oral\",\"IV\",\"Oral\",\"IV\",\"Oral\",\"Oral\",\"IV\"])
+    (data(obs) *
+        mapping(:time_h => \"Time (h)\", :y_obs => \"Response\"; row=:subject, col=:assay) *
+        visual(Scatter; color=\"black\") +
+     data(pred) *
+        mapping(:time_h => \"Time (h)\", :y_pred => \"Response\"; row=:subject, col=:assay) *
+        visual(Scatter; color=\"steelblue\", opacity=0.6) +
+     data(dose) *
+        mapping(:time_h => \"Time (h)\"; row=:subject,
+                color=:vessel => \"Vessel\",
+                linestyle=:diet => \"Diet\",
+                linewidth=:amount_mug => \"Dose (μg)\") *
+        visual(VLines; opacity=0.5)) *
+        config(title=\"VLines color=:vessel should render per-vessel colors\")
+end""",
+     () -> let
+        subjects = ["S1", "S2"]
+        assays   = ["A", "B"]
+        obs = (;
+            subject = repeat(subjects, inner=20),
+            assay   = repeat(assays, 20),
+            time_h  = repeat(collect(range(0, 24, length=20)), 2),
+            y_obs   = randn(40))
+        pred = (;
+            subject = repeat(subjects, inner=20),
+            assay   = repeat(assays, 20),
+            time_h  = repeat(collect(range(0, 24, length=20)), 2),
+            y_pred  = randn(40) .+ 0.2)
+        dose = (;
+            subject = ["S1","S1","S1","S2","S2","S2","S1","S1","S2","S2"],
+            diet    = ["Fed","Fasted","Fed","Fed","Fasted","Fed","Fed","Fed","Fasted","Fed"],
+            amount_mug = [10.0, 20.0, 10.0, 10.0, 20.0, 10.0, 5.0, 5.0, 5.0, 5.0],
+            time_h  = [0.0, 8.0, 16.0, 0.0, 8.0, 16.0, 0.0, 12.0, 0.0, 12.0],
+            vessel  = ["IV","Oral","IV","Oral","IV","Oral","IV","Oral","Oral","IV"])
+        (data(obs) *
+            mapping(:time_h => "Time (h)", :y_obs => "Response"; row=:subject, col=:assay) *
+            visual(Scatter; color="black") +
+         data(pred) *
+            mapping(:time_h => "Time (h)", :y_pred => "Response"; row=:subject, col=:assay) *
+            visual(Scatter; color="steelblue", opacity=0.6) +
+         data(dose) *
+            mapping(:time_h => "Time (h)"; row=:subject,
+                    color=:vessel => "Vessel",
+                    linestyle=:diet => "Diet",
+                    linewidth=:amount_mug => "Dose (μg)") *
+            visual(VLines; opacity=0.5)) *
+            config(title="VLines color=:vessel should render per-vessel colors")
+     end),
+
+    ("aog_vlines_faceted_color_remap", "VLines color mapping under auto_remap (bug)",
+     "Same 2 scatter + VLines setup as aog_vlines_faceted_color, but wrapped in auto_remap_node. VLines' per-layer color=:vessel should survive the Julia-side _rebuild_layer pass AND the JS remapEncoding color override, but is currently clobbered.",
+     """let
+    subjects = [\"S1\", \"S2\"]
+    assays   = [\"A\", \"B\"]
+    obs = (;
+        subject = repeat(subjects, inner=20),
+        assay   = repeat(assays, 20),
+        time_h  = repeat(collect(range(0, 24, length=20)), 2),
+        y_obs   = randn(40))
+    pred = (;
+        subject = repeat(subjects, inner=20),
+        assay   = repeat(assays, 20),
+        time_h  = repeat(collect(range(0, 24, length=20)), 2),
+        y_pred  = randn(40) .+ 0.2)
+    dose = (;
+        subject = [\"S1\",\"S1\",\"S1\",\"S2\",\"S2\",\"S2\",\"S1\",\"S1\",\"S2\",\"S2\"],
+        diet    = [\"Fed\",\"Fasted\",\"Fed\",\"Fed\",\"Fasted\",\"Fed\",\"Fed\",\"Fed\",\"Fasted\",\"Fed\"],
+        amount_mug = [10.0, 20.0, 10.0, 10.0, 20.0, 10.0, 5.0, 5.0, 5.0, 5.0],
+        time_h  = [0.0, 8.0, 16.0, 0.0, 8.0, 16.0, 0.0, 12.0, 0.0, 12.0],
+        vessel  = [\"IV\",\"Oral\",\"IV\",\"Oral\",\"IV\",\"Oral\",\"IV\",\"Oral\",\"Oral\",\"IV\"])
+    spec = (data(obs) *
+        mapping(:time_h => \"Time (h)\", :y_obs => \"Response\"; row=:subject, col=:assay) *
+        visual(Scatter; color=\"black\") +
+     data(pred) *
+        mapping(:time_h => \"Time (h)\", :y_pred => \"Response\"; row=:subject, col=:assay) *
+        visual(Scatter; color=\"steelblue\", opacity=0.6) +
+     data(dose) *
+        mapping(:time_h => \"Time (h)\"; row=:subject,
+                color=:vessel => \"Vessel\",
+                linestyle=:diet => \"Diet\",
+                linewidth=:amount_mug => \"Dose (μg)\") *
+        visual(VLines; opacity=0.5)) *
+        config(title=\"VLines color=:vessel under auto_remap\")
+    auto_remap_node(\"vlines-remap-bug\", spec;
+        dims=[:subject => \"Subject\", :assay => \"Assay\"])
+end""",
+     () -> let
+        subjects = ["S1", "S2"]
+        assays   = ["A", "B"]
+        obs = (;
+            subject = repeat(subjects, inner=20),
+            assay   = repeat(assays, 20),
+            time_h  = repeat(collect(range(0, 24, length=20)), 2),
+            y_obs   = randn(40))
+        pred = (;
+            subject = repeat(subjects, inner=20),
+            assay   = repeat(assays, 20),
+            time_h  = repeat(collect(range(0, 24, length=20)), 2),
+            y_pred  = randn(40) .+ 0.2)
+        dose = (;
+            subject = ["S1","S1","S1","S2","S2","S2","S1","S1","S2","S2"],
+            diet    = ["Fed","Fasted","Fed","Fed","Fasted","Fed","Fed","Fed","Fasted","Fed"],
+            amount_mug = [10.0, 20.0, 10.0, 10.0, 20.0, 10.0, 5.0, 5.0, 5.0, 5.0],
+            time_h  = [0.0, 8.0, 16.0, 0.0, 8.0, 16.0, 0.0, 12.0, 0.0, 12.0],
+            vessel  = ["IV","Oral","IV","Oral","IV","Oral","IV","Oral","Oral","IV"])
+        spec = (data(obs) *
+            mapping(:time_h => "Time (h)", :y_obs => "Response"; row=:subject, col=:assay) *
+            visual(Scatter; color="black") +
+         data(pred) *
+            mapping(:time_h => "Time (h)", :y_pred => "Response"; row=:subject, col=:assay) *
+            visual(Scatter; color="steelblue", opacity=0.6) +
+         data(dose) *
+            mapping(:time_h => "Time (h)"; row=:subject,
+                    color=:vessel => "Vessel",
+                    linestyle=:diet => "Diet",
+                    linewidth=:amount_mug => "Dose (μg)") *
+            visual(VLines; opacity=0.5)) *
+            config(title="VLines color=:vessel under auto_remap")
+        auto_remap_node("vlines-remap-bug", spec;
+            dims=[:subject => "Subject", :assay => "Assay"])
+     end),
+
     ("aog_errorbars", "Error Bars", "Point estimates with error bars",
      """let categories = ["A", "B", "C", "D", "E"]
     means = [4.2, 3.8, 5.1, 4.6, 3.5]
@@ -1599,7 +1741,7 @@ end
         ("Composition" => ["layered", "multi_layer", "stacked_bar", "grouped_bar", "bubble", "scatter_jitter", "custom_config"]),
         ("Interactive" => ["interactive_brush", "interactive_highlight", "interactive_zoom", "interactive_slider", "interactive_dropdown", "remap_encoding", "remap_lineribbon", "remap_detail", "remap_precomputed_lineribbon"]),
         ("AoG: Basic Visualizations" => ["aog_scatter_basic", "aog_sine_lines", "aog_lines_scatter", "aog_two_sources", "aog_boxplot"]),
-        ("AoG: Additional Marks" => ["aog_step", "aog_rules", "aog_errorbars"]),
+        ("AoG: Additional Marks" => ["aog_step", "aog_rules", "aog_vlines_faceted_color", "aog_vlines_faceted_color_remap", "aog_errorbars"]),
         ("AoG: Data Manipulations" => ["aog_wide_lines", "aog_wide_scatter", "aog_presorted_bar"]),
         ("AoG: Pregrouped" => ["pregrouped_boxplot", "pregrouped_boxplot_plain", "pregrouped_dose_response"]),
         ("AoG: Scales" => ["aog_log_transform", "aog_discrete_boxplot", "aog_combined_boxplot", "aog_barplot_names", "aog_dodge", "aog_legend_merge", "aog_multi_color"]),
@@ -1673,18 +1815,20 @@ end
         else
             title, description, code_str, spec_fn = entry[2], entry[3], entry[4], entry[5]
             let spec = spec_fn()
-                json_str = JSON.json(to_vegalite(spec), 2)
+                is_node = spec isa HTMX.Node
+                plot_body = is_node ? spec : vdraw(spec)
+                json_details = is_node ? h.span() : h.details(; style="margin-top:1rem")(
+                    h.summary("Vega-Lite JSON Spec"),
+                    h.pre(h.code(escape_html(JSON.json(to_vegalite(spec), 2))); style="background:var(--pico-code-background-color); padding:1rem; border-radius:0.5rem; overflow-x:auto; max-height:400px;"),
+                )
                 h.div(
                     plot_nav(id),
                     h.h2(title),
                     h.p(description),
-                    vdraw(spec),
+                    plot_body,
                     h.h4("Julia Code"; style="margin-top:1.5rem"),
                     h.pre(h.code(code_str); style="background:var(--pico-code-background-color); padding:1rem; border-radius:0.5rem; overflow-x:auto;"),
-                    h.details(; style="margin-top:1rem")(
-                        h.summary("Vega-Lite JSON Spec"),
-                        h.pre(h.code(escape_html(json_str)); style="background:var(--pico-code-background-color); padding:1rem; border-radius:0.5rem; overflow-x:auto; max-height:400px;"),
-                    ),
+                    json_details,
                 )
             end
         end
