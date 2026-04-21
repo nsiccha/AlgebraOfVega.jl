@@ -1,7 +1,7 @@
 name = "AlgebraOfVega"
 uuid = "a2420894-485a-4f42-a4fc-c4323ec6fb2b"
 authors = ["Nikolas Siccha <nikolassiccha@gmail.com>"]
-version = "0.2.0"
+version = "0.2.1"
 
 [deps]
 AlgebraOfGraphics = "cbdf2221-f076-402e-a563-3d30da359d67"

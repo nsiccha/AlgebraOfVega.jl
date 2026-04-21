@@ -185,6 +185,10 @@ function with_plot_caption(spec::VegaSpec, caption::CaptionSpec;
                 "sigfigs" => summary_sigfigs,
                 "value_label" => string(args.value),
             )
+            ll = get(kwargs, :layer_labels, nothing)
+            if !isnothing(ll)
+                opts["labels"] = Dict(string(k) => string(v) for (k, v) in ll)
+            end
             if args.kind === :precomputed_ribbon
                 opts["point_col"] = args.point_col
                 opts["point_label"] = "Median"

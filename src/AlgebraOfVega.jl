@@ -3093,10 +3093,7 @@ function vega_runtime()
                 }
                 var built = self._buildPrettyRows(g.rows, opts);
                 if (!built) {
-                    var msg = document.createElement('p');
-                    msg.textContent = '(no aggregated columns found)';
-                    msg.style.fontStyle = 'italic';
-                    container.appendChild(msg);
+                    container.appendChild(self._buildSortableTable(g.rows));
                     return;
                 }
                 if (built.caption) {
