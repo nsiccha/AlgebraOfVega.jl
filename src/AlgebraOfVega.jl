@@ -301,15 +301,31 @@ selector_to_field(sel::Int) = Dict{String,Any}("field" => "column_$sel")
 function selector_to_field(sel::Pair)
     src, dst = sel
     field = selector_to_field(src)
-    if dst isa AbstractString
-        field["title"] = dst
-    elseif dst isa Pair
-        field["title"] = last(dst)
-    end
-    # dst isa Function → transform (best effort: just use the field)
+    _apply_selector_modifier!(field, dst)
     field
 end
 selector_to_field(sel) = Dict{String,Any}("value" => sel)  # DirectData, Presorted, etc.
+
+# Apply one Pair-destination modifier to a field dict. Handles string labels,
+# nested labels (`=> :fn => "Label"`), and AoG scale-type modifiers like
+# `nonnumeric` that must force the VL encoding `type` so downstream
+# infer_types! doesn't re-derive from the column eltype.
+function _apply_selector_modifier!(field::Dict{String,Any}, dst)
+    if dst isa AbstractString
+        field["title"] = dst
+    elseif dst === AlgebraOfGraphics.nonnumeric
+        # nonnumeric: force categorical. Without this, an Int column used for
+        # color ends up as quantitative, which won't merge with sibling layers
+        # (e.g. ECDFPlot) that hardcode nominal → dual color legends.
+        field["type"] = "nominal"
+    elseif dst isa Pair
+        _apply_selector_modifier!(field, first(dst))
+        _apply_selector_modifier!(field, last(dst))
+    end
+    # Other Function modifiers (sorter, renamer, verbatim, presorted…)
+    # transform values but don't change the VL type. Left alone for now.
+    field
+end
 
 _field_name(sel) = string(sel isa Pair ? first(sel) : sel)
 _field_label(sel) = sel isa Pair && last(sel) isa AbstractString ? last(sel) : _field_name(sel)
