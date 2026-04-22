@@ -1278,6 +1278,20 @@ data(summary) * mapping(:x, :median, color=:group) *
             config(width=500, height=350, title="Pre-aggregated Grouped Ribbon")
      end),
 
+    ("precomputed_pointinterval", "Pre-aggregated Point + Interval", "pointinterval from pre-computed quantile columns (no draws)",
+     """raw = posterior_draws()
+summary = _preaggregate((; y=raw.value, parameter=raw.parameter), :parameter)
+data(summary) * mapping(:median, y=:parameter) *
+    pointinterval(bands=[:q025 => :q975, :q10 => :q90, :q25 => :q75]) *
+    config(width=500, height=200, title="Pre-aggregated Point + Interval")""",
+     () -> begin
+        raw = posterior_draws()
+        summary = _preaggregate((; y=raw.value, parameter=raw.parameter), :parameter)
+        data(summary) * mapping(:median, y=:parameter) *
+            pointinterval(bands=[:q025 => :q975, :q10 => :q90, :q25 => :q75]) *
+            config(width=500, height=200, title="Pre-aggregated Point + Interval")
+     end),
+
     ("remap_precomputed_lineribbon", "Remap Pre-aggregated Ribbon", "auto_remap_node on pre-aggregated lineribbon with color/row switching",
      """id = "remap-precomp-lr"
 summary = _preaggregate(faceted_regression_predictions(), :x, :panel, :site)
@@ -1749,7 +1763,7 @@ end
         ("AoG: Composition Patterns" => ["aog_scatter_regression", "aog_scatter_smooth", "aog_bar_line_combo", "aog_stacked_area", "aog_color_regression"]),
         ("AoG: Layout" => ["aog_facet", "aog_facet_wrap", "aog_facet_multi_layer", "aog_facet_regression"]),
         ("AoG: Applications" => ["aog_timeseries", "aog_timeseries_box", "aog_2d_histogram"]),
-        ("Uncertainty (tidybayes)" => ["pointinterval", "halfeye", "gradient_interval", "lineribbon", "lineribbon_grouped", "lineribbon_faceted", "lineribbon_overlay", "lineribbon_logscale", "ppc_overlay", "ribbon_only", "precomputed_lineribbon", "precomputed_lineribbon_grouped", "dotinterval", "raincloud"]),
+        ("Uncertainty (tidybayes)" => ["pointinterval", "halfeye", "gradient_interval", "lineribbon", "lineribbon_grouped", "lineribbon_faceted", "lineribbon_overlay", "lineribbon_logscale", "ppc_overlay", "ribbon_only", "precomputed_lineribbon", "precomputed_lineribbon_grouped", "precomputed_pointinterval", "dotinterval", "raincloud"]),
     ]
 
     gallery_section(section_title, ids) = begin

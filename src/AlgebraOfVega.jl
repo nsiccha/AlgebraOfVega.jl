@@ -525,6 +525,11 @@ struct PrecomputedRibbonAnalysis <: TidybayesAnalysis
     detail_fields::Vector{Symbol}
 end
 
+struct PrecomputedIntervalAnalysis <: TidybayesAnalysis
+    bands::Vector{Pair{Symbol,Symbol}}
+    detail_fields::Vector{Symbol}
+end
+
 struct DotIntervalAnalysis <: TidybayesAnalysis
     probs::Vector{Float64}
     n_dots::Int
@@ -534,14 +539,29 @@ end
 
 """
     pointinterval(; probs=[0.95, 0.8, 0.5], point=:median)
+    pointinterval(; bands=[:q025 => :q975, :q25 => :q75])
 
 Nested credible intervals with varying stroke width + a point estimate.
-Computes quantile summary in Julia, then generates layered rule + point marks.
+
+With `probs` (default): expects draw-level data. Computes quantiles in Julia,
+then generates layered rule + point marks.
 
     data(draws) * mapping(:value, y=:parameter) * pointinterval()
+
+With `bands`: expects pre-aggregated data with interval columns. The first
+positional is the point/median column. Each band is a `lo => hi` pair,
+outermost first. Skips Julia-side quantile computation.
+
+    data(summary) * mapping(:median, y=:parameter) *
+        pointinterval(bands=[:q025 => :q975, :q25 => :q75])
 """
-pointinterval(; probs=[0.95, 0.8, 0.5], point=:median, detail=Symbol[]) =
+function pointinterval(; probs=[0.95, 0.8, 0.5], point=:median, bands=nothing, detail=Symbol[])
+    if !isnothing(bands)
+        parsed = Pair{Symbol,Symbol}[Symbol(first(b)) => Symbol(last(b)) for b in bands]
+        return Layer(transformation=PrecomputedIntervalAnalysis(parsed, Symbol.(detail)))
+    end
     Layer(transformation=PointIntervalAnalysis(Float64.(probs), point, Symbol.(detail)))
+end
 
 """
     gradient_interval(; probs=[0.95, 0.8, 0.5], point=:median)
@@ -860,9 +880,9 @@ function _add_ycolor_encoding!(enc, y_field, color_field; y_label=nothing, color
     enc
 end
 
-function _interval_point_layer(y_field, color_field; y_label=nothing, color_label=nothing, mark_opts...)
+function _interval_point_layer(y_field, color_field; y_label=nothing, color_label=nothing, point_field::String="__point__", mark_opts...)
     pt_enc = Dict{String,Any}(
-        "x" => Dict{String,Any}("field" => "__point__", "type" => "quantitative"),
+        "x" => Dict{String,Any}("field" => point_field, "type" => "quantitative"),
     )
     if !isnothing(y_field)
         pt_enc["y"] = Dict{String,Any}("field" => y_field, "type" => "nominal")
@@ -909,6 +929,57 @@ function analysis_to_vl(a::PointIntervalAnalysis, layer::AlgebraOfGraphics.Layer
 
     push!(layers, _interval_point_layer(y_field, color_field; y_label, color_label, size=80, color="white"))
     _add_analysis_tooltips!(layers, _interval_tooltips(x_label, y_field, color_field, a.probs))
+
+    spec = Dict{String,Any}("data" => Dict{String,Any}("values" => summary), "layer" => layers)
+    if !is_sublayer
+        spec["\$schema"] = "https://vega.github.io/schema/vega-lite/v5.json"
+    end
+    _wrap_with_facet!(spec, facet)
+    spec
+end
+
+function analysis_to_vl(a::PrecomputedIntervalAnalysis, layer::AlgebraOfGraphics.Layer; is_sublayer=false)
+    (; table, x_field, x_label, y_field, y_label, color_field, color_label, facet, facet_fields) = _extract_interval_fields(layer)
+    isempty(layer.positional) && error("Pre-aggregated pointinterval requires a positional mapping (the point/median column)")
+
+    col_names = Set(string.(Tables.columnnames(table)))
+    x_field in col_names || error("Pre-aggregated pointinterval: point column \"$x_field\" not found in table. Available: $(sort(collect(col_names)))")
+    for (lo, hi) in a.bands
+        los, his = string(lo), string(hi)
+        los in col_names || error("Pre-aggregated pointinterval: band column \"$los\" not found in table. Available: $(sort(collect(col_names)))")
+        his in col_names || error("Pre-aggregated pointinterval: band column \"$his\" not found in table. Available: $(sort(collect(col_names)))")
+    end
+
+    summary = table_to_rows(table)
+    stroke_widths = length(a.bands) == 1 ? [8.0] : range(1.5, 8, length=length(a.bands))
+
+    layers = Dict{String,Any}[]
+    for (i, (lo, hi)) in enumerate(a.bands)
+        lo_col, hi_col = string(lo), string(hi)
+        enc = Dict{String,Any}(
+            "x" => Dict{String,Any}("field" => lo_col, "type" => "quantitative", "title" => x_label),
+            "x2" => Dict{String,Any}("field" => hi_col),
+        )
+        _add_ycolor_encoding!(enc, y_field, color_field; y_label, color_label, y_axis=false)
+        push!(layers, Dict{String,Any}(
+            "mark" => Dict{String,Any}("type" => "rule", "strokeWidth" => stroke_widths[i]),
+            "encoding" => enc,
+        ))
+    end
+
+    push!(layers, _interval_point_layer(y_field, color_field; y_label, color_label,
+                                         point_field=x_field, size=80, color="white"))
+
+    widest_lo = string(first(a.bands[1]))
+    widest_hi = string(last(a.bands[1]))
+    tt = Dict{String,Any}[
+        Dict{String,Any}("field" => x_field, "type" => "quantitative", "title" => "$x_label (estimate)"),
+    ]
+    !isnothing(y_field) && push!(tt, Dict{String,Any}("field" => y_field, "type" => "nominal"))
+    !isnothing(color_field) && color_field != y_field && push!(tt, Dict{String,Any}("field" => color_field, "type" => "nominal"))
+    push!(tt, Dict{String,Any}("field" => widest_lo, "type" => "quantitative", "title" => widest_lo))
+    push!(tt, Dict{String,Any}("field" => widest_hi, "type" => "quantitative", "title" => widest_hi))
+    _add_analysis_tooltips!(layers, tt)
 
     spec = Dict{String,Any}("data" => Dict{String,Any}("values" => summary), "layer" => layers)
     if !is_sublayer
@@ -4063,6 +4134,17 @@ function _auto_summary_args(spec)
             ]
             return (; kind=:precomputed_ribbon, value, point_col, bands)
         end
+        a = extract_transformation(layer, PrecomputedIntervalAnalysis)
+        if !isnothing(a)
+            isempty(layer.positional) && return nothing
+            value = Symbol(_field_name(layer.positional[1]))
+            point_col = string(value)
+            bands = Tuple{String,String,String}[
+                (string(lo), string(hi), "$(string(lo))/$(string(hi))")
+                for (lo, hi) in a.bands
+            ]
+            return (; kind=:precomputed_ribbon, value, point_col, bands)
+        end
     end
     return nothing
 end
@@ -4177,6 +4259,7 @@ _with_detail(t::PointIntervalAnalysis, d) = PointIntervalAnalysis(t.probs, t.poi
 _with_detail(t::GradientIntervalAnalysis, d) = GradientIntervalAnalysis(t.probs, t.point, d)
 _with_detail(t::LineRibbonAnalysis, d) = LineRibbonAnalysis(t.probs, t.show_line, d)
 _with_detail(t::PrecomputedRibbonAnalysis, d) = PrecomputedRibbonAnalysis(t.bands, t.show_line, d)
+_with_detail(t::PrecomputedIntervalAnalysis, d) = PrecomputedIntervalAnalysis(t.bands, d)
 _with_detail(t::DotIntervalAnalysis, d) = DotIntervalAnalysis(t.probs, t.n_dots, t.point, d)
 
 function _patch_detail(t, new_detail)
