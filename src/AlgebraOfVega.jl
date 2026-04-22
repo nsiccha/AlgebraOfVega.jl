@@ -4754,9 +4754,11 @@ function mapping_controls(id, resolved::NamedTuple; table=nothing, spec=nothing)
             end for (field, label) in dims]
         end
         sel_attrs = if is_axis
+            # Single-select listbox (no `multiple`) sized to match the other
+            # channels' multi-select listboxes so the row of channels lines up.
             (;
                 id="aov-remap-$(ch_str)-$(id)",
-                size="1",
+                size=sel_size,
                 onchange="_aovRemap_$(js_id)('$(ch_str)')",
             )
         else
@@ -4778,9 +4780,12 @@ function mapping_controls(id, resolved::NamedTuple; table=nothing, spec=nothing)
         if is_fixed || is_axis
             radio_attrs = merge(radio_attrs, (; disabled="disabled"))
         end
+        # x/y render the radio disabled (they can't be pinned — catch-all
+        # makes no sense on a single-select axis channel) so the column layout
+        # stays consistent with color/row/column/detail.
         h.div()(
             h.label(; style="display:flex; align-items:center; gap:0.3rem;")(
-                is_axis ? h.span(; style="display:inline-block; width:1em;")("") : h.input(; radio_attrs...),
+                h.input(; radio_attrs...),
                 ch_label * ": ",
             ),
             h.select(; sel_attrs...)(options...),
