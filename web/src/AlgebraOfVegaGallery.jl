@@ -1320,6 +1320,50 @@ data(summary) * mapping(:median, y=:parameter) *
             config(width=500, height=200, title="Pre-aggregated Point + Interval")
      end),
 
+    ("pointinterval_vertical_overlay", "Vertical PI + Scatter overlay (BRM bug repro)",
+     "Vertical pointinterval(bands=...) + visual(Scatter), row-faceted, integer :index, scalar params (one row per facet) — matches BRM's stan_generate truth overlay shape.",
+     """# Match BRM: integer :index, some scalar params (index=0), bands=3
+params = ["α","β","σ","β","σ","σ"]  # scalars α once; β has index 0+1; σ has 0+1+2
+indices = [0, 0, 0, 1, 1, 2]
+medians = [2.0, 0.8, 1.2, 0.85, 1.25, 1.3]
+q025s   = [1.5, 0.5, 1.0, 0.55, 1.05, 1.1]
+q975s   = [2.5, 1.1, 1.4, 1.15, 1.45, 1.5]
+q10s    = [1.7, 0.6, 1.1, 0.65, 1.15, 1.2]
+q90s    = [2.3, 1.0, 1.3, 1.05, 1.35, 1.4]
+q25s    = [1.8, 0.7, 1.15, 0.75, 1.2, 1.25]
+q75s    = [2.2, 0.9, 1.25, 0.95, 1.3, 1.35]
+summary = (; param=params, index=indices, median=medians,
+             q025=q025s, q10=q10s, q25=q25s, q75=q75s, q90=q90s, q975=q975s)
+truth = (; param=params, index=indices, truth=[2.05, 0.82, 1.22, 0.87, 1.27, 1.32])
+pi = data(summary) * mapping(:index, :median, row=:param) *
+     pointinterval(bands=[:q025 => :q975, :q10 => :q90, :q25 => :q75],
+                   orientation=:vertical)
+overlay = data(truth) * mapping(:index, :truth, row=:param) *
+          visual(Scatter; color=:black, strokewidth=0)
+(pi + overlay) * config(width=400, height=80, facet=(; linkyaxes=:none),
+                         title="Vertical PI + Scatter overlay (BRM pattern)")""",
+     () -> begin
+        params = ["α","β","σ","β","σ","σ"]
+        indices = [0, 0, 0, 1, 1, 2]
+        medians = [2.0, 0.8, 1.2, 0.85, 1.25, 1.3]
+        q025s   = [1.5, 0.5, 1.0, 0.55, 1.05, 1.1]
+        q975s   = [2.5, 1.1, 1.4, 1.15, 1.45, 1.5]
+        q10s    = [1.7, 0.6, 1.1, 0.65, 1.15, 1.2]
+        q90s    = [2.3, 1.0, 1.3, 1.05, 1.35, 1.4]
+        q25s    = [1.8, 0.7, 1.15, 0.75, 1.2, 1.25]
+        q75s    = [2.2, 0.9, 1.25, 0.95, 1.3, 1.35]
+        summary = (; param=params, index=indices, median=medians,
+                     q025=q025s, q10=q10s, q25=q25s, q75=q75s, q90=q90s, q975=q975s)
+        truth = (; param=params, index=indices, truth=[2.05, 0.82, 1.22, 0.87, 1.27, 1.32])
+        pi = data(summary) * mapping(:index, :median, row=:param) *
+             pointinterval(bands=[:q025 => :q975, :q10 => :q90, :q25 => :q75],
+                           orientation=:vertical)
+        overlay = data(truth) * mapping(:index, :truth, row=:param) *
+                  visual(Scatter; color=:black, strokewidth=0)
+        (pi + overlay) * config(width=400, height=80, facet=(; linkyaxes=:none),
+                                 title="Vertical PI + Scatter overlay (BRM pattern)")
+     end),
+
     ("remap_precomputed_pointinterval_positional", "Remap Pre-agg. PI — positional dim",
      "BRM-style repro: horizontal PI with :index on x (positional), :param on row (named). " *
      "Verifies the pinned catch-all leaves positionally-assigned fields alone rather than combining them " *
@@ -1710,6 +1754,163 @@ end""",
                    "x" => Dict("bin" => Dict("maxbins" => 15)),
                    "y" => Dict("bin" => Dict("maxbins" => 15)),
                    "color" => Dict("aggregate" => "count", "type" => "quantitative")))),
+
+    # --- BRM-encountered repros (bugs + regressions for things that work) ---
+
+    ("brm_histogram_faceted_shared_x", "Histogram row-faceted — linkxaxes=:none ignored (bug)",
+     "Histogram with row=:param and config(facet=(; linkxaxes=:none)) should give each facet its own x-range; observed: all rows share the union x-range. Pre-dates overlays.",
+     """# Two params with wildly different value ranges:
+df = (;
+    param = vcat(fill(\"a\", 200), fill(\"b\", 200)),
+    value = vcat(randn(200), randn(200) .- 8))
+data(df) * mapping(:value; row=:param) * histogram() *
+    config(facet=(; linkxaxes=:none),
+           title=\"Expect independent x per facet; get shared\")""",
+     () -> let
+        df = (;
+            param = vcat(fill("a", 200), fill("b", 200)),
+            value = vcat(randn(200), randn(200) .- 8))
+        data(df) * mapping(:value; row=:param) * histogram() *
+            config(facet=(; linkxaxes=:none),
+                   title="Expect independent x per facet; get shared")
+     end),
+
+    ("brm_histogram_datalimits_extrema", "Histogram with datalimits=extrema (works)",
+     "Per-facet local bin extents via AoG.histogram(; bins=30, datalimits=extrema). Regression entry confirming the workaround for the shared-x issue above.",
+     """df = (;
+    param = vcat(fill(\"a\", 200), fill(\"b\", 200)),
+    value = vcat(randn(200), randn(200) .- 8))
+data(df) * mapping(:value; row=:param) *
+    histogram(; bins=30, datalimits=extrema) *
+    config(facet=(; linkxaxes=:none),
+           title=\"Per-facet bins via datalimits=extrema\")""",
+     () -> let
+        df = (;
+            param = vcat(fill("a", 200), fill("b", 200)),
+            value = vcat(randn(200), randn(200) .- 8))
+        data(df) * mapping(:value; row=:param) *
+            histogram(; bins=30, datalimits=extrema) *
+            config(facet=(; linkxaxes=:none),
+                   title="Per-facet bins via datalimits=extrema")
+     end),
+
+    ("brm_scatter_filled_default", "Scatter filled by default",
+     "visual(Scatter) fills by default (matches Makie). Override with filled=false for hollow markers.",
+     """df = (; x=1:10, y=randn(10))
+filled = data(df) * mapping(:x, :y) * visual(Scatter; color=:black) *
+         config(title=\"visual(Scatter) -- filled (default)\")
+hollow = data(df) * mapping(:x, :y) * visual(Scatter; color=:black, filled=false) *
+         config(title=\"visual(Scatter; filled=false) -- hollow\")
+(filled + hollow)""",
+     () -> let
+        df = (; x=1:10, y=randn(10))
+        filled = data(df) * mapping(:x, :y) * visual(Scatter; color=:black) *
+                 config(title="visual(Scatter) -- filled (default)")
+        hollow = data(df) * mapping(:x, :y) * visual(Scatter; color=:black, filled=false) *
+                 config(title="visual(Scatter; filled=false) -- hollow")
+        (filled + hollow)
+     end),
+
+    ("brm_lineribbon_bands_scatter_overlay", "LineRibbon + Scatter overlay (works)",
+     "Parallel of the PI-overlay bug but on lineribbon(bands=...): works. Regression entry so the counterpart PI-overlay fix doesn't break this path.",
+     """params = [\"a\", \"a\", \"a\", \"b\", \"b\", \"b\"]
+indices = [1, 2, 3, 1, 2, 3]
+medians = [2.0, 2.1, 2.2, 0.8, 0.9, 1.0]
+q025s   = [1.5, 1.6, 1.7, 0.5, 0.6, 0.7]
+q975s   = [2.5, 2.6, 2.7, 1.1, 1.2, 1.3]
+q25s    = [1.8, 1.9, 2.0, 0.7, 0.8, 0.9]
+q75s    = [2.2, 2.3, 2.4, 0.9, 1.0, 1.1]
+summary = (; param=params, index=indices, median=medians,
+             q025=q025s, q25=q25s, q75=q75s, q975=q975s)
+truth = (; param=params, index=indices, truth=[2.05, 2.15, 2.25, 0.85, 0.95, 1.05])
+lr = data(summary) * mapping(:index, :median, row=:param) *
+     lineribbon(bands=[:q025 => :q975, :q25 => :q75])
+overlay = data(truth) * mapping(:index, :truth, row=:param) *
+          visual(Scatter; color=:black, filled=true)
+(lr + overlay) * config(facet=(; linkyaxes=:none),
+                         title=\"LineRibbon + Scatter overlay (works)\")""",
+     () -> let
+        params = ["a", "a", "a", "b", "b", "b"]
+        indices = [1, 2, 3, 1, 2, 3]
+        medians = [2.0, 2.1, 2.2, 0.8, 0.9, 1.0]
+        q025s   = [1.5, 1.6, 1.7, 0.5, 0.6, 0.7]
+        q975s   = [2.5, 2.6, 2.7, 1.1, 1.2, 1.3]
+        q25s    = [1.8, 1.9, 2.0, 0.7, 0.8, 0.9]
+        q75s    = [2.2, 2.3, 2.4, 0.9, 1.0, 1.1]
+        summary = (; param=params, index=indices, median=medians,
+                     q025=q025s, q25=q25s, q75=q75s, q975=q975s)
+        truth = (; param=params, index=indices,
+                   truth=[2.05, 2.15, 2.25, 0.85, 0.95, 1.05])
+        lr = data(summary) * mapping(:index, :median, row=:param) *
+             lineribbon(bands=[:q025 => :q975, :q25 => :q75])
+        overlay = data(truth) * mapping(:index, :truth, row=:param) *
+                  visual(Scatter; color=:black, filled=true)
+        (lr + overlay) * config(facet=(; linkyaxes=:none),
+                                 title="LineRibbon + Scatter overlay (works)")
+     end),
+
+    ("brm_ecdf_vlines_overlay_dual_legend", "ECDF + VLines overlay — dual color legends (bug)",
+     "Base ECDFPlot and overlay VLines both use color=:index => nonnumeric, but render with two separate color scales/legends. VLines layer's nonnumeric modifier appears not to propagate into its scale emission.",
+     """# long: per-draw values, color=:index
+long = (;
+    param = repeat([\"a\",\"b\"], inner=300),
+    index = repeat(repeat(1:3, inner=100), 2),
+    value = vcat(randn(300), randn(300) .- 5))
+truth = (;
+    param = [\"a\",\"a\",\"a\",\"b\",\"b\",\"b\"],
+    index = [1, 2, 3, 1, 2, 3],
+    truth = [0.1, -0.2, 0.3, -5.1, -4.9, -5.2])
+base = data(long) *
+       mapping(:value; row=:param, color=:index => nonnumeric) *
+       visual(ECDFPlot)
+overlay = data(truth) *
+          mapping(:truth; row=:param, color=:index => nonnumeric) *
+          visual(VLines)
+(base + overlay) *
+    config(facet=(; linkxaxes=:none),
+           title=\"ECDF + VLines overlay -- expect one merged color legend\")""",
+     () -> let
+        long = (;
+            param = repeat(["a","b"], inner=300),
+            index = repeat(repeat(1:3, inner=100), 2),
+            value = vcat(randn(300), randn(300) .- 5))
+        truth = (;
+            param = ["a","a","a","b","b","b"],
+            index = [1, 2, 3, 1, 2, 3],
+            truth = [0.1, -0.2, 0.3, -5.1, -4.9, -5.2])
+        base = data(long) *
+               mapping(:value; row=:param, color=:index => nonnumeric) *
+               visual(ECDFPlot)
+        overlay = data(truth) *
+                  mapping(:truth; row=:param, color=:index => nonnumeric) *
+                  visual(VLines)
+        (base + overlay) *
+            config(facet=(; linkxaxes=:none),
+                   title="ECDF + VLines overlay -- expect one merged color legend")
+     end),
+
+    ("brm_ecdf_faceted_nominal_color", "ECDF with nominal color (works)",
+     "ECDFPlot base layer with color=:Int => nonnumeric renders a discrete categorical legend. Regression entry for the base-layer color path.",
+     """long = (;
+    param = repeat([\"a\",\"b\"], inner=300),
+    index = repeat(repeat(1:3, inner=100), 2),
+    value = vcat(randn(300), randn(300) .- 5))
+data(long) *
+    mapping(:value; row=:param, color=:index => nonnumeric) *
+    visual(ECDFPlot) *
+    config(facet=(; linkxaxes=:none),
+           title=\"ECDF faceted + nominal color (works)\")""",
+     () -> let
+        long = (;
+            param = repeat(["a","b"], inner=300),
+            index = repeat(repeat(1:3, inner=100), 2),
+            value = vcat(randn(300), randn(300) .- 5))
+        data(long) *
+            mapping(:value; row=:param, color=:index => nonnumeric) *
+            visual(ECDFPlot) *
+            config(facet=(; linkxaxes=:none),
+                   title="ECDF faceted + nominal color (works)")
+     end),
 ]
 
 # --- Utilities ---
