@@ -1144,6 +1144,17 @@ end""",
         config(width=500, height=200, title="Point + Interval (tidybayes-style)"),
      "https://mjskay.github.io/ggdist/reference/stat_pointinterval.html"),
 
+    ("pointinterval_vertical", "Point + Interval (vertical)", "pointinterval with orientation=:vertical — category on x, value on y",
+     """data(posterior_draws()) *
+    mapping(:parameter, :value) *
+    pointinterval(orientation=:vertical) *
+    config(width=400, height=300, title="Point + Interval (vertical)")""",
+     () -> data(posterior_draws()) *
+        mapping(:parameter, :value) *
+        pointinterval(orientation=:vertical) *
+        config(width=400, height=300, title="Point + Interval (vertical)"),
+     "https://mjskay.github.io/ggdist/reference/stat_pointinterval.html"),
+
     ("halfeye", "Half-Eye Plot", "tidybayes-style: density + point + interval for each parameter",
      """data(posterior_draws()) *
     mapping(:value, y=:parameter) *
@@ -1763,7 +1774,7 @@ end
         ("AoG: Composition Patterns" => ["aog_scatter_regression", "aog_scatter_smooth", "aog_bar_line_combo", "aog_stacked_area", "aog_color_regression"]),
         ("AoG: Layout" => ["aog_facet", "aog_facet_wrap", "aog_facet_multi_layer", "aog_facet_regression"]),
         ("AoG: Applications" => ["aog_timeseries", "aog_timeseries_box", "aog_2d_histogram"]),
-        ("Uncertainty (tidybayes)" => ["pointinterval", "halfeye", "gradient_interval", "lineribbon", "lineribbon_grouped", "lineribbon_faceted", "lineribbon_overlay", "lineribbon_logscale", "ppc_overlay", "ribbon_only", "precomputed_lineribbon", "precomputed_lineribbon_grouped", "precomputed_pointinterval", "dotinterval", "raincloud"]),
+        ("Uncertainty (tidybayes)" => ["pointinterval", "pointinterval_vertical", "halfeye", "gradient_interval", "lineribbon", "lineribbon_grouped", "lineribbon_faceted", "lineribbon_overlay", "lineribbon_logscale", "ppc_overlay", "ribbon_only", "precomputed_lineribbon", "precomputed_lineribbon_grouped", "precomputed_pointinterval", "dotinterval", "raincloud"]),
     ]
 
     gallery_section(section_title, ids) = begin

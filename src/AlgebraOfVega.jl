@@ -505,12 +505,14 @@ struct PointIntervalAnalysis <: TidybayesAnalysis
     probs::Vector{Float64}
     point::Symbol
     detail_fields::Vector{Symbol}
+    orientation::Symbol
 end
 
 struct GradientIntervalAnalysis <: TidybayesAnalysis
     probs::Vector{Float64}
     point::Symbol
     detail_fields::Vector{Symbol}
+    orientation::Symbol
 end
 
 struct LineRibbonAnalysis <: TidybayesAnalysis
@@ -528,6 +530,7 @@ end
 struct PrecomputedIntervalAnalysis <: TidybayesAnalysis
     bands::Vector{Pair{Symbol,Symbol}}
     detail_fields::Vector{Symbol}
+    orientation::Symbol
 end
 
 struct DotIntervalAnalysis <: TidybayesAnalysis
@@ -535,11 +538,12 @@ struct DotIntervalAnalysis <: TidybayesAnalysis
     n_dots::Int
     point::Symbol
     detail_fields::Vector{Symbol}
+    orientation::Symbol
 end
 
 """
-    pointinterval(; probs=[0.95, 0.8, 0.5], point=:median)
-    pointinterval(; bands=[:q025 => :q975, :q25 => :q75])
+    pointinterval(; probs=[0.95, 0.8, 0.5], point=:median, orientation=:horizontal)
+    pointinterval(; bands=[:q025 => :q975, :q25 => :q75], orientation=:horizontal)
 
 Nested credible intervals with varying stroke width + a point estimate.
 
@@ -554,24 +558,31 @@ outermost first. Skips Julia-side quantile computation.
 
     data(summary) * mapping(:median, y=:parameter) *
         pointinterval(bands=[:q025 => :q975, :q25 => :q75])
+
+With `orientation=:vertical`: value column on y-axis, category on x-axis.
+Requires two positional mappings `(category, value)`:
+
+    data(draws) * mapping(:parameter, :value) * pointinterval(orientation=:vertical)
 """
-function pointinterval(; probs=[0.95, 0.8, 0.5], point=:median, bands=nothing, detail=Symbol[])
+function pointinterval(; probs=[0.95, 0.8, 0.5], point=:median, bands=nothing,
+                        detail=Symbol[], orientation::Symbol=:horizontal)
     if !isnothing(bands)
         parsed = Pair{Symbol,Symbol}[Symbol(first(b)) => Symbol(last(b)) for b in bands]
-        return Layer(transformation=PrecomputedIntervalAnalysis(parsed, Symbol.(detail)))
+        return Layer(transformation=PrecomputedIntervalAnalysis(parsed, Symbol.(detail), orientation))
     end
-    Layer(transformation=PointIntervalAnalysis(Float64.(probs), point, Symbol.(detail)))
+    Layer(transformation=PointIntervalAnalysis(Float64.(probs), point, Symbol.(detail), orientation))
 end
 
 """
-    gradient_interval(; probs=[0.95, 0.8, 0.5], point=:median)
+    gradient_interval(; probs=[0.95, 0.8, 0.5], point=:median, orientation=:horizontal)
 
 Nested credible intervals with uniform width and varying opacity + a point estimate.
 
     data(draws) * mapping(:value, y=:parameter) * gradient_interval()
+    data(draws) * mapping(:parameter, :value) * gradient_interval(orientation=:vertical)
 """
-gradient_interval(; probs=[0.95, 0.8, 0.5], point=:median, detail=Symbol[]) =
-    Layer(transformation=GradientIntervalAnalysis(Float64.(probs), point, Symbol.(detail)))
+gradient_interval(; probs=[0.95, 0.8, 0.5], point=:median, detail=Symbol[], orientation::Symbol=:horizontal) =
+    Layer(transformation=GradientIntervalAnalysis(Float64.(probs), point, Symbol.(detail), orientation))
 
 """
     lineribbon(; probs=[0.95, 0.8, 0.5])
@@ -619,14 +630,15 @@ function ribbon(; probs=[0.95, 0.8, 0.5], bands=nothing, detail=Symbol[])
 end
 
 """
-    dotinterval(; probs=[0.95, 0.5], n_dots=50, point=:median)
+    dotinterval(; probs=[0.95, 0.5], n_dots=50, point=:median, orientation=:horizontal)
 
 Quantile dotplot with nested interval overlay.
 
     data(draws) * mapping(:value, y=:parameter) * dotinterval()
+    data(draws) * mapping(:parameter, :value) * dotinterval(orientation=:vertical)
 """
-dotinterval(; probs=[0.95, 0.5], n_dots=50, point=:median, detail=Symbol[]) =
-    Layer(transformation=DotIntervalAnalysis(Float64.(probs), n_dots, point, Symbol.(detail)))
+dotinterval(; probs=[0.95, 0.5], n_dots=50, point=:median, detail=Symbol[], orientation::Symbol=:horizontal) =
+    Layer(transformation=DotIntervalAnalysis(Float64.(probs), n_dots, point, Symbol.(detail), orientation))
 
 function _extract_from_composed(f::ComposedFunction, T::Type)
     for part in (f.outer, f.inner)
@@ -849,55 +861,74 @@ end
 
 # --- Shared helpers for interval analysis → VL ---
 
-function _extract_interval_fields(layer; default_x="value")
+function _extract_interval_fields(layer, orientation::Symbol=:horizontal; default_value="value")
     table = extract_data(layer)
-    x_sel = length(layer.positional) >= 1 ? layer.positional[1] : nothing
-    x_field = isnothing(x_sel) ? default_x : _field_name(x_sel)
-    x_label = isnothing(x_sel) ? default_x : _field_label(x_sel)
-    y_field = haskey(layer.named, :y) ? _field_name(layer.named[:y]) : nothing
-    y_label = haskey(layer.named, :y) ? _field_label(layer.named[:y]) : nothing
+    if orientation === :horizontal
+        value_sel = length(layer.positional) >= 1 ? layer.positional[1] : nothing
+        value_field = isnothing(value_sel) ? default_value : _field_name(value_sel)
+        value_label = isnothing(value_sel) ? default_value : _field_label(value_sel)
+        group_field = haskey(layer.named, :y) ? _field_name(layer.named[:y]) : nothing
+        group_label = haskey(layer.named, :y) ? _field_label(layer.named[:y]) : nothing
+    elseif orientation === :vertical
+        length(layer.positional) >= 2 || error("interval analysis with orientation=:vertical expects `mapping(category, value)` — two positional mappings; got $(length(layer.positional))")
+        group_field = _field_name(layer.positional[1])
+        group_label = _field_label(layer.positional[1])
+        value_field = _field_name(layer.positional[2])
+        value_label = _field_label(layer.positional[2])
+    else
+        error("orientation must be :horizontal or :vertical, got :$orientation")
+    end
     color_field = haskey(layer.named, :color) ? _field_name(layer.named[:color]) : nothing
     color_label = haskey(layer.named, :color) ? _field_label(layer.named[:color]) : nothing
     facet, facet_fields = _extract_facet_info(layer)
-    (; table, x_field, x_label, y_field, y_label, color_field, color_label, facet, facet_fields)
+    (; table, value_field, value_label, group_field, group_label,
+       color_field, color_label, facet, facet_fields, orientation)
 end
 
-function _add_ycolor_encoding!(enc, y_field, color_field; y_label=nothing, color_label=nothing, y_axis=true)
-    if !isnothing(y_field)
-        y_enc = Dict{String,Any}("field" => y_field, "type" => "nominal")
-        !y_axis && (y_enc["axis"] = Dict{String,Any}("title" => nothing))
-        !isnothing(y_label) && y_label != y_field && (y_enc["title"] = y_label)
-        enc["y"] = y_enc
+_interval_axes(orientation::Symbol) = orientation === :vertical ?
+    (value_axis="y", value2_axis="y2", group_axis="x", offset_key="xOffset") :
+    (value_axis="x", value2_axis="x2", group_axis="y", offset_key="yOffset")
+
+function _add_group_color_encoding!(enc, group_field, color_field, group_axis::String, offset_key::String;
+                                      group_label=nothing, color_label=nothing, show_axis_title=true)
+    if !isnothing(group_field)
+        g_enc = Dict{String,Any}("field" => group_field, "type" => "nominal")
+        !show_axis_title && (g_enc["axis"] = Dict{String,Any}("title" => nothing))
+        !isnothing(group_label) && group_label != group_field && (g_enc["title"] = group_label)
+        enc[group_axis] = g_enc
     end
     if !isnothing(color_field)
         color_enc = Dict{String,Any}("field" => color_field, "type" => "nominal")
         !isnothing(color_label) && color_label != color_field && (color_enc["title"] = color_label)
         enc["color"] = color_enc
-        !isnothing(y_field) && (enc["yOffset"] = Dict{String,Any}("field" => color_field, "type" => "nominal"))
-    elseif !isnothing(y_field)
-        enc["color"] = Dict{String,Any}("field" => y_field, "type" => "nominal", "legend" => nothing)
+        !isnothing(group_field) && (enc[offset_key] = Dict{String,Any}("field" => color_field, "type" => "nominal"))
+    elseif !isnothing(group_field)
+        enc["color"] = Dict{String,Any}("field" => group_field, "type" => "nominal", "legend" => nothing)
     end
     enc
 end
 
-function _interval_point_layer(y_field, color_field; y_label=nothing, color_label=nothing, point_field::String="__point__", mark_opts...)
+function _interval_point_layer(group_field, color_field, group_axis::String, offset_key::String;
+                                 point_field::String="__point__", value_axis::String="x",
+                                 mark_opts...)
     pt_enc = Dict{String,Any}(
-        "x" => Dict{String,Any}("field" => point_field, "type" => "quantitative"),
+        value_axis => Dict{String,Any}("field" => point_field, "type" => "quantitative"),
     )
-    if !isnothing(y_field)
-        pt_enc["y"] = Dict{String,Any}("field" => y_field, "type" => "nominal")
+    if !isnothing(group_field)
+        pt_enc[group_axis] = Dict{String,Any}("field" => group_field, "type" => "nominal")
     end
-    if !isnothing(color_field) && !isnothing(y_field)
-        pt_enc["yOffset"] = Dict{String,Any}("field" => color_field, "type" => "nominal")
+    if !isnothing(color_field) && !isnothing(group_field)
+        pt_enc[offset_key] = Dict{String,Any}("field" => color_field, "type" => "nominal")
     end
     mark = Dict{String,Any}("type" => "point", "filled" => true, (string(k) => v for (k,v) in pairs(mark_opts))...)
     Dict{String,Any}("mark" => mark, "encoding" => pt_enc)
 end
 
-function _interval_tooltips(x_label, y_field, color_field, probs)
-    tt = Dict{String,Any}[Dict{String,Any}("field" => "__point__", "type" => "quantitative", "title" => "$x_label (estimate)")]
-    !isnothing(y_field) && push!(tt, Dict{String,Any}("field" => y_field, "type" => "nominal"))
-    !isnothing(color_field) && color_field != y_field && push!(tt, Dict{String,Any}("field" => color_field, "type" => "nominal"))
+function _interval_tooltips(value_label, group_field, color_field, probs;
+                              point_field::String="__point__")
+    tt = Dict{String,Any}[Dict{String,Any}("field" => point_field, "type" => "quantitative", "title" => "$value_label (estimate)")]
+    !isnothing(group_field) && push!(tt, Dict{String,Any}("field" => group_field, "type" => "nominal"))
+    !isnothing(color_field) && color_field != group_field && push!(tt, Dict{String,Any}("field" => color_field, "type" => "nominal"))
     widest = maximum(probs)
     push!(tt, Dict{String,Any}("field" => _vl_prob_field("lo", widest), "type" => "quantitative", "title" => "$(round(Int, widest*100))% lo"))
     push!(tt, Dict{String,Any}("field" => _vl_prob_field("hi", widest), "type" => "quantitative", "title" => "$(round(Int, widest*100))% hi"))
@@ -907,28 +938,31 @@ end
 # --- Analysis → Vega-Lite spec ---
 
 function analysis_to_vl(a::PointIntervalAnalysis, layer::AlgebraOfGraphics.Layer; is_sublayer=false)
-    (; table, x_field, x_label, y_field, y_label, color_field, color_label, facet, facet_fields) = _extract_interval_fields(layer)
+    (; table, value_field, value_label, group_field, group_label, color_field, color_label, facet, facet_fields) = _extract_interval_fields(layer, a.orientation)
+    ax = _interval_axes(a.orientation)
     detail_strs = string.(a.detail_fields)
-    summary = compute_interval_summary(table, x_field, y_field, a.probs, a.point; color_field, facet_fields, detail_fields=detail_strs)
+    summary = compute_interval_summary(table, value_field, group_field, a.probs, a.point; color_field, facet_fields, detail_fields=detail_strs)
 
     sorted_probs = sort(a.probs, rev=true)
-    stroke_widths = range(1.5, 8, length=length(sorted_probs))
+    stroke_widths = length(sorted_probs) == 1 ? [8.0] : range(1.5, 8, length=length(sorted_probs))
 
     layers = Dict{String,Any}[]
     for (i, prob) in enumerate(sorted_probs)
         enc = Dict{String,Any}(
-            "x" => Dict{String,Any}("field" => _vl_prob_field("lo", prob), "type" => "quantitative", "title" => x_label),
-            "x2" => Dict{String,Any}("field" => _vl_prob_field("hi", prob)),
+            ax.value_axis => Dict{String,Any}("field" => _vl_prob_field("lo", prob), "type" => "quantitative", "title" => value_label),
+            ax.value2_axis => Dict{String,Any}("field" => _vl_prob_field("hi", prob)),
         )
-        _add_ycolor_encoding!(enc, y_field, color_field; y_label, color_label, y_axis=false)
+        _add_group_color_encoding!(enc, group_field, color_field, ax.group_axis, ax.offset_key;
+                                    group_label, color_label, show_axis_title=false)
         push!(layers, Dict{String,Any}(
             "mark" => Dict{String,Any}("type" => "rule", "strokeWidth" => stroke_widths[i]),
             "encoding" => enc,
         ))
     end
 
-    push!(layers, _interval_point_layer(y_field, color_field; y_label, color_label, size=80, color="white"))
-    _add_analysis_tooltips!(layers, _interval_tooltips(x_label, y_field, color_field, a.probs))
+    push!(layers, _interval_point_layer(group_field, color_field, ax.group_axis, ax.offset_key;
+                                         value_axis=ax.value_axis, size=80, color="white"))
+    _add_analysis_tooltips!(layers, _interval_tooltips(value_label, group_field, color_field, a.probs))
 
     spec = Dict{String,Any}("data" => Dict{String,Any}("values" => summary), "layer" => layers)
     if !is_sublayer
@@ -939,11 +973,11 @@ function analysis_to_vl(a::PointIntervalAnalysis, layer::AlgebraOfGraphics.Layer
 end
 
 function analysis_to_vl(a::PrecomputedIntervalAnalysis, layer::AlgebraOfGraphics.Layer; is_sublayer=false)
-    (; table, x_field, x_label, y_field, y_label, color_field, color_label, facet, facet_fields) = _extract_interval_fields(layer)
-    isempty(layer.positional) && error("Pre-aggregated pointinterval requires a positional mapping (the point/median column)")
+    (; table, value_field, value_label, group_field, group_label, color_field, color_label, facet, facet_fields) = _extract_interval_fields(layer, a.orientation)
+    ax = _interval_axes(a.orientation)
 
     col_names = Set(string.(Tables.columnnames(table)))
-    x_field in col_names || error("Pre-aggregated pointinterval: point column \"$x_field\" not found in table. Available: $(sort(collect(col_names)))")
+    value_field in col_names || error("Pre-aggregated pointinterval: point column \"$value_field\" not found in table. Available: $(sort(collect(col_names)))")
     for (lo, hi) in a.bands
         los, his = string(lo), string(hi)
         los in col_names || error("Pre-aggregated pointinterval: band column \"$los\" not found in table. Available: $(sort(collect(col_names)))")
@@ -957,26 +991,28 @@ function analysis_to_vl(a::PrecomputedIntervalAnalysis, layer::AlgebraOfGraphics
     for (i, (lo, hi)) in enumerate(a.bands)
         lo_col, hi_col = string(lo), string(hi)
         enc = Dict{String,Any}(
-            "x" => Dict{String,Any}("field" => lo_col, "type" => "quantitative", "title" => x_label),
-            "x2" => Dict{String,Any}("field" => hi_col),
+            ax.value_axis => Dict{String,Any}("field" => lo_col, "type" => "quantitative", "title" => value_label),
+            ax.value2_axis => Dict{String,Any}("field" => hi_col),
         )
-        _add_ycolor_encoding!(enc, y_field, color_field; y_label, color_label, y_axis=false)
+        _add_group_color_encoding!(enc, group_field, color_field, ax.group_axis, ax.offset_key;
+                                    group_label, color_label, show_axis_title=false)
         push!(layers, Dict{String,Any}(
             "mark" => Dict{String,Any}("type" => "rule", "strokeWidth" => stroke_widths[i]),
             "encoding" => enc,
         ))
     end
 
-    push!(layers, _interval_point_layer(y_field, color_field; y_label, color_label,
-                                         point_field=x_field, size=80, color="white"))
+    push!(layers, _interval_point_layer(group_field, color_field, ax.group_axis, ax.offset_key;
+                                         point_field=value_field, value_axis=ax.value_axis,
+                                         size=80, color="white"))
 
     widest_lo = string(first(a.bands[1]))
     widest_hi = string(last(a.bands[1]))
     tt = Dict{String,Any}[
-        Dict{String,Any}("field" => x_field, "type" => "quantitative", "title" => "$x_label (estimate)"),
+        Dict{String,Any}("field" => value_field, "type" => "quantitative", "title" => "$value_label (estimate)"),
     ]
-    !isnothing(y_field) && push!(tt, Dict{String,Any}("field" => y_field, "type" => "nominal"))
-    !isnothing(color_field) && color_field != y_field && push!(tt, Dict{String,Any}("field" => color_field, "type" => "nominal"))
+    !isnothing(group_field) && push!(tt, Dict{String,Any}("field" => group_field, "type" => "nominal"))
+    !isnothing(color_field) && color_field != group_field && push!(tt, Dict{String,Any}("field" => color_field, "type" => "nominal"))
     push!(tt, Dict{String,Any}("field" => widest_lo, "type" => "quantitative", "title" => widest_lo))
     push!(tt, Dict{String,Any}("field" => widest_hi, "type" => "quantitative", "title" => widest_hi))
     _add_analysis_tooltips!(layers, tt)
@@ -990,9 +1026,10 @@ function analysis_to_vl(a::PrecomputedIntervalAnalysis, layer::AlgebraOfGraphics
 end
 
 function analysis_to_vl(a::GradientIntervalAnalysis, layer::AlgebraOfGraphics.Layer; is_sublayer=false)
-    (; table, x_field, x_label, y_field, y_label, color_field, color_label, facet, facet_fields) = _extract_interval_fields(layer)
+    (; table, value_field, value_label, group_field, group_label, color_field, color_label, facet, facet_fields) = _extract_interval_fields(layer, a.orientation)
+    ax = _interval_axes(a.orientation)
     detail_strs = string.(a.detail_fields)
-    summary = compute_interval_summary(table, x_field, y_field, a.probs, a.point; color_field, facet_fields, detail_fields=detail_strs)
+    summary = compute_interval_summary(table, value_field, group_field, a.probs, a.point; color_field, facet_fields, detail_fields=detail_strs)
 
     sorted_probs = sort(a.probs, rev=true)
     opacities = range(0.2, 0.7, length=length(sorted_probs))
@@ -1000,19 +1037,21 @@ function analysis_to_vl(a::GradientIntervalAnalysis, layer::AlgebraOfGraphics.La
     layers = Dict{String,Any}[]
     for (i, prob) in enumerate(sorted_probs)
         enc = Dict{String,Any}(
-            "x" => Dict{String,Any}("field" => _vl_prob_field("lo", prob), "type" => "quantitative", "title" => x_label),
-            "x2" => Dict{String,Any}("field" => _vl_prob_field("hi", prob)),
+            ax.value_axis => Dict{String,Any}("field" => _vl_prob_field("lo", prob), "type" => "quantitative", "title" => value_label),
+            ax.value2_axis => Dict{String,Any}("field" => _vl_prob_field("hi", prob)),
             "opacity" => Dict{String,Any}("value" => opacities[i]),
         )
-        _add_ycolor_encoding!(enc, y_field, color_field; y_label, color_label, y_axis=false)
+        _add_group_color_encoding!(enc, group_field, color_field, ax.group_axis, ax.offset_key;
+                                    group_label, color_label, show_axis_title=false)
         push!(layers, Dict{String,Any}(
             "mark" => Dict{String,Any}("type" => "rule", "strokeWidth" => 14),
             "encoding" => enc,
         ))
     end
 
-    push!(layers, _interval_point_layer(y_field, color_field; y_label, color_label, size=50, color="white"))
-    _add_analysis_tooltips!(layers, _interval_tooltips(x_label, y_field, color_field, a.probs))
+    push!(layers, _interval_point_layer(group_field, color_field, ax.group_axis, ax.offset_key;
+                                         value_axis=ax.value_axis, size=50, color="white"))
+    _add_analysis_tooltips!(layers, _interval_tooltips(value_label, group_field, color_field, a.probs))
 
     spec = Dict{String,Any}("data" => Dict{String,Any}("values" => summary), "layer" => layers)
     if !is_sublayer
@@ -1165,11 +1204,12 @@ function analysis_to_vl(a::PrecomputedRibbonAnalysis, layer::AlgebraOfGraphics.L
 end
 
 function analysis_to_vl(a::DotIntervalAnalysis, layer::AlgebraOfGraphics.Layer; is_sublayer=false)
-    (; table, x_field, x_label, y_field, y_label, color_field, color_label, facet, facet_fields) = _extract_interval_fields(layer)
+    (; table, value_field, value_label, group_field, group_label, color_field, color_label, facet, facet_fields) = _extract_interval_fields(layer, a.orientation)
+    ax = _interval_axes(a.orientation)
     detail_strs = string.(a.detail_fields)
 
-    vals = Tables.getcolumn(table, Symbol(x_field))
-    key_fields = String[f for f in [y_field, color_field, facet_fields..., detail_strs...] if !isnothing(f)]
+    vals = Tables.getcolumn(table, Symbol(value_field))
+    key_fields = String[f for f in [group_field, color_field, facet_fields..., detail_strs...] if !isnothing(f)]
     idx_groups = _group_indices(_key_columns(table; fields=key_fields))
 
     # Quantile dots
@@ -1178,12 +1218,12 @@ function analysis_to_vl(a::DotIntervalAnalysis, layer::AlgebraOfGraphics.Layer; 
         v = sort!(vals[idxs])
         n = length(v)
         ki_base = 0
-        gk = isnothing(y_field) ? nothing : key[ki_base += 1]
+        gk = isnothing(group_field) ? nothing : key[ki_base += 1]
         ck = isnothing(color_field) ? nothing : key[ki_base += 1]
         for i in 1:a.n_dots
             q = quantile(v, (i - 0.5) / a.n_dots; sorted=true)
             row = Dict{String,Any}("quantile" => q)
-            !isnothing(gk) && (row[y_field] = gk)
+            !isnothing(gk) && (row[group_field] = gk)
             !isnothing(ck) && (row[color_field] = ck)
             ki = ki_base
             for ff in facet_fields
@@ -1196,15 +1236,16 @@ function analysis_to_vl(a::DotIntervalAnalysis, layer::AlgebraOfGraphics.Layer; 
         end
     end
 
-    summary = compute_interval_summary(table, x_field, y_field, a.probs, a.point; color_field, facet_fields, detail_fields=detail_strs)
+    summary = compute_interval_summary(table, value_field, group_field, a.probs, a.point; color_field, facet_fields, detail_fields=detail_strs)
 
     # Dot layer
     dot_enc = Dict{String,Any}(
-        "x" => Dict{String,Any}("field" => "quantile", "type" => "quantitative", "title" => x_label,
-                                  "bin" => Dict{String,Any}("maxbins" => 40)),
+        ax.value_axis => Dict{String,Any}("field" => "quantile", "type" => "quantitative", "title" => value_label,
+                                           "bin" => Dict{String,Any}("maxbins" => 40)),
         "size" => Dict{String,Any}("aggregate" => "count", "legend" => nothing),
     )
-    _add_ycolor_encoding!(dot_enc, y_field, color_field; y_label, color_label, y_axis=false)
+    _add_group_color_encoding!(dot_enc, group_field, color_field, ax.group_axis, ax.offset_key;
+                                group_label, color_label, show_axis_title=false)
 
     layers = Dict{String,Any}[
         Dict{String,Any}(
@@ -1216,22 +1257,25 @@ function analysis_to_vl(a::DotIntervalAnalysis, layer::AlgebraOfGraphics.Layer; 
 
     # Interval sublayers
     sorted_probs = sort(a.probs, rev=true)
-    stroke_widths = range(1.5, 5, length=length(sorted_probs))
+    stroke_widths = length(sorted_probs) == 1 ? [5.0] : range(1.5, 5, length=length(sorted_probs))
     interval_layers = Dict{String,Any}[]
     for (i, prob) in enumerate(sorted_probs)
         enc = Dict{String,Any}(
-            "x" => Dict{String,Any}("field" => _vl_prob_field("lo", prob), "type" => "quantitative"),
-            "x2" => Dict{String,Any}("field" => _vl_prob_field("hi", prob)),
+            ax.value_axis => Dict{String,Any}("field" => _vl_prob_field("lo", prob), "type" => "quantitative"),
+            ax.value2_axis => Dict{String,Any}("field" => _vl_prob_field("hi", prob)),
         )
-        _add_ycolor_encoding!(enc, y_field, color_field; y_label, color_label)
+        _add_group_color_encoding!(enc, group_field, color_field, ax.group_axis, ax.offset_key;
+                                    group_label, color_label)
         push!(interval_layers, Dict{String,Any}(
             "mark" => Dict{String,Any}("type" => "rule", "strokeWidth" => stroke_widths[i], "color" => "#333"),
             "encoding" => enc,
         ))
     end
 
-    push!(interval_layers, _interval_point_layer(y_field, color_field; y_label, color_label, size=50, color="white", stroke="#333", strokeWidth=1.5))
-    _add_analysis_tooltips!(interval_layers, _interval_tooltips(x_label, y_field, color_field, a.probs))
+    push!(interval_layers, _interval_point_layer(group_field, color_field, ax.group_axis, ax.offset_key;
+                                                   value_axis=ax.value_axis,
+                                                   size=50, color="white", stroke="#333", strokeWidth=1.5))
+    _add_analysis_tooltips!(interval_layers, _interval_tooltips(value_label, group_field, color_field, a.probs))
 
     push!(layers, Dict{String,Any}(
         "data" => Dict{String,Any}("values" => summary),
@@ -4099,13 +4143,24 @@ function _auto_summary_args(spec)
             a = extract_transformation(layer, T)
             isnothing(a) && continue
             table = extract_data(layer)
-            (isnothing(table) || isempty(layer.positional) || !haskey(layer.named, :y)) && return nothing
-            value = Symbol(_field_name(layer.positional[1]))
-            outcome = Symbol(_field_name(layer.named[:y]))
-            group_cols = Symbol[]
-            for (k, v) in pairs(layer.named)
-                k == :y && continue
-                push!(group_cols, Symbol(_field_name(v)))
+            isnothing(table) && return nothing
+            if a.orientation === :vertical
+                length(layer.positional) >= 2 || return nothing
+                outcome = Symbol(_field_name(layer.positional[1]))
+                value = Symbol(_field_name(layer.positional[2]))
+                group_cols = Symbol[]
+                for (k, v) in pairs(layer.named)
+                    push!(group_cols, Symbol(_field_name(v)))
+                end
+            else
+                (isempty(layer.positional) || !haskey(layer.named, :y)) && return nothing
+                value = Symbol(_field_name(layer.positional[1]))
+                outcome = Symbol(_field_name(layer.named[:y]))
+                group_cols = Symbol[]
+                for (k, v) in pairs(layer.named)
+                    k == :y && continue
+                    push!(group_cols, Symbol(_field_name(v)))
+                end
             end
             return (; kind=:pointinterval, table, value, outcome, group_cols)
         end
@@ -4136,8 +4191,9 @@ function _auto_summary_args(spec)
         end
         a = extract_transformation(layer, PrecomputedIntervalAnalysis)
         if !isnothing(a)
-            isempty(layer.positional) && return nothing
-            value = Symbol(_field_name(layer.positional[1]))
+            point_idx = a.orientation === :vertical ? 2 : 1
+            length(layer.positional) >= point_idx || return nothing
+            value = Symbol(_field_name(layer.positional[point_idx]))
             point_col = string(value)
             bands = Tuple{String,String,String}[
                 (string(lo), string(hi), "$(string(lo))/$(string(hi))")
@@ -4255,12 +4311,12 @@ end
 
 # Patch the `detail_fields` of any TidybayesAnalysis in a transformation
 # chain to `new_detail`. Walks through `ComposedFunction` recursively.
-_with_detail(t::PointIntervalAnalysis, d) = PointIntervalAnalysis(t.probs, t.point, d)
-_with_detail(t::GradientIntervalAnalysis, d) = GradientIntervalAnalysis(t.probs, t.point, d)
+_with_detail(t::PointIntervalAnalysis, d) = PointIntervalAnalysis(t.probs, t.point, d, t.orientation)
+_with_detail(t::GradientIntervalAnalysis, d) = GradientIntervalAnalysis(t.probs, t.point, d, t.orientation)
 _with_detail(t::LineRibbonAnalysis, d) = LineRibbonAnalysis(t.probs, t.show_line, d)
 _with_detail(t::PrecomputedRibbonAnalysis, d) = PrecomputedRibbonAnalysis(t.bands, t.show_line, d)
-_with_detail(t::PrecomputedIntervalAnalysis, d) = PrecomputedIntervalAnalysis(t.bands, d)
-_with_detail(t::DotIntervalAnalysis, d) = DotIntervalAnalysis(t.probs, t.n_dots, t.point, d)
+_with_detail(t::PrecomputedIntervalAnalysis, d) = PrecomputedIntervalAnalysis(t.bands, d, t.orientation)
+_with_detail(t::DotIntervalAnalysis, d) = DotIntervalAnalysis(t.probs, t.n_dots, t.point, d, t.orientation)
 
 function _patch_detail(t, new_detail)
     syms = Symbol.(new_detail)
