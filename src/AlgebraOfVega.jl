@@ -5087,7 +5087,8 @@ function _fix_visual_attrs(layer::AlgebraOfGraphics.Layer)
         changed = true
     end
     if haskey(attrs, :strokeDash) && !haskey(attrs, :linestyle)
-        attrs[:linestyle] = pop!(attrs, :strokeDash)
+        v = pop!(attrs, :strokeDash)
+        attrs[:linestyle] = v isa AbstractVector{<:Real} ? Makie.Linestyle(collect(Float64, v)) : v
         changed = true
     end
     if haskey(attrs, :opacity) && !haskey(attrs, :alpha)

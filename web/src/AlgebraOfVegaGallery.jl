@@ -1848,7 +1848,7 @@ end
         end
     end
 
-    page(content) = htmx(
+    __page__(content) = htmx(
         h.main(class="container-fluid", style="padding:1rem 2rem;")(
             h.div(content; id="main-content"),
         );
@@ -2403,11 +2403,9 @@ end""");
         )
     end
 
-    @get static_gallery = page(
-        h.div(
-            h.h2("Static Gallery (Makie/CairoMakie)"),
-            [static_gallery_section(title, ids) for (title, ids) in PLOT_SECTIONS]...,
-        )
+    @get static_gallery = h.div(
+        h.h2("Static Gallery (Makie/CairoMakie)"),
+        [static_gallery_section(title, ids) for (title, ids) in PLOT_SECTIONS]...,
     )
 
     @include tests = TestRoutes(; __req__, test_module=@__MODULE__)
