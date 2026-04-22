@@ -137,6 +137,9 @@ end
 with_plot_caption(plot_node; title, short="", long=nothing, kwargs...) =
     with_plot_caption(plot_node, CaptionSpec(; title, short, long); kwargs...)
 
+with_plot_caption(plot_node, caption::AbstractString; kwargs...) =
+    with_plot_caption(plot_node, CaptionSpec(; title=caption); kwargs...)
+
 """
     with_plot_caption(spec::VegaSpec, caption; plot_id,
                       auto_remap=nothing, summary_table=:auto,
@@ -215,6 +218,9 @@ end
 
 with_plot_caption(spec::VegaSpec; title, short="", long=nothing, kwargs...) =
     with_plot_caption(spec, CaptionSpec(; title, short, long); kwargs...)
+
+with_plot_caption(spec::VegaSpec, caption::AbstractString; kwargs...) =
+    with_plot_caption(spec, CaptionSpec(; title=caption); kwargs...)
 
 """
     draws_summary_table(table; value, outcome, group_cols=Symbol[], ci_level=0.95,
