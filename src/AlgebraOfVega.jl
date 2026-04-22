@@ -1664,8 +1664,17 @@ function histogram_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
         "y" => Dict{String,Any}("aggregate" => "count", "type" => "quantitative"),
     )
 
-    # Handle color/stack from named mappings
+    # Handle color/stack from named mappings, EXCEPT row/col — those are
+    # hoisted to a facet operator below so `resolve.scale.<axis>` from
+    # `config(facet=(; linkxaxes=:none))` actually lands in scope.
+    facet = Dict{String,Any}()
     for (name, sel) in pairs(layer.named)
+        if name === :row || name === :col
+            facet_ch = name === :col ? "column" : "row"
+            facet[facet_ch] = selector_to_field(sel)
+            haskey(facet[facet_ch], "type") || (facet[facet_ch]["type"] = "nominal")
+            continue
+        end
         ch = aog_named_to_vl_channel(name)
         isnothing(ch) && continue
         encoding[ch] = selector_to_field(sel)
@@ -1682,6 +1691,7 @@ function histogram_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
     if !isnothing(table)
         spec["data"] = data_to_vl(table)
     end
+    _wrap_with_facet!(spec, facet)
     spec
 end
 
