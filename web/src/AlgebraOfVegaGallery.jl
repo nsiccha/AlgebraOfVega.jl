@@ -507,6 +507,23 @@ auto_remap_node(id, spec; dims=[:panel => "Condition", :site => "Site"])""",
         auto_remap_node(id, spec; dims=[:panel => "Condition", :site => "Site"])
      end),
 
+    ("remap_axes", "Remap X/Y Axes",
+     "Client-side x/y axis swap on a plain scatter plot. dims= includes the numeric columns so the picker's new X and Y dropdowns can swap them.",
+     """id = "remap-axes"
+spec = data(cars()) * mapping(:horsepower, :mpg, color=:origin) * visual(Scatter) *
+       config(title="Remap X/Y Axes", width=500, height=350)
+auto_remap_node(id, spec;
+    dims=["horsepower" => "Horsepower", "mpg" => "MPG", "weight" => "Weight",
+          "acceleration" => "Acceleration", "origin" => "Origin"])""",
+     () -> begin
+        id = "remap-axes"
+        spec = data(cars()) * mapping(:horsepower, :mpg, color=:origin) * visual(Scatter) *
+               config(title="Remap X/Y Axes", width=500, height=350)
+        auto_remap_node(id, spec;
+            dims=["horsepower" => "Horsepower", "mpg" => "MPG", "weight" => "Weight",
+                  "acceleration" => "Acceleration", "origin" => "Origin"])
+     end),
+
     ("remap_detail", "Remap with Detail", "Lineribbon with extra grouping dimensions via detail= for client-side remapping",
      """# Simulate PK-style data: 2 assays × 2 groups × 2 sites × 50 draws
 id = "remap-detail"
@@ -1303,6 +1320,41 @@ data(summary) * mapping(:median, y=:parameter) *
             config(width=500, height=200, title="Pre-aggregated Point + Interval")
      end),
 
+    ("remap_precomputed_pointinterval_positional", "Remap Pre-agg. PI — positional dim",
+     "BRM-style repro: horizontal PI with :index on x (positional), :param on row (named). " *
+     "Verifies the pinned catch-all leaves positionally-assigned fields alone rather than combining them " *
+     "(was producing a `param/index` combo and „/ undefined“ titles).",
+     """raw = posterior_draws()
+# Build a fake long-form summary: 3 params × 2 index positions, pre-aggregated.
+params = repeat(["α", "β", "σ"]; inner=2)
+indices = repeat(string.(1:2); outer=3)
+medians = [2.0, 2.1, 0.8, 0.85, 1.2, 1.25]
+q025s   = [1.5, 1.6, 0.5, 0.55, 1.0, 1.05]
+q975s   = [2.5, 2.6, 1.1, 1.15, 1.4, 1.45]
+summary = (; param=params, index=indices, median=medians, q025=q025s, q975=q975s)
+spec = data(summary) *
+       mapping(:index, :median, row=:param) *   # :index on x (positional); :param on row
+       pointinterval(bands=[:q025 => :q975], orientation=:vertical) *
+       config(width=400, height=150, title="BRM-style: positional :index + row=:param")
+auto_remap_node("remap-pi-positional", spec;
+    dims=["param" => "Parameter", "index" => "Index"],
+    pinned=:row)""",
+     () -> begin
+        params = repeat(["α", "β", "σ"]; inner=2)
+        indices = repeat(string.(1:2); outer=3)
+        medians = [2.0, 2.1, 0.8, 0.85, 1.2, 1.25]
+        q025s   = [1.5, 1.6, 0.5, 0.55, 1.0, 1.05]
+        q975s   = [2.5, 2.6, 1.1, 1.15, 1.4, 1.45]
+        summary = (; param=params, index=indices, median=medians, q025=q025s, q975=q975s)
+        spec = data(summary) *
+               mapping(:index, :median, row=:param) *
+               pointinterval(bands=[:q025 => :q975], orientation=:vertical) *
+               config(width=400, height=150, title="BRM-style: positional :index + row=:param")
+        auto_remap_node("remap-pi-positional", spec;
+            dims=["param" => "Parameter", "index" => "Index"],
+            pinned=:row)
+     end),
+
     ("remap_precomputed_lineribbon", "Remap Pre-aggregated Ribbon", "auto_remap_node on pre-aggregated lineribbon with color/row switching",
      """id = "remap-precomp-lr"
 summary = _preaggregate(faceted_regression_predictions(), :x, :panel, :site)
@@ -1764,7 +1816,7 @@ end
         ("Interactive Filtering" => ["filter_origin", "filter_multi", "filter_tips", "filter_histogram", "filter_regression", "filter_bar"]),
         ("Basic" => ["scatter", "bar", "line", "lines_only", "area", "histogram", "heatmap", "boxplot"]),
         ("Composition" => ["layered", "multi_layer", "stacked_bar", "grouped_bar", "bubble", "scatter_jitter", "custom_config"]),
-        ("Interactive" => ["interactive_brush", "interactive_highlight", "interactive_zoom", "interactive_slider", "interactive_dropdown", "remap_encoding", "remap_lineribbon", "remap_detail", "remap_precomputed_lineribbon"]),
+        ("Interactive" => ["interactive_brush", "interactive_highlight", "interactive_zoom", "interactive_slider", "interactive_dropdown", "remap_encoding", "remap_axes", "remap_lineribbon", "remap_detail", "remap_precomputed_lineribbon"]),
         ("AoG: Basic Visualizations" => ["aog_scatter_basic", "aog_sine_lines", "aog_lines_scatter", "aog_two_sources", "aog_boxplot"]),
         ("AoG: Additional Marks" => ["aog_step", "aog_rules", "aog_vlines_faceted_color", "aog_vlines_faceted_color_remap", "aog_errorbars"]),
         ("AoG: Data Manipulations" => ["aog_wide_lines", "aog_wide_scatter", "aog_presorted_bar"]),
@@ -1774,7 +1826,7 @@ end
         ("AoG: Composition Patterns" => ["aog_scatter_regression", "aog_scatter_smooth", "aog_bar_line_combo", "aog_stacked_area", "aog_color_regression"]),
         ("AoG: Layout" => ["aog_facet", "aog_facet_wrap", "aog_facet_multi_layer", "aog_facet_regression"]),
         ("AoG: Applications" => ["aog_timeseries", "aog_timeseries_box", "aog_2d_histogram"]),
-        ("Uncertainty (tidybayes)" => ["pointinterval", "pointinterval_vertical", "halfeye", "gradient_interval", "lineribbon", "lineribbon_grouped", "lineribbon_faceted", "lineribbon_overlay", "lineribbon_logscale", "ppc_overlay", "ribbon_only", "precomputed_lineribbon", "precomputed_lineribbon_grouped", "precomputed_pointinterval", "dotinterval", "raincloud"]),
+        ("Uncertainty (tidybayes)" => ["pointinterval", "pointinterval_vertical", "halfeye", "gradient_interval", "lineribbon", "lineribbon_grouped", "lineribbon_faceted", "lineribbon_overlay", "lineribbon_logscale", "ppc_overlay", "ribbon_only", "precomputed_lineribbon", "precomputed_lineribbon_grouped", "precomputed_pointinterval", "remap_precomputed_pointinterval_positional", "dotinterval", "raincloud"]),
     ]
 
     gallery_section(section_title, ids) = begin

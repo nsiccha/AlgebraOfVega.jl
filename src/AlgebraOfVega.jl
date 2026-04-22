@@ -3588,6 +3588,70 @@ function vega_runtime()
                 });
             }
 
+            // x/y axis remapping. Each swap: rewrite encoding.<axis>.field, re-infer
+            // the type from a sample value in the data, refresh axis title and any
+            // tooltip entry referencing the old field. Layers tagged `_no_axis_remap`
+            // (planned: analysis layers with value axes bound to computed columns)
+            // are skipped.
+            function _inferType(v) {
+                if (typeof v === 'number') return 'quantitative';
+                if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}/.test(v)) return 'temporal';
+                return 'nominal';
+            }
+            function _sampleVals() {
+                if (spec.data && Array.isArray(spec.data.values)) return spec.data.values;
+                if (spec.spec && spec.spec.data && Array.isArray(spec.spec.data.values)) return spec.spec.data.values;
+                return null;
+            }
+            function _remapAxis(axis) {
+                if (!(axis in mapping)) return;
+                var newField = mapping[axis];
+                if (!newField) return;  // empty = don't change (defensive: avoids breaking mandatory axes)
+                var vals = _sampleVals();
+                var sample = null;
+                if (vals) {
+                    for (var i = 0; i < vals.length; i++) {
+                        if (vals[i] && vals[i][newField] !== undefined && vals[i][newField] !== null) {
+                            sample = vals[i][newField]; break;
+                        }
+                    }
+                }
+                var newType = sample !== null ? _inferType(sample) : null;
+                layers.forEach(function(l) {
+                    if (!l || l._no_axis_remap) return;
+                    var enc = l.encoding;
+                    if (!enc || !enc[axis] || typeof enc[axis] !== 'object') return;
+                    var oldField = enc[axis].field;
+                    if (oldField === undefined) return;
+                    enc[axis].field = newField;
+                    if (newType) {
+                        enc[axis].type = newType;
+                        // When the axis type flips from quantitative to nominal, a log/sqrt
+                        // scale no longer makes sense — drop it rather than leave VL with
+                        // an invalid scale it will ignore with warnings.
+                        if (newType !== 'quantitative' && enc[axis].scale && enc[axis].scale.type) {
+                            var st = enc[axis].scale.type;
+                            if (st === 'log' || st === 'sqrt' || st === 'pow') {
+                                delete enc[axis].scale.type;
+                            }
+                        }
+                    }
+                    enc[axis].title = _fieldTitle(newField);
+                    var tt = enc.tooltip;
+                    if (Array.isArray(tt)) {
+                        tt.forEach(function(t) {
+                            if (t && t.field === oldField) {
+                                t.field = newField;
+                                t.title = _fieldTitle(newField);
+                                if (newType) t.type = newType;
+                            }
+                        });
+                    }
+                });
+            }
+            _remapAxis('x');
+            _remapAxis('y');
+
             // Re-broadcast cross-source layers after row/column/color mutations
             this._broadcastCrossSource(spec);
 
@@ -3881,17 +3945,26 @@ Returns a NamedTuple with:
 """
 function resolve_channels(dimensions;
     color_default=String[], row_default=String[], column_default=String[], detail_default=String[],
+    x_default=String[], y_default=String[],
     channels=[:color, :row, :column, :detail],
     pinned::Symbol=:color,
-    fixed=Dict{Symbol,Any}())
+    fixed=Dict{Symbol,Any}(),
+    extra_assigned::AbstractVector=String[])
 
     _norm(v) = v isa AbstractVector ? string.(v) : (v == "" || isnothing(v) ? String[] : [string(v)])
     color_default = _norm(color_default)
     row_default = _norm(row_default)
     column_default = _norm(column_default)
     detail_default = _norm(detail_default)
+    x_default = _norm(x_default)
+    y_default = _norm(y_default)
+    # x/y are single-select; keep only the first field if multiple are passed.
+    length(x_default) > 1 && (x_default = x_default[1:1])
+    length(y_default) > 1 && (y_default = y_default[1:1])
     defaults = Dict("color" => color_default, "row" => row_default,
-                     "column" => column_default, "detail" => detail_default)
+                     "column" => column_default, "detail" => detail_default,
+                     "x" => x_default, "y" => y_default)
+    extra_assigned_norm = String[string(f) for f in extra_assigned]
 
     dims = [(d isa Pair ? (string(first(d)) => string(last(d))) : (string(d) => string(d))) for d in dimensions]
 
@@ -3932,13 +4005,23 @@ function resolve_channels(dimensions;
     for fs in values(fixed_norm)
         for f in fs; push!(assigned_elsewhere, f); end
     end
+    # Positional (x/y) and any other fields the caller flags as "already used"
+    # elsewhere in the plot. Even when :x/:y are not picker channels, their
+    # positional fields should not get absorbed into the pinned catch-all.
+    for f in extra_assigned_norm
+        push!(assigned_elsewhere, f)
+    end
     defaults[pinned_str] = [first(d) for d in dims if !(first(d) in assigned_elsewhere)]
 
     # Build kwargs for a channel's field list.
     # AoG mapping() uses :col (not :column) for column faceting.
+    # x/y are positional in AoG — they aren't re-composed here; the JS
+    # remapEncoding path rewrites encoding.x.field / encoding.y.field on
+    # the VL spec directly when the user swaps them via the picker.
     _aog_key(ch) = ch == :column ? :col : ch
     function _channel_kw(ch_sym, fields)
         isempty(fields) && return (;)
+        ch_sym in (:x, :y) && return (;)
         k = _aog_key(ch_sym)
         if length(fields) == 1
             return (; k => Symbol(fields[1]) => _pretty(fields[1]))
@@ -3952,6 +4035,8 @@ function resolve_channels(dimensions;
     row_fields = get(defaults, "row", String[])
     column_fields = get(defaults, "column", String[])
     detail_fields = get(defaults, "detail", String[])
+    x_fields = get(defaults, "x", String[])
+    y_fields = get(defaults, "y", String[])
 
     color_kw = _channel_kw(:color, color_fields)
     row_kw = _channel_kw(:row, row_fields)
@@ -3984,7 +4069,9 @@ function resolve_channels(dimensions;
 
     (; color_kw, row_kw, column_kw, fixed_kw, detail,
        color_fields, row_fields, column_fields, detail_fields,
-       dim_label_map, dims, defaults, fixed=fixed_norm, pinned, channels)
+       x_fields, y_fields,
+       dim_label_map, dims, defaults, fixed=fixed_norm, pinned, channels,
+       extra_assigned=extra_assigned_norm)
 end
 
 """
@@ -4070,9 +4157,12 @@ function refine_channels(resolved::NamedTuple, tables...)
         row_default=get(resolved.defaults, "row", String[]),
         column_default=get(resolved.defaults, "column", String[]),
         detail_default=resolved.detail_fields,
+        x_default=get(resolved.defaults, "x", String[]),
+        y_default=get(resolved.defaults, "y", String[]),
         channels=resolved.channels,
         pinned=resolved.pinned,
-        fixed=useful_fixed)
+        fixed=useful_fixed,
+        extra_assigned=get(resolved, :extra_assigned, String[]))
 end
 
 """
@@ -4218,6 +4308,50 @@ function _layer_channel_defaults(layers)
         end
     end
     defaults
+end
+
+# Union of positional field names across all layers. Used by the pinned
+# catch-all in `resolve_channels` so positionally-assigned dims aren't
+# absorbed by the combo even when :x/:y aren't picker-exposed channels.
+function _layer_positional_fields(layers)
+    out = String[]
+    for layer in layers
+        for v in layer.positional
+            f = _field_name(v)
+            (isnothing(f) || isempty(f)) && continue
+            f in out || push!(out, f)
+        end
+    end
+    out
+end
+
+# Per-axis defaults derived from positional mappings: positional[1] → x,
+# positional[2] → y. Returns (x=String[], y=String[]) — each at most one
+# field (single-select), unioned across layers.
+function _layer_axis_defaults(layers)
+    xs = String[]; ys = String[]
+    for layer in layers
+        if length(layer.positional) >= 1
+            f = _field_name(layer.positional[1])
+            !isnothing(f) && !isempty(f) && !(f in xs) && push!(xs, f)
+        end
+        if length(layer.positional) >= 2
+            f = _field_name(layer.positional[2])
+            !isnothing(f) && !isempty(f) && !(f in ys) && push!(ys, f)
+        end
+    end
+    (; x=xs, y=ys)
+end
+
+# True if any layer carries a TidybayesAnalysis — for those, x/y picker
+# channels are disabled because at least one axis is bound to computed
+# summary columns (lo_*/hi_*/__point__/__median__). Per-axis refuse-tagging
+# is a planned follow-up (see TODO in Claude/algebraofvega.md).
+function _has_axis_blocker(layers)
+    for layer in layers
+        !isnothing(extract_transformation(layer, TidybayesAnalysis)) && return true
+    end
+    false
 end
 
 # Append a new column to a column-table (NamedTuple of vectors).
@@ -4476,11 +4610,24 @@ function _auto_remap_parts(plot_id, spec; dims, fixed=Dict(), pinned::Symbol=:ro
     dim_fields = Set{String}(string(d isa Pair ? first(d) : d) for d in dims)
     defaults = _layer_channel_defaults(layers)
     defaults = Dict(ch => filter(f -> f in dim_fields, fs) for (ch, fs) in defaults)
+    # Positional fields — used both for the catch-all (always) and, when no
+    # layer has an analysis that binds x/y to computed columns, as x/y picker
+    # channel defaults.
+    pos_all = _layer_positional_fields(layers)
+    extra_assigned = filter(f -> f in dim_fields, pos_all)
+    blocked = _has_axis_blocker(layers)
+    axis_defs = _layer_axis_defaults(layers)
+    x_default = blocked ? String[] : filter(f -> f in dim_fields, axis_defs.x)
+    y_default = blocked ? String[] : filter(f -> f in dim_fields, axis_defs.y)
+    channels = blocked ? [:color, :row, :column, :detail] :
+                         [:x, :y, :color, :row, :column, :detail]
     resolved = resolve_channels(dims;
         color_default=defaults["color"],
         row_default=defaults["row"],
         column_default=defaults["column"],
-        pinned, fixed)
+        x_default, y_default,
+        channels, pinned, fixed,
+        extra_assigned)
     resolved = refine_channels(resolved, dfs...)
 
     # Cartesian-product fill missing facet fields, then build combo columns.
@@ -4582,23 +4729,45 @@ function mapping_controls(id, resolved::NamedTuple; table=nothing, spec=nothing)
         ch_label = get(_CHANNEL_LABELS, ch_str, uppercasefirst(ch_str))
         is_fixed = haskey(fixed_js, ch_str)
         is_pinned = !is_fixed && ch_str == pinned_str
+        # x/y are single-select axis channels — no combo, no pin radio.
+        is_axis = ch_str == "x" || ch_str == "y"
         # Determine which fields are selected
         default_set = if is_fixed
             Set(fixed_js[ch_str])
         else
             Set(get(defaults, ch_str, String[]))
         end
-        options = [let
-            sel = field in default_set ? (; value=field, selected="selected") : (; value=field)
-            h.option(; sel...)(label)
-        end for (field, label) in dims]
-        sel_attrs = (;
-            id="aov-remap-$(ch_str)-$(id)",
-            multiple="multiple",
-            size=sel_size,
-            onchange="_aovRemap_$(js_id)('$(ch_str)')",
-        )
-        if is_pinned || is_fixed
+        options = if is_axis
+            # Prepend an empty option so users can clear the axis (JS will
+            # leave the layer untouched when the selected value is empty).
+            vcat(
+                h.option(; value="")(""),
+                [let
+                    sel = field in default_set ? (; value=field, selected="selected") : (; value=field)
+                    h.option(; sel...)(label)
+                end for (field, label) in dims],
+            )
+        else
+            [let
+                sel = field in default_set ? (; value=field, selected="selected") : (; value=field)
+                h.option(; sel...)(label)
+            end for (field, label) in dims]
+        end
+        sel_attrs = if is_axis
+            (;
+                id="aov-remap-$(ch_str)-$(id)",
+                size="1",
+                onchange="_aovRemap_$(js_id)('$(ch_str)')",
+            )
+        else
+            (;
+                id="aov-remap-$(ch_str)-$(id)",
+                multiple="multiple",
+                size=sel_size,
+                onchange="_aovRemap_$(js_id)('$(ch_str)')",
+            )
+        end
+        if (!is_axis && is_pinned) || is_fixed
             sel_attrs = merge(sel_attrs, (; disabled="disabled"))
         end
         radio_attrs = (; type="radio", name="aov-pin-$(id)", value=ch_str,
@@ -4606,12 +4775,12 @@ function mapping_controls(id, resolved::NamedTuple; table=nothing, spec=nothing)
         if is_pinned
             radio_attrs = merge(radio_attrs, (; checked="checked"))
         end
-        if is_fixed
+        if is_fixed || is_axis
             radio_attrs = merge(radio_attrs, (; disabled="disabled"))
         end
         h.div()(
             h.label(; style="display:flex; align-items:center; gap:0.3rem;")(
-                h.input(; radio_attrs...),
+                is_axis ? h.span(; style="display:inline-block; width:1em;")("") : h.input(; radio_attrs...),
                 ch_label * ": ",
             ),
             h.select(; sel_attrs...)(options...),
@@ -4724,6 +4893,9 @@ function mapping_controls(id, resolved::NamedTuple; table=nothing, spec=nothing)
         var rowField    = resolveChannel(selections.row || [], '__aov_row');
         var columnField = resolveChannel(selections.column || [], '__aov_column');
         var detailFields = selections.detail || [];
+        // x/y are single-select: pick the one field (or empty string).
+        var xField = (selections.x && selections.x[0]) || '';
+        var yField = (selections.y && selections.y[0]) || '';
 
         // Merge dim labels into comboTitles so single fields also get pretty names
         for (var f in labels) { if (!comboTitles[f]) comboTitles[f] = labels[f]; }
@@ -4735,6 +4907,8 @@ function mapping_controls(id, resolved::NamedTuple; table=nothing, spec=nothing)
             _comboData: dataClone,
             _comboTitles: comboTitles
         };
+        if (channels.indexOf('x') !== -1) mapping.x = xField;
+        if (channels.indexOf('y') !== -1) mapping.y = yField;
         // Merge fixed channels (resolve combos for multi-field fixed)
         for (var k in fixed) {
             var fs = fixed[k];
