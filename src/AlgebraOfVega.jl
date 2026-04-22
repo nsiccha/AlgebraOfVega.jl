@@ -2092,14 +2092,64 @@ function layers_to_vl(layers::AlgebraOfGraphics.Layers)
             delete!(enc, "column")
             delete!(enc, "row")
         end
+        _harmonize_axis_types!(layer_specs)
         spec["data"] = Dict{String,Any}("values" => merged_values)
         spec["facet"] = outer_facet
         spec["spec"] = Dict{String,Any}("layer" => layer_specs)
     else
+        _harmonize_axis_types!(layer_specs)
         spec["layer"] = layer_specs
     end
 
     spec
+end
+
+# For sibling sublayers that encode the same `field` on the same axis
+# (x / y) but disagree on `type`, coerce all to the most conservative
+# (nominal) type. Fixes the "Unrecognized scale name: child_layer_N_x"
+# compile failure when e.g. a vertical pointinterval (group axis hardcoded
+# nominal) is overlaid with a `visual(Scatter)` whose Int-column positional
+# gets inferred as quantitative: VL emits per-layer band+linear scales that
+# don't cross-reference.
+#
+# Nominal is the safe coercion: any value can be treated as a category,
+# while quantitative requires numeric values — string categories can't be
+# widened without data loss.
+function _harmonize_axis_types!(layer_specs::Vector{Dict{String,Any}})
+    for axis in ("x", "y")
+        # field → any sublayer has `type=nominal` for it
+        nominal_fields = Set{String}()
+        for ls in layer_specs
+            enc = get(ls, "encoding", nothing)
+            enc isa Dict || continue
+            ae = get(enc, axis, nothing)
+            ae isa Dict || continue
+            f = get(ae, "field", nothing)
+            f isa AbstractString || continue
+            get(ae, "type", nothing) == "nominal" && push!(nominal_fields, f)
+        end
+        isempty(nominal_fields) && continue
+        for ls in layer_specs
+            enc = get(ls, "encoding", nothing)
+            enc isa Dict || continue
+            ae = get(enc, axis, nothing)
+            ae isa Dict || continue
+            f = get(ae, "field", nothing)
+            f isa AbstractString && f in nominal_fields || continue
+            get(ae, "type", nothing) == "nominal" && continue
+            ae["type"] = "nominal"
+            # Drop scale config that's meaningless for nominal axes
+            sc = get(ae, "scale", nothing)
+            if sc isa Dict
+                st = get(sc, "type", nothing)
+                if st isa AbstractString && st in ("log", "sqrt", "pow", "symlog")
+                    delete!(sc, "type")
+                end
+                isempty(sc) && delete!(ae, "scale")
+            end
+        end
+    end
+    layer_specs
 end
 
 function _faceted_layers_to_vl(layers, facet_field, shared_table, shared_data)
