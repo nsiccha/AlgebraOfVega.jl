@@ -1657,17 +1657,12 @@ function histogram_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
     x_field = length(layer.positional) >= 1 ? _field_name(layer.positional[1]) : "x"
     x_label = length(layer.positional) >= 1 ? _field_label(layer.positional[1]) : "x"
 
-    x_enc = Dict{String,Any}("field" => x_field, "type" => "quantitative", "bin" => true)
-    x_label != x_field && (x_enc["title"] = x_label)
-    encoding = Dict{String,Any}(
-        "x" => x_enc,
-        "y" => Dict{String,Any}("aggregate" => "count", "type" => "quantitative"),
-    )
-
-    # Handle color/stack from named mappings, EXCEPT row/col — those are
-    # hoisted to a facet operator below so `resolve.scale.<axis>` from
-    # `config(facet=(; linkxaxes=:none))` actually lands in scope.
+    # Collect facet (row/col) and other named channels separately. Row/col
+    # land in a `facet` dict that is hoisted via _wrap_with_facet! so
+    # `config(facet=(; linkxaxes=:none))`'s `resolve.scale.<axis>` lands in
+    # scope.
     facet = Dict{String,Any}()
+    other_named = Dict{Symbol,Any}()
     for (name, sel) in pairs(layer.named)
         if name === :row || name === :col
             facet_ch = name === :col ? "column" : "row"
@@ -1675,23 +1670,68 @@ function histogram_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
             haskey(facet[facet_ch], "type") || (facet[facet_ch]["type"] = "nominal")
             continue
         end
+        other_named[name] = sel
+    end
+
+    # When facet is present, emit bin + aggregate as transforms inside the
+    # inner spec. VL runs those per-facet-cell, so each facet row/column
+    # gets its own bin extents (matches AoG/Makie behavior under
+    # linkxaxes=:none). Without facet, keep the simple encoding.x.bin=true
+    # path since there's only one scale.
+    color_sel = get(other_named, :color, nothing)
+    color_field = isnothing(color_sel) ? nothing : _field_name(color_sel)
+
+    if !isempty(facet)
+        groupby = String["__bin_lo__", "__bin_hi__"]
+        isnothing(color_field) || push!(groupby, color_field)
+        transforms = Dict{String,Any}[
+            Dict{String,Any}("bin" => true, "field" => x_field,
+                             "as" => ["__bin_lo__", "__bin_hi__"]),
+            Dict{String,Any}("aggregate" => [Dict{String,Any}("op" => "count", "as" => "__count__")],
+                             "groupby" => groupby),
+        ]
+        x_enc = Dict{String,Any}("field" => "__bin_lo__", "bin" => "binned", "type" => "quantitative")
+        x_label != x_field && (x_enc["title"] = x_label)
+        encoding = Dict{String,Any}(
+            "x" => x_enc,
+            "x2" => Dict{String,Any}("field" => "__bin_hi__"),
+            "y" => Dict{String,Any}("field" => "__count__", "type" => "quantitative"),
+        )
+        for (name, sel) in other_named
+            ch = aog_named_to_vl_channel(name)
+            isnothing(ch) && continue
+            encoding[ch] = selector_to_field(sel)
+        end
+        !isnothing(table) && infer_types!(encoding, table)
+        spec = Dict{String,Any}(
+            "transform" => transforms,
+            "mark" => "bar",
+            "encoding" => encoding,
+        )
+        !isnothing(table) && (spec["data"] = data_to_vl(table))
+        _wrap_with_facet!(spec, facet)
+        return spec
+    end
+
+    # Non-faceted path: single global bin scale.
+    x_enc = Dict{String,Any}("field" => x_field, "type" => "quantitative", "bin" => true)
+    x_label != x_field && (x_enc["title"] = x_label)
+    encoding = Dict{String,Any}(
+        "x" => x_enc,
+        "y" => Dict{String,Any}("aggregate" => "count", "type" => "quantitative"),
+    )
+    for (name, sel) in other_named
         ch = aog_named_to_vl_channel(name)
         isnothing(ch) && continue
         encoding[ch] = selector_to_field(sel)
     end
-
-    if !isnothing(table)
-        infer_types!(encoding, table)
-    end
+    !isnothing(table) && infer_types!(encoding, table)
 
     spec = Dict{String,Any}(
         "mark" => "bar",
         "encoding" => encoding,
     )
-    if !isnothing(table)
-        spec["data"] = data_to_vl(table)
-    end
-    _wrap_with_facet!(spec, facet)
+    !isnothing(table) && (spec["data"] = data_to_vl(table))
     spec
 end
 
