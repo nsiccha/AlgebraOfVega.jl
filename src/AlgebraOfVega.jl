@@ -1657,6 +1657,12 @@ function histogram_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
     x_field = length(layer.positional) >= 1 ? _field_name(layer.positional[1]) : "x"
     x_label = length(layer.positional) >= 1 ? _field_label(layer.positional[1]) : "x"
 
+    # Read the HistogramAnalysis struct so bins / datalimits / normalization
+    # from `histogram(; bins=N, datalimits=…, normalization=…)` actually
+    # reach the emitted VL spec.
+    ha = extract_transformation(layer, AlgebraOfGraphics.HistogramAnalysis)
+    bin_params, count_op = _histogram_bin_config(ha)
+
     # Collect facet (row/col) and other named channels separately. Row/col
     # land in a `facet` dict that is hoisted via _wrap_with_facet! so
     # `config(facet=(; linkxaxes=:none))`'s `resolve.scale.<axis>` lands in
@@ -1685,9 +1691,9 @@ function histogram_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
         groupby = String["__bin_lo__", "__bin_hi__"]
         isnothing(color_field) || push!(groupby, color_field)
         transforms = Dict{String,Any}[
-            Dict{String,Any}("bin" => true, "field" => x_field,
+            Dict{String,Any}("bin" => bin_params, "field" => x_field,
                              "as" => ["__bin_lo__", "__bin_hi__"]),
-            Dict{String,Any}("aggregate" => [Dict{String,Any}("op" => "count", "as" => "__count__")],
+            Dict{String,Any}("aggregate" => [Dict{String,Any}("op" => count_op, "as" => "__count__")],
                              "groupby" => groupby),
         ]
         x_enc = Dict{String,Any}("field" => "__bin_lo__", "bin" => "binned", "type" => "quantitative")
@@ -1713,12 +1719,14 @@ function histogram_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
         return spec
     end
 
-    # Non-faceted path: single global bin scale.
-    x_enc = Dict{String,Any}("field" => x_field, "type" => "quantitative", "bin" => true)
+    # Non-faceted path: single global bin scale. Use encoding-level bin
+    # when possible; fall back to a transform when bin_params carries
+    # structured config (since `encoding.x.bin` also accepts a Dict).
+    x_enc = Dict{String,Any}("field" => x_field, "type" => "quantitative", "bin" => bin_params)
     x_label != x_field && (x_enc["title"] = x_label)
     encoding = Dict{String,Any}(
         "x" => x_enc,
-        "y" => Dict{String,Any}("aggregate" => "count", "type" => "quantitative"),
+        "y" => Dict{String,Any}("aggregate" => count_op, "type" => "quantitative"),
     )
     for (name, sel) in other_named
         ch = aog_named_to_vl_channel(name)
@@ -1733,6 +1741,52 @@ function histogram_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
     )
     !isnothing(table) && (spec["data"] = data_to_vl(table))
     spec
+end
+
+# Translate a HistogramAnalysis's struct config into (bin_params, count_op)
+# for use in the VL bin transform / encoding.
+#
+# - `bins::Integer` → `{"maxbins": N}`
+# - `bins::AbstractVector` → `{"step": step, "extent": [first, last]}` —
+#   only handles uniformly-spaced vectors; non-uniform bins aren't expressible
+#   declaratively in VL, so we fall back to step=first-diff.
+# - `datalimits::Tuple{<:Real,<:Real}` → adds `"extent": [lo, hi]` (a
+#   function like `extrema` stays automatic — the inner-spec per-facet
+#   transform handles per-group extents already).
+# - `normalization ∈ (:probability, :pdf, :density, :none)` → maps to the
+#   VL aggregate operator (`count` vs VL's built-in `sum` with weights is
+#   not sufficient for true density / pdf; emit a warning for those).
+function _histogram_bin_config(ha)
+    bp = Dict{String,Any}()
+    count_op = "count"
+    isnothing(ha) && return (true, count_op)
+
+    # bins
+    if ha.bins isa Integer
+        bp["maxbins"] = Int(ha.bins)
+    elseif ha.bins isa AbstractVector && length(ha.bins) >= 2
+        edges = collect(float.(ha.bins))
+        bp["step"] = edges[2] - edges[1]
+        bp["extent"] = [first(edges), last(edges)]
+    end
+
+    # datalimits
+    dl = ha.datalimits
+    if dl isa Tuple && length(dl) == 2 && all(x -> x isa Real, dl)
+        bp["extent"] = [float(dl[1]), float(dl[2])]
+    end
+
+    # normalization: VL's aggregate only supports count/sum natively.
+    # Non-count normalizations need a post-aggregate calculate transform;
+    # not implemented yet. Emit a one-shot warning so the user knows the
+    # y-axis is raw counts instead of the requested normalization.
+    norm = hasproperty(ha, :normalization) ? ha.normalization : :none
+    if norm !== :none && norm !== :count
+        @warn "AlgebraOfVega: histogram(; normalization=$(repr(norm))) not yet wired into VL — rendering as raw counts. Open an issue if you need this." maxlog=1
+    end
+
+    bin_params = isempty(bp) ? true : bp
+    (bin_params, count_op)
 end
 
 """

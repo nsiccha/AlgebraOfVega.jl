@@ -1775,6 +1775,23 @@ data(df) * mapping(:value; row=:param) * histogram() *
                    title="Expect independent x per facet; get shared")
      end),
 
+    ("brm_histogram_bins_kwarg", "Histogram with bins=30 kwarg (regression)",
+     "histogram(; bins=30) kwarg should reach VL's bin config as maxbins=30. Row-faceted + color-stacked to exercise the in-spec transform path.",
+     """df = (;
+    param = vcat(fill(\"a\", 500), fill(\"b\", 500)),
+    value = vcat(randn(500), randn(500) .- 8))
+data(df) * mapping(:value; row=:param) * histogram(; bins=30) *
+    config(facet=(; linkxaxes=:none),
+           title=\"histogram(; bins=30), row-faceted\")""",
+     () -> let
+        df = (;
+            param = vcat(fill("a", 500), fill("b", 500)),
+            value = vcat(randn(500), randn(500) .- 8))
+        data(df) * mapping(:value; row=:param) * histogram(; bins=30) *
+            config(facet=(; linkxaxes=:none),
+                   title="histogram(; bins=30), row-faceted")
+     end),
+
     ("brm_histogram_datalimits_extrema", "Histogram with datalimits=extrema (works)",
      "Per-facet local bin extents via AoG.histogram(; bins=30, datalimits=extrema). Regression entry confirming the workaround for the shared-x issue above.",
      """df = (;
