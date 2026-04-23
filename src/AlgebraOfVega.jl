@@ -4600,6 +4600,13 @@ function _rebuild_layer(layer, new_df, resolved, dim_fields::Set{String})
     if !isnothing(keep_color_field) && haskey(extra, :color)
         extra = Base.structdiff(extra, NamedTuple{(:color,)})
     end
+    # Preserve AoG scale-type modifiers (e.g. `nonnumeric`) from the user's
+    # original named mapping on the resolved channel kw. Without this, a
+    # layer built from `mapping(color=:flag => nonnumeric)` loses the
+    # modifier when auto_remap rewrites the color channel, and the rebuilt
+    # spec falls back to eltype-inferred type (Int → quantitative),
+    # diverging from the direct-render path.
+    extra = _preserve_selector_modifiers(extra, layer.named, keep_color_field)
     new_named = merge(base, extra)
     # Patch detail on the transformation chain
     new_t = _patch_detail(layer.transformation, resolved.detail)
@@ -4610,6 +4617,62 @@ function _rebuild_layer(layer, new_df, resolved, dim_fields::Set{String})
         AlgebraOfGraphics.mapping(layer.positional...; new_named...)
     new_layer = AlgebraOfGraphics.Layer(new_t, composed.data, composed.positional, composed.named)
     (new_layer, keep_color_field)
+end
+
+# Extract the scale-type modifier Function (e.g. `nonnumeric`) from a
+# selector like `:field => nonnumeric` or `:field => nonnumeric => "Label"`.
+# Returns `nothing` if none is present.
+function _selector_scale_modifier(sel)
+    sel isa Pair || return nothing
+    dst = last(sel)
+    dst isa Function && return dst
+    dst isa Pair && return _selector_scale_modifier(Pair(first(sel), first(dst)))
+    nothing
+end
+
+# Splice a scale-type modifier into a resolved channel kw value. Resolved
+# values come out of `_channel_kw` as `Symbol`, `:field => "Label"`, or
+# `:field => :combo => "Label"` (for combos — but we skip combos as the
+# combo column is a fresh string and carries the modifier implicitly).
+function _attach_modifier(v, modifier)
+    isnothing(modifier) && return v
+    if v isa Symbol
+        return Pair(v, modifier)
+    elseif v isa Pair
+        src, dst = v
+        if dst isa AbstractString
+            # :field => "Label" → :field => modifier => "Label"
+            return Pair(src, Pair(modifier, dst))
+        end
+        # Already has modifier or a combo form we don't touch
+        return v
+    end
+    v
+end
+
+# For each managed channel (:color, :row, :column, :col) in `extra`, look
+# up the user's original selector in `orig_named`; if it carried a scale
+# modifier (`nonnumeric` etc.), splice it onto the resolved value so the
+# VL-level type-inference sees it and emits the right encoding type.
+function _preserve_selector_modifiers(extra::NamedTuple, orig_named, keep_color_field)
+    isempty(extra) && return extra
+    keys_in = keys(extra)
+    updates = NamedTuple()
+    for ch in keys_in
+        ch in (:color, :row, :column, :col) || continue
+        # keep_color_field layers already re-use the original selector verbatim,
+        # so modifier propagation there is a no-op (extra.color was stripped).
+        ch === :color && !isnothing(keep_color_field) && continue
+        # Look up the user's original selector for this channel.
+        orig_key = ch === :column ? :col : ch
+        haskey(orig_named, orig_key) || continue
+        mod = _selector_scale_modifier(orig_named[orig_key])
+        isnothing(mod) && continue
+        new_v = _attach_modifier(extra[ch], mod)
+        new_v === extra[ch] && continue
+        updates = merge(updates, NamedTuple{(ch,)}((new_v,)))
+    end
+    isempty(updates) ? extra : merge(extra, updates)
 end
 
 """
