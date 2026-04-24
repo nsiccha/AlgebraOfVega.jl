@@ -507,21 +507,21 @@ auto_remap_node(id, spec; dims=[:panel => "Condition", :site => "Site"])""",
         auto_remap_node(id, spec; dims=[:panel => "Condition", :site => "Site"])
      end),
 
-    ("remap_axes", "Remap X/Y Axes",
-     "Client-side x/y axis swap on a plain scatter plot. dims= includes the numeric columns so the picker's new X and Y dropdowns can swap them.",
+    ("remap_axes", "Remap X/Y Axes (axes=true)",
+     "Client-side x/y axis swap via `axes=true`. Positional fields are auto-added to the picker's dim set, so they appear as X/Y defaults AND become selectable on color/row/column. Off by default because X/Y are single-select and usually positional fields aren't meant to be re-routed.",
      """id = "remap-axes"
 spec = data(cars()) * mapping(:horsepower, :mpg, color=:origin) * visual(Scatter) *
        config(title="Remap X/Y Axes", width=500, height=350)
 auto_remap_node(id, spec;
-    dims=["horsepower" => "Horsepower", "mpg" => "MPG", "weight" => "Weight",
-          "acceleration" => "Acceleration", "origin" => "Origin"])""",
+    dims=["origin" => "Origin", "cylinders" => "Cylinders"],
+    axes=true)""",
      () -> begin
         id = "remap-axes"
         spec = data(cars()) * mapping(:horsepower, :mpg, color=:origin) * visual(Scatter) *
                config(title="Remap X/Y Axes", width=500, height=350)
         auto_remap_node(id, spec;
-            dims=["horsepower" => "Horsepower", "mpg" => "MPG", "weight" => "Weight",
-                  "acceleration" => "Acceleration", "origin" => "Origin"])
+            dims=["origin" => "Origin", "cylinders" => "Cylinders"],
+            axes=true)
      end),
 
     ("remap_detail", "Remap with Detail", "Lineribbon with extra grouping dimensions via detail= for client-side remapping",

@@ -4770,7 +4770,7 @@ function _preserve_selector_modifiers(extra::NamedTuple, orig_named, keep_color_
 end
 
 """
-    auto_remap_node(plot_id, spec; dims, fixed=Dict(), pinned=:row)
+    auto_remap_node(plot_id, spec; dims, fixed=Dict(), pinned=:row, axes=false)
 
 Fully automatic interactive plot. Takes a "normal" AoG spec and produces an
 `h.div(picker, plot_node)`. The user does not call `resolve_channels`,
@@ -4789,6 +4789,13 @@ function does all of it.
   remappable. Same shape as in `resolve_channels`. Labels for fixed fields
   are picked up from `dims` if present, otherwise snake_case → Title Case.
 - **`pinned`** is the catch-all channel.
+- **`axes=true`** opts in to X/Y axis channels in the picker. The layer's
+  positional fields (`mapping(x, y, …)`) are automatically added to the
+  picker's dim set — they become X/Y defaults AND are selectable on the
+  other channels. Off by default because X/Y are single-select (no combo
+  semantics) and usually the positional fields are not meant to be
+  re-routed. When any layer carries a `TidybayesAnalysis`, X/Y stay
+  hidden regardless of `axes` — analyses bind axes to computed columns.
 
 # What it does internally
 
@@ -4829,7 +4836,8 @@ end
 
 # Same idea as `_remap_node_parts`: expose the (controls, plot_node) pair for
 # composition with `with_plot_caption` et al.
-function _auto_remap_parts(plot_id, spec; dims, fixed=Dict(), pinned::Symbol=:row)
+function _auto_remap_parts(plot_id, spec; dims, fixed=Dict(), pinned::Symbol=:row,
+                            axes::Bool=false)
     layers = _spec_layers(spec)
     raw_dfs = [extract_data(l) for l in layers]
     any(isnothing, raw_dfs) && error("auto_remap_node: every layer must have associated data (no Pregrouped layers supported here)")
@@ -4838,24 +4846,37 @@ function _auto_remap_parts(plot_id, spec; dims, fixed=Dict(), pinned::Symbol=:ro
     # (DataFrame / DataFrameColumns / NamedTuple / etc).
     dfs = NamedTuple[Tables.columntable(d) for d in raw_dfs]
 
-    # Only fields the user listed in `dims` count as remappable defaults.
-    # Layer-internal encodings on other fields (e.g. dose VLines coloring by
-    # :vessel, or per-marker `color="black"`) are ignored.
-    dim_fields = Set{String}(string(d isa Pair ? first(d) : d) for d in dims)
+    # Positional fields — always feed into `extra_assigned` so the pinned
+    # catch-all doesn't absorb them. When `axes=true` they also become
+    # picker channel defaults + extra options on all channels.
+    pos_all = _layer_positional_fields(layers)
+    axis_defs = _layer_axis_defaults(layers)
+    enable_axes = axes && !_has_axis_blocker(layers)
+
+    # Build the effective dims list. When axes=true, any positional field
+    # not already in `dims` is auto-added so x/y can have defaults AND the
+    # same fields are pickable on color/row/column.
+    effective_dims = if enable_axes
+        dims_vec = Any[d for d in dims]
+        listed = Set{String}(string(d isa Pair ? first(d) : d) for d in dims_vec)
+        for f in pos_all
+            f in listed && continue
+            push!(dims_vec, f => join(uppercasefirst.(split(f, "_")), " "))
+            push!(listed, f)
+        end
+        dims_vec
+    else
+        dims
+    end
+    dim_fields = Set{String}(string(d isa Pair ? first(d) : d) for d in effective_dims)
     defaults = _layer_channel_defaults(layers)
     defaults = Dict(ch => filter(f -> f in dim_fields, fs) for (ch, fs) in defaults)
-    # Positional fields — used both for the catch-all (always) and, when no
-    # layer has an analysis that binds x/y to computed columns, as x/y picker
-    # channel defaults.
-    pos_all = _layer_positional_fields(layers)
     extra_assigned = filter(f -> f in dim_fields, pos_all)
-    blocked = _has_axis_blocker(layers)
-    axis_defs = _layer_axis_defaults(layers)
-    x_default = blocked ? String[] : filter(f -> f in dim_fields, axis_defs.x)
-    y_default = blocked ? String[] : filter(f -> f in dim_fields, axis_defs.y)
-    channels = blocked ? [:color, :row, :column, :detail] :
-                         [:x, :y, :color, :row, :column, :detail]
-    resolved = resolve_channels(dims;
+    x_default = enable_axes ? filter(f -> f in dim_fields, axis_defs.x) : String[]
+    y_default = enable_axes ? filter(f -> f in dim_fields, axis_defs.y) : String[]
+    channels = enable_axes ? [:x, :y, :color, :row, :column, :detail] :
+                             [:color, :row, :column, :detail]
+    resolved = resolve_channels(effective_dims;
         color_default=defaults["color"],
         row_default=defaults["row"],
         column_default=defaults["column"],
