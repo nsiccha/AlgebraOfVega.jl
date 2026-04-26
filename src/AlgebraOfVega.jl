@@ -4900,10 +4900,37 @@ function _auto_remap_parts(plot_id, spec; dims, fixed=Dict(), pinned::Symbol=:ro
     # Build VL, tag layers whose color field is layer-fixed so JS remapEncoding skips them.
     vl = to_vegalite(new_spec)
     isempty(keep_color_fields) || _tag_keep_color_layers!(vl, keep_color_fields)
+    # If the resolved spec is non-faceted (e.g. `:basename` had a single unique
+    # value and got refined out of `dims`), strip top-level
+    # `resolve.scale.{x,y} == "independent"` entries inherited from the user's
+    # config — they were authored to mean "independent across facet rows", but
+    # on a flat layered spec VL would interpret them as "independent across
+    # layers", which gives each band/point sublayer its own x/y axis (top-axes
+    # stack-up bug).
+    _scrub_independent_resolve_if_unfaceted!(vl)
 
     controls = isempty(resolved.dims) ? "" : mapping_controls(plot_id, resolved; spec=new_spec)
     plot = to_node(vl; id=plot_id)
     (controls, plot)
+end
+
+# Drop `resolve.scale.x|y == "independent"` entries when the spec is not
+# faceted. Those entries are only meaningful for the facet operator; on a
+# plain layered spec VL applies them per-layer, giving each sublayer its own
+# x/y scale + axis (axes stack at the top of the chart).
+function _scrub_independent_resolve_if_unfaceted!(vl::Dict)
+    haskey(vl, "facet") && return
+    haskey(vl, "spec") && vl["spec"] isa Dict && return
+    resolve = get(vl, "resolve", nothing)
+    resolve isa Dict || return
+    scale = get(resolve, "scale", nothing)
+    scale isa Dict || return
+    for ax in ("x", "y")
+        get(scale, ax, nothing) == "independent" && delete!(scale, ax)
+    end
+    isempty(scale) && delete!(resolve, "scale")
+    isempty(resolve) && delete!(vl, "resolve")
+    return
 end
 
 # Walk a VL dict and mark any layer with `encoding.color.field ∈ keep_color_fields`
