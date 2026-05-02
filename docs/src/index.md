@@ -19,10 +19,12 @@ using AlgebraOfVega
 spec = data(df) * mapping(:x, :y, color=:group) * visual(Scatter) *
        config(width=500, title="My Plot")
 
-draw(spec)        # HTMX Node — embed in HTMXObjects/Oxygen apps
+to_node(spec)     # HTMX.Node — embed in HTMXObjects/Oxygen apps. Aliased as `vdraw(spec)`.
 to_html(spec)     # standalone HTML string
 to_vegalite(spec) # raw Vega-Lite JSON Dict
 ```
+
+A `VegaSpec` (the result of `data * mapping * visual * config`) auto-renders in `text/html`-aware contexts via `Base.show`, so you can also just return the `spec` directly from notebooks or HTMX route handlers.
 
 ## Where to next
 

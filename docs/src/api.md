@@ -33,7 +33,6 @@ config
 ## Rendering and output
 
 ```@docs
-draw
 to_node
 to_html
 to_json
@@ -43,13 +42,14 @@ vlspec
 
 | Function       | Output                                                                              |
 |----------------|-------------------------------------------------------------------------------------|
-| `draw(spec)`   | An [`HTMX.Node`](https://github.com/nsiccha/HTMX.jl) — embed in HTMX/Oxygen apps    |
-| `vdraw(spec)`  | Alias for `to_node` — use when `draw` clashes with AoG's `draw` (e.g. inside `display`). |
-| `to_node(spec)`| Same as `draw(spec)`                                                                |
+| `to_node(spec)`| An [`HTMX.Node`](https://github.com/nsiccha/HTMX.jl) — embed in HTMX/Oxygen apps    |
+| `vdraw(spec)`  | Alias for `to_node` — use when you want a "draw"-shaped name without clashing with AoG's `draw` |
 | `to_html(spec)`| A standalone HTML string with the Vega CDN tags embedded                             |
 | `to_json(spec)`| Pretty-printed Vega-Lite JSON                                                       |
 | `to_vegalite(spec)` | Raw Vega-Lite spec as a `Dict{String,Any}`                                     |
 | `sdraw(spec)` / `sdraw_file(spec, path)` | Static SVG renderers (uses `vega-lite` CLI under the hood) |
+
+A `VegaSpec` also has `Base.show(io, MIME"text/html"(), spec)` and `Base.show(io, MIME"application/vnd.vegalite.v5+json"(), spec)` methods, so you can render it implicitly via any host that picks a MIME type (Pluto, IJulia, HTMX response handlers, …) without calling any of the functions above.
 
 ## Vega / HTMX runtime
 
