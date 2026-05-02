@@ -20,6 +20,7 @@ makedocs(
         "Uncertainty Visualization" => "uncertainty.md",
         "Gallery Examples" => "gallery-examples.md",
         "Gallery" => "gallery.md",
+        "FAQ" => "faq.md",
         "API" => "api.md",
     ],
     checkdocs = :none,
