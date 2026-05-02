@@ -1866,7 +1866,12 @@ _is_ecdf(layer) = let vis = extract_visual(layer); !isnothing(vis) && vis.plotty
 Translate AoG's `visual(ECDFPlot)` to a Vega-Lite spec using window transforms
 for cumulative distribution. Produces a step line of the empirical CDF.
 
-Supports `color=` grouping via `groupby` on the window transforms.
+Supports `color=`, `linestyle=`, `group=`, and `detail=` grouping via
+`groupby` on the window transforms (so each group gets its own ECDF
+curve). `group=`/`detail=` produce a `detail` encoding so Vega draws
+separate lines without coloring them differently -- useful when
+overlaying many posterior-draw ECDFs and a per-draw color legend would
+just be noise.
 """
 function ecdf_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
     table = extract_data(layer)
@@ -1876,6 +1881,12 @@ function ecdf_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
     color_label = haskey(layer.named, :color) ? _field_label(layer.named[:color]) : nothing
     linestyle_field = haskey(layer.named, :linestyle) ? _field_name(layer.named[:linestyle]) : nothing
     linestyle_label = haskey(layer.named, :linestyle) ? _field_label(layer.named[:linestyle]) : nothing
+    # `group` and `detail` both partition without a visual channel; treat
+    # them interchangeably (AoG accepts `group`, Vega-Lite uses `detail`).
+    detail_key = haskey(layer.named, :detail) ? :detail :
+                 haskey(layer.named, :group)  ? :group  : nothing
+    detail_field = isnothing(detail_key) ? nothing : _field_name(layer.named[detail_key])
+    detail_label = isnothing(detail_key) ? nothing : _field_label(layer.named[detail_key])
 
     # Window transforms for ECDF:
     # 1. Sort by x, count cumulative (per group)
@@ -1884,6 +1895,7 @@ function ecdf_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
     groupby_fields = String[]
     !isnothing(color_field) && push!(groupby_fields, color_field)
     !isnothing(linestyle_field) && push!(groupby_fields, linestyle_field)
+    !isnothing(detail_field) && push!(groupby_fields, detail_field)
 
     sort_spec = [Dict{String,Any}("field" => x_field)]
 
@@ -1920,6 +1932,11 @@ function ecdf_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
         ls_enc = Dict{String,Any}("field" => linestyle_field, "type" => "nominal")
         !isnothing(linestyle_label) && linestyle_label != linestyle_field && (ls_enc["title"] = linestyle_label)
         encoding["strokeDash"] = ls_enc
+    end
+    if !isnothing(detail_field)
+        d_enc = Dict{String,Any}("field" => detail_field, "type" => "nominal")
+        !isnothing(detail_label) && detail_label != detail_field && (d_enc["title"] = detail_label)
+        encoding["detail"] = d_enc
     end
 
     # Auto tooltip
