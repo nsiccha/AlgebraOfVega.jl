@@ -206,7 +206,7 @@ EXAMPLES = [
 end""",
      () -> let
         n = 500
-        x = [randn_bm(n); 1.5 .+ randn_bm(n)]
+        x = [randn(n); 1.5 .+ randn(n)]
         c = [fill("a", n); fill("b", n)]
         df = (; x, c)
         data(df) * mapping(:x, color=:c) * density() *
@@ -224,7 +224,7 @@ end""",
      () -> let
         x = [0.05i for i in 1:200]
         a = [isodd(i) ? "1" : "2" for i in 1:200]
-        y = [1.2*xi*parse(Int,ai) + parse(Int,ai) + 5*randn_bm(1)[1] for (xi,ai) in zip(x,a)]
+        y = [1.2*xi*parse(Int,ai) + parse(Int,ai) + 5*randn(1)[1] for (xi,ai) in zip(x,a)]
         df = (; x, y, a)
         data(df) * mapping(:x, :y, color=:a) * (linear(interval=:confidence) + visual(Scatter)) *
             config(height=300, title="Linear + Confidence Band")
