@@ -1949,18 +1949,122 @@ function ecdf_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
         merge!(mark, visual_attrs_to_mark_props(vis))
     end
 
-    spec = Dict{String,Any}(
-        "mark" => mark,
-        "transform" => [window1, window2, calc],
-        "encoding" => encoding,
-    )
+    # Detect per-group x cardinality. A group with only 1 unique x is a
+    # point-mass distribution -- the empirical CDF is a vertical jump
+    # from 0 to 1 at that x. Vega-Lite's `line` mark with all rows at
+    # the same x renders to nothing visible (zero horizontal extent),
+    # even with `step-after` interpolation. So for such groups we emit
+    # a `rule` mark (true 1D vertical from y=0 to y=1) instead. Bypasses
+    # the window transforms entirely -- duplicate rows in the data are
+    # harmless because the rule paints the same pixels.
+    degen_keys, normal_keys = _ecdf_partition_groups(table, x_field, groupby_fields)
+    all_degen   = !isempty(degen_keys) && isempty(normal_keys)
+    has_normal  = !isempty(normal_keys)
+    has_degen   = !isempty(degen_keys)
+
+    rule_layer = nothing
+    if has_degen
+        rule_enc = copy(encoding)
+        rule_enc["y"]  = Dict{String,Any}("datum" => 0,
+                                          "type"  => "quantitative",
+                                          "title" => "Cumulative Proportion")
+        rule_enc["y2"] = Dict{String,Any}("datum" => 1)
+        delete!(rule_enc, "tooltip")  # __ecdf__ doesn't exist on this layer
+        # rebuild tooltip from x + groupby only
+        rt = vl_tooltips(rule_enc)
+        !isempty(rt) && (rule_enc["tooltip"] = rt)
+        rule_mark = Dict{String,Any}("type" => "rule")
+        !isnothing(vis) && merge!(rule_mark, visual_attrs_to_mark_props(vis))
+        rule_layer = Dict{String,Any}(
+            "mark"     => rule_mark,
+            "encoding" => rule_enc,
+        )
+        # Filter to degenerate groups only (single-field groupby case);
+        # multi-field groupby falls back to no filter when mixed (rare;
+        # current BRM use cases only ever group by `:draw`).
+        if has_normal && length(groupby_fields) == 1
+            rule_layer["transform"] = [Dict{String,Any}(
+                "filter" => Dict{String,Any}(
+                    "field"  => groupby_fields[1],
+                    "oneOf"  => collect(degen_keys),
+                ),
+            )]
+        end
+    end
+
+    line_layer = nothing
+    if has_normal || !has_degen  # no-data case still gets the line spec
+        line_enc = encoding
+        line_layer = Dict{String,Any}(
+            "mark"      => mark,
+            "transform" => [window1, window2, calc],
+            "encoding"  => line_enc,
+        )
+        if has_degen && length(groupby_fields) == 1
+            pushfirst!(line_layer["transform"], Dict{String,Any}(
+                "filter" => Dict{String,Any}(
+                    "field"  => groupby_fields[1],
+                    "oneOf"  => collect(normal_keys),
+                ),
+            ))
+        end
+    end
+
+    spec = if all_degen
+        rule_layer
+    elseif !has_degen
+        line_layer
+    else
+        Dict{String,Any}("layer" => [rule_layer, line_layer])
+    end
+
     if !isnothing(table)
         spec["data"] = data_to_vl(table)
-    end
-    if !isnothing(table)
-        infer_types!(encoding, table)
+        # Infer types on every encoding actually present in the final
+        # spec -- when `all_degen`, `encoding` belongs to the discarded
+        # line layer and inferring types on it would be a no-op for the
+        # rule spec.
+        for enc in (haskey(spec, "layer") ?
+                    [l["encoding"] for l in spec["layer"]] :
+                    [spec["encoding"]])
+            infer_types!(enc, table)
+        end
     end
     spec
+end
+
+# Inspect `table` and return (degenerate_keys, normal_keys) where the
+# keys are the unique values of the single-field groupby case (or
+# tuples for multi-field). "Degenerate" means the group has only 1
+# unique x value -- visually a point-mass and broken for line marks.
+# When `groupby_fields` is empty, treats the entire table as one group
+# and returns ([nothing], []) if degenerate, ([], [nothing]) if not.
+function _ecdf_partition_groups(table, x_field::AbstractString,
+                                groupby_fields::Vector{String})
+    isnothing(table) && return (Any[], Any[])
+    rows = Tables.rows(table)
+    xs_per_group = Dict{Any,Set{Any}}()
+    if isempty(groupby_fields)
+        xs = Set{Any}()
+        for r in rows
+            push!(xs, getproperty(r, Symbol(x_field)))
+        end
+        return length(xs) == 1 ? (Any[nothing], Any[]) :
+                                 (Any[], Any[nothing])
+    end
+    one_field = length(groupby_fields) == 1
+    f1 = Symbol(groupby_fields[1])
+    for r in rows
+        key = one_field ? getproperty(r, f1) :
+              Tuple(getproperty(r, Symbol(f)) for f in groupby_fields)
+        bucket = get!(xs_per_group, key) do; Set{Any}() end
+        push!(bucket, getproperty(r, Symbol(x_field)))
+    end
+    degen, normal = Any[], Any[]
+    for (k, xs) in xs_per_group
+        push!(length(xs) == 1 ? degen : normal, k)
+    end
+    degen, normal
 end
 
 # --- Core translation: dispatch-based layer_to_vl ---
