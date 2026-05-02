@@ -25,6 +25,7 @@ HTMXObjects = {url = "https://github.com/nsiccha/HTMXObjects.jl"}
 julia = "1"
 
 [extras]
+HTMXObjects = "b12ef442-5798-4353-80f3-9562b03a0cb6"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 TestModules = "63c02187-99fd-4e5c-aaf0-4d6bfebc181c"
 
