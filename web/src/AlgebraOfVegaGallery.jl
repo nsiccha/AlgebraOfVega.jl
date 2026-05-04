@@ -95,21 +95,6 @@ PLOTS = [
     for it in _gallery.items
 ]
 
-# Clear Revise's queue_errors as a one-shot defence against the
-# cache-miss-on-startup race: if a gallery file is being saved while
-# this loop is mid-flight, Revise's dir watcher may queue it for
-# revision before its source-text cache is populated, leaving a
-# permanent `is not stored in the source-text cache` entry that the
-# `_check_revise_errors!` pre-request hook then raises on every
-# request. Idempotent on a clean reload.
-let
-    rev = Base.get(Base.loaded_modules,
-                   Base.PkgId(Base.UUID("295af30f-e4ad-537b-8983-00126c2a3abe"), "Revise"),
-                   nothing)
-    if rev !== nothing
-        try empty!(getfield(rev, :queue_errors)) catch end
-    end
-end
 
 # --- Utilities ---
 
