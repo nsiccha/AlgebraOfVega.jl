@@ -489,6 +489,73 @@ end
         flag_button(id)
     end
 
+    # POST `/record_gallery` — drive `HTMXObjects.record!` against this
+    # live instance to dump every gallery URL (HTML + JS + JSON) into
+    # `docs/src/public/live-aov/`. Run once locally, then `git add` the
+    # output + push; the docs CI build (Documenter + DocumenterVitepress)
+    # picks up the recordings as static assets.
+    #
+    # `record!` re-registers routes with the recording config, so the
+    # routes write to disk on every request while it runs. After
+    # recording, `route!(__self__)` restores the live (non-recording)
+    # registration so the running app keeps behaving normally.
+    #
+    # Override the deploy URL prefix via `RECORD_BASE_PREFIX` env var
+    # (default `/AlgebraOfVega.jl/dev/live-aov`, matching the GitHub
+    # Pages base path). Override the output directory via `record_dir`
+    # query param.
+    @post record_gallery(; record_dir::String="", record_base::String="") = begin
+        rd = isempty(record_dir) ?
+            joinpath(dirname(dirname(@__DIR__)), "docs", "src", "public", "live-aov") :
+            record_dir
+        rb = isempty(record_base) ?
+            get(ENV, "RECORD_BASE_PREFIX", "/AlgebraOfVega.jl/dev/live-aov") :
+            record_base
+
+        ids = [it.id for it in _gallery.items]
+        paths = vcat(
+            ["/"],
+            ["/plot/$id"       for id in ids],
+            ["/standalone/$id" for id in ids],
+            ["/spec/$id"       for id in ids],
+            ["/aov_runtime_js", "/explorer", "/flagged"],
+        )
+
+        isdir(rd) && rm(rd; recursive=true)
+        record!(__self__; record_dir=rd, record_base=rb, paths,
+                full=true, hx=true, markdown=false)
+        # Restore live (non-recording) route registration.
+        route!(__self__)
+
+        n_html = 0; n_js = 0; n_json = 0; n_other = 0
+        for (root, _, fs) in walkdir(rd)
+            for f in fs
+                ext = lowercase(splitext(f)[2])
+                ext == ".html" ? (n_html += 1) :
+                ext == ".js"   ? (n_js   += 1) :
+                ext == ".json" ? (n_json += 1) :
+                                 (n_other += 1)
+            end
+        end
+
+        h.article(
+            h.header(h.h2("Gallery recorded")),
+            h.p("Recorded ", h.code(string(length(paths))),
+                " routes into ", h.code(rd), "."),
+            h.ul(
+                h.li("$n_html  .html"),
+                h.li("$n_js  .js"),
+                h.li("$n_json  .json"),
+                h.li("$n_other  other"),
+            ),
+            h.p(h.strong("Next: "),
+                h.code("git add docs/src/public/live-aov && git commit && git push"),
+                " — CI deploys the rest."),
+            h.p("Trigger again with: ",
+                h.code("curl -sX POST http://localhost:8092/record_gallery")),
+        )
+    end
+
     @get flagged = begin
         flags = load_flags()
         content = if isempty(flags)

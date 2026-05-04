@@ -40,6 +40,12 @@ and the AoV spec body — read by `HTMXObjects.Gallery` at app startup.
 - **Local app:** [`http://localhost:8092`](http://localhost:8092) once
   started via `~/github/nsiccha/Claude/start-web.sh AlgebraOfVega` (or
   `julia --project=web/app -i web/app/main.jl`).
+- **Refresh the deploy recordings:**
+  `curl -sX POST http://localhost:8092/record_gallery`. Triggers
+  `HTMXObjects.record!` against the live app and dumps every gallery
+  URL (HTML + JS + JSON) into `docs/src/public/live-aov/`. Then
+  `git add docs/src/public/live-aov && git commit && git push` — CI
+  picks up the recordings as static assets.
 - **HTMXObjects companion:** the file-based gallery primitive itself
   lives in [HTMXObjects.jl](https://github.com/nsiccha/HTMXObjects.jl);
   a minimal `Gallery` / `GalleryItem` / `gallery_grid` demo is at
