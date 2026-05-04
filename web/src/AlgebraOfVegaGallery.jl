@@ -222,7 +222,6 @@ end
 
 @htmx struct AppContext
     __appdata__ = APPDATA
-    (; record_gallery) = __appdata__
 
     flag_button(id) = let flagged = id in load_flags()
         label = flagged ? "flagged" : "flag"
@@ -582,7 +581,7 @@ end
             get(ENV, "RECORD_BASE_PREFIX", "/AlgebraOfVega.jl/dev/live-aov") :
             record_base
 
-        polling_fetchindex(record_gallery, rd, rb;
+        polling_fetchindex(__appdata__.record_gallery, rd, rb;
                            poll_url=query_url(__self__/"record_gallery"; record_dir=rd, record_base=rb),
                            label="Recording AoV gallery",
                            force) do summary
