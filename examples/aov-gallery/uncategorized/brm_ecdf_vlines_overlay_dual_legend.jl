@@ -3,11 +3,11 @@
 
 # long: per-draw values, color=:index
 long = (;
-    param = repeat([\"a\",\"b\"], inner=300),
+    param = repeat(["a","b"], inner=300),
     index = repeat(repeat(1:3, inner=100), 2),
     value = vcat(randn(300), randn(300) .- 5))
 truth = (;
-    param = [\"a\",\"a\",\"a\",\"b\",\"b\",\"b\"],
+    param = ["a","a","a","b","b","b"],
     index = [1, 2, 3, 1, 2, 3],
     truth = [0.1, -0.2, 0.3, -5.1, -4.9, -5.2])
 base = data(long) *
@@ -18,4 +18,4 @@ overlay = data(truth) *
           visual(VLines)
 (base + overlay) *
     config(facet=(; linkxaxes=:none),
-           title=\"ECDF + VLines overlay -- expect one merged color legend\")
+           title="ECDF + VLines overlay -- expect one merged color legend")

@@ -41,6 +41,16 @@ export const Theme: ThemeConfig = {
     app.component('Authors', Authors)
     app.component('VegaPlot', VegaPlot)
     app.component('ExplorerLoader', ExplorerLoader)
+    // VitePress is an SPA: `<div hx-trigger="load">` placeholders only
+    // fire on initial mount. After client-side navigation, new HTMX
+    // placeholders need a manual `htmx.process(document.body)` to be
+    // picked up. Hook the after-route-change event for that.
+    if (typeof window !== 'undefined' && router) {
+      router.onAfterRouteChanged = () => {
+        // @ts-ignore - htmx loaded via head <script>; no types.
+        if (window.htmx) window.htmx.process(document.body);
+      };
+    }
   }
 }
 export default Theme

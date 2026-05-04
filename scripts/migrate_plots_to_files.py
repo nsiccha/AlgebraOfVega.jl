@@ -232,6 +232,12 @@ def main():
             orphan += 1
         d = section_dirs[sec_title]
         path = d / f"{id_}.jl"
+        # The triple-quoted code is captured verbatim — but Julia's
+        # source uses escape sequences (`\"`, `\\`) that survive the
+        # `"""..."""` capture as literal backslash-quote pairs. Unescape
+        # them so the body is valid Julia (single quote, single
+        # backslash) when written out.
+        code = code.replace('\\"', '"').replace("\\\\", "\\")
         # Compute common leading whitespace across non-empty
         # continuation lines and strip it. The first line follows the
         # opening `"""` with no leading newline, so we only dedent

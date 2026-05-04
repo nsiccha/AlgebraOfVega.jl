@@ -1,7 +1,7 @@
 # title: LineRibbon + Scatter overlay (works)
 # description: Parallel of the PI-overlay bug but on lineribbon(bands=...): works. Regression entry so the counterpart PI-overlay fix doesn't break this path.
 
-params = [\"a\", \"a\", \"a\", \"b\", \"b\", \"b\"]
+params = ["a", "a", "a", "b", "b", "b"]
 indices = [1, 2, 3, 1, 2, 3]
 medians = [2.0, 2.1, 2.2, 0.8, 0.9, 1.0]
 q025s   = [1.5, 1.6, 1.7, 0.5, 0.6, 0.7]
@@ -16,4 +16,4 @@ lr = data(summary) * mapping(:index, :median, row=:param) *
 overlay = data(truth) * mapping(:index, :truth, row=:param) *
           visual(Scatter; color=:black, filled=true)
 (lr + overlay) * config(facet=(; linkyaxes=:none),
-                         title=\"LineRibbon + Scatter overlay (works)\")
+                         title="LineRibbon + Scatter overlay (works)")

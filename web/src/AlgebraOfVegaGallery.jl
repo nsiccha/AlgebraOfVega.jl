@@ -79,10 +79,19 @@ const _gallery = Gallery(_GALLERY_DIR)
 # in a thunk so the existing `entry[5]()` access pattern keeps working.
 # Items whose body fails to eval are stored with an error spec so they
 # show up flagged in the gallery rather than crashing module load.
+#
+# We use `Meta.parseall` + `Base.eval` (not `Base.include`) so Revise
+# does NOT track these files individually — Revise's source-text cache
+# expects files loaded via the package's normal include flow, and
+# tries to revise them on disk-edit, which it can't (cache miss).
+# Editing a gallery file therefore does NOT hot-reload here; touching
+# this module file (`AlgebraOfVegaGallery.jl`) re-runs the loop and
+# picks up every edited gallery item in one go.
 const _gallery_specs = Dict{String,Any}()
 for _it in _gallery.items
     try
-        _gallery_specs[_it.id] = Base.include(@__MODULE__, _it.path)
+        _expr = Meta.parseall(read(_it.path, String); filename=_it.path)
+        _gallery_specs[_it.id] = Base.eval(@__MODULE__, _expr)
     catch _err
         @warn "AoV gallery item failed to eval at module load" id=_it.id path=_it.path exception=_err
         _gallery_specs[_it.id] = h.article(h.header("Eval error: $(_it.id)"), h.pre(sprint(showerror, _err)))
@@ -93,6 +102,22 @@ PLOTS = [
     (it.id, it.title, it.description, it.code_string, () -> _gallery_specs[it.id])
     for it in _gallery.items
 ]
+
+# One-shot: clear Revise's queue_errors. The first version of this loop
+# used `Base.include` for each gallery file, which tripped Revise's
+# tracking (cache misses on subsequent in-place edits). Switching to
+# `Meta.parseall` + `Base.eval` (above) bypasses tracking, but
+# `Revise.queue_errors` retains the failed entries from the previous
+# load — `_check_revise_errors!` then 500s every request. Wipe them
+# once on the next module re-eval; idempotent on subsequent loads.
+let
+    rev = Base.get(Base.loaded_modules,
+                   Base.PkgId(Base.UUID("295af30f-e4ad-537b-8983-00126c2a3abe"), "Revise"),
+                   nothing)
+    if rev !== nothing
+        try empty!(getfield(rev, :queue_errors)) catch end
+    end
+end
 
 # --- Utilities ---
 

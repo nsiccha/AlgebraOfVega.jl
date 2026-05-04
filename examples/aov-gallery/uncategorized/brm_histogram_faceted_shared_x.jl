@@ -3,8 +3,8 @@
 
 # Two params with wildly different value ranges:
 df = (;
-    param = vcat(fill(\"a\", 200), fill(\"b\", 200)),
+    param = vcat(fill("a", 200), fill("b", 200)),
     value = vcat(randn(200), randn(200) .- 8))
 data(df) * mapping(:value; row=:param) * histogram() *
     config(facet=(; linkxaxes=:none),
-           title=\"Expect independent x per facet; get shared\")
+           title="Expect independent x per facet; get shared")
