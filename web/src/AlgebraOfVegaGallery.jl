@@ -5,7 +5,7 @@ using AlgebraOfVega
 import CairoMakie
 using JSON
 using TestModules, Random, Tables, Statistics
-using Treebars: prepare_progress!, with_prepared_progress, polling_fetchindex
+using Treebars: prepare_progress!, with_prepared_progress, polling_fetchindex, initialize_progress!
 
 include("test/runtests.jl")
 
@@ -105,6 +105,13 @@ PLOTS = [
 # here too.
 
 @dynamicstruct struct GalleryAppData
+    # Root of the per-IP progress tree. `polling_fetchindex` reads `__status__`
+    # off the IP-call's context to render the polling progress fragment;
+    # without an initialized root, `__status__` defaults to `nothing` and
+    # `htmx_render(nothing)` errors out on the first poll. Mirrors BRM's
+    # `AppData.__status__ = initialize_progress!(:state; description="BRM pipeline")`.
+    __status__ = initialize_progress!(:state; description="AoV recording")
+
     """
     `record_gallery(record_dir, record_base)` — IP. Drives
     `HTMXObjects.record!` against a fresh `AppContext()` to dump every
