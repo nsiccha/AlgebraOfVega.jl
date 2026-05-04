@@ -4,8 +4,28 @@ outline: false
 ---
 
 <style>
+/* Break the gallery embed out of VitePress's narrow content column. */
 .VPDoc:has(.htmxo-embed) > .container > .content { max-width: none !important; }
 .VPDoc:has(.htmxo-embed) .content-container { max-width: none !important; }
+
+/* Override AoV's inline 4-column section grid with a docs-friendly
+ * auto-fit layout: as many cards per row as fit at ≥420px each, so
+ * plots have room to breathe. Drops to 1 col on phones. */
+.htmxo-embed [style*="grid-template-columns"][style*="repeat"] {
+    grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)) !important;
+    gap: 0.75rem !important;
+}
+
+/* Inside each card, let the plot fill the available width.
+ * AoV plots set `width:500` in the spec, so the actual size is still
+ * 500px max; but the column width can grow beyond that and the plot
+ * sits centred. Removing AoV's `overflow:hidden` keeps tooltips and
+ * hover overlays visible at the card's edge. */
+.htmxo-embed article {
+    overflow: visible !important;
+    min-width: 0;
+}
+.htmxo-embed article > div { overflow-x: auto; }
 </style>
 
 # Gallery
