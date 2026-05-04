@@ -55,9 +55,35 @@ drops into this page). VitePress proxies `/live-aov/*` to the running
 AoV server (`AOV_DEV_TARGET=http://localhost:8092` by default) in dev,
 and to recordings in production.
 
-<div class="htmxo-embed" hx-get="/live-aov/" hx-trigger="load" hx-swap="innerHTML">
-  <em>Loading AoV gallery from <code>/live-aov/</code> …</em>
+<div class="htmxo-embed" data-hx-base="live-aov/" hx-trigger="load" hx-swap="innerHTML">
+  <em>Loading AoV gallery…</em>
 </div>
+
+<script>
+// Make the embed URL base-aware. In dev `import.meta.env.BASE_URL` is `/`,
+// so `data-hx-base="live-aov/"` becomes `/live-aov/` (matches Vite's proxy).
+// In prod the base is `/AlgebraOfVega.jl/dev/`, so it becomes
+// `/AlgebraOfVega.jl/dev/live-aov/` (matches the committed recordings).
+// Same markdown works in both deploys.
+//
+// Repeated on every VitePress route change because the SPA may render
+// the page after this script's initial run; idempotent on re-entry.
+(function () {
+  function rewrite() {
+    const base = (typeof __DEPLOY_ABSPATH__ !== "undefined" && __DEPLOY_ABSPATH__) || "/";
+    document.querySelectorAll("[data-hx-base]").forEach((el) => {
+      if (el.hasAttribute("hx-get")) return;
+      el.setAttribute("hx-get", base.replace(/\/$/, "") + "/" + el.getAttribute("data-hx-base"));
+      if (window.htmx) window.htmx.process(el);
+    });
+  }
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", rewrite);
+  } else {
+    rewrite();
+  }
+})();
+</script>
 
 Each plot's title links to a standalone page; the dropdown / brush /
 zoom controls inside individual plots all work right here in the docs.
