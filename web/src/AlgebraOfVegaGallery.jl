@@ -227,7 +227,7 @@ end
         label = flagged ? "flagged" : "flag"
         color = flagged ? "color:var(--pico-del-color);" : "color:var(--pico-muted-color);"
         h.button(label;
-            hx_post="/flag/$id",
+            hx_post=__self__/"flag/$id",
             hx_target="#flag-$id",
             hx_swap="outerHTML",
             id="flag-$id",
@@ -244,11 +244,11 @@ end
             h.article(; style="margin:0; padding:0.5rem; min-width:0; overflow:hidden;")(
                 h.header(; style="padding:0 0 0.25rem; margin:0; display:flex; align-items:center; flex-wrap:wrap;")(
                     h.a(title;
-                        href="/standalone/$id", target="_blank",
+                        href=__self__/"standalone/$id", target="_blank",
                         style="font-size:0.9em; font-weight:bold; text-decoration:none;",
                     ),
                     is_node ? h.span() : h.a("static";
-                        href="/static_plot/$id", target="_blank",
+                        href=__self__/"static_plot/$id", target="_blank",
                         style="font-size:0.7em; margin-left:0.3em; padding:0.1rem 0.3rem; border:1px solid; border-radius:0.2rem; text-decoration:none; color:var(--pico-muted-color);",
                     ),
                     flag_button(id),
@@ -313,8 +313,8 @@ end
         h.h1("AlgebraOfVega Gallery"),
         h.p(
             "$(length(PLOTS)) examples of AlgebraOfGraphics.jl specs translated to Vega-Lite. ",
-            h.a("Data Explorer →"; href="/explorer", style="font-size:0.9em; margin-right:1em;"),
-            h.a("View flagged plots →"; href="/flagged", style="font-size:0.9em;"),
+            h.a("Data Explorer →"; href=__self__/"explorer", style="font-size:0.9em; margin-right:1em;"),
+            h.a("View flagged plots →"; href=__self__/"flagged", style="font-size:0.9em;"),
         ),
         [gallery_section(title, ids) for (title, ids) in PLOT_SECTIONS]...,
         h.div(; style="margin-bottom:2rem")(
@@ -328,10 +328,10 @@ end
     )
 
     plot_nav(active_id) = h.nav(; style="display:flex; flex-wrap:wrap; gap:0.25rem; margin-bottom:1rem; align-items:center;")(
-        h.a("← Gallery"; href="/", hx_get="/", hx_target="#main-content", hx_swap="innerHTML", hx_push_url="true", role="button", class="outline secondary", style="margin-right:auto;"),
+        h.a("← Gallery"; href=__self__/"", hx_get=__self__/"", hx_target="#main-content", hx_swap="innerHTML", hx_push_url="true", role="button", class="outline secondary", style="margin-right:auto;"),
         [h.a(title;
-            href="/plot/$id",
-            hx_get="/plot/$id",
+            href=__self__/"plot/$id",
+            hx_get=__self__/"plot/$id",
             hx_target="#main-content",
             hx_swap="innerHTML",
             hx_push_url="true",
@@ -425,7 +425,7 @@ end
                 sdraw_file(spec, path; px_per_unit=2)
                 h.div(; style="border:1px solid var(--pico-muted-border-color); border-radius:0.2rem; padding:0.2rem; overflow:hidden; min-width:0;")(
                     h.div(entry[2]; style="font-weight:bold; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-bottom:0.1rem;"),
-                    h.img(; src="/plot_img/$id.png", style="width:100%;"),
+                    h.img(; src=__self__/"plot_img/$id.png", style="width:100%;"),
                 )
             catch
                 h.div(; style="border:1px solid var(--pico-muted-border-color); border-radius:0.2rem; padding:0.2rem; overflow:hidden; min-width:0; opacity:0.4;")(
@@ -612,14 +612,14 @@ end
             h.div(
                 h.h1("Flagged Plots"),
                 h.p("No flagged plots."),
-                h.a("← Back to gallery"; href="/", style="font-size:0.9em;"),
+                h.a("← Back to gallery"; href=__self__/"", style="font-size:0.9em;"),
             )
         else
             flagged_ids = sort(collect(flags))
             flagged_entries = filter(!isnothing, [find_plot(id) for id in flagged_ids])
             h.div(
                 h.h1("Flagged Plots ($(length(flagged_entries)))"),
-                h.a("← Back to gallery"; href="/", style="font-size:0.9em; margin-bottom:1rem; display:inline-block;"),
+                h.a("← Back to gallery"; href=__self__/"", style="font-size:0.9em; margin-bottom:1rem; display:inline-block;"),
                 h.div(; style="display:grid; grid-template-columns:repeat(4, 1fr); gap:0.5rem;")(
                     [plot_card(e[1], e[2], e[3], length(e) >= 6 ? e[6] : nothing) for e in flagged_entries]...,
                 ),
@@ -739,7 +739,7 @@ end
 
     @get explorer = h.div(
         explorer_widget(EXPLORER_DATASETS),
-        h.a("← Back to gallery"; href="/", style="display:inline-block; margin-top:1rem;"),
+        h.a("← Back to gallery"; href=__self__/"", style="display:inline-block; margin-top:1rem;"),
     )
 
     # --- Interactive demo: Brush → Server Stats ---
@@ -843,7 +843,7 @@ vdraw(spec;
             ),
             h.div(; style="display:flex; gap:0.5rem; margin-top:1rem")(
                 [h.button(o;
-                    hx_get="/filter_data/$o",
+                    hx_get=__self__/"filter_data/$o",
                     hx_target="#update-script",
                     hx_swap="innerHTML",
                     class="outline",
@@ -926,7 +926,7 @@ end""");
                 sdraw_file(spec, path; px_per_unit=2)
                 h.div(
                     h.h3(title),
-                    h.img(; src="/plot_img/$id.png", style="max-width:100%;"),
+                    h.img(; src=__self__/"plot_img/$id.png", style="max-width:100%;"),
                 )
             end
         end
@@ -952,12 +952,12 @@ end""");
                     h.article(; style="margin:0; padding:0.5rem; min-width:0; overflow:hidden;")(
                         h.header(; style="padding:0 0 0.25rem; margin:0; display:flex; align-items:center; flex-wrap:wrap;")(
                             h.a(title;
-                                href="/static_plot/$id", target="_blank",
+                                href=__self__/"static_plot/$id", target="_blank",
                                 style="font-size:0.9em; font-weight:bold; text-decoration:none;",
                             ),
                             flag_button(id),
                         ),
-                        h.img(; src="/plot_img/$id.png", style="width:100%;"),
+                        h.img(; src=__self__/"plot_img/$id.png", style="width:100%;"),
                     )
                 catch e
                     h.article(; style="margin:0; padding:0.5rem; min-width:0; overflow:hidden;")(
