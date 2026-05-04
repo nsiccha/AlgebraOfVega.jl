@@ -5,6 +5,7 @@ using AlgebraOfVega
 import CairoMakie
 using JSON
 using TestModules, Random, Tables, Statistics
+using Treebars: prepare_progress!, with_prepared_progress, polling_fetchindex
 
 include("test/runtests.jl")
 
@@ -95,6 +96,75 @@ PLOTS = [
     for it in _gallery.items
 ]
 
+# --- AppData: long-running operations live here ---
+#
+# A `cache_type=:parallel` `@dynamicstruct` so its IPs survive across
+# requests (per-request `@htmx` instances would lose their cache between
+# polls). Currently only houses `record_gallery` for the docs-build flow;
+# anything else that wants `polling_fetchindex` progress reporting goes
+# here too.
+
+@dynamicstruct struct GalleryAppData
+    """
+    `record_gallery(record_dir, record_base)` — IP. Drives
+    `HTMXObjects.record!` against a fresh `AppContext()` to dump every
+    gallery URL into `record_dir`, with per-path `prepare_progress!`
+    markers so the route can poll a live progress tree. Re-runs on
+    `force=true` (cache invalidation by `@memo` / `polling_fetchindex`).
+    Returns a NamedTuple summary `(; n_html, n_js, n_json, n_other,
+    n_paths, record_dir, record_base)`.
+    """
+    record_gallery(record_dir::String, record_base::String) = begin
+        ids = [it.id for it in _gallery.items]
+        paths = vcat(
+            ["/"],
+            ["/plot/$id"       for id in ids],
+            ["/standalone/$id" for id in ids],
+            ["/spec/$id"       for id in ids],
+            ["/aov_runtime_js", "/explorer", "/flagged"],
+        )
+
+        # Pre-enumerate every path as a pending phase. Each
+        # `with_prepared_progress(phase) do _ ... end` activates one.
+        phases = [prepare_progress!(__status__; description=p) for p in paths]
+
+        isdir(record_dir) && rm(record_dir; recursive=true)
+        mkpath(record_dir)
+
+        # `HTMXObjects.record!` re-`route!`s the app with recording
+        # closures. The live AppContext registration is clobbered while
+        # this loop runs; restore it via `route!(app)` in the `finally`
+        # so subsequent live requests don't keep writing to disk.
+        app = AppContext()
+        HTMXObjects.route!(app; record_dir, record_base)
+        router = HTMXObjects.CONTEXT[].service.router
+        try
+            for (path, phase) in zip(paths, phases)
+                with_prepared_progress(phase) do _
+                    HTMXObjects._drive_record_path(router, path, Pair{String,String}[])
+                    HTMXObjects._drive_record_path(router, path, ["HX-Request" => "true"])
+                end
+            end
+        finally
+            HTMXObjects.route!(app)
+        end
+
+        n_html = 0; n_js = 0; n_json = 0; n_other = 0
+        for (root, _, fs) in walkdir(record_dir)
+            for f in fs
+                ext = lowercase(splitext(f)[2])
+                ext == ".html" ? (n_html += 1) :
+                ext == ".js"   ? (n_js   += 1) :
+                ext == ".json" ? (n_json += 1) :
+                                 (n_other += 1)
+            end
+        end
+        (; n_html, n_js, n_json, n_other, n_paths=length(paths), record_dir, record_base)
+    end
+end
+
+const APPDATA = GalleryAppData(; cache_type=:parallel)
+
 
 # --- Utilities ---
 
@@ -151,6 +221,9 @@ end
 # --- HTMXObjects App ---
 
 @htmx struct AppContext
+    __appdata__ = APPDATA
+    (; record_gallery) = __appdata__
+
     flag_button(id) = let flagged = id in load_flags()
         label = flagged ? "flagged" : "flag"
         color = flagged ? "color:var(--pico-del-color);" : "color:var(--pico-muted-color);"
@@ -489,22 +562,19 @@ end
         flag_button(id)
     end
 
-    # POST `/record_gallery` — drive `HTMXObjects.record!` against this
-    # live instance to dump every gallery URL (HTML + JS + JSON) into
-    # `docs/src/public/live-aov/`. Run once locally, then `git add` the
-    # output + push; the docs CI build (Documenter + DocumenterVitepress)
-    # picks up the recordings as static assets.
-    #
-    # `record!` re-registers routes with the recording config, so the
-    # routes write to disk on every request while it runs. After
-    # recording, `route!(__self__)` restores the live (non-recording)
-    # registration so the running app keeps behaving normally.
+    # GET `/record_gallery` — drive the AppData IP `record_gallery` to
+    # dump every gallery URL (HTML + JS + JSON) into
+    # `docs/src/public/live-aov/`. Long-running (~30s) so it goes
+    # through `polling_fetchindex`: first hit kicks off a Task, returns
+    # a polling progress fragment; subsequent polls show the per-path
+    # `prepare_progress!` markers (one per recorded URL); when finished,
+    # the do-block renders the summary. `?force=true` invalidates the
+    # cached run and re-records.
     #
     # Override the deploy URL prefix via `RECORD_BASE_PREFIX` env var
-    # (default `/AlgebraOfVega.jl/dev/live-aov`, matching the GitHub
-    # Pages base path). Override the output directory via `record_dir`
-    # query param.
-    @post record_gallery(; record_dir::String="", record_base::String="") = begin
+    # (default `/AlgebraOfVega.jl/dev/live-aov`). Override the output
+    # directory via `record_dir` query param.
+    @get record_gallery(; record_dir::String="", record_base::String="", force::Bool=false) = begin
         rd = isempty(record_dir) ?
             joinpath(dirname(dirname(@__DIR__)), "docs", "src", "public", "live-aov") :
             record_dir
@@ -512,48 +582,29 @@ end
             get(ENV, "RECORD_BASE_PREFIX", "/AlgebraOfVega.jl/dev/live-aov") :
             record_base
 
-        ids = [it.id for it in _gallery.items]
-        paths = vcat(
-            ["/"],
-            ["/plot/$id"       for id in ids],
-            ["/standalone/$id" for id in ids],
-            ["/spec/$id"       for id in ids],
-            ["/aov_runtime_js", "/explorer", "/flagged"],
-        )
-
-        isdir(rd) && rm(rd; recursive=true)
-        record!(__self__; record_dir=rd, record_base=rb, paths,
-                full=true, hx=true, markdown=false)
-        # Restore live (non-recording) route registration.
-        route!(__self__)
-
-        n_html = 0; n_js = 0; n_json = 0; n_other = 0
-        for (root, _, fs) in walkdir(rd)
-            for f in fs
-                ext = lowercase(splitext(f)[2])
-                ext == ".html" ? (n_html += 1) :
-                ext == ".js"   ? (n_js   += 1) :
-                ext == ".json" ? (n_json += 1) :
-                                 (n_other += 1)
-            end
+        polling_fetchindex(record_gallery, rd, rb;
+                           poll_url=query_url(__self__/"record_gallery"; record_dir=rd, record_base=rb),
+                           label="Recording AoV gallery",
+                           force) do summary
+            h.article(
+                h.header(h.h2("Gallery recorded")),
+                h.p("Wrote ", h.code(string(summary.n_paths)),
+                    " routes (× full + HX shapes) into ",
+                    h.code(summary.record_dir), "."),
+                h.ul(
+                    h.li(h.code(string(summary.n_html)), "  .html"),
+                    h.li(h.code(string(summary.n_js)),   "  .js"),
+                    h.li(h.code(string(summary.n_json)), "  .json"),
+                    h.li(h.code(string(summary.n_other)), "  other"),
+                ),
+                h.p(h.strong("Next: "),
+                    h.code("git add docs/src/public/live-aov && git commit && git push"),
+                    " — CI deploys the rest."),
+                h.p("Re-record (overwrites cache): ",
+                    h.a("/record_gallery?force=true";
+                        href=__self__/"record_gallery?force=true")),
+            )
         end
-
-        h.article(
-            h.header(h.h2("Gallery recorded")),
-            h.p("Recorded ", h.code(string(length(paths))),
-                " routes into ", h.code(rd), "."),
-            h.ul(
-                h.li("$n_html  .html"),
-                h.li("$n_js  .js"),
-                h.li("$n_json  .json"),
-                h.li("$n_other  other"),
-            ),
-            h.p(h.strong("Next: "),
-                h.code("git add docs/src/public/live-aov && git commit && git push"),
-                " — CI deploys the rest."),
-            h.p("Trigger again with: ",
-                h.code("curl -sX POST http://localhost:8092/record_gallery")),
-        )
     end
 
     @get flagged = begin
