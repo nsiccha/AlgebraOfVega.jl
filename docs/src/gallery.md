@@ -1,3 +1,13 @@
+---
+aside: false
+outline: false
+---
+
+<style>
+.VPDoc:has(.htmxo-embed) > .container > .content { max-width: none !important; }
+.VPDoc:has(.htmxo-embed) .content-container { max-width: none !important; }
+</style>
+
 # Gallery
 
 AlgebraOfVega ships a web gallery with 100+ examples, all defined as

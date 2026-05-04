@@ -305,6 +305,21 @@ end
 
     @get index = gallery_index
 
+    # Serve the AoV vega-embed runtime JS as a plain script so external
+    # docs (VitePress, README inserts, etc.) can pull it in alongside
+    # vega-embed without scraping it out of `htmx(…)`'s page wrapper.
+    # Strips the wrapping `<script>...</script>` and serves the body
+    # with `Content-Type: application/javascript`.
+    @get aov_runtime_js = begin
+        # `vega_runtime()` returns an HTMX `Node` wrapping a `<script>`
+        # element. `string(node)` gives the `HTMX.Node(...)` debug repr;
+        # we want the rendered HTML, then strip the `<script>` wrap.
+        wrapped = sprint(show, MIME"text/html"(), vega_runtime())
+        body = replace(wrapped, r"^\s*<script[^>]*>"i => "")
+        body = replace(body, r"</script>\s*$"i => "")
+        HTTP.Response(200, ["Content-Type" => "application/javascript; charset=utf-8"]; body)
+    end
+
     compact_card(id) = begin
         entry = find_plot(id)
         isnothing(entry) && return h.span()

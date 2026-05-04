@@ -50,6 +50,39 @@ export const Theme: ThemeConfig = {
         // @ts-ignore - htmx loaded via head <script>; no types.
         if (window.htmx) window.htmx.process(document.body);
       };
+
+      // Embedded HTMXO fragments contain root-absolute links like
+      // `<a href="/standalone/foo">` that point at the AoV server's
+      // own paths. Without rewriting they resolve against VitePress's
+      // origin and 404. Rewrite root-absolute hrefs and hx-* URLs
+      // inside `.htmxo-embed` containers to go through the
+      // `/live-aov` proxy. Same for `/live-htmxo` (HTMXObjects docs).
+      const rewritePrefix = (
+        document.querySelector('meta[name="htmxo-embed-prefix"]')?.getAttribute('content')
+        ?? '/live-aov'
+      );
+      const rewriteRootRefs = (root: HTMLElement) => {
+        const fix = (el: Element, attr: string) => {
+          const v = el.getAttribute(attr);
+          if (v && v.startsWith('/') && !v.startsWith('//') && !v.startsWith(rewritePrefix)) {
+            el.setAttribute(attr, rewritePrefix + v);
+          }
+        };
+        root.querySelectorAll('[href]').forEach((el) => fix(el, 'href'));
+        root.querySelectorAll('[hx-get]').forEach((el) => fix(el, 'hx-get'));
+        root.querySelectorAll('[hx-post]').forEach((el) => fix(el, 'hx-post'));
+        root.querySelectorAll('[hx-put]').forEach((el) => fix(el, 'hx-put'));
+        root.querySelectorAll('[hx-patch]').forEach((el) => fix(el, 'hx-patch'));
+        root.querySelectorAll('[hx-delete]').forEach((el) => fix(el, 'hx-delete'));
+      };
+      document.body.addEventListener('htmx:afterSwap', (e: any) => {
+        const tgt = e?.detail?.target as HTMLElement | undefined;
+        if (!tgt) return;
+        // Walk up to find an enclosing `.htmxo-embed`; if none, no rewrite.
+        const embed = tgt.closest('.htmxo-embed');
+        if (!embed) return;
+        rewriteRootRefs(embed as HTMLElement);
+      });
     }
   }
 }

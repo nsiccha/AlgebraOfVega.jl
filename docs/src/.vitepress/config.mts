@@ -43,6 +43,10 @@ export default defineConfig({
     ['script', {src: 'https://cdn.jsdelivr.net/npm/vega@5'}],
     ['script', {src: 'https://cdn.jsdelivr.net/npm/vega-lite@5'}],
     ['script', {src: 'https://cdn.jsdelivr.net/npm/vega-embed@6'}],
+    // AoV's own vega-embed runtime — defines `window.AoV.embed(…)`
+    // which the per-card scripts call. Loaded via the dev proxy so
+    // `/aov_runtime_js` is the AoV server's own route.
+    ['script', {src: '/live-aov/aov_runtime_js'}],
     // HTMX runtime — for inlining live AoV gallery fragments via
     // `<div hx-get="…" hx-trigger="load">` placeholders. HTMX requests
     // carry HX-Request: true automatically, so AoV's routes return the
@@ -66,6 +70,24 @@ export default defineConfig({
     padding: 1rem;
     margin: 1rem 0;
     background: var(--vp-c-bg-soft);
+}
+/* Pages with frontmatter \`htmxo-embed-fullwidth: true\` (or the
+ * equivalent class on a wrapper) escape VitePress's narrow content
+ * column. The gallery embed wants real width to lay out its 4-col card
+ * grid. The plain VPDoc.has-aside left-margin is preserved so the
+ * sidebar still has its space. */
+.htmxo-embed-fullwidth .htmxo-embed,
+.VPDoc:has(.htmxo-embed-fullwidth) .htmxo-embed {
+    width: calc(100vw - 2rem);
+    max-width: calc(100vw - 2rem);
+    margin-left: calc(-50vw + 50% + 1rem);
+}
+/* On wider screens with the sidebar visible, account for it. */
+@media (min-width: 960px) {
+    .VPDoc.has-sidebar .htmxo-embed-fullwidth .htmxo-embed {
+        width: calc(100vw - 272px - 2rem);
+        margin-left: calc(-50vw + 50% + 136px + 1rem);
+    }
 }
     `]
   ],
