@@ -328,7 +328,7 @@ end
     )
 
     plot_nav(active_id) = h.nav(; style="display:flex; flex-wrap:wrap; gap:0.25rem; margin-bottom:1rem; align-items:center;")(
-        h.a("← Gallery"; href=__self__/"", hx_get=__self__/"", hx_target="#main-content", hx_swap="innerHTML", hx_push_url="true", role="button", class="outline secondary", style="margin-right:auto;"),
+        h.a("← Gallery"; href=__self__, hx_get=__self__, hx_target="#main-content", hx_swap="innerHTML", hx_push_url="true", role="button", class="outline secondary", style="margin-right:auto;"),
         [h.a(title;
             href=__self__/"plot/$id",
             hx_get=__self__/"plot/$id",
@@ -612,14 +612,14 @@ end
             h.div(
                 h.h1("Flagged Plots"),
                 h.p("No flagged plots."),
-                h.a("← Back to gallery"; href=__self__/"", style="font-size:0.9em;"),
+                h.a("← Back to gallery"; href=__self__, style="font-size:0.9em;"),
             )
         else
             flagged_ids = sort(collect(flags))
             flagged_entries = filter(!isnothing, [find_plot(id) for id in flagged_ids])
             h.div(
                 h.h1("Flagged Plots ($(length(flagged_entries)))"),
-                h.a("← Back to gallery"; href=__self__/"", style="font-size:0.9em; margin-bottom:1rem; display:inline-block;"),
+                h.a("← Back to gallery"; href=__self__, style="font-size:0.9em; margin-bottom:1rem; display:inline-block;"),
                 h.div(; style="display:grid; grid-template-columns:repeat(4, 1fr); gap:0.5rem;")(
                     [plot_card(e[1], e[2], e[3], length(e) >= 6 ? e[6] : nothing) for e in flagged_entries]...,
                 ),
@@ -739,7 +739,7 @@ end
 
     @get explorer = h.div(
         explorer_widget(EXPLORER_DATASETS),
-        h.a("← Back to gallery"; href=__self__/"", style="display:inline-block; margin-top:1rem;"),
+        h.a("← Back to gallery"; href=__self__, style="display:inline-block; margin-top:1rem;"),
     )
 
     # --- Interactive demo: Brush → Server Stats ---
