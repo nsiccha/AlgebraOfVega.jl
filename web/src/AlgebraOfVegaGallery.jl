@@ -74,27 +74,19 @@ end
 const _GALLERY_DIR = joinpath(dirname(dirname(@__DIR__)), "examples", "aov-gallery")
 const _gallery = Gallery(_GALLERY_DIR)
 
-# Eval each item's body once at module load (in this module's
-# namespace, so cars(), data(), mapping(), … resolve). Wrap the result
-# in a thunk so the existing `entry[5]()` access pattern keeps working.
-# Items whose body fails to eval are stored with an error spec so they
-# show up flagged in the gallery rather than crashing module load.
-#
-# We use `Meta.parseall` + `Base.eval` (not `Base.include`) so Revise
-# does NOT track these files individually — Revise's source-text cache
-# expects files loaded via the package's normal include flow, and
-# tries to revise them on disk-edit, which it can't (cache miss).
-# Editing a gallery file therefore does NOT hot-reload here; touching
-# this module file (`AlgebraOfVegaGallery.jl`) re-runs the loop and
-# picks up every edited gallery item in one go.
+# Load each item's body once at module init via `Base.include`, in
+# this module's namespace, so cars(), data(), mapping(), … resolve.
+# The `include` returns the file's last top-level expression, which is
+# the AoV spec the gallery card renders. Wrap in a thunk so existing
+# `entry[5]()` callsites keep working. Items whose body fails to eval
+# are stored with an error spec so the gallery still renders the rest.
 const _gallery_specs = Dict{String,Any}()
 for _it in _gallery.items
     try
-        _expr = Meta.parseall(read(_it.path, String); filename=_it.path)
-        _gallery_specs[_it.id] = Base.eval(@__MODULE__, _expr)
+        _gallery_specs[_it.id] = Base.include(@__MODULE__, _it.path)
     catch _err
-        @warn "AoV gallery item failed to eval at module load" id=_it.id path=_it.path exception=_err
-        _gallery_specs[_it.id] = h.article(h.header("Eval error: $(_it.id)"), h.pre(sprint(showerror, _err)))
+        @warn "AoV gallery item failed to load at module init" id=_it.id path=_it.path exception=_err
+        _gallery_specs[_it.id] = h.article(h.header("Load error: $(_it.id)"), h.pre(sprint(showerror, _err)))
     end
 end
 
@@ -103,13 +95,13 @@ PLOTS = [
     for it in _gallery.items
 ]
 
-# One-shot: clear Revise's queue_errors. The first version of this loop
-# used `Base.include` for each gallery file, which tripped Revise's
-# tracking (cache misses on subsequent in-place edits). Switching to
-# `Meta.parseall` + `Base.eval` (above) bypasses tracking, but
-# `Revise.queue_errors` retains the failed entries from the previous
-# load — `_check_revise_errors!` then 500s every request. Wipe them
-# once on the next module re-eval; idempotent on subsequent loads.
+# Clear Revise's queue_errors as a one-shot defence against the
+# cache-miss-on-startup race: if a gallery file is being saved while
+# this loop is mid-flight, Revise's dir watcher may queue it for
+# revision before its source-text cache is populated, leaving a
+# permanent `is not stored in the source-text cache` entry that the
+# `_check_revise_errors!` pre-request hook then raises on every
+# request. Idempotent on a clean reload.
 let
     rev = Base.get(Base.loaded_modules,
                    Base.PkgId(Base.UUID("295af30f-e4ad-537b-8983-00126c2a3abe"), "Revise"),
