@@ -89,6 +89,11 @@ export default defineConfig({
       __DEPLOY_ABSPATH__: JSON.stringify('REPLACE_ME_DOCUMENTER_VITEPRESS_DEPLOY_ABSPATH'),
     },
     server: {
+      // Bind to all interfaces so the dev server is reachable from
+      // other devices on the local network (phones, tablets, second
+      // laptop, etc.). Vite prints the LAN IP at startup. Override
+      // via the `--host` CLI flag if you want loopback-only.
+      host: true,
       proxy: {
         // Live AoV gallery embedding (dev only). `<div hx-get="/live-aov/…">`
         // forwards to the running AoV web app on :8092 so the docs page
