@@ -87,12 +87,7 @@ const _gallery = Gallery(_GALLERY_DIR)
 # are stored with an error spec so the gallery still renders the rest.
 const _gallery_specs = Dict{String,Any}()
 for _it in _gallery.items
-    try
-        _gallery_specs[_it.id] = Base.include(@__MODULE__, _it.path)
-    catch _err
-        @warn "AoV gallery item failed to load at module init" id=_it.id path=_it.path exception=_err
-        _gallery_specs[_it.id] = h.article(h.header("Load error: $(_it.id)"), h.pre(sprint(showerror, _err)))
-    end
+    _gallery_specs[_it.id] = Base.include(@__MODULE__, _it.path)
 end
 
 PLOTS = [
@@ -359,18 +354,11 @@ end
         let spec = entry[5]()
             isnothing(spec) && return h.span()
             path = joinpath(plots_dir, "$id.png")
-            try
-                sdraw_file(spec, path; px_per_unit=2)
-                h.div(; class="aov-grid-cell")(
-                    h.div(entry[2]; class="aov-grid-cell-title"),
-                    h.img(; src=__self__/"plot_img/$id.png", class="u-w-full"),
-                )
-            catch
-                h.div(; class="aov-grid-cell aov-grid-cell-failed")(
-                    h.div(entry[2]; class="aov-grid-cell-title"),
-                    h.div("✗"; class="u-text-center u-text-error"),
-                )
-            end
+            sdraw_file(spec, path; px_per_unit=2)
+            h.div(; class="aov-grid-cell")(
+                h.div(entry[2]; class="aov-grid-cell-title"),
+                h.img(; src=__self__/"plot_img/$id.png", class="u-w-full"),
+            )
         end
     end
 
@@ -842,27 +830,17 @@ end""");
             title = entry[2]
             let spec = entry[5]()
                 path = joinpath(plots_dir, "$id.png")
-                try
-                    sdraw_file(spec, path; px_per_unit=2)
-                    h.article(; class="aov-card")(
-                        h.header(; class="aov-card-header")(
-                            h.a(title;
-                                href=__self__/"static_plot/$id", target="_blank",
-                                class="aov-card-title-link",
-                            ),
-                            flag_button(id),
+                sdraw_file(spec, path; px_per_unit=2)
+                h.article(; class="aov-card")(
+                    h.header(; class="aov-card-header")(
+                        h.a(title;
+                            href=__self__/"static_plot/$id", target="_blank",
+                            class="aov-card-title-link",
                         ),
-                        h.img(; src=__self__/"plot_img/$id.png", class="u-w-full"),
-                    )
-                catch e
-                    h.article(; class="aov-card")(
-                        h.header(; class="aov-card-header")(
-                            h.span(title; class="aov-card-title"),
-                            flag_button(id),
-                        ),
-                        h.p("Error: $(sprint(showerror, e))"; class="u-text-error u-text-xs"),
-                    )
-                end
+                        flag_button(id),
+                    ),
+                    h.img(; src=__self__/"plot_img/$id.png", class="u-w-full"),
+                )
             end
         end
     end
