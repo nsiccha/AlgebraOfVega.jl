@@ -5,7 +5,11 @@ using AlgebraOfVega
 import CairoMakie
 using JSON
 using TestModules, Random, Tables, Statistics
-using Treebars: prepare_progress!, with_prepared_progress, polling_fetchindex, initialize_progress!
+# Load Treebars before importing RecordingRoutes — Treebars activates
+# HTMXObjects's HTMXObjectsTreebarsExt, which injects `RecordingRoutes`
+# into the HTMXObjects namespace.
+using Treebars
+using HTMXObjects: RecordingRoutes
 
 include("test/runtests.jl")
 
@@ -96,82 +100,21 @@ PLOTS = [
     for it in _gallery.items
 ]
 
-# --- AppData: long-running operations live here ---
-#
-# A `cache_type=:parallel` `@dynamicstruct` so its IPs survive across
-# requests (per-request `@htmx` instances would lose their cache between
-# polls). Currently only houses `record_gallery` for the docs-build flow;
-# anything else that wants `polling_fetchindex` progress reporting goes
-# here too.
-
-@dynamicstruct struct GalleryAppData
-    # Root of the per-IP progress tree. `polling_fetchindex` reads `__status__`
-    # off the IP-call's context to render the polling progress fragment;
-    # without an initialized root, `__status__` defaults to `nothing` and
-    # `htmx_render(nothing)` errors out on the first poll. Mirrors BRM's
-    # `AppData.__status__ = initialize_progress!(:state; description="BRM pipeline")`.
-    __status__ = initialize_progress!(:state; description="AoV recording")
-
-    """
-    `record_gallery(record_dir, record_base)` — IP. Drives
-    `HTMXObjects.record!` against a fresh `AppContext()` to dump every
-    gallery URL into `record_dir`, with per-path `prepare_progress!`
-    markers so the route can poll a live progress tree. Re-runs on
-    `force=true` (cache invalidation by `@memo` / `polling_fetchindex`).
-    Returns a NamedTuple summary `(; n_html, n_js, n_json, n_other,
-    n_paths, record_dir, record_base)`.
-    """
-    record_gallery(record_dir::String, record_base::String) = begin
-        ids = [it.id for it in _gallery.items]
-        paths = vcat(
-            ["/"],
-            ["/plot/$id"       for id in ids],
-            ["/standalone/$id" for id in ids],
-            ["/spec/$id"       for id in ids],
-            ["/aov_runtime_js", "/explorer", "/flagged"],
-        )
-
-        # Pre-enumerate every path as a pending phase. Each
-        # `with_prepared_progress(phase) do _ ... end` activates one.
-        phases = [prepare_progress!(__status__; description=p) for p in paths]
-
-        isdir(record_dir) && rm(record_dir; recursive=true)
-        mkpath(record_dir)
-
-        # `HTMXObjects.record!` re-`route!`s the app with recording
-        # closures. The live AppContext registration is clobbered while
-        # this loop runs; restore it via `route!(app)` in the `finally`
-        # so subsequent live requests don't keep writing to disk.
-        app = AppContext()
-        HTMXObjects.route!(app; record_dir, record_base)
-        router = HTMXObjects.CONTEXT[].service.router
-        try
-            for (path, phase) in zip(paths, phases)
-                with_prepared_progress(phase) do _
-                    HTMXObjects._drive_record_path(router, path, Pair{String,String}[])
-                    HTMXObjects._drive_record_path(router, path, ["HX-Request" => "true"])
-                end
-            end
-        finally
-            HTMXObjects.route!(app)
-        end
-
-        n_html = 0; n_js = 0; n_json = 0; n_other = 0
-        for (root, _, fs) in walkdir(record_dir)
-            for f in fs
-                ext = lowercase(splitext(f)[2])
-                ext == ".html" ? (n_html += 1) :
-                ext == ".js"   ? (n_js   += 1) :
-                ext == ".json" ? (n_json += 1) :
-                                 (n_other += 1)
-            end
-        end
-        (; n_html, n_js, n_json, n_other, n_paths=length(paths), record_dir, record_base)
-    end
+# `RecordingRoutes` (from HTMXObjects's TreebarsExt) provides the canonical
+# recording flow — IP-backed `polling_fetchindex` with per-path progress
+# phases, summary article on completion, `?force=true` to re-record. Mounted
+# below at `/record_gallery` via @include with the gallery path list.
+const _RECORDING_PATHS = let ids = [it.id for it in _gallery.items]
+    vcat(
+        ["/"],
+        ["/plot/$id"       for id in ids],
+        ["/standalone/$id" for id in ids],
+        ["/spec/$id"       for id in ids],
+        ["/aov_runtime_js", "/explorer", "/flagged"],
+    )
 end
-
-const APPDATA = GalleryAppData(; cache_type=:parallel)
-
+const _RECORDING_DIR = joinpath(dirname(dirname(@__DIR__)), "docs", "src", "public", "live-aov")
+_recording_base() = get(ENV, "RECORD_BASE_PREFIX", "/AlgebraOfVega.jl/dev/live-aov")
 
 # --- Utilities ---
 
@@ -228,17 +171,13 @@ end
 # --- HTMXObjects App ---
 
 @htmx struct AppContext
-    __appdata__ = APPDATA
-
     flag_button(id) = let flagged = id in load_flags()
-        label = flagged ? "flagged" : "flag"
-        color = flagged ? "color:var(--pico-del-color);" : "color:var(--pico-muted-color);"
-        h.button(label;
+        h.button(flagged ? "flagged" : "flag";
             hx_post=__self__/"flag/$id",
             hx_target="#flag-$id",
             hx_swap="outerHTML",
             id="flag-$id",
-            style="$(color) font-size:0.7em; padding:0.1rem 0.3rem; margin-left:0.3em; border:1px solid; background:none; cursor:pointer; border-radius:0.2rem;",
+            class=flagged ? "aov-flag-button is-flagged" : "aov-flag-button",
         )
     end
 
@@ -247,95 +186,88 @@ end
         let spec = isnothing(entry) ? nothing : entry[5]()
             code_str = isnothing(entry) ? "" : entry[4]
             is_node = spec isa HTMX.Node
-            json_str = isnothing(spec) || is_node ? "" : JSON.json(to_vegalite(spec), 2)
-            h.article(; style="margin:0; padding:0.5rem; min-width:0; overflow:hidden;")(
-                h.header(; style="padding:0 0 0.25rem; margin:0; display:flex; align-items:center; flex-wrap:wrap;")(
-                    h.a(title;
-                        href=__self__/"standalone/$id", target="_blank",
-                        style="font-size:0.9em; font-weight:bold; text-decoration:none;",
-                    ),
-                    is_node ? h.span() : h.a("static";
-                        href=__self__/"static_plot/$id", target="_blank",
-                        style="font-size:0.7em; margin-left:0.3em; padding:0.1rem 0.3rem; border:1px solid; border-radius:0.2rem; text-decoration:none; color:var(--pico-muted-color);",
-                    ),
+            h.article(; class="htmxo-gallery-card")(
+                h.h4(; class="htmxo-gallery-card-title")(
+                    h.a(title; href=__self__/"standalone/$id", target="_blank"),
+                    is_node ? h.span() : h.a(" · static";
+                        class="htmxo-gallery-card-meta",
+                        href=__self__/"static_plot/$id", target="_blank"),
                     flag_button(id),
                     isnothing(ref_url) ? h.span() :
-                        h.a(" [ref]";
-                            href=ref_url, target="_blank",
-                            style="font-size:0.8em; margin-left:0.3em;",
-                        ),
+                        h.a(" · ref"; class="htmxo-gallery-card-meta", href=ref_url, target="_blank"),
                 ),
+                isempty(description) ? h.span() :
+                    h.p(description; class="htmxo-gallery-card-description"),
                 isnothing(spec) ? h.p("Unknown plot") : is_node ? spec : vdraw(spec; id=id),
-                h.details(; style="margin-top:0.25rem")(
-                    h.summary("Code"; style="font-size:0.8em;"),
-                    h.pre(h.code(code_str); style="background:var(--pico-code-background-color); padding:0.5rem; border-radius:0.25rem; overflow-x:auto; font-size:0.75em;"),
-                ),
+                h.pre(h.code(code_str; class="language-julia"); class="htmxo-gallery-card-code"),
             )
         end
     end
 
-    # Group plots by category for the index
-    PLOT_SECTIONS = [
-        ("Interactive Filtering" => ["filter_origin", "filter_multi", "filter_tips", "filter_histogram", "filter_regression", "filter_bar"]),
+    # Group plots by category for the index. Order is simple → complex
+    # → tests/edge-cases. The final "Uncategorized" bucket collects
+    # every gallery item not assigned to one of the curated sections
+    # above; those are bug-repro / test items rather than curated
+    # examples, so they render last.
+    _CURATED_SECTIONS = [
         ("Basic" => ["scatter", "bar", "line", "lines_only", "area", "histogram", "heatmap", "boxplot"]),
         ("Composition" => ["layered", "multi_layer", "stacked_bar", "grouped_bar", "bubble", "scatter_jitter", "custom_config"]),
-        ("Interactive" => ["interactive_brush", "interactive_highlight", "interactive_zoom", "interactive_slider", "interactive_dropdown", "remap_encoding", "remap_axes", "remap_lineribbon", "remap_detail", "remap_precomputed_lineribbon"]),
         ("AoG: Basic Visualizations" => ["aog_scatter_basic", "aog_sine_lines", "aog_lines_scatter", "aog_two_sources", "aog_boxplot"]),
         ("AoG: Additional Marks" => ["aog_step", "aog_rules", "aog_vlines_faceted_color", "aog_vlines_faceted_color_remap", "aog_errorbars"]),
+        ("AoG: Statistical Analyses" => ["aog_density", "aog_ecdf", "aog_ecdf_grouped", "aog_histogram_basic", "aog_histogram", "aog_frequency", "aog_expectation", "aog_frequency_color", "aog_linear", "aog_smooth", "aog_linear_band", "aog_smooth_band"]),
+        ("AoG: Layout" => ["aog_facet", "aog_facet_wrap", "aog_facet_multi_layer", "aog_facet_regression"]),
+        ("AoG: Composition Patterns" => ["aog_scatter_regression", "aog_scatter_smooth", "aog_bar_line_combo", "aog_stacked_area", "aog_color_regression"]),
+        ("AoG: Applications" => ["aog_timeseries", "aog_timeseries_box", "aog_2d_histogram"]),
+        ("Uncertainty (tidybayes)" => ["pointinterval", "pointinterval_vertical", "halfeye", "gradient_interval", "lineribbon", "lineribbon_grouped", "lineribbon_faceted", "lineribbon_overlay", "lineribbon_logscale", "ppc_overlay", "ribbon_only", "precomputed_lineribbon", "precomputed_lineribbon_grouped", "precomputed_pointinterval", "remap_precomputed_pointinterval_positional", "dotinterval", "raincloud"]),
+        ("Interactive" => ["interactive_brush", "interactive_highlight", "interactive_zoom", "interactive_slider", "interactive_dropdown", "remap_encoding", "remap_axes", "remap_lineribbon", "remap_detail", "remap_precomputed_lineribbon"]),
+        ("Interactive Filtering" => ["filter_origin", "filter_multi", "filter_tips", "filter_histogram", "filter_regression", "filter_bar"]),
         ("AoG: Data Manipulations" => ["aog_wide_lines", "aog_wide_scatter", "aog_presorted_bar"]),
         ("AoG: Pregrouped" => ["pregrouped_boxplot", "pregrouped_boxplot_plain", "pregrouped_dose_response"]),
         ("AoG: Scales" => ["aog_log_transform", "aog_discrete_boxplot", "aog_combined_boxplot", "aog_barplot_names", "aog_dodge", "aog_legend_merge", "aog_multi_color"]),
-        ("AoG: Statistical Analyses" => ["aog_density", "aog_ecdf", "aog_ecdf_grouped", "aog_histogram_basic", "aog_histogram", "aog_frequency", "aog_expectation", "aog_frequency_color", "aog_linear", "aog_smooth", "aog_linear_band", "aog_smooth_band"]),
-        ("AoG: Composition Patterns" => ["aog_scatter_regression", "aog_scatter_smooth", "aog_bar_line_combo", "aog_stacked_area", "aog_color_regression"]),
-        ("AoG: Layout" => ["aog_facet", "aog_facet_wrap", "aog_facet_multi_layer", "aog_facet_regression"]),
-        ("AoG: Applications" => ["aog_timeseries", "aog_timeseries_box", "aog_2d_histogram"]),
-        ("Uncertainty (tidybayes)" => ["pointinterval", "pointinterval_vertical", "halfeye", "gradient_interval", "lineribbon", "lineribbon_grouped", "lineribbon_faceted", "lineribbon_overlay", "lineribbon_logscale", "ppc_overlay", "ribbon_only", "precomputed_lineribbon", "precomputed_lineribbon_grouped", "precomputed_pointinterval", "remap_precomputed_pointinterval_positional", "dotinterval", "raincloud"]),
     ]
+    PLOT_SECTIONS = let curated_ids = Set(id for (_, ids) in _CURATED_SECTIONS for id in ids),
+                        leftover = [it.id for it in _gallery.items if !(it.id in curated_ids)]
+        isempty(leftover) ? _CURATED_SECTIONS :
+            [_CURATED_SECTIONS..., "Tests / Edge cases" => leftover]
+    end
 
     gallery_section(section_title, ids) = begin
         entries = filter(!isnothing, [find_plot(id) for id in ids])
-        h.div(; style="margin-bottom:2rem")(
-            h.h3(section_title; style="margin-bottom:0.5rem"),
-            h.div(; style="display:grid; grid-template-columns:repeat(4, 1fr); gap:0.5rem;")(
-                [plot_card(e[1], e[2], e[3], length(e) >= 6 ? e[6] : nothing) for e in entries]...,
-            ),
+        h.section(; class="htmxo-gallery-section")(
+            h.h3(section_title; class="htmxo-gallery-section-heading"),
+            [plot_card(e[1], e[2], e[3], length(e) >= 6 ? e[6] : nothing) for e in entries]...,
         )
     end
 
-    demo_card(href, title, description) = h.article(; style="margin:0; padding:0.5rem;")(
-        h.a(;
-            href=href,
-            hx_get=href,
-            hx_target="#main-content",
-            hx_swap="innerHTML",
-            hx_push_url="true",
-            style="text-decoration:none; color:inherit;",
-        )(
-            h.strong(title; style="font-size:0.9em;"),
-            h.span(" — $description"; style="color:var(--pico-muted-color); font-size:0.8em;"),
+    demo_card(href, title, description) = h.article(; class="htmxo-gallery-card")(
+        h.h4(; class="htmxo-gallery-card-title")(
+            h.a(title;
+                href=href,
+                hx_get=href,
+                hx_target="#main-content",
+                hx_swap="innerHTML",
+                hx_push_url="true"),
         ),
+        h.p(description; class="htmxo-gallery-card-description"),
     )
 
-    gallery_index = h.div(
-        h.h1("AlgebraOfVega Gallery"),
-        h.p(
-            "$(length(PLOTS)) examples of AlgebraOfGraphics.jl specs translated to Vega-Lite. ",
-            h.a("Data Explorer →"; href=__self__/"explorer", style="font-size:0.9em; margin-right:1em;"),
-            h.a("View flagged plots →"; href=__self__/"flagged", style="font-size:0.9em;"),
+    gallery_index = h.div(; class="htmxo-gallery")(
+        h.p("$(length(PLOTS)) examples of AlgebraOfGraphics.jl specs translated to Vega-Lite. ",
+            h.a("Data Explorer →"; href=__self__/"explorer"),
+            " · ",
+            h.a("View flagged plots →"; href=__self__/"flagged"),
         ),
         [gallery_section(title, ids) for (title, ids) in PLOT_SECTIONS]...,
-        h.div(; style="margin-bottom:2rem")(
-            h.h3("HTMX + Vega Demos"; style="margin-bottom:0.5rem"),
-            h.div(; style="display:grid; grid-template-columns:repeat(4, 1fr); gap:0.5rem;")(
-                demo_card("/demo_brush", "Brush → Server Stats", "Brush a scatter plot, server computes stats on selection"),
-                demo_card("/demo_update", "Server-Side Data Update", "Buttons fetch filtered data from server, plot animates update"),
-                demo_card("/demo_responsive", "Responsive Width", "Plots adapt to container width — 50%, side-by-side, faceted"),
-            ),
+        h.section(; class="htmxo-gallery-section")(
+            h.h3("HTMX + Vega Demos"; class="htmxo-gallery-section-heading"),
+            demo_card("/demo_brush",     "Brush → Server Stats",      "Brush a scatter plot, server computes stats on selection"),
+            demo_card("/demo_update",    "Server-Side Data Update",   "Buttons fetch filtered data from server, plot animates update"),
+            demo_card("/demo_responsive","Responsive Width",          "Plots adapt to container width — 50%, side-by-side, faceted"),
         ),
     )
 
-    plot_nav(active_id) = h.nav(; style="display:flex; flex-wrap:wrap; gap:0.25rem; margin-bottom:1rem; align-items:center;")(
-        h.a("← Gallery"; href=__self__, hx_get=__self__, hx_target="#main-content", hx_swap="innerHTML", hx_push_url="true", role="button", class="outline secondary", style="margin-right:auto;"),
+    plot_nav(active_id) = h.nav(; class="aov-plot-nav")(
+        h.a("← Gallery"; href=__self__, hx_get=__self__, hx_target="#main-content", hx_swap="innerHTML", hx_push_url="true", role="button", class="outline secondary aov-mr-auto"),
         [h.a(title;
             href=__self__/"plot/$id",
             hx_get=__self__/"plot/$id",
@@ -343,8 +275,7 @@ end
             hx_swap="innerHTML",
             hx_push_url="true",
             role="button",
-            class=id == active_id ? "contrast" : "secondary outline",
-            style="margin:0.1rem; font-size:0.85em; padding:0.3rem 0.6rem;",
+            class=(id == active_id ? "contrast" : "secondary outline") * " aov-plot-nav-btn",
         ) for p in PLOTS for (id, title) in ((p[1], p[2]),)]...
     )
 
@@ -357,17 +288,17 @@ end
             let spec = spec_fn()
                 is_node = spec isa HTMX.Node
                 plot_body = is_node ? spec : vdraw(spec)
-                json_details = is_node ? h.span() : h.details(; style="margin-top:1rem")(
+                json_details = is_node ? h.span() : h.details(; class="u-mt-4")(
                     h.summary("Vega-Lite JSON Spec"),
-                    h.pre(h.code(escape_html(JSON.json(to_vegalite(spec), 2))); style="background:var(--pico-code-background-color); padding:1rem; border-radius:0.5rem; overflow-x:auto; max-height:400px;"),
+                    h.pre(h.code(escape_html(JSON.json(to_vegalite(spec), 2))); class="aov-code-block aov-code-h-400"),
                 )
                 h.div(
                     plot_nav(id),
                     h.h2(title),
                     h.p(description),
                     plot_body,
-                    h.h4("Julia Code"; style="margin-top:1.5rem"),
-                    h.pre(h.code(code_str); style="background:var(--pico-code-background-color); padding:1rem; border-radius:0.5rem; overflow-x:auto;"),
+                    h.h4("Julia Code"; class="u-mt-5"),
+                    h.pre(h.code(code_str); class="aov-code-block"),
                     json_details,
                 )
             end
@@ -375,11 +306,11 @@ end
     end
 
     __page__(content) = htmx(
-        h.main(class="container-fluid", style="padding:1rem 2rem;")(
+        h.main(class="container-fluid")(
             h.div(content; id="main-content"),
         );
         pico_version="2",
-        extra_head=(vega_head()..., h.style(":root { font-size: 14px; }")),
+        extra_head=(vega_head()..., htmxo_gallery_styles(), htmxo_syntax_head()...),
     )
 
     @get index = gallery_index
@@ -405,8 +336,8 @@ end
         let spec = entry[5]()
             isnothing(spec) && return h.span()
             is_node = spec isa HTMX.Node
-            h.div(; style="border:1px solid var(--pico-muted-border-color); border-radius:0.2rem; padding:0.2rem; overflow:hidden; min-width:0;")(
-                h.div(entry[2]; style="font-weight:bold; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-bottom:0.1rem;"),
+            h.div(; class="aov-grid-cell")(
+                h.div(entry[2]; class="aov-grid-cell-title"),
                 is_node ? spec : vdraw(spec; width="container"),
             )
         end
@@ -414,9 +345,9 @@ end
 
     @get compact = begin
         all_cards = [compact_card(e[1]) for section in PLOT_SECTIONS for e in filter(!isnothing, [find_plot(id) for id in section[2]])]
-        h.div(; style="width:100vw; padding:0.5rem; font-size:0.5em;")(
-            h.h2("AlgebraOfVega Gallery"; style="margin-bottom:0.5rem;"),
-            h.div(; style="display:grid; grid-template-columns:repeat(16, 1fr); gap:0.25rem;")(
+        h.div(; class="aov-grid-page")(
+            h.h2("AlgebraOfVega Gallery"; class="u-mb-2"),
+            h.div(; class="aov-grid-16")(
                 all_cards...,
             ),
         )
@@ -430,14 +361,14 @@ end
             path = joinpath(plots_dir, "$id.png")
             try
                 sdraw_file(spec, path; px_per_unit=2)
-                h.div(; style="border:1px solid var(--pico-muted-border-color); border-radius:0.2rem; padding:0.2rem; overflow:hidden; min-width:0;")(
-                    h.div(entry[2]; style="font-weight:bold; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-bottom:0.1rem;"),
-                    h.img(; src=__self__/"plot_img/$id.png", style="width:100%;"),
+                h.div(; class="aov-grid-cell")(
+                    h.div(entry[2]; class="aov-grid-cell-title"),
+                    h.img(; src=__self__/"plot_img/$id.png", class="u-w-full"),
                 )
             catch
-                h.div(; style="border:1px solid var(--pico-muted-border-color); border-radius:0.2rem; padding:0.2rem; overflow:hidden; min-width:0; opacity:0.4;")(
-                    h.div(entry[2]; style="font-weight:bold; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-bottom:0.1rem;"),
-                    h.div("✗"; style="text-align:center; color:red;"),
+                h.div(; class="aov-grid-cell aov-grid-cell-failed")(
+                    h.div(entry[2]; class="aov-grid-cell-title"),
+                    h.div("✗"; class="u-text-center u-text-error"),
                 )
             end
         end
@@ -445,9 +376,9 @@ end
 
     @get static_compact = begin
         all_cards = [static_compact_card(e[1]) for section in PLOT_SECTIONS for e in filter(!isnothing, [find_plot(id) for id in section[2]])]
-        h.div(; style="width:100vw; padding:0.5rem; font-size:0.5em;")(
-            h.h2("AlgebraOfVega Static Gallery"; style="margin-bottom:0.5rem;"),
-            h.div(; style="display:grid; grid-template-columns:repeat(16, 1fr); gap:0.25rem;")(
+        h.div(; class="aov-grid-page")(
+            h.h2("AlgebraOfVega Static Gallery"; class="u-mb-2"),
+            h.div(; class="aov-grid-16")(
                 all_cards...,
             ),
         )
@@ -550,13 +481,13 @@ end
                 json_str = JSON.json(to_vegalite(spec), 2)
                 h.div(
                     vdraw(spec),
-                    h.details(; style="margin-top:0.5rem")(
+                    h.details(; class="u-mt-2")(
                         h.summary("Julia Code"),
-                        h.pre(h.code(code_str); style="background:var(--pico-code-background-color); padding:0.75rem; border-radius:0.5rem; overflow-x:auto; font-size:0.85em;"),
+                        h.pre(h.code(code_str); class="aov-code-block-sm"),
                     ),
-                    h.details(; style="margin-top:0.25rem")(
+                    h.details(; class="u-mt-1")(
                         h.summary("Vega-Lite JSON"),
-                        h.pre(h.code(escape_html(json_str)); style="background:var(--pico-code-background-color); padding:0.75rem; border-radius:0.5rem; overflow-x:auto; max-height:300px; font-size:0.85em;"),
+                        h.pre(h.code(escape_html(json_str)); class="aov-code-block-sm aov-code-h-300"),
                     ),
                 )
             end
@@ -568,50 +499,11 @@ end
         flag_button(id)
     end
 
-    # GET `/record_gallery` — drive the AppData IP `record_gallery` to
-    # dump every gallery URL (HTML + JS + JSON) into
-    # `docs/src/public/live-aov/`. Long-running (~30s) so it goes
-    # through `polling_fetchindex`: first hit kicks off a Task, returns
-    # a polling progress fragment; subsequent polls show the per-path
-    # `prepare_progress!` markers (one per recorded URL); when finished,
-    # the do-block renders the summary. `?force=true` invalidates the
-    # cached run and re-records.
-    #
-    # Override the deploy URL prefix via `RECORD_BASE_PREFIX` env var
-    # (default `/AlgebraOfVega.jl/dev/live-aov`). Override the output
-    # directory via `record_dir` query param.
-    @get record_gallery(; record_dir::String="", record_base::String="", force::Bool=false) = begin
-        rd = isempty(record_dir) ?
-            joinpath(dirname(dirname(@__DIR__)), "docs", "src", "public", "live-aov") :
-            record_dir
-        rb = isempty(record_base) ?
-            get(ENV, "RECORD_BASE_PREFIX", "/AlgebraOfVega.jl/dev/live-aov") :
-            record_base
-
-        polling_fetchindex(__appdata__.record_gallery, rd, rb;
-                           poll_url=query_url(__self__/"record_gallery"; record_dir=rd, record_base=rb),
-                           label="Recording AoV gallery",
-                           force) do summary
-            h.article(
-                h.header(h.h2("Gallery recorded")),
-                h.p("Wrote ", h.code(string(summary.n_paths)),
-                    " routes (× full + HX shapes) into ",
-                    h.code(summary.record_dir), "."),
-                h.ul(
-                    h.li(h.code(string(summary.n_html)), "  .html"),
-                    h.li(h.code(string(summary.n_js)),   "  .js"),
-                    h.li(h.code(string(summary.n_json)), "  .json"),
-                    h.li(h.code(string(summary.n_other)), "  other"),
-                ),
-                h.p(h.strong("Next: "),
-                    h.code("git add docs/src/public/live-aov && git commit && git push"),
-                    " — CI deploys the rest."),
-                h.p("Re-record (overwrites cache): ",
-                    h.a("/record_gallery?force=true";
-                        href=__self__/"record_gallery?force=true")),
-            )
-        end
-    end
+    # `/record_gallery` is provided by the @include below. It mounts
+    # HTMXObjects's `RecordingRoutes` (from HTMXObjectsTreebarsExt) at the
+    # `/record_gallery` prefix and supplies the gallery path enumerator
+    # plus the docs-deploy `record_base` URL prefix. `?force=true`
+    # invalidates the cached run and re-records.
 
     @get flagged = begin
         flags = load_flags()
@@ -619,15 +511,15 @@ end
             h.div(
                 h.h1("Flagged Plots"),
                 h.p("No flagged plots."),
-                h.a("← Back to gallery"; href=__self__, style="font-size:0.9em;"),
+                h.a("← Back to gallery"; href=__self__, class="aov-back-link"),
             )
         else
             flagged_ids = sort(collect(flags))
             flagged_entries = filter(!isnothing, [find_plot(id) for id in flagged_ids])
             h.div(
                 h.h1("Flagged Plots ($(length(flagged_entries)))"),
-                h.a("← Back to gallery"; href=__self__, style="font-size:0.9em; margin-bottom:1rem; display:inline-block;"),
-                h.div(; style="display:grid; grid-template-columns:repeat(4, 1fr); gap:0.5rem;")(
+                h.a("← Back to gallery"; href=__self__, class="aov-back-link u-mb-4 u-inline-block"),
+                h.div(; class="aov-grid-4")(
                     [plot_card(e[1], e[2], e[3], length(e) >= 6 ? e[6] : nothing) for e in flagged_entries]...,
                 ),
             )
@@ -714,11 +606,11 @@ end
         h.div(
             vega_head(),
             h.h2("Pregrouped Debug"),
-            [h.div(; style="margin-bottom:2rem")(
+            [h.div(; class="u-mb-6")(
                 vdraw(s),
                 h.details(
                     h.summary("Spec JSON"),
-                    h.pre(h.code(JSON.json(to_vegalite(s), 2)); style="font-size:0.8em; max-height:400px; overflow:auto;"),
+                    h.pre(h.code(JSON.json(to_vegalite(s), 2)); class="aov-spec-pre"),
                 ),
             ) for s in specs]...,
         )
@@ -746,7 +638,7 @@ end
 
     @get explorer = h.div(
         explorer_widget(EXPLORER_DATASETS),
-        h.a("← Back to gallery"; href=__self__, style="display:inline-block; margin-top:1rem;"),
+        h.a("← Back to gallery"; href=__self__, class="u-inline-block u-mt-4"),
     )
 
     # --- Interactive demo: Brush → Server Stats ---
@@ -773,7 +665,7 @@ end
 
         if isnothing(hp_range) || isnothing(mpg_range)
             h.div(; id="brush-stats")(
-                h.p("Drag a rectangle on the plot to select points."; style="color:var(--pico-muted-color)"),
+                h.p("Drag a rectangle on the plot to select points."; class="u-text-muted"),
             )
         else
             hp_min, hp_max = extrema(hp_range)
@@ -818,10 +710,10 @@ end
                 id="brush-demo",
                 signals=[(signal="brush", url="/brush_stats", target="#brush-stats", debounce=200)],
             ),
-            h.div(; id="brush-stats", style="margin-top:1rem")(
-                h.p("Drag a rectangle on the plot to select points."; style="color:var(--pico-muted-color)"),
+            h.div(; id="brush-stats", class="u-mt-4")(
+                h.p("Drag a rectangle on the plot to select points."; class="u-text-muted"),
             ),
-            h.h4("How it works"; style="margin-top:1.5rem"),
+            h.h4("How it works"; class="u-mt-5"),
             h.pre(h.code("""# In the @htmx struct:
 vdraw(spec;
     id="brush-demo",
@@ -831,7 +723,7 @@ vdraw(spec;
 # The signal listener sends brush bounds as query params:
 #   GET /brush_stats?horsepower=[50,200]&mpg=[15,30]
 # Server computes stats and returns HTML fragment.""");
-                style="background:var(--pico-code-background-color); padding:1rem; border-radius:0.5rem; overflow-x:auto;"),
+                class="aov-code-block"),
     )
 
     # --- Interactive demo: Server-side data update ---
@@ -848,7 +740,7 @@ vdraw(spec;
                 config(width=550, height=350, title="Click a button to filter");
                 id="update-demo",
             ),
-            h.div(; style="display:flex; gap:0.5rem; margin-top:1rem")(
+            h.div(; class="aov-plot-row-tight")(
                 [h.button(o;
                     hx_get=__self__/"filter_data/$o",
                     hx_target="#update-script",
@@ -857,7 +749,7 @@ vdraw(spec;
                 ) for o in origins]...
             ),
             h.div(; id="update-script"),
-            h.h4("How it works"; style="margin-top:1.5rem"),
+            h.h4("How it works"; class="u-mt-5"),
             h.pre(h.code("""# Button triggers HTMX GET:
 #   <button hx-get="/update_data/USA" hx-target="#update-script">
 
@@ -866,7 +758,7 @@ vdraw(spec;
     filtered = origin == "All" ? cars() : filter_by_origin(cars(), origin)
     update_data("update-demo", filtered)
 end""");
-                style="background:var(--pico-code-background-color); padding:1rem; border-radius:0.5rem; overflow-x:auto;"),
+                class="aov-code-block"),
         )
     end
 
@@ -880,22 +772,22 @@ end""");
                 h.h4("Full width (layered)"),
                 vdraw(spec + (data(cars()) * mapping(:horsepower, :mpg) * linear())),
 
-                h.h4("50% width"; style="margin-top:1.5rem;"),
-                h.div(; style="width:50%;")(vdraw(spec)),
+                h.h4("50% width"; class="u-mt-5"),
+                h.div(; class="aov-w-50")(vdraw(spec)),
 
-                h.h4("Side by side (50% each)"; style="margin-top:1.5rem;"),
-                h.div(; style="display:flex; gap:1rem;")(
-                    h.div(; style="flex:1;")(vdraw(spec)),
-                    h.div(; style="flex:1;")(vdraw(spec + (data(cars()) * mapping(:horsepower, :mpg) * linear()))),
+                h.h4("Side by side (50% each)"; class="u-mt-5"),
+                h.div(; class="aov-plot-row")(
+                    h.div(; class="aov-flex-1")(vdraw(spec)),
+                    h.div(; class="aov-flex-1")(vdraw(spec + (data(cars()) * mapping(:horsepower, :mpg) * linear()))),
                 ),
 
-                h.h4("Faceted — full width"; style="margin-top:1.5rem;"),
+                h.h4("Faceted — full width"; class="u-mt-5"),
                 vdraw(faceted_spec),
 
-                h.h4("Faceted — 60% width"; style="margin-top:1.5rem;"),
-                h.div(; style="width:60%;")(vdraw(faceted_spec)),
+                h.h4("Faceted — 60% width"; class="u-mt-5"),
+                h.div(; class="aov-w-60")(vdraw(faceted_spec)),
 
-                h.h4("Saveable (actions=true)"; style="margin-top:1.5rem;"),
+                h.h4("Saveable (actions=true)"; class="u-mt-5"),
                 h.p("Click the ⋯ menu to Save as PNG/SVG."),
                 vdraw(spec; actions=true),
             )
@@ -933,7 +825,7 @@ end""");
                 sdraw_file(spec, path; px_per_unit=2)
                 h.div(
                     h.h3(title),
-                    h.img(; src=__self__/"plot_img/$id.png", style="max-width:100%;"),
+                    h.img(; src=__self__/"plot_img/$id.png", class="aov-img-fluid"),
                 )
             end
         end
@@ -956,23 +848,23 @@ end""");
                 path = joinpath(plots_dir, "$id.png")
                 try
                     sdraw_file(spec, path; px_per_unit=2)
-                    h.article(; style="margin:0; padding:0.5rem; min-width:0; overflow:hidden;")(
-                        h.header(; style="padding:0 0 0.25rem; margin:0; display:flex; align-items:center; flex-wrap:wrap;")(
+                    h.article(; class="aov-card")(
+                        h.header(; class="aov-card-header")(
                             h.a(title;
                                 href=__self__/"static_plot/$id", target="_blank",
-                                style="font-size:0.9em; font-weight:bold; text-decoration:none;",
+                                class="aov-card-title-link",
                             ),
                             flag_button(id),
                         ),
-                        h.img(; src=__self__/"plot_img/$id.png", style="width:100%;"),
+                        h.img(; src=__self__/"plot_img/$id.png", class="u-w-full"),
                     )
                 catch e
-                    h.article(; style="margin:0; padding:0.5rem; min-width:0; overflow:hidden;")(
-                        h.header(; style="padding:0 0 0.25rem; margin:0; display:flex; align-items:center; flex-wrap:wrap;")(
-                            h.span(title; style="font-size:0.9em; font-weight:bold;"),
+                    h.article(; class="aov-card")(
+                        h.header(; class="aov-card-header")(
+                            h.span(title; class="aov-card-title"),
                             flag_button(id),
                         ),
-                        h.p("Error: $(sprint(showerror, e))"; style="color:red; font-size:0.8em;"),
+                        h.p("Error: $(sprint(showerror, e))"; class="u-text-error u-text-xs"),
                     )
                 end
             end
@@ -981,9 +873,9 @@ end""");
 
     static_gallery_section(section_title, ids) = begin
         entries = filter(!isnothing, [find_plot(id) for id in ids])
-        h.div(; style="margin-bottom:2rem")(
-            h.h3(section_title; style="margin-bottom:0.5rem"),
-            h.div(; style="display:grid; grid-template-columns:repeat(4, 1fr); gap:0.5rem;")(
+        h.div(; class="u-mb-6")(
+            h.h3(section_title; class="u-mb-2"),
+            h.div(; class="aov-grid-4")(
                 [static_plot_card(e[1]) for e in entries]...,
             ),
         )
@@ -995,6 +887,14 @@ end""");
     )
 
     @include tests = TestRoutes(; __req__, test_module=@__MODULE__)
+
+    @include record_gallery = RecordingRoutes(;
+        app_type=AppContext,
+        paths=_RECORDING_PATHS,
+        record_dir=_RECORDING_DIR,
+        record_base=_recording_base(),
+        label="Recording AoV gallery",
+    )
 end
 
 function __init__()

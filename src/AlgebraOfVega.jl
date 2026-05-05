@@ -2959,6 +2959,46 @@ function vega_head(;
         h.style("""
             details[title] > summary > svg { width: 14px !important; height: 14px !important; }
             .chart-wrapper { height: auto !important; }
+
+            /* AoV utility classes */
+            .aov-form-col { display: flex; flex-direction: column; gap: 0.25rem; }
+            .aov-form-row { display: flex; align-items: center; gap: 0.25rem; }
+            .aov-form-row-tight { display: flex; align-items: center; gap: 0.3rem; }
+            .aov-controls { display: flex; flex-wrap: wrap; gap: 1rem; margin-bottom: 1rem; align-items: end; }
+            .aov-pills { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-bottom: 0.5rem; }
+            .aov-toolbar { display: flex; gap: 1rem; align-items: end; flex-wrap: wrap; margin-bottom: 0.5rem; }
+            .aov-flex-wide-wrap { display: flex; flex-wrap: wrap; gap: 1rem; }
+            .aov-plot-area { width: 100%; min-width: 0; }
+            .aov-w-8 { width: 8rem; }
+            .aov-w-50 { width: 50%; }
+            .aov-w-60 { width: 60%; }
+            .aov-img-fluid { max-width: 100%; }
+            .aov-flex-1 { flex: 1; }
+            .aov-code-block { background: var(--pico-code-background-color); padding: 1rem; border-radius: 0.5rem; overflow-x: auto; }
+            .aov-code-block-sm { background: var(--pico-code-background-color); padding: 0.75rem; border-radius: 0.5rem; overflow-x: auto; font-size: 0.85em; }
+            .aov-code-h-300 { max-height: 300px; }
+            .aov-code-h-400 { max-height: 400px; }
+            .aov-spec-pre { font-size: 0.8em; max-height: 400px; overflow: auto; }
+            .aov-btn-sm { font-size: 0.85em; padding: 0.3rem 0.6rem; }
+            .aov-grid-cell { border: 1px solid var(--pico-muted-border-color); border-radius: 0.2rem; padding: 0.2rem; overflow: hidden; min-width: 0; }
+            .aov-grid-cell-failed { opacity: 0.4; }
+            .aov-grid-cell-title { font-weight: bold; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 0.1rem; }
+            .aov-grid-page { width: 100vw; padding: 0.5rem; font-size: 0.5em; }
+            .aov-grid-16 { display: grid; grid-template-columns: repeat(16, 1fr); gap: 0.25rem; }
+            .aov-grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.5rem; }
+            .aov-card { margin: 0; padding: 0.5rem; min-width: 0; overflow: hidden; }
+            .aov-card-header { padding: 0 0 0.25rem; margin: 0; display: flex; align-items: center; flex-wrap: wrap; }
+            .aov-card-title-link { font-size: 0.9em; font-weight: bold; text-decoration: none; }
+            .aov-card-title { font-size: 0.9em; font-weight: bold; }
+            .aov-mr-auto { margin-right: auto; }
+            .aov-cb-mid { vertical-align: middle; margin-right: 0.3em; }
+            .aov-context-bar { padding: 0.5rem 0; font-size: 0.75em; opacity: 0.6; display: flex; gap: 1em; align-items: center; }
+            .aov-hint { display: block; color: var(--pico-muted-color, #666); margin-bottom: 0.3rem; }
+            .aov-plot-nav { display: flex; flex-wrap: wrap; gap: 0.25rem; margin-bottom: 1rem; align-items: center; }
+            .aov-back-link { font-size: 0.9em; }
+            .aov-plot-row { display: flex; gap: 1rem; }
+            .aov-plot-row-tight { display: flex; gap: 0.5rem; margin-top: 1rem; }
+            .aov-plot-nav-btn { margin: 0.1rem; font-size: 0.85em; padding: 0.3rem 0.6rem; }
         """),
         vega_runtime(),
     ]
@@ -2995,9 +3035,8 @@ function vega_controls(; zoom=true, actions=true)
         ))
     end
     if actions
-        push!(children, h.label(; style="cursor:pointer;")(
-            h.input(; type="checkbox", class="aov-actions-toggle",
-                style="vertical-align:middle; margin-right:0.3em;",
+        push!(children, h.label(; class="u-pointer")(
+            h.input(; type="checkbox", class="aov-actions-toggle aov-cb-mid",
                 onchange="""
                 var show = this.checked;
                 var sheet = document.getElementById('aov-actions-hide');
@@ -3026,7 +3065,7 @@ function vega_controls(; zoom=true, actions=true)
             })();
         """))
     end
-    h.div(; style="padding:0.5rem 0; font-size:0.75em; opacity:0.6; display:flex; gap:1em; align-items:center;")(children...)
+    h.div(; class="aov-context-bar")(children...)
 end
 
 """Count the number of facet columns in a VL spec by inspecting the data."""
@@ -4151,8 +4190,8 @@ function to_node(spec; id=nothing, width=nothing, height=nothing, actions=false,
         end
     end
 
-    h.div(; style="width:100%; min-width:0;")(
-        h.div(; id=id, style="width:100%;"),
+    h.div(; class="aov-plot-area")(
+        h.div(; id=id, class="u-w-full"),
         h.script("AoV.embed('$id', $json, $embed_opts).then(function(){$signal_js});"),
     )
 end
@@ -5187,7 +5226,7 @@ function mapping_controls(id, resolved::NamedTuple; table=nothing, spec=nothing)
         # makes no sense on a single-select axis channel) so the column layout
         # stays consistent with color/row/column/detail.
         h.div()(
-            h.label(; style="display:flex; align-items:center; gap:0.3rem;")(
+            h.label(; class="aov-form-row-tight")(
                 h.input(; radio_attrs...),
                 ch_label * ": ",
             ),
@@ -5379,7 +5418,7 @@ function mapping_controls(id, resolved::NamedTuple; table=nothing, spec=nothing)
     })();
     """)
 
-    hint = h.small(; style="display:block; color:var(--pico-muted-color, #666); margin-bottom:0.3rem;")(
+    hint = h.small(; class="aov-hint")(
         "Assign dimensions to channels (multi-select). ",
         "The pinned channel (", h.strong("●"), ") auto-fills with unassigned dimensions. ",
         "Selecting 2+ dimensions in one channel combines them.",
@@ -5387,7 +5426,7 @@ function mapping_controls(id, resolved::NamedTuple; table=nothing, spec=nothing)
 
     h.div()(
         hint,
-        h.div(; style="display:flex; gap:1rem; align-items:end; flex-wrap:wrap; margin-bottom:0.5rem;")(
+        h.div(; class="aov-toolbar")(
             selects..., js,
         ),
     )
@@ -5469,7 +5508,7 @@ function ecdf_grid(table, columns; group=nothing, width=250, height=180)
         end
         (string(col), vdraw(spec))
     end
-    h.div(; style="display:flex; flex-wrap:wrap; gap:1rem;")(
+    h.div(; class="aov-flex-wide-wrap")(
         [h.div(h.h5(name), node) for (name, node) in plots]...
     )
 end

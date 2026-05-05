@@ -456,55 +456,55 @@ function explorer_controls_html(datasets_or_table; default_ds="penguins", onchan
     mark_options = join(["<option value=\"$(first(m))\"$(first(m) == default_mark ? " selected" : "")>$(last(m))</option>" for m in marks], "\n")
 
     hide_ds = length(ds_names) == 1
-    ds_label_style = hide_ds ? "display:none;" : "display:flex; flex-direction:column; gap:0.25rem;"
-    ribbon_style = default_mark == "line+ribbon" ? "display:flex; flex-direction:column; gap:0.25rem;" : "display:none;"
+    ds_label_class = hide_ds ? "u-hidden" : "aov-form-col"
+    ribbon_class = default_mark == "line+ribbon" ? "aov-form-col" : "u-hidden"
 
     """
-<div id="explorer-controls" style="display:flex; flex-wrap:wrap; gap:1rem; margin-bottom:1rem; align-items:end;">
-  <label style="$ds_label_style">Dataset:
+<div id="explorer-controls" class="aov-controls">
+  <label class="$ds_label_class">Dataset:
     <select id="ex-dataset" onchange="_explorerUpdateDropdowns(); $onchange_fn">$ds_options</select>
   </label>
-  <label style="display:flex; flex-direction:column; gap:0.25rem;">X:
+  <label class="aov-form-col">X:
     <select id="ex-x" onchange="$onchange_fn">$all_options_x</select>
   </label>
-  <label style="display:flex; flex-direction:column; gap:0.25rem;">Y:
+  <label class="aov-form-col">Y:
     <select id="ex-y" onchange="$onchange_fn">$all_options_y</select>
   </label>
-  <label style="display:flex; flex-direction:column; gap:0.25rem;">Color:
+  <label class="aov-form-col">Color:
     <select id="ex-color" onchange="$onchange_fn">$(cat_options_html(default_color))</select>
   </label>
-  <label style="display:flex; flex-direction:column; gap:0.25rem;">Group:
+  <label class="aov-form-col">Group:
     <select id="ex-group" onchange="$onchange_fn">$(cat_options_html(default_group))</select>
   </label>
-  <label style="display:flex; flex-direction:column; gap:0.25rem;">Facet Column:
+  <label class="aov-form-col">Facet Column:
     <select id="ex-col" onchange="$onchange_fn">$(cat_options_html(default_col))</select>
   </label>
-  <label style="display:flex; flex-direction:column; gap:0.25rem;">Facet Row:
+  <label class="aov-form-col">Facet Row:
     <select id="ex-row" onchange="$onchange_fn">$(cat_options_html(default_row))</select>
   </label>
-  <label style="display:flex; flex-direction:column; gap:0.25rem;">Mark:
+  <label class="aov-form-col">Mark:
     <select id="ex-mark" onchange="$onchange_fn">
       $mark_options
     </select>
   </label>
-  <label style="display:flex; align-items:center; gap:0.25rem;">
+  <label class="aov-form-row">
     <input type="checkbox" id="ex-indep-x" onchange="$onchange_fn"$(default_indep_x ? " checked" : "")> Independent X
   </label>
-  <label style="display:flex; align-items:center; gap:0.25rem;">
+  <label class="aov-form-row">
     <input type="checkbox" id="ex-indep-y" onchange="$onchange_fn"$(default_indep_y ? " checked" : "")> Independent Y
   </label>
-  <label style="display:flex; align-items:center; gap:0.25rem;">
+  <label class="aov-form-row">
     <input type="checkbox" id="ex-log-x" onchange="$onchange_fn"$(default_log_x ? " checked" : "")> Log X
   </label>
-  <label style="display:flex; align-items:center; gap:0.25rem;">
+  <label class="aov-form-row">
     <input type="checkbox" id="ex-log-y" onchange="$onchange_fn"$(default_log_y ? " checked" : "")> Log Y
   </label>
-  <label id="ex-ribbon-levels-label" style="$ribbon_style">Ribbon levels:
-    <input type="text" id="ex-ribbon-levels" value="0.5, 0.9" onchange="$onchange_fn" style="width:8rem;">
+  <label id="ex-ribbon-levels-label" class="$ribbon_class">Ribbon levels:
+    <input type="text" id="ex-ribbon-levels" value="0.5, 0.9" onchange="$onchange_fn" class="aov-w-8">
   </label>
 </div>
-<div id="ex-filter-pills" style="display:flex; flex-wrap:wrap; gap:0.3rem; margin-bottom:0.5rem;"></div>
-<div id="explorer-plot" style="width:100%; min-width:0;"></div>"""
+<div id="ex-filter-pills" class="aov-pills"></div>
+<div id="explorer-plot" class="aov-plot-area"></div>"""
 end
 
 """
@@ -575,81 +575,73 @@ function explorer_widget(datasets_or_table; default_ds="penguins",
         isnothing(subtitle) ? "" : h.p(subtitle),
 
         # Controls
-        h.div(; id="explorer-controls", style="display:flex; flex-wrap:wrap; gap:1rem; margin-bottom:1rem; align-items:end;")(
+        h.div(; id="explorer-controls", class="aov-controls")(
             h.label("Dataset: ",
                 h.select(; id="ex-dataset", onchange="AoV.explorerUpdate()")(
                     [h.option(n; value=n, selected=(n == default_ds) ? "selected" : nothing) for n in ds_names]...
-                ); style=hide_ds ? "display:none;" : "display:flex; flex-direction:column; gap:0.25rem;",
+                ); class=hide_ds ? "u-hidden" : "aov-form-col",
             ),
             h.label("X: ",
                 h.select(; id="ex-x", onchange="AoV.explorerUpdate()")(
                     [h.option(c; value=c, selected=(c == dx) ? "selected" : nothing) for c in cols.all]...
-                ); style="display:flex; flex-direction:column; gap:0.25rem;",
+                ); class="aov-form-col",
             ),
             h.label("Y: ",
                 h.select(; id="ex-y", onchange="AoV.explorerUpdate()")(
                     [h.option(c; value=c, selected=(c == dy) ? "selected" : nothing) for c in cols.all]...
-                ); style="display:flex; flex-direction:column; gap:0.25rem;",
+                ); class="aov-form-col",
             ),
-            h.label("Color: ", cat_select("ex-color", default_color);
-                style="display:flex; flex-direction:column; gap:0.25rem;",
-            ),
-            h.label("Group: ", cat_select("ex-group", default_group);
-                style="display:flex; flex-direction:column; gap:0.25rem;",
-            ),
-            h.label("Facet Column: ", cat_select("ex-col", default_col);
-                style="display:flex; flex-direction:column; gap:0.25rem;",
-            ),
-            h.label("Facet Row: ", cat_select("ex-row", default_row);
-                style="display:flex; flex-direction:column; gap:0.25rem;",
-            ),
+            h.label("Color: ", cat_select("ex-color", default_color); class="aov-form-col"),
+            h.label("Group: ", cat_select("ex-group", default_group); class="aov-form-col"),
+            h.label("Facet Column: ", cat_select("ex-col", default_col); class="aov-form-col"),
+            h.label("Facet Row: ", cat_select("ex-row", default_row); class="aov-form-col"),
             h.label("Mark: ",
                 h.select(; id="ex-mark", onchange="AoV.explorerUpdate()")(
                     [h.option(last(m); value=first(m), selected=(first(m) == default_mark) ? "selected" : nothing) for m in marks]...
-                ); style="display:flex; flex-direction:column; gap:0.25rem;",
+                ); class="aov-form-col",
             ),
             h.label(
                 h.input(; type="checkbox", id="ex-indep-x", onchange="AoV.explorerUpdate()",
                     checked=default_indep_x ? "checked" : nothing),
                 " Independent X";
-                style="display:flex; align-items:center; gap:0.25rem;",
+                class="aov-form-row",
             ),
             h.label(
                 h.input(; type="checkbox", id="ex-indep-y", onchange="AoV.explorerUpdate()",
                     checked=default_indep_y ? "checked" : nothing),
                 " Independent Y";
-                style="display:flex; align-items:center; gap:0.25rem;",
+                class="aov-form-row",
             ),
             h.label(
                 h.input(; type="checkbox", id="ex-log-x", onchange="AoV.explorerUpdate()",
                     checked=default_log_x ? "checked" : nothing),
                 " Log X";
-                style="display:flex; align-items:center; gap:0.25rem;",
+                class="aov-form-row",
             ),
             h.label(
                 h.input(; type="checkbox", id="ex-log-y", onchange="AoV.explorerUpdate()",
                     checked=default_log_y ? "checked" : nothing),
                 " Log Y";
-                style="display:flex; align-items:center; gap:0.25rem;",
+                class="aov-form-row",
             ),
             h.label("Ribbon levels: ",
                 h.input(; type="text", id="ex-ribbon-levels", value="0.5, 0.9",
-                    onchange="AoV.explorerUpdate()", style="width:8rem;");
+                    onchange="AoV.explorerUpdate()", class="aov-w-8");
                 id="ex-ribbon-levels-label",
-                style=default_mark == "line+ribbon" ? "display:flex; flex-direction:column; gap:0.25rem;" : "display:none;",
+                class=default_mark == "line+ribbon" ? "aov-form-col" : "u-hidden",
             ),
         ),
 
         # Filter pills
-        h.div(; id="ex-filter-pills", style="display:flex; flex-wrap:wrap; gap:0.3rem; margin-bottom:0.5rem;"),
+        h.div(; id="ex-filter-pills", class="aov-pills"),
 
         # Plot container
-        h.div(; id="explorer-plot", style="width:100%; min-width:0;"),
+        h.div(; id="explorer-plot", class="aov-plot-area"),
 
         # Generated spec viewer (conditional)
-        show_spec ? h.details(; style="margin-top:1rem")(
+        show_spec ? h.details(; class="u-mt-4")(
             h.summary("Vega-Lite JSON Spec"),
-            h.pre(; id="explorer-spec-json", style="background:var(--pico-code-background-color); padding:1rem; border-radius:0.5rem; overflow-x:auto; max-height:400px;"),
+            h.pre(; id="explorer-spec-json", class="aov-code-block aov-code-h-400"),
         ) : "",
 
         # Inline script with data + logic
