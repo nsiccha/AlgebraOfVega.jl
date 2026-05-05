@@ -350,11 +350,8 @@ function infer_types!(encoding::Dict, table)
         enc isa Dict || continue
         if haskey(enc, "field") && !haskey(enc, "type")
             field = Symbol(enc["field"])
-            try
-                col = Tables.getcolumn(table, field)
-                enc["type"] = vl_type(col)
-            catch
-                # Field not found in data — leave untyped
+            if field in Tables.columnnames(table)
+                enc["type"] = vl_type(Tables.getcolumn(table, field))
             end
         end
     end
@@ -2718,12 +2715,8 @@ function add_select_filters!(spec::Dict{String,Any}, drawable, fields)
         param_name = "select_$(field_str)"
 
         # Get unique values
-        vals = try
-            col = Tables.getcolumn(table, field)
-            sort(unique(col))
-        catch
-            continue
-        end
+        field in Tables.columnnames(table) || continue
+        vals = sort(unique(Tables.getcolumn(table, field)))
 
         # Add param with dropdown binding
         push!(params, Dict{String,Any}(
@@ -4540,11 +4533,9 @@ function _spec_layers(spec)
 end
 
 function _auto_summary_args(spec)
-    layers = try
-        _spec_layers(spec)
-    catch
-        return nothing
-    end
+    drawable = spec isa VegaSpec ? spec.drawable : spec
+    (drawable isa AlgebraOfGraphics.Layers || drawable isa AlgebraOfGraphics.Layer) || return nothing
+    layers = _spec_layers(spec)
     for layer in layers
         for T in (PointIntervalAnalysis, GradientIntervalAnalysis, DotIntervalAnalysis)
             a = extract_transformation(layer, T)
