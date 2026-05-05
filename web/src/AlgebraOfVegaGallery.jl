@@ -290,7 +290,7 @@ end
                 plot_body = is_node ? spec : vdraw(spec)
                 json_details = is_node ? h.span() : h.details(; class="u-mt-4")(
                     h.summary("Vega-Lite JSON Spec"),
-                    h.pre(h.code(escape_html(JSON.json(to_vegalite(spec), 2))); class="aov-code-block aov-code-h-400"),
+                    h.pre(h.code(escape_html(JSON.json(to_vegalite(spec), 2))); class="u-code-block u-scroll-y-lg"),
                 )
                 h.div(
                     plot_nav(id),
@@ -298,7 +298,7 @@ end
                     h.p(description),
                     plot_body,
                     h.h4("Julia Code"; class="u-mt-5"),
-                    h.pre(h.code(code_str); class="aov-code-block"),
+                    h.pre(h.code(code_str); class="u-code-block"),
                     json_details,
                 )
             end
@@ -483,11 +483,11 @@ end
                     vdraw(spec),
                     h.details(; class="u-mt-2")(
                         h.summary("Julia Code"),
-                        h.pre(h.code(code_str); class="aov-code-block-sm"),
+                        h.pre(h.code(code_str); class="u-code-block u-text-sm"),
                     ),
                     h.details(; class="u-mt-1")(
                         h.summary("Vega-Lite JSON"),
-                        h.pre(h.code(escape_html(json_str)); class="aov-code-block-sm aov-code-h-300"),
+                        h.pre(h.code(escape_html(json_str)); class="u-code-block u-text-sm u-scroll-y"),
                     ),
                 )
             end
@@ -610,7 +610,7 @@ end
                 vdraw(s),
                 h.details(
                     h.summary("Spec JSON"),
-                    h.pre(h.code(JSON.json(to_vegalite(s), 2)); class="aov-spec-pre"),
+                    h.pre(h.code(JSON.json(to_vegalite(s), 2)); class="u-text-xs u-scroll-y-lg"),
                 ),
             ) for s in specs]...,
         )
@@ -723,7 +723,7 @@ vdraw(spec;
 # The signal listener sends brush bounds as query params:
 #   GET /brush_stats?horsepower=[50,200]&mpg=[15,30]
 # Server computes stats and returns HTML fragment.""");
-                class="aov-code-block"),
+                class="u-code-block"),
     )
 
     # --- Interactive demo: Server-side data update ---
@@ -758,7 +758,7 @@ vdraw(spec;
     filtered = origin == "All" ? cars() : filter_by_origin(cars(), origin)
     update_data("update-demo", filtered)
 end""");
-                class="aov-code-block"),
+                class="u-code-block"),
         )
     end
 

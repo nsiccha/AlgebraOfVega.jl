@@ -2960,26 +2960,13 @@ function vega_head(;
             details[title] > summary > svg { width: 14px !important; height: 14px !important; }
             .chart-wrapper { height: auto !important; }
 
-            /* AoV utility classes */
-            .aov-form-col { display: flex; flex-direction: column; gap: 0.25rem; }
-            .aov-form-row { display: flex; align-items: center; gap: 0.25rem; }
-            .aov-form-row-tight { display: flex; align-items: center; gap: 0.3rem; }
-            .aov-controls { display: flex; flex-wrap: wrap; gap: 1rem; margin-bottom: 1rem; align-items: end; }
-            .aov-pills { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-bottom: 0.5rem; }
-            .aov-toolbar { display: flex; gap: 1rem; align-items: end; flex-wrap: wrap; margin-bottom: 0.5rem; }
-            .aov-flex-wide-wrap { display: flex; flex-wrap: wrap; gap: 1rem; }
+            /* AoV utility classes (domain-specific; generic ones use HTMXObjects u-* utilities) */
             .aov-plot-area { width: 100%; min-width: 0; }
             .aov-w-8 { width: 8rem; }
             .aov-w-50 { width: 50%; }
             .aov-w-60 { width: 60%; }
             .aov-img-fluid { max-width: 100%; }
             .aov-flex-1 { flex: 1; }
-            .aov-code-block { background: var(--pico-code-background-color); padding: 1rem; border-radius: 0.5rem; overflow-x: auto; }
-            .aov-code-block-sm { background: var(--pico-code-background-color); padding: 0.75rem; border-radius: 0.5rem; overflow-x: auto; font-size: 0.85em; }
-            .aov-code-h-300 { max-height: 300px; }
-            .aov-code-h-400 { max-height: 400px; }
-            .aov-spec-pre { font-size: 0.8em; max-height: 400px; overflow: auto; }
-            .aov-btn-sm { font-size: 0.85em; padding: 0.3rem 0.6rem; }
             .aov-grid-cell { border: 1px solid var(--pico-muted-border-color); border-radius: 0.2rem; padding: 0.2rem; overflow: hidden; min-width: 0; }
             .aov-grid-cell-failed { opacity: 0.4; }
             .aov-grid-cell-title { font-weight: bold; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 0.1rem; }
@@ -2993,7 +2980,6 @@ function vega_head(;
             .aov-mr-auto { margin-right: auto; }
             .aov-cb-mid { vertical-align: middle; margin-right: 0.3em; }
             .aov-context-bar { padding: 0.5rem 0; font-size: 0.75em; opacity: 0.6; display: flex; gap: 1em; align-items: center; }
-            .aov-hint { display: block; color: var(--pico-muted-color, #666); margin-bottom: 0.3rem; }
             .aov-plot-nav { display: flex; flex-wrap: wrap; gap: 0.25rem; margin-bottom: 1rem; align-items: center; }
             .aov-back-link { font-size: 0.9em; }
             .aov-plot-row { display: flex; gap: 1rem; }
@@ -5226,7 +5212,7 @@ function mapping_controls(id, resolved::NamedTuple; table=nothing, spec=nothing)
         # makes no sense on a single-select axis channel) so the column layout
         # stays consistent with color/row/column/detail.
         h.div()(
-            h.label(; class="aov-form-row-tight")(
+            h.label(; class="u-flex-tight")(
                 h.input(; radio_attrs...),
                 ch_label * ": ",
             ),
@@ -5418,7 +5404,7 @@ function mapping_controls(id, resolved::NamedTuple; table=nothing, spec=nothing)
     })();
     """)
 
-    hint = h.small(; class="aov-hint")(
+    hint = h.small(; class="u-text-muted u-mb-1")(
         "Assign dimensions to channels (multi-select). ",
         "The pinned channel (", h.strong("●"), ") auto-fills with unassigned dimensions. ",
         "Selecting 2+ dimensions in one channel combines them.",
@@ -5426,7 +5412,7 @@ function mapping_controls(id, resolved::NamedTuple; table=nothing, spec=nothing)
 
     h.div()(
         hint,
-        h.div(; class="aov-toolbar")(
+        h.div(; class="u-flex-wide u-flex-wrap u-mb-2")(
             selects..., js,
         ),
     )
@@ -5508,7 +5494,7 @@ function ecdf_grid(table, columns; group=nothing, width=250, height=180)
         end
         (string(col), vdraw(spec))
     end
-    h.div(; class="aov-flex-wide-wrap")(
+    h.div(; class="u-flex-wide u-flex-wrap")(
         [h.div(h.h5(name), node) for (name, node) in plots]...
     )
 end
