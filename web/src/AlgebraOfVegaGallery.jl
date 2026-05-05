@@ -538,23 +538,19 @@ end
     end
 
     @get inspect_layer(expr) = begin
-        layer = try
-            if expr == "linear"
-                linear()
-            elseif expr == "smooth"
-                smooth()
-            elseif expr == "density"
-                density()
-            elseif expr == "histogram"
-                histogram()
-            elseif expr == "frequency"
-                frequency()
-            elseif expr == "expectation"
-                expectation()
-            else
-                nothing
-            end
-        catch e
+        layer = if expr == "linear"
+            linear()
+        elseif expr == "smooth"
+            smooth()
+        elseif expr == "density"
+            density()
+        elseif expr == "histogram"
+            histogram()
+        elseif expr == "frequency"
+            frequency()
+        elseif expr == "expectation"
+            expectation()
+        else
             nothing
         end
         if isnothing(layer)
@@ -660,8 +656,8 @@ end
 
     @get brush_stats(; horsepower="", mpg="") = begin
         c = cars()
-        hp_range = try JSON.parse(horsepower) catch; nothing end
-        mpg_range = try JSON.parse(mpg) catch; nothing end
+        hp_range = isempty(horsepower) ? nothing : JSON.parse(horsepower)
+        mpg_range = isempty(mpg) ? nothing : JSON.parse(mpg)
 
         if isnothing(hp_range) || isnothing(mpg_range)
             h.div(; id="brush-stats")(

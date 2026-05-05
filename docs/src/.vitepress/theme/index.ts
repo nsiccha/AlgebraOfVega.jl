@@ -18,6 +18,11 @@ import ExplorerLoader from '@/ExplorerLoader.vue'
 
 import { enhanceAppWithTabs } from 'vitepress-plugin-tabs/client'
 
+// Synced from HTMXObjects/assets/vitepress/htmxo-embed.ts by
+// `HTMXObjects.vitepress_theme_install` in make.jl. Don't edit in place
+// — edit the upstream and re-run make.jl.
+import { setupHtmxoEmbed } from './htmxo-embed'
+
 import '@nolebase/vitepress-plugin-enhanced-readabilities/client/style.css'
 import './style.css' // You could setup your own, or else a default will be copied.
 import './docstrings.css' // You could setup your own, or else a default will be copied.
@@ -41,49 +46,11 @@ export const Theme: ThemeConfig = {
     app.component('Authors', Authors)
     app.component('VegaPlot', VegaPlot)
     app.component('ExplorerLoader', ExplorerLoader)
-    // VitePress is an SPA: `<div hx-trigger="load">` placeholders only
-    // fire on initial mount. After client-side navigation, new HTMX
-    // placeholders need a manual `htmx.process(document.body)` to be
-    // picked up. Hook the after-route-change event for that.
-    if (typeof window !== 'undefined' && router) {
-      router.onAfterRouteChanged = () => {
-        // @ts-ignore - htmx loaded via head <script>; no types.
-        if (window.htmx) window.htmx.process(document.body);
-      };
-
-      // Embedded HTMXO fragments contain root-absolute links like
-      // `<a href="/standalone/foo">` that point at the AoV server's
-      // own paths. Without rewriting they resolve against VitePress's
-      // origin and 404. Rewrite root-absolute hrefs and hx-* URLs
-      // inside `.htmxo-embed` containers to go through the
-      // `/live-aov` proxy. Same for `/live-htmxo` (HTMXObjects docs).
-      const rewritePrefix = (
-        document.querySelector('meta[name="htmxo-embed-prefix"]')?.getAttribute('content')
-        ?? '/live-aov'
-      );
-      const rewriteRootRefs = (root: HTMLElement) => {
-        const fix = (el: Element, attr: string) => {
-          const v = el.getAttribute(attr);
-          if (v && v.startsWith('/') && !v.startsWith('//') && !v.startsWith(rewritePrefix)) {
-            el.setAttribute(attr, rewritePrefix + v);
-          }
-        };
-        root.querySelectorAll('[href]').forEach((el) => fix(el, 'href'));
-        root.querySelectorAll('[hx-get]').forEach((el) => fix(el, 'hx-get'));
-        root.querySelectorAll('[hx-post]').forEach((el) => fix(el, 'hx-post'));
-        root.querySelectorAll('[hx-put]').forEach((el) => fix(el, 'hx-put'));
-        root.querySelectorAll('[hx-patch]').forEach((el) => fix(el, 'hx-patch'));
-        root.querySelectorAll('[hx-delete]').forEach((el) => fix(el, 'hx-delete'));
-      };
-      document.body.addEventListener('htmx:afterSwap', (e: any) => {
-        const tgt = e?.detail?.target as HTMLElement | undefined;
-        if (!tgt) return;
-        // Walk up to find an enclosing `.htmxo-embed`; if none, no rewrite.
-        const embed = tgt.closest('.htmxo-embed');
-        if (!embed) return;
-        rewriteRootRefs(embed as HTMLElement);
-      });
-    }
+    // HTMXObjects embed wiring: data-hx-base resolution + SPA route
+    // re-process + .htmxo-embed link rewriting. AoV defaults the proxy
+    // prefix to `/live-aov` (matches the Vite proxy in config.mts and
+    // the committed recordings under public/live-aov/).
+    setupHtmxoEmbed(router, { proxyPrefix: '/live-aov' });
   }
 }
 export default Theme

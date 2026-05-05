@@ -1,4 +1,9 @@
 using Documenter, DocumenterVitepress, AlgebraOfVega
+import HTMXObjects
+
+# Sync the canonical `htmxo-embed.ts` into our theme dir before
+# DocumenterVitepress runs. The theme's `index.ts` imports from it.
+HTMXObjects.vitepress_theme_install(joinpath(@__DIR__, "src", ".vitepress", "theme"))
 
 # Generate gallery examples with Vega-Lite specs
 include("generate_gallery.jl")
@@ -16,9 +21,6 @@ makedocs(
         "Home" => "index.md",
         "Getting Started" => "getting-started.md",
         "Translation Guide" => "translation.md",
-        "Interactivity" => "interactivity.md",
-        "Uncertainty Visualization" => "uncertainty.md",
-        "Gallery Examples" => "gallery-examples.md",
         "Gallery" => "gallery.md",
         "FAQ" => "faq.md",
         "API" => "api.md",
