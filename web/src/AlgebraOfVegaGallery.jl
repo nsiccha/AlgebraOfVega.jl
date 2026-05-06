@@ -13,6 +13,15 @@ using HTMXObjects: RecordingRoutes
 
 include("test/runtests.jl")
 
+_is_html_node(::HTMX.Node) = true
+_is_html_node(_) = false
+
+_push_compose_parts!(args...) = nothing
+function _push_compose_parts!(lines, t::ComposedFunction)
+    push!(lines, "  outer: $(t.outer) ($(typeof(t.outer)))")
+    push!(lines, "  inner: $(t.inner) ($(typeof(t.inner)))")
+end
+
 # --- Sample datasets (from AlgebraOfVega.datasets) ---
 # Local aliases to keep existing plot code unchanged
 cars() = sample_cars()
@@ -180,7 +189,7 @@ end
         entry = find_plot(id)
         let spec = isnothing(entry) ? nothing : entry[5]()
             code_str = isnothing(entry) ? "" : entry[4]
-            is_node = spec isa HTMX.Node
+            is_node = _is_html_node(spec)
             h.article(; class="htmxo-gallery-card")(
                 h.h4(; class="htmxo-gallery-card-title")(
                     h.a(title; href=__self__/"standalone/$id", target="_blank"),
@@ -281,7 +290,7 @@ end
         else
             title, description, code_str, spec_fn = entry[2], entry[3], entry[4], entry[5]
             let spec = spec_fn()
-                is_node = spec isa HTMX.Node
+                is_node = _is_html_node(spec)
                 plot_body = is_node ? spec : vdraw(spec)
                 json_details = is_node ? h.span() : h.details(; class="u-mt-4")(
                     h.summary("Vega-Lite JSON Spec"),
@@ -330,7 +339,7 @@ end
         isnothing(entry) && return h.span()
         let spec = entry[5]()
             isnothing(spec) && return h.span()
-            is_node = spec isa HTMX.Node
+            is_node = _is_html_node(spec)
             h.div(; class="aov-grid-cell")(
                 h.div(entry[2]; class="aov-grid-cell-title"),
                 is_node ? spec : vdraw(spec; width="container"),
@@ -550,10 +559,7 @@ end
             t = layer.transformation
             push!(lines, "transformation: $t")
             push!(lines, "transformation type: $(typeof(t))")
-            if t isa ComposedFunction
-                push!(lines, "  outer: $(t.outer) ($(typeof(t.outer)))")
-                push!(lines, "  inner: $(t.inner) ($(typeof(t.inner)))")
-            end
+            _push_compose_parts!(lines, t)
             if hasproperty(layer, :positional)
                 push!(lines, "positional: $(layer.positional)")
             end
@@ -607,7 +613,7 @@ end
             HTTP.Response(404, ["Content-Type" => "text/plain"], body="Unknown plot: $id")
         else
             let spec = entry[5]()
-                if spec isa HTMX.Node
+                if _is_html_node(spec)
                     h.html(h.head(vega_head()...), h.body(spec))
                 else
                     HTTP.Response(200, ["Content-Type" => "text/html; charset=utf-8"], body=to_html(spec))
