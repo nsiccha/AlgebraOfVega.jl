@@ -2543,13 +2543,19 @@ end
 function _deep_merge_encoding!(target_enc::Dict, config_enc::Dict)
     for (ek, ev) in config_enc
         sek = string(ek)
-        if ev isa Dict && haskey(target_enc, sek) && target_enc[sek] isa Dict
-            merge!(target_enc[sek], Dict{String,Any}(string(k2) => v2 for (k2, v2) in ev))
+        ev_dict = _as_dict(ev)
+        target_dict = _as_dict(get(target_enc, sek, nothing))
+        if !isnothing(ev_dict) && !isnothing(target_dict)
+            merge!(target_dict, Dict{String,Any}(string(k2) => v2 for (k2, v2) in ev_dict))
         else
             target_enc[sek] = ev
         end
     end
 end
+
+# Recurse the merge into a child spec only when it's actually a Dict.
+_merge_into_child!(args...) = nothing
+_merge_into_child!(child::Dict, config_enc::Dict) = _merge_encoding_config!(child, config_enc)
 
 function _merge_encoding_config!(spec::Dict, config_enc::Dict)
     if haskey(spec, "encoding")
@@ -2557,11 +2563,11 @@ function _merge_encoding_config!(spec::Dict, config_enc::Dict)
     end
     if haskey(spec, "layer")
         for sublayer in spec["layer"]
-            sublayer isa Dict && _merge_encoding_config!(sublayer, config_enc)
+            _merge_into_child!(sublayer, config_enc)
         end
     end
     if haskey(spec, "spec")
-        spec["spec"] isa Dict && _merge_encoding_config!(spec["spec"], config_enc)
+        _merge_into_child!(spec["spec"], config_enc)
     end
 end
 
@@ -2720,20 +2726,18 @@ the data and injects VL `params` with `bind: {input: "select"}` + expression fil
 Usage via config: `config(select=:origin)` or `config(select=[:origin, :cylinders])`.
 Each field gets a dropdown with "All" + sorted unique values.
 """
-function add_select_filters!(spec::Dict{String,Any}, drawable, fields)
-    # Extract data table from the drawable
-    table = nothing
-    if drawable isa AlgebraOfGraphics.Layer
-        table = extract_data(drawable)
-    elseif drawable isa AlgebraOfGraphics.Layers
-        for l in drawable.layers
-            t = extract_data(l)
-            if !isnothing(t)
-                table = t
-                break
-            end
-        end
+_drawable_table(l::AlgebraOfGraphics.Layer) = extract_data(l)
+function _drawable_table(ls::AlgebraOfGraphics.Layers)
+    for l in ls.layers
+        t = extract_data(l)
+        isnothing(t) || return t
     end
+    nothing
+end
+_drawable_table(_) = nothing
+
+function add_select_filters!(spec::Dict{String,Any}, drawable, fields)
+    table = _drawable_table(drawable)
     isnothing(table) && return spec
 
     params = get!(spec, "params", Dict{String,Any}[])
