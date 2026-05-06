@@ -2705,11 +2705,6 @@ _independent_axes(val) = [string(v) for v in val]
 _select_field_list(s::Symbol) = [s]
 _select_field_list(v) = v
 
-# `mark` in a VL spec can be a Dict (with `type` key) or a String shorthand.
-_mark_type(d::Dict) = get(d, "type", "")
-_mark_type(s::String) = s
-_mark_type(_) = ""
-
 function to_vegalite(v::VegaSpec)
     spec = to_vegalite(v.drawable)
     select_fields = nothing
