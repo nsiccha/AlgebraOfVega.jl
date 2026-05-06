@@ -702,6 +702,15 @@ function _walk_chain(::Type{T}, f::ComposedFunction) where {T}
     nothing
 end
 
+_is_automatic(::Makie.Automatic) = true
+_is_automatic(_) = false
+
+_analysis_probs(a::Union{PointIntervalAnalysis,GradientIntervalAnalysis,DotIntervalAnalysis}) = a.probs
+_analysis_probs(_) = [0.95, 0.5]
+
+_is_gradient(::GradientIntervalAnalysis) = true
+_is_gradient(_) = false
+
 """Extract a transformation of type `T` from a layer's transformation chain."""
 function extract_transformation(layer::AlgebraOfGraphics.Layer, T::Type)
     t = layer.transformation
@@ -1463,7 +1472,7 @@ function linear_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
     color_field = haskey(layer.named, :color) ? _field_name(layer.named[:color]) : nothing
     color_label = haskey(layer.named, :color) ? _field_label(layer.named[:color]) : nothing
     analysis = extract_transformation(layer, AlgebraOfGraphics.LinearAnalysis)
-    has_band = !isnothing(analysis) && !isnothing(analysis.interval) && !(analysis.interval isa Makie.Automatic)
+    has_band = !isnothing(analysis) && !isnothing(analysis.interval) && !_is_automatic(analysis.interval)
 
     reg_transform = Dict{String,Any}(
         "regression" => y_field,
@@ -1601,7 +1610,7 @@ function smooth_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
     color_label = haskey(layer.named, :color) ? _field_label(layer.named[:color]) : nothing
     analysis = extract_transformation(layer, AlgebraOfGraphics.SmoothAnalysis)
     bandwidth = !isnothing(analysis) ? analysis.span : 0.75
-    has_band = !isnothing(analysis) && !isnothing(analysis.interval) && !(analysis.interval isa Makie.Automatic)
+    has_band = !isnothing(analysis) && !isnothing(analysis.interval) && !_is_automatic(analysis.interval)
 
     loess_transform = Dict{String,Any}(
         "loess" => y_field,
@@ -2432,13 +2441,12 @@ function _faceted_layers_to_vl(layers, facet_field, shared_table, shared_data)
             if !isnothing(analysis)
                 # Compute interval summary per-group using VL transforms instead
                 x_field = length(layer.positional) >= 1 ? _field_name(layer.positional[1]) : "value"
-                probs = analysis isa Union{PointIntervalAnalysis, GradientIntervalAnalysis} ? analysis.probs :
-                         analysis isa DotIntervalAnalysis ? analysis.probs : [0.95, 0.5]
+                probs = _analysis_probs(analysis)
                 point_sym = hasproperty(analysis, :point) ? analysis.point : :median
 
                 # Use VL quantile transforms for intervals within facet
                 sorted_probs = sort(probs, rev=true)
-                is_gradient = analysis isa GradientIntervalAnalysis
+                is_gradient = _is_gradient(analysis)
 
                 if is_gradient
                     opacities = collect(range(0.2, 0.7, length=length(sorted_probs)))
@@ -2886,8 +2894,9 @@ function add_auto_interactivity!(spec::Dict{String,Any})
     # Find color field from top-level encoding only.
     # Legend binding doesn't work reliably for layered specs where color is only in sublayers.
     color_field = nothing
-    if !isnothing(enc) && haskey(enc, "color") && enc["color"] isa Dict
-        color_field = get(enc["color"], "field", nothing)
+    if !isnothing(enc)
+        color_enc = _as_dict(get(enc, "color", nothing))
+        isnothing(color_enc) || (color_field = get(color_enc, "field", nothing))
     end
 
     params = Dict{String,Any}[]
@@ -2946,8 +2955,8 @@ function add_auto_interactivity!(spec::Dict{String,Any})
             for sl in sublayers
                 sl_enc = get(sl, "encoding", nothing)
                 # Skip layers that already have opacity in encoding or mark
-                sl_mark = get(sl, "mark", nothing)
-                mark_has_opacity = sl_mark isa Dict && haskey(sl_mark, "opacity")
+                sl_mark = _as_dict(get(sl, "mark", nothing))
+                mark_has_opacity = !isnothing(sl_mark) && haskey(sl_mark, "opacity")
                 if !isnothing(sl_enc) && !haskey(sl_enc, "opacity") && !mark_has_opacity
                     sl_enc["opacity"] = opacity_condition
                 end
