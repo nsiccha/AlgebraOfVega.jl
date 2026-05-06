@@ -5837,7 +5837,7 @@ function _fix_visual_attrs(layer::AlgebraOfGraphics.Layer)
     end
     if haskey(attrs, :strokeDash) && !haskey(attrs, :linestyle)
         v = pop!(attrs, :strokeDash)
-        attrs[:linestyle] = v isa AbstractVector{<:Real} ? Makie.Linestyle(collect(Float64, v)) : v
+        attrs[:linestyle] = _to_linestyle(v)
         changed = true
     end
     if haskey(attrs, :opacity) && !haskey(attrs, :alpha)
@@ -5847,28 +5847,30 @@ function _fix_visual_attrs(layer::AlgebraOfGraphics.Layer)
     !changed && return layer
     new_vis = AlgebraOfGraphics.Visual(vis.plottype; attrs...)
     # Rebuild layer with new visual in the transformation
-    t = layer.transformation
-    new_t = if t isa AlgebraOfGraphics.Visual
-        new_vis
-    elseif t isa ComposedFunction
-        t.outer isa AlgebraOfGraphics.Visual ? new_vis ∘ t.inner : t.outer ∘ new_vis
-    else
-        new_vis
-    end
+    new_t = _swap_visual(layer.transformation, new_vis)
     AlgebraOfGraphics.Layer(new_t, layer.data, layer.positional, layer.named)
 end
 
+_to_linestyle(v::AbstractVector{<:Real}) = Makie.Linestyle(collect(Float64, v))
+_to_linestyle(v) = v
+
+_swap_visual(::AlgebraOfGraphics.Visual, new_vis) = new_vis
+_swap_visual(t::ComposedFunction{<:AlgebraOfGraphics.Visual}, new_vis) = new_vis ∘ t.inner
+_swap_visual(t::ComposedFunction, new_vis) = t.outer ∘ new_vis
+_swap_visual(_, new_vis) = new_vis
+
+_convert_drawable(d::AlgebraOfGraphics.Layers) = _to_aog_drawable(d)
+_convert_drawable(d::AlgebraOfGraphics.Layer) = _convert_single_layer(d)
+_convert_drawable(d) = d
+
+_aog_from_analysis(a::LineRibbonAnalysis, l) = _lineribbon_to_aog(a, l)
+_aog_from_analysis(a::PrecomputedRibbonAnalysis, l) = _precomputed_ribbon_to_aog(a, l)
+_aog_from_analysis(a, _) = error("sdraw does not yet support $(typeof(a)) — use vdraw for this plot type")
+
 function _convert_single_layer(l::AlgebraOfGraphics.Layer)
     a = _get_analysis(l)
-    if !isnothing(a)
-        if a isa LineRibbonAnalysis
-            return _lineribbon_to_aog(a, l)
-        elseif a isa PrecomputedRibbonAnalysis
-            return _precomputed_ribbon_to_aog(a, l)
-        end
-        error("sdraw does not yet support $(typeof(a)) — use vdraw for this plot type")
-    end
-    _fix_visual_attrs(l)
+    isnothing(a) && return _fix_visual_attrs(l)
+    _aog_from_analysis(a, l)
 end
 
 function _to_aog_drawable(layers::AlgebraOfGraphics.Layers)
@@ -5904,13 +5906,7 @@ Returns the path. Extra `kwargs` are passed to `Makie.save`.
 """
 function sdraw_file(spec, path::AbstractString; kwargs...)
     drawable, cfg = _extract_drawable(spec)
-    drawable = if drawable isa AlgebraOfGraphics.Layers
-        _to_aog_drawable(drawable)
-    elseif drawable isa AlgebraOfGraphics.Layer
-        _convert_single_layer(drawable)
-    else
-        drawable
-    end
+    drawable = _convert_drawable(drawable)
     kw = _draw_kwargs(cfg; faceted=_is_faceted(drawable))
     fg = isnothing(kw.scales) ?
         AlgebraOfGraphics.draw(drawable; figure=kw.figure, facet=kw.facet, axis=kw.axis) :
