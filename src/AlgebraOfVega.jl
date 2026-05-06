@@ -4043,8 +4043,9 @@ if the spec is single-view. Faceted specs nest layers under `spec.spec.layer`; f
 specs use `spec.layer`.
 """
 function _layer_array(vl::Dict)
-    if haskey(vl, "spec") && vl["spec"] isa Dict && haskey(vl["spec"], "layer")
-        return vl["spec"]["layer"]
+    inner = _as_dict(get(vl, "spec", nothing))
+    if !isnothing(inner) && haskey(inner, "layer")
+        return inner["layer"]
     elseif haskey(vl, "layer")
         return vl["layer"]
     end
@@ -4057,37 +4058,28 @@ end
 Return the list of partition field names declared on a Vega-Lite spec via
 `facet.row/column`, top-level `encoding.row/column`, or sublayer `encoding.row/column`.
 """
+# Push the `field` key from a Dict-shaped channel encoding, if present.
+_push_field!(args...) = nothing
+function _push_field!(fields, ch_enc::Dict)
+    haskey(ch_enc, "field") && push!(fields, ch_enc["field"])
+end
+
+function _push_channel_fields!(fields, container, channels)
+    d = _as_dict(container)
+    isnothing(d) && return
+    for ch in channels
+        _push_field!(fields, _as_dict(get(d, ch, nothing)))
+    end
+end
+
 function _facet_fields(vl::Dict)
     fields = String[]
-    facet = get(vl, "facet", nothing)
-    if facet isa Dict
-        for ch in ("row", "column")
-            f = get(facet, ch, nothing)
-            if f isa Dict && haskey(f, "field")
-                push!(fields, f["field"])
-            end
-        end
-    end
-    enc = get(vl, "encoding", nothing)
-    if enc isa Dict
-        for ch in ("row", "column")
-            f = get(enc, ch, nothing)
-            if f isa Dict && haskey(f, "field")
-                push!(fields, f["field"])
-            end
-        end
-    end
+    _push_channel_fields!(fields, get(vl, "facet", nothing), ("row", "column"))
+    _push_channel_fields!(fields, get(vl, "encoding", nothing), ("row", "column"))
     layers = _layer_array(vl)
     if layers !== nothing
         for l in layers
-            le = get(l, "encoding", nothing)
-            le isa Dict || continue
-            for ch in ("row", "column", "color")
-                f = get(le, ch, nothing)
-                if f isa Dict && haskey(f, "field")
-                    push!(fields, f["field"])
-                end
-            end
+            _push_channel_fields!(fields, get(l, "encoding", nothing), ("row", "column", "color"))
         end
     end
     unique(fields)
@@ -4115,50 +4107,62 @@ function _broadcast_cross_source_layers!(vl::Dict)
 
     # Find the data object whose `values` carry the merged rows. May be at the
     # outer spec or, for faceted layouts, at `spec.spec.data`.
-    data_obj = nothing
-    if haskey(vl, "data") && vl["data"] isa Dict && haskey(vl["data"], "values")
-        data_obj = vl["data"]
-    elseif haskey(vl, "spec") && vl["spec"] isa Dict
-        inner = vl["spec"]
-        if haskey(inner, "data") && inner["data"] isa Dict && haskey(inner["data"], "values")
-            data_obj = inner["data"]
-        end
+    data_obj = _data_with_values(_as_dict(get(vl, "data", nothing)))
+    if isnothing(data_obj)
+        inner = _as_dict(get(vl, "spec", nothing))
+        isnothing(inner) || (data_obj = _data_with_values(_as_dict(get(inner, "data", nothing))))
     end
-    data_obj === nothing && return vl
-    vals = data_obj["values"]
-    vals isa AbstractVector || return vl
+    isnothing(data_obj) && return vl
+    vals = _as_vec(data_obj["values"])
+    isnothing(vals) && return vl
 
     for field in fields
         # Collect unique values from rows that already have this field
         uniques = Any[]
         seen = Set{Any}()
         for v in vals
-            if v isa Dict && haskey(v, field)
-                u = v[field]
-                if !(u in seen)
-                    push!(seen, u)
-                    push!(uniques, u)
-                end
-            end
+            _collect_field_value!(uniques, seen, v, field)
         end
         isempty(uniques) && continue
 
         new_vals = Vector{Any}()
         for v in vals
-            if !(v isa Dict) || haskey(v, field)
-                push!(new_vals, v)
-            else
-                for u in uniques
-                    nv = copy(v)
-                    nv[field] = u
-                    push!(new_vals, nv)
-                end
-            end
+            _replicate_or_keep!(new_vals, v, field, uniques)
         end
         vals = new_vals
     end
     data_obj["values"] = vals
     vl
+end
+
+_data_with_values(d::Dict) = haskey(d, "values") ? d : nothing
+_data_with_values(_) = nothing
+
+_as_vec(v::AbstractVector) = v
+_as_vec(_) = nothing
+
+_collect_field_value!(args...) = nothing
+function _collect_field_value!(uniques, seen, v::Dict, field)
+    haskey(v, field) || return
+    u = v[field]
+    if !(u in seen)
+        push!(seen, u)
+        push!(uniques, u)
+    end
+end
+
+# When `v` lacks the facet field, replicate it across `uniques`. Otherwise keep as-is.
+_replicate_or_keep!(new_vals, v, args...) = (push!(new_vals, v); nothing)
+function _replicate_or_keep!(new_vals, v::Dict, field, uniques)
+    if haskey(v, field)
+        push!(new_vals, v)
+    else
+        for u in uniques
+            nv = copy(v)
+            nv[field] = u
+            push!(new_vals, nv)
+        end
+    end
 end
 
 """
@@ -4174,18 +4178,29 @@ Requires vega/vega-lite/vega-embed scripts to be loaded (use `vega_head()` in pa
 - `signals`: vector of signal→HTMX wirings. Each entry is a NamedTuple or Dict:
   `(signal="brush", url="/on_brush", target="#detail")` or with optional `swap`, `debounce`.
 """
+_as_vl_dict(d::Dict) = copy(d)
+_as_vl_dict(s) = to_vegalite(s)
+
+_as_number(n::Number) = n
+_as_number(_) = nothing
+
+# Look up a key in a per-signal entry. NamedTuple uses Symbol keys, Dict uses String.
+_sig_get(sig::NamedTuple, key::Symbol) = getproperty(sig, key)
+_sig_get(sig, key::Symbol) = sig[string(key)]
+_sig_get(sig::NamedTuple, key::Symbol, default) = get(sig, key, default)
+_sig_get(sig, key::Symbol, default) = get(sig, string(key), default)
+
 function to_node(spec; id=nothing, width=nothing, height=nothing, actions=false, signals=nothing, fit_width=true)
-    # Convert to VL dict
-    vl = spec isa Dict ? copy(spec) : to_vegalite(spec)
+    vl = _as_vl_dict(spec)
     !isnothing(width) && (vl["width"] = width)
     !isnothing(height) && (vl["height"] = height)
     # Only apply fit_width defaults if no explicit width was set (via config or kwarg)
-    has_explicit_width = haskey(vl, "width") && vl["width"] isa Number
-    has_explicit_inner_width = haskey(vl, "spec") && vl["spec"] isa Dict && haskey(vl["spec"], "width")
+    has_explicit_width = !isnothing(_as_number(get(vl, "width", nothing)))
+    inner_spec = _as_dict(get(vl, "spec", nothing))
+    has_explicit_inner_width = !isnothing(inner_spec) && haskey(inner_spec, "width")
     if fit_width && !has_explicit_width && !has_explicit_inner_width && !haskey(vl, "hconcat") && !haskey(vl, "vconcat")
         # Detect faceting: explicit facet key, nested spec, or row/column encoding channels
-        _enc = get(vl, "encoding", Dict())
-        _enc = _enc isa Dict ? _enc : Dict()
+        _enc = something(_as_dict(get(vl, "encoding", nothing)), Dict())
         has_enc_facet = haskey(_enc, "row") || haskey(_enc, "column")
         is_faceted = haskey(vl, "facet") || haskey(vl, "spec") || has_enc_facet
         is_layered = haskey(vl, "layer") || is_faceted || haskey(vl, "concat")
@@ -4221,11 +4236,11 @@ function to_node(spec; id=nothing, width=nothing, height=nothing, actions=false,
     signal_js = ""
     if !isnothing(signals)
         for sig in signals
-            sname = sig isa NamedTuple ? sig.signal : sig["signal"]
-            surl = sig isa NamedTuple ? sig.url : sig["url"]
-            starget = sig isa NamedTuple ? get(sig, :target, "body") : get(sig, "target", "body")
-            sswap = sig isa NamedTuple ? get(sig, :swap, "innerHTML") : get(sig, "swap", "innerHTML")
-            sdebounce = sig isa NamedTuple ? get(sig, :debounce, 300) : get(sig, "debounce", 300)
+            sname = _sig_get(sig, :signal)
+            surl = _sig_get(sig, :url)
+            starget = _sig_get(sig, :target, "body")
+            sswap = _sig_get(sig, :swap, "innerHTML")
+            sdebounce = _sig_get(sig, :debounce, 300)
             signal_js *= "AoV.signalToHtmx('$id', '$sname', '$surl', '$starget', '$sswap', $sdebounce);\n"
         end
     end
