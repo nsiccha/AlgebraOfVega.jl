@@ -398,17 +398,10 @@ function pregrouped_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
     y_arg = length(pos) >= 2 ? pos[2] : nothing
 
     # Unwrap x: may be Pair(data, renamer) or raw data
-    x_data, x_rename = if x_arg isa Pair
-        first(x_arg), last(x_arg)
-    else
-        x_arg, nothing
-    end
+    x_data, x_rename = _unwrap_x_arg(x_arg)
 
     # Collect ordered labels from renamer for sort order
-    x_sort = nothing
-    if x_rename isa AlgebraOfGraphics.Renamer
-        x_sort = [string(l) for l in x_rename.labels]
-    end
+    x_sort = _renamer_sort(x_rename)
 
     # Flatten grouped vectors into long-form rows
     rows = Dict{String,Any}[]
@@ -417,18 +410,12 @@ function pregrouped_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
         x_vals = x_data[i]
         for j in eachindex(x_vals)
             x_raw = x_vals[j]
-            x_label = if x_rename isa AlgebraOfGraphics.Renamer
-                string(x_rename(x_raw).value)
-            elseif x_rename isa Function
-                string(x_rename(x_raw))
-            else
-                string(x_raw)
-            end
+            x_label = _apply_rename(x_rename, x_raw)
             row = Dict{String,Any}("x" => x_label)
             if !isnothing(y_arg)
                 yval = y_arg[i][j]
                 # Skip NaN/Inf values — they produce "infinite extent" VL warnings
-                (yval isa Number && !isfinite(yval)) && continue
+                isnothing(_vl_safe(yval)) && continue
                 row["y"] = yval
             end
             push!(rows, row)
@@ -476,7 +463,40 @@ function pregrouped_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
     spec
 end
 
-_vl_safe(v) = v isa Number && !isfinite(v) ? nothing : v
+_vl_safe(v) = v
+_vl_safe(v::Number) = isfinite(v) ? v : nothing
+
+# Pregrouped x-arg may arrive as `data => renamer` or as raw data
+_unwrap_x_arg(x) = (x, nothing)
+_unwrap_x_arg(x::Pair) = (first(x), last(x))
+
+# Sort labels from a renamer (only AoG.Renamer carries an explicit order)
+_renamer_sort(_) = nothing
+_renamer_sort(r::AlgebraOfGraphics.Renamer) = [string(l) for l in r.labels]
+
+# Map a raw x-tick value through the optional renamer before stringifying
+_apply_rename(::Nothing, x_raw) = string(x_raw)
+_apply_rename(r::AlgebraOfGraphics.Renamer, x_raw) = string(r(x_raw).value)
+_apply_rename(f::Function, x_raw) = string(f(x_raw))
+
+# Histogram bin spec: integer → maxbins; vector of edges → step + extent
+_apply_bins!(_, _) = nothing
+_apply_bins!(bp::Dict{String,Any}, n::Integer) = (bp["maxbins"] = Int(n); nothing)
+function _apply_bins!(bp::Dict{String,Any}, edges::AbstractVector)
+    length(edges) >= 2 || return nothing
+    e = collect(float.(edges))
+    bp["step"] = e[2] - e[1]
+    bp["extent"] = [first(e), last(e)]
+    nothing
+end
+
+# datalimits: only 2-tuple of Reals is meaningful
+_apply_datalimits!(_, _) = nothing
+function _apply_datalimits!(bp::Dict{String,Any}, dl::Tuple)
+    length(dl) == 2 && all(x -> x isa Real, dl) || return nothing
+    bp["extent"] = [float(dl[1]), float(dl[2])]
+    nothing
+end
 
 function data_to_vl(table)
     isnothing(table) && return nothing
@@ -1758,19 +1778,10 @@ function _histogram_bin_config(ha)
     isnothing(ha) && return (true, count_op)
 
     # bins
-    if ha.bins isa Integer
-        bp["maxbins"] = Int(ha.bins)
-    elseif ha.bins isa AbstractVector && length(ha.bins) >= 2
-        edges = collect(float.(ha.bins))
-        bp["step"] = edges[2] - edges[1]
-        bp["extent"] = [first(edges), last(edges)]
-    end
+    _apply_bins!(bp, ha.bins)
 
     # datalimits
-    dl = ha.datalimits
-    if dl isa Tuple && length(dl) == 2 && all(x -> x isa Real, dl)
-        bp["extent"] = [float(dl[1]), float(dl[2])]
-    end
+    _apply_datalimits!(bp, ha.datalimits)
 
     # normalization: VL's aggregate only supports count/sum natively.
     # Non-count normalizations need a post-aggregate calculate transform;
