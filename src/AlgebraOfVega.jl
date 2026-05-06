@@ -397,13 +397,11 @@ function extract_data(layer::AlgebraOfGraphics.Layer)
     _unwrap_columns(layer.data)
 end
 
-_is_pregrouped(::AlgebraOfGraphics.Pregrouped) = true
-_is_pregrouped(_) = false
-
-function is_pregrouped(layer::AlgebraOfGraphics.Layer)
-    isnothing(layer.data) && return false
-    _is_pregrouped(_unwrap_columns(layer.data))
-end
+is_pregrouped(layer::AlgebraOfGraphics.Layer) = _layer_pregrouped(layer.data)
+_layer_pregrouped(::Nothing) = false
+_layer_pregrouped(data) = _columns_pregrouped(_unwrap_columns(data))
+_columns_pregrouped(::AlgebraOfGraphics.Pregrouped) = true
+_columns_pregrouped(_) = false
 
 """
     pregrouped_to_vl(layer; is_sublayer=false)
@@ -711,14 +709,31 @@ function _walk_chain(::Type{T}, f::ComposedFunction) where {T}
     nothing
 end
 
-_is_automatic(::Makie.Automatic) = true
-_is_automatic(_) = false
+# Resolve an analysis's interval into a Bool-friendly Maybe value: returns the
+# interval if one is concretely set (e.g. `(0.025, 0.975)`), `nothing` if the
+# interval is missing, `Automatic`, or the analysis itself is `nothing`.
+# Replaces the old `_is_automatic` Bool predicate; callers compose via
+# `isnothing(_resolved_band_interval(analysis))` instead of negating a Bool.
+_resolved_band_interval(::Nothing) = nothing
+_resolved_band_interval(analysis) = _resolved_interval_value(analysis.interval)
+_resolved_interval_value(::Nothing) = nothing
+_resolved_interval_value(::Makie.Automatic) = nothing
+_resolved_interval_value(x) = x
 
 _analysis_probs(a::Union{PointIntervalAnalysis,GradientIntervalAnalysis,DotIntervalAnalysis}) = a.probs
 _analysis_probs(_) = [0.95, 0.5]
 
-_is_gradient(::GradientIntervalAnalysis) = true
-_is_gradient(_) = false
+# Per-prob interval-style descriptors. Gradient analyses set an opacity ramp
+# with fixed stroke width; non-gradient analyses ramp the stroke width with no
+# opacity override. Replaces the old `_is_gradient` Bool predicate + paired
+# if/else branches; the loop body just walks the precomputed styles.
+_interval_styles(::GradientIntervalAnalysis, sorted_probs) =
+    [(opacity=op, stroke_width=14) for op in range(0.2, 0.7, length=length(sorted_probs))]
+_interval_styles(_, sorted_probs) =
+    [(opacity=nothing, stroke_width=sw) for sw in range(1.5, 8, length=length(sorted_probs))]
+
+_apply_opacity!(_enc, ::Nothing) = nothing
+_apply_opacity!(enc, op) = (enc["opacity"] = Dict{String,Any}("value" => op); nothing)
 
 """Extract a transformation of type `T` from a layer's transformation chain."""
 function extract_transformation(layer::AlgebraOfGraphics.Layer, T::Type)
@@ -1481,7 +1496,7 @@ function linear_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
     color_field = haskey(layer.named, :color) ? _field_name(layer.named[:color]) : nothing
     color_label = haskey(layer.named, :color) ? _field_label(layer.named[:color]) : nothing
     analysis = extract_transformation(layer, AlgebraOfGraphics.LinearAnalysis)
-    has_band = !isnothing(analysis) && !isnothing(analysis.interval) && !_is_automatic(analysis.interval)
+    has_band = !isnothing(_resolved_band_interval(analysis))
 
     reg_transform = Dict{String,Any}(
         "regression" => y_field,
@@ -1619,7 +1634,7 @@ function smooth_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
     color_label = haskey(layer.named, :color) ? _field_label(layer.named[:color]) : nothing
     analysis = extract_transformation(layer, AlgebraOfGraphics.SmoothAnalysis)
     bandwidth = !isnothing(analysis) ? analysis.span : 0.75
-    has_band = !isnothing(analysis) && !isnothing(analysis.interval) && !_is_automatic(analysis.interval)
+    has_band = !isnothing(_resolved_band_interval(analysis))
 
     loess_transform = Dict{String,Any}(
         "loess" => y_field,
@@ -1902,7 +1917,15 @@ function expectation_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
     spec
 end
 
-_is_ecdf(layer) = let vis = extract_visual(layer); !isnothing(vis) && vis.plottype <: ECDFPlot end
+# Returns `Val(:ecdf)` when the layer's visual targets `ECDFPlot`, else
+# `nothing`. Replaces the old `_is_ecdf` Bool predicate + `&& return Val(:ecdf)`
+# short-circuit; `_layer_handler` now returns the Maybe value directly. Three
+# methods peel the wrappers: visual-or-nothing, then plottype-or-nothing.
+_ecdf_dispatch_value(layer) = _ecdf_from_visual(extract_visual(layer))
+_ecdf_from_visual(::Nothing) = nothing
+_ecdf_from_visual(vis) = _ecdf_from_plottype(vis.plottype)
+_ecdf_from_plottype(::Type{<:ECDFPlot}) = Val(:ecdf)
+_ecdf_from_plottype(::Type) = nothing
 
 """
     ecdf_to_vl(layer; is_sublayer=false)
@@ -2130,8 +2153,7 @@ function _layer_handler(layer::AlgebraOfGraphics.Layer)
         a = extract_transformation(layer, T)
         !isnothing(a) && return a
     end
-    _is_ecdf(layer) && return Val(:ecdf)
-    nothing
+    _ecdf_dispatch_value(layer)
 end
 
 # Dispatch: each handler type → its *_to_vl function
@@ -2455,13 +2477,7 @@ function _faceted_layers_to_vl(layers, facet_field, shared_table, shared_data)
 
                 # Use VL quantile transforms for intervals within facet
                 sorted_probs = sort(probs, rev=true)
-                is_gradient = _is_gradient(analysis)
-
-                if is_gradient
-                    opacities = collect(range(0.2, 0.7, length=length(sorted_probs)))
-                else
-                    stroke_widths = collect(range(1.5, 8, length=length(sorted_probs)))
-                end
+                styles = _interval_styles(analysis, sorted_probs)
 
                 for (i, prob) in enumerate(sorted_probs)
                     lo_p = (1 - prob) / 2
@@ -2470,12 +2486,9 @@ function _faceted_layers_to_vl(layers, facet_field, shared_table, shared_data)
                         "x" => Dict{String,Any}("aggregate" => "min", "field" => "val", "type" => "quantitative"),
                         "x2" => Dict{String,Any}("aggregate" => "max", "field" => "val"),
                     )
-                    if is_gradient
-                        enc["opacity"] = Dict{String,Any}("value" => opacities[i])
-                        mark = Dict{String,Any}("type" => "rule", "strokeWidth" => 14)
-                    else
-                        mark = Dict{String,Any}("type" => "rule", "strokeWidth" => stroke_widths[i])
-                    end
+                    style = styles[i]
+                    _apply_opacity!(enc, style.opacity)
+                    mark = Dict{String,Any}("type" => "rule", "strokeWidth" => style.stroke_width)
                     push!(inner_layers, Dict{String,Any}(
                         "mark" => mark,
                         "transform" => [
