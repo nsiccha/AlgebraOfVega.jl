@@ -5503,7 +5503,7 @@ end
 Return a standalone HTML string with embedded vega-embed that self-loads scripts from CDN.
 """
 function to_html(spec; id=nothing, width=nothing, height=nothing)
-    vl = spec isa Dict ? copy(spec) : to_vegalite(spec)
+    vl = _as_vl_dict(spec)
     !isnothing(width) && (vl["width"] = width)
     !isnothing(height) && (vl["height"] = height)
     id = _sanitize_id(something(id, "vega-" * string(abs(hash(JSON.json(vl))), base=16)))
@@ -5643,14 +5643,45 @@ _extract_drawable(v::VegaSpec) = (v.drawable, v.config)
 
 Translate AoV Config properties into keyword arguments for `AlgebraOfGraphics.draw`.
 """
-function _is_faceted(drawable)
-    if drawable isa AlgebraOfGraphics.Layer
-        return haskey(drawable.named, :col) || haskey(drawable.named, :row) || haskey(drawable.named, :layout)
-    elseif drawable isa AlgebraOfGraphics.Layers
-        return any(_is_faceted, drawable.layers)
+_merge_nt!(_, ::Nothing) = nothing
+function _merge_nt!(kw, nt::NamedTuple)
+    for (k, v) in pairs(nt)
+        kw[k] = v
     end
-    false
 end
+
+_merge_axis_nt!(_, ::Nothing) = nothing
+function _merge_axis_nt!(axis_kw, nt::NamedTuple)
+    for (ak, av) in pairs(nt)
+        ak === :clamp && continue  # VL-only, no Makie analogue
+        axis_kw[ak] = av
+    end
+end
+
+_independent_axes_syms(b::Bool) = b ? (:x, :y) : ()
+_independent_axes_syms(s::Symbol) = (s,)
+_independent_axes_syms(v) = (Symbol(a) for a in v)
+
+_apply_log_scales!(axis_kw, ::Nothing) = nothing
+function _apply_log_scales!(axis_kw, enc::Dict)
+    for (ch, ch_props) in enc
+        d = _as_dict(ch_props); isnothing(d) && continue
+        scale_dict = get(d, "scale", get(d, :scale, nothing))
+        isnothing(scale_dict) && continue
+        scale_type = get(scale_dict, "type", get(scale_dict, :type, nothing))
+        scale_type == "log" || continue
+        if ch in (:y, "y")
+            axis_kw[:yscale] = log10
+        elseif ch in (:x, "x")
+            axis_kw[:xscale] = log10
+        end
+    end
+end
+
+_is_faceted(drawable::AlgebraOfGraphics.Layer) =
+    haskey(drawable.named, :col) || haskey(drawable.named, :row) || haskey(drawable.named, :layout)
+_is_faceted(drawable::AlgebraOfGraphics.Layers) = any(_is_faceted, drawable.layers)
+_is_faceted(_) = false
 
 function _draw_kwargs(cfg::Union{Config,Nothing}; faceted=false)
     figure_kw = Dict{Symbol,Any}()
@@ -5667,47 +5698,21 @@ function _draw_kwargs(cfg::Union{Config,Nothing}; faceted=false)
         end
     end
     # Translate VL encoding scale overrides to Makie axis scales (backwards compat)
-    enc = get(props, :encoding, nothing)
-    if !isnothing(enc) && enc isa Dict
-        for (ch, ch_props) in enc
-            ch_props isa Dict || continue
-            scale_dict = get(ch_props, "scale", get(ch_props, :scale, nothing))
-            isnothing(scale_dict) && continue
-            scale_type = get(scale_dict, "type", get(scale_dict, :type, nothing))
-            if scale_type == "log"
-                if ch in (:y, "y")
-                    axis_kw[:yscale] = log10
-                elseif ch in (:x, "x")
-                    axis_kw[:xscale] = log10
-                end
-            end
-        end
-    end
+    _apply_log_scales!(axis_kw, _as_dict(get(props, :encoding, nothing)))
     for (k, v) in props
-        if k in (:width, :height, :encoding)
-            # handled above
-        elseif k === :scales && v isa AlgebraOfGraphics.Scales
-            scales_obj = v
-        elseif k === :facet && v isa NamedTuple
-            for (fk, fv) in pairs(v)
-                facet_kw[fk] = fv
-            end
-        elseif k === :axis && v isa NamedTuple
-            for (ak, av) in pairs(v)
-                ak === :clamp && continue  # VL-only, no Makie analogue
-                axis_kw[ak] = av
-            end
+        k in (:width, :height, :encoding) && continue  # handled above
+        if k === :scales
+            s = _as_scales(v); isnothing(s) || (scales_obj = s)
+        elseif k === :facet
+            _merge_nt!(facet_kw, _as_nt(v))
+        elseif k === :axis
+            _merge_axis_nt!(axis_kw, _as_nt(v))
         elseif k === :independent_scales
             @warn "AlgebraOfVega: `config(independent_scales=$(repr(v)))` is deprecated; use `config(facet=(; linkxaxes=:none, linkyaxes=:none))` to mirror AlgebraOfGraphics." maxlog=1
-            axes = if v === true
-                [:x, :y]
-            elseif v isa Symbol
-                [v]
-            else
-                [Symbol(a) for a in v]
+            for ax in _independent_axes_syms(v)
+                ax === :x && get!(facet_kw, :linkxaxes, :none)
+                ax === :y && get!(facet_kw, :linkyaxes, :none)
             end
-            :x in axes && get!(facet_kw, :linkxaxes, :none)
-            :y in axes && get!(facet_kw, :linkyaxes, :none)
         end
     end
     (; figure=NamedTuple(figure_kw), facet=NamedTuple(facet_kw), axis=NamedTuple(axis_kw), scales=scales_obj)
@@ -5718,15 +5723,17 @@ end
 
 Check if a layer uses an AoV-specific transformation (tidybayes analyses).
 """
-function _get_analysis(layer::AlgebraOfGraphics.Layer)
-    t = layer.transformation
-    t isa TidybayesAnalysis && return t
-    if t isa ComposedFunction
-        t.outer isa TidybayesAnalysis && return t.outer
-        t.inner isa TidybayesAnalysis && return t.inner
-    end
-    nothing
+_tidybayes_or_nothing(t::TidybayesAnalysis) = t
+_tidybayes_or_nothing(_) = nothing
+
+_analysis_in(t::TidybayesAnalysis) = t
+function _analysis_in(t::ComposedFunction)
+    a = _tidybayes_or_nothing(t.outer); isnothing(a) || return a
+    _tidybayes_or_nothing(t.inner)
 end
+_analysis_in(_) = nothing
+
+_get_analysis(layer::AlgebraOfGraphics.Layer) = _analysis_in(layer.transformation)
 
 function _rows_to_columntable(rows::Vector{Dict{String,Any}})
     cols = collect(keys(rows[1]))
