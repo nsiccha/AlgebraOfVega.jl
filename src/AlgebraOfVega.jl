@@ -4153,6 +4153,20 @@ _data_with_values(_) = nothing
 _as_vec(v::AbstractVector) = v
 _as_vec(_) = nothing
 
+_norm_string_list(v::AbstractVector) = string.(v)
+_norm_string_list(::Nothing) = String[]
+_norm_string_list(s::AbstractString) = isempty(s) ? String[] : [string(s)]
+_norm_string_list(v) = [string(v)]
+
+_to_string_vec(v::AbstractVector) = string.(v)
+_to_string_vec(v) = [string(v)]
+
+_dim_pair(d::Pair) = string(first(d)) => string(last(d))
+_dim_pair(d) = string(d) => string(d)
+
+_dim_first(d::Pair) = string(first(d))
+_dim_first(d) = string(d)
+
 _collect_field_value!(args...) = nothing
 function _collect_field_value!(uniques, seen, v::Dict, field)
     haskey(v, field) || return
@@ -4349,13 +4363,12 @@ function resolve_channels(dimensions;
     fixed=Dict{Symbol,Any}(),
     extra_assigned::AbstractVector=String[])
 
-    _norm(v) = v isa AbstractVector ? string.(v) : (v == "" || isnothing(v) ? String[] : [string(v)])
-    color_default = _norm(color_default)
-    row_default = _norm(row_default)
-    column_default = _norm(column_default)
-    detail_default = _norm(detail_default)
-    x_default = _norm(x_default)
-    y_default = _norm(y_default)
+    color_default = _norm_string_list(color_default)
+    row_default = _norm_string_list(row_default)
+    column_default = _norm_string_list(column_default)
+    detail_default = _norm_string_list(detail_default)
+    x_default = _norm_string_list(x_default)
+    y_default = _norm_string_list(y_default)
     # x/y are single-select; keep only the first field if multiple are passed.
     length(x_default) > 1 && (x_default = x_default[1:1])
     length(y_default) > 1 && (y_default = y_default[1:1])
@@ -4364,12 +4377,12 @@ function resolve_channels(dimensions;
                      "x" => x_default, "y" => y_default)
     extra_assigned_norm = String[string(f) for f in extra_assigned]
 
-    dims = [(d isa Pair ? (string(first(d)) => string(last(d))) : (string(d) => string(d))) for d in dimensions]
+    dims = [_dim_pair(d) for d in dimensions]
 
     # Normalize fixed
     fixed_norm = Dict{String,Vector{String}}()
     for (k, v) in fixed
-        fixed_norm[string(k)] = v isa AbstractVector ? string.(v) : [string(v)]
+        fixed_norm[string(k)] = _to_string_vec(v)
     end
 
     # Auto-add fixed fields to dims if not already present
@@ -4571,23 +4584,26 @@ AoG drawable → layers and collects each layer's unwrapped `.data`. Skips
 `nothing` and `Pregrouped` layers. Multi-layer specs (e.g. `dose_layer + spec`)
 all contribute — uniqueness of a dim is taken across any layer that has it.
 """
+_spec_drawable(s::VegaSpec) = s.drawable
+_spec_drawable(s) = s
+
+_wrap_with_config(spec::VegaSpec, drawable) = VegaSpec(drawable, spec.config)
+_wrap_with_config(_, drawable) = drawable
+
+_layer_iter(d::AlgebraOfGraphics.Layers) = d.layers
+_layer_iter(d::AlgebraOfGraphics.Layer) = (d,)
+_layer_iter(_) = ()
+
+_drop_pregrouped(::AlgebraOfGraphics.Pregrouped) = nothing
+_drop_pregrouped(t) = t
+
+_source_tables_from_spec(::Nothing) = Any[]
+_source_tables_from_spec(::Dict) = Any[]
 function _source_tables_from_spec(spec)
-    isnothing(spec) && return Any[]
-    spec isa Dict && return Any[]
-    drawable = spec isa VegaSpec ? spec.drawable : spec
-    layers = if drawable isa AlgebraOfGraphics.Layers
-        drawable.layers
-    elseif drawable isa AlgebraOfGraphics.Layer
-        (drawable,)
-    else
-        ()
-    end
     out = Any[]
-    for layer in layers
-        t = extract_data(layer)
-        isnothing(t) && continue
-        t isa AlgebraOfGraphics.Pregrouped && continue
-        push!(out, t)
+    for layer in _layer_iter(_spec_drawable(spec))
+        t = _drop_pregrouped(extract_data(layer))
+        isnothing(t) || push!(out, t)
     end
     out
 end
@@ -4609,21 +4625,20 @@ end
 # --- helpers ---
 
 # Walk a spec down to the list of AoG Layers it contains.
+_spec_layers_or_nothing(d::AlgebraOfGraphics.Layers) = collect(d.layers)
+_spec_layers_or_nothing(d::AlgebraOfGraphics.Layer) = [d]
+_spec_layers_or_nothing(_) = nothing
+
 function _spec_layers(spec)
-    drawable = spec isa VegaSpec ? spec.drawable : spec
-    if drawable isa AlgebraOfGraphics.Layers
-        collect(drawable.layers)
-    elseif drawable isa AlgebraOfGraphics.Layer
-        [drawable]
-    else
-        error("auto_remap_node: unsupported spec drawable type $(typeof(drawable))")
-    end
+    drawable = _spec_drawable(spec)
+    layers = _spec_layers_or_nothing(drawable)
+    isnothing(layers) && error("auto_remap_node: unsupported spec drawable type $(typeof(drawable))")
+    layers
 end
 
 function _auto_summary_args(spec)
-    drawable = spec isa VegaSpec ? spec.drawable : spec
-    (drawable isa AlgebraOfGraphics.Layers || drawable isa AlgebraOfGraphics.Layer) || return nothing
-    layers = _spec_layers(spec)
+    layers = _spec_layers_or_nothing(_spec_drawable(spec))
+    isnothing(layers) && return nothing
     for layer in layers
         for T in (PointIntervalAnalysis, GradientIntervalAnalysis, DotIntervalAnalysis)
             a = extract_transformation(layer, T)
@@ -4848,31 +4863,20 @@ _with_detail(t::PrecomputedRibbonAnalysis, d) = PrecomputedRibbonAnalysis(t.band
 _with_detail(t::PrecomputedIntervalAnalysis, d) = PrecomputedIntervalAnalysis(t.bands, d, t.orientation)
 _with_detail(t::DotIntervalAnalysis, d) = DotIntervalAnalysis(t.probs, t.n_dots, t.point, d, t.orientation)
 
-function _patch_detail(t, new_detail)
-    syms = Symbol.(new_detail)
-    if t isa TidybayesAnalysis
-        return _with_detail(t, syms)
-    elseif t isa ComposedFunction
-        return _patch_detail(t.outer, new_detail) ∘ _patch_detail(t.inner, new_detail)
-    else
-        return t
-    end
-end
+_patch_detail(t::TidybayesAnalysis, new_detail) = _with_detail(t, Symbol.(new_detail))
+_patch_detail(t::ComposedFunction, new_detail) =
+    _patch_detail(t.outer, new_detail) ∘ _patch_detail(t.inner, new_detail)
+_patch_detail(t, _) = t
 
 # Collect channel keys (e.g. :color, :row, :col) that are statically set on
 # any Visual in a transformation chain. These should NOT be overwritten by
 # data-driven encodings from the resolved channel kws — e.g. a scatter
 # layer with `visual(Scatter; color="black")` keeps its black points
 # regardless of the picker's color channel.
-function _visual_static_channels(t)
-    if t isa AlgebraOfGraphics.Visual
-        return Set{Symbol}(keys(t.attributes))
-    elseif t isa ComposedFunction
-        return union(_visual_static_channels(t.outer), _visual_static_channels(t.inner))
-    else
-        return Set{Symbol}()
-    end
-end
+_visual_static_channels(t::AlgebraOfGraphics.Visual) = Set{Symbol}(keys(t.attributes))
+_visual_static_channels(t::ComposedFunction) =
+    union(_visual_static_channels(t.outer), _visual_static_channels(t.inner))
+_visual_static_channels(_) = Set{Symbol}()
 
 # Rebuild a layer with a new dataframe and resolved channel kws merged in.
 # User-supplied entries on managed channels (color/row/col/column) are
@@ -4941,33 +4945,25 @@ end
 # Extract the scale-type modifier Function (e.g. `nonnumeric`) from a
 # selector like `:field => nonnumeric` or `:field => nonnumeric => "Label"`.
 # Returns `nothing` if none is present.
-function _selector_scale_modifier(sel)
-    sel isa Pair || return nothing
-    dst = last(sel)
-    dst isa Function && return dst
-    dst isa Pair && return _selector_scale_modifier(Pair(first(sel), first(dst)))
-    nothing
+_selector_scale_modifier(_) = nothing
+function _selector_scale_modifier(sel::Pair)
+    _selector_scale_modifier_dst(first(sel), last(sel))
 end
+_selector_scale_modifier_dst(src, dst::Function) = dst
+_selector_scale_modifier_dst(src, dst::Pair) = _selector_scale_modifier(Pair(src, first(dst)))
+_selector_scale_modifier_dst(args...) = nothing
 
 # Splice a scale-type modifier into a resolved channel kw value. Resolved
 # values come out of `_channel_kw` as `Symbol`, `:field => "Label"`, or
 # `:field => :combo => "Label"` (for combos — but we skip combos as the
 # combo column is a fresh string and carries the modifier implicitly).
-function _attach_modifier(v, modifier)
-    isnothing(modifier) && return v
-    if v isa Symbol
-        return Pair(v, modifier)
-    elseif v isa Pair
-        src, dst = v
-        if dst isa AbstractString
-            # :field => "Label" → :field => modifier => "Label"
-            return Pair(src, Pair(modifier, dst))
-        end
-        # Already has modifier or a combo form we don't touch
-        return v
-    end
-    v
-end
+_attach_modifier(v, ::Nothing) = v
+_attach_modifier(v::Symbol, modifier) = Pair(v, modifier)
+_attach_modifier(v::Pair, modifier) = _attach_modifier_pair(first(v), last(v), modifier)
+_attach_modifier(v, modifier) = v
+
+_attach_modifier_pair(src, dst::AbstractString, modifier) = Pair(src, Pair(modifier, dst))
+_attach_modifier_pair(src, dst, modifier) = Pair(src, dst)
 
 # For each managed channel (:color, :row, :column, :col) in `extra`, look
 # up the user's original selector in `orig_named`; if it carried a scale
@@ -5083,7 +5079,7 @@ function _auto_remap_parts(plot_id, spec; dims, fixed=Dict(), pinned::Symbol=:ro
     # same fields are pickable on color/row/column.
     effective_dims = if enable_axes
         dims_vec = Any[d for d in dims]
-        listed = Set{String}(string(d isa Pair ? first(d) : d) for d in dims_vec)
+        listed = Set{String}(_dim_first(d) for d in dims_vec)
         for f in pos_all
             f in listed && continue
             push!(dims_vec, f => join(uppercasefirst.(split(f, "_")), " "))
@@ -5093,7 +5089,7 @@ function _auto_remap_parts(plot_id, spec; dims, fixed=Dict(), pinned::Symbol=:ro
     else
         dims
     end
-    dim_fields = Set{String}(string(d isa Pair ? first(d) : d) for d in effective_dims)
+    dim_fields = Set{String}(_dim_first(d) for d in effective_dims)
     defaults = _layer_channel_defaults(layers)
     defaults = Dict(ch => filter(f -> f in dim_fields, fs) for (ch, fs) in defaults)
     extra_assigned = filter(f -> f in dim_fields, pos_all)
@@ -5120,7 +5116,7 @@ function _auto_remap_parts(plot_id, spec; dims, fixed=Dict(), pinned::Symbol=:ro
     new_layers = [r[1] for r in rebuilt]
     keep_color_fields = Set{String}(r[2] for r in rebuilt if !isnothing(r[2]))
     new_drawable = reduce(+, new_layers)
-    new_spec = spec isa VegaSpec ? VegaSpec(new_drawable, spec.config) : new_drawable
+    new_spec = _wrap_with_config(spec, new_drawable)
 
     # Build VL, tag layers whose color field is layer-fixed so JS remapEncoding skips them.
     vl = to_vegalite(new_spec)
@@ -5145,11 +5141,11 @@ end
 # x/y scale + axis (axes stack at the top of the chart).
 function _scrub_independent_resolve_if_unfaceted!(vl::Dict)
     haskey(vl, "facet") && return
-    haskey(vl, "spec") && vl["spec"] isa Dict && return
-    resolve = get(vl, "resolve", nothing)
-    resolve isa Dict || return
-    scale = get(resolve, "scale", nothing)
-    scale isa Dict || return
+    haskey(vl, "spec") && !isnothing(_as_dict(vl["spec"])) && return
+    resolve = _as_dict(get(vl, "resolve", nothing))
+    isnothing(resolve) && return
+    scale = _as_dict(get(resolve, "scale", nothing))
+    isnothing(scale) && return
     for ax in ("x", "y")
         get(scale, ax, nothing) == "independent" && delete!(scale, ax)
     end
@@ -5160,19 +5156,23 @@ end
 
 # Walk a VL dict and mark any layer with `encoding.color.field ∈ keep_color_fields`
 # with `_keep_color = true`, so the JS remapEncoding loop leaves it alone.
+_tag_keep_color_layer!(args...) = nothing
+function _tag_keep_color_layer!(l::Dict, keep_color_fields::Set{String})
+    enc = _as_dict(get(l, "encoding", nothing)); isnothing(enc) && return
+    color = _as_dict(get(enc, "color", nothing)); isnothing(color) && return
+    f = _as_str(get(color, "field", nothing))
+    !isnothing(f) && f in keep_color_fields && (l["_keep_color"] = true)
+    return
+end
+
 function _tag_keep_color_layers!(vl::Dict, keep_color_fields::Set{String})
     # Faceted specs nest layers under "spec"; plain layered specs use top-level "layer".
-    container = haskey(vl, "spec") && vl["spec"] isa Dict ? vl["spec"] : vl
-    layers = get(container, "layer", nothing)
-    layers isa AbstractVector || return
+    nested = haskey(vl, "spec") ? _as_dict(vl["spec"]) : nothing
+    container = isnothing(nested) ? vl : nested
+    layers = _as_vec(get(container, "layer", nothing))
+    isnothing(layers) && return
     for l in layers
-        l isa Dict || continue
-        enc = get(l, "encoding", nothing)
-        enc isa Dict || continue
-        color = get(enc, "color", nothing)
-        color isa Dict || continue
-        f = get(color, "field", nothing)
-        f isa AbstractString && f in keep_color_fields && (l["_keep_color"] = true)
+        _tag_keep_color_layer!(l, keep_color_fields)
     end
 end
 
