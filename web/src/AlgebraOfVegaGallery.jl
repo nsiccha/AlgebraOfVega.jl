@@ -13,8 +13,13 @@ using HTMXObjects: RecordingRoutes
 
 include("test/runtests.jl")
 
-_is_html_node(::HTMX.Node) = true
-_is_html_node(_) = false
+# Two-callable dispatch on `spec` type: replaces the old `_is_html_node` Bool
+# predicate + `is_node ? ... : ...` ternaries scattered through the gallery
+# views. `node_fn(spec)` runs when `spec` is an HTMX.Node; `other_fn(spec)`
+# otherwise. Each call site picks its branch closures (typically `identity`
+# for the node side when the branch is just `spec`).
+_dispatch_node(spec::HTMX.Node, node_fn, _other_fn) = node_fn(spec)
+_dispatch_node(spec, _node_fn, other_fn) = other_fn(spec)
 
 _push_compose_parts!(args...) = nothing
 function _push_compose_parts!(lines, t::ComposedFunction)
@@ -189,20 +194,22 @@ end
         entry = find_plot(id)
         let spec = isnothing(entry) ? nothing : entry[5]()
             code_str = isnothing(entry) ? "" : entry[4]
-            is_node = _is_html_node(spec)
             h.article(; class="htmxo-gallery-card")(
                 h.h4(; class="htmxo-gallery-card-title")(
                     h.a(title; href=__self__/"standalone/$id", target="_blank"),
-                    is_node ? h.span() : h.a(" · static";
-                        class="htmxo-gallery-card-meta",
-                        href=__self__/"static_plot/$id", target="_blank"),
+                    _dispatch_node(spec,
+                        _ -> h.span(),
+                        _ -> h.a(" · static";
+                            class="htmxo-gallery-card-meta",
+                            href=__self__/"static_plot/$id", target="_blank")),
                     flag_button(id),
                     isnothing(ref_url) ? h.span() :
                         h.a(" · ref"; class="htmxo-gallery-card-meta", href=ref_url, target="_blank"),
                 ),
                 isempty(description) ? h.span() :
                     h.p(description; class="htmxo-gallery-card-description"),
-                isnothing(spec) ? h.p("Unknown plot") : is_node ? spec : vdraw(spec; id=id),
+                isnothing(spec) ? h.p("Unknown plot") :
+                    _dispatch_node(spec, identity, s -> vdraw(s; id=id)),
                 h.pre(h.code(code_str; class="language-julia"); class="htmxo-gallery-card-code"),
             )
         end
@@ -290,12 +297,13 @@ end
         else
             title, description, code_str, spec_fn = entry[2], entry[3], entry[4], entry[5]
             let spec = spec_fn()
-                is_node = _is_html_node(spec)
-                plot_body = is_node ? spec : vdraw(spec)
-                json_details = is_node ? h.span() : h.details(; class="u-mt-4")(
-                    h.summary("Vega-Lite JSON Spec"),
-                    h.pre(h.code(escape_html(JSON.json(to_vegalite(spec), 2))); class="u-code-block u-scroll-y-lg"),
-                )
+                plot_body = _dispatch_node(spec, identity, s -> vdraw(s))
+                json_details = _dispatch_node(spec,
+                    _ -> h.span(),
+                    s -> h.details(; class="u-mt-4")(
+                        h.summary("Vega-Lite JSON Spec"),
+                        h.pre(h.code(escape_html(JSON.json(to_vegalite(s), 2))); class="u-code-block u-scroll-y-lg"),
+                    ))
                 h.div(
                     plot_nav(id),
                     h.h2(title),
@@ -339,10 +347,9 @@ end
         isnothing(entry) && return h.span()
         let spec = entry[5]()
             isnothing(spec) && return h.span()
-            is_node = _is_html_node(spec)
             h.div(; class="aov-grid-cell")(
                 h.div(entry[2]; class="aov-grid-cell-title"),
-                is_node ? spec : vdraw(spec; width="container"),
+                _dispatch_node(spec, identity, s -> vdraw(s; width="container")),
             )
         end
     end
@@ -613,11 +620,9 @@ end
             HTTP.Response(404, ["Content-Type" => "text/plain"], body="Unknown plot: $id")
         else
             let spec = entry[5]()
-                if _is_html_node(spec)
-                    h.html(h.head(vega_head()...), h.body(spec))
-                else
-                    HTTP.Response(200, ["Content-Type" => "text/html; charset=utf-8"], body=to_html(spec))
-                end
+                _dispatch_node(spec,
+                    s -> h.html(h.head(vega_head()...), h.body(s)),
+                    s -> HTTP.Response(200, ["Content-Type" => "text/html; charset=utf-8"], body=to_html(s)))
             end
         end
     end
