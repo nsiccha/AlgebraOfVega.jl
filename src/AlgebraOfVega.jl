@@ -267,16 +267,18 @@ end
 
 _COMPOSITE_MARKS = Set(["boxplot", "errorbar", "errorband"])
 
+_mark_type(m::String) = m
+_mark_type(m::Dict) = get(m, "type", "")
+_mark_type(_) = ""
+
+_layer_mark_type(sl::Dict) = _mark_type(get(sl, "mark", nothing))
+_layer_mark_type(_) = ""
+
 function _is_composite_mark(vl::Dict)
-    m = get(vl, "mark", nothing)
-    mark_type = m isa String ? m : m isa Dict ? get(m, "type", "") : ""
-    mark_type in _COMPOSITE_MARKS && return true
+    _mark_type(get(vl, "mark", nothing)) in _COMPOSITE_MARKS && return true
     # Check sublayers for composite marks (e.g. layered boxplots)
     for sl in get(vl, "layer", [])
-        sl isa Dict || continue
-        sm = get(sl, "mark", nothing)
-        st = sm isa String ? sm : sm isa Dict ? get(sm, "type", "") : ""
-        st in _COMPOSITE_MARKS && return true
+        _layer_mark_type(sl) in _COMPOSITE_MARKS && return true
     end
     false
 end
@@ -310,25 +312,22 @@ selector_to_field(sel) = Dict{String,Any}("value" => sel)  # DirectData, Presort
 # nested labels (`=> :fn => "Label"`), and AoG scale-type modifiers like
 # `nonnumeric` that must force the VL encoding `type` so downstream
 # infer_types! doesn't re-derive from the column eltype.
-function _apply_selector_modifier!(field::Dict{String,Any}, dst)
-    if dst isa AbstractString
-        field["title"] = dst
-    elseif dst === AlgebraOfGraphics.nonnumeric
-        # nonnumeric: force categorical. Without this, an Int column used for
-        # color ends up as quantitative, which won't merge with sibling layers
-        # (e.g. ECDFPlot) that hardcode nominal → dual color legends.
-        field["type"] = "nominal"
-    elseif dst isa Pair
-        _apply_selector_modifier!(field, first(dst))
-        _apply_selector_modifier!(field, last(dst))
-    end
-    # Other Function modifiers (sorter, renamer, verbatim, presorted…)
-    # transform values but don't change the VL type. Left alone for now.
+_apply_selector_modifier!(field::Dict{String,Any}, _) = field
+_apply_selector_modifier!(field::Dict{String,Any}, dst::AbstractString) = (field["title"] = dst; field)
+# nonnumeric: force categorical. Without this, an Int column used for
+# color ends up as quantitative, which won't merge with sibling layers
+# (e.g. ECDFPlot) that hardcode nominal → dual color legends.
+_apply_selector_modifier!(field::Dict{String,Any}, ::typeof(AlgebraOfGraphics.nonnumeric)) = (field["type"] = "nominal"; field)
+function _apply_selector_modifier!(field::Dict{String,Any}, dst::Pair)
+    _apply_selector_modifier!(field, first(dst))
+    _apply_selector_modifier!(field, last(dst))
     field
 end
 
-_field_name(sel) = string(sel isa Pair ? first(sel) : sel)
-_field_label(sel) = sel isa Pair && last(sel) isa AbstractString ? last(sel) : _field_name(sel)
+_field_name(sel) = string(sel)
+_field_name(sel::Pair) = string(first(sel))
+_field_label(sel) = _field_name(sel)
+_field_label(sel::Pair{<:Any,<:AbstractString}) = last(sel)
 
 # --- Vega-Lite type inference ---
 
@@ -368,20 +367,20 @@ function extract_visual(layer::AlgebraOfGraphics.Layer)
     nothing
 end
 
+_unwrap_columns(cols::AlgebraOfGraphics.Columns) = cols.columns
+_unwrap_columns(cols) = cols
+
 function extract_data(layer::AlgebraOfGraphics.Layer)
     isnothing(layer.data) && return nothing
-    cols = layer.data  # Columns{T} wrapper
-    if cols isa AlgebraOfGraphics.Columns
-        return cols.columns
-    end
-    cols
+    _unwrap_columns(layer.data)
 end
+
+_is_pregrouped(::AlgebraOfGraphics.Pregrouped) = true
+_is_pregrouped(_) = false
 
 function is_pregrouped(layer::AlgebraOfGraphics.Layer)
     isnothing(layer.data) && return false
-    d = layer.data
-    inner = d isa AlgebraOfGraphics.Columns ? d.columns : d
-    inner isa AlgebraOfGraphics.Pregrouped
+    _is_pregrouped(_unwrap_columns(layer.data))
 end
 
 """
