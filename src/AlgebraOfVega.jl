@@ -2625,20 +2625,60 @@ Translate an AoG-style `axis=(; limits=((xlo, xhi), (ylo, yhi)))` NamedTuple int
 VL encoding-override dict. `limits` entries may be `nothing` to skip an axis.
 `clamp=true` adds `clamp: true` to every axis that has explicit limits.
 """
+_as_pair(t::Tuple{Any,Any}) = t
+_as_pair(_) = nothing
+
 function _axis_nt_to_encoding_override(nt)
     override = Dict{String,Any}()
-    limits = get(nt, :limits, nothing)
-    (limits isa Tuple && length(limits) == 2) || return override
+    limits = _as_pair(get(nt, :limits, nothing))
+    isnothing(limits) && return override
     do_clamp = get(nt, :clamp, false) === true
     for (idx, ch) in enumerate(("x", "y"))
-        lim = limits[idx]
-        (lim isa Tuple && length(lim) == 2) || continue
+        lim = _as_pair(limits[idx])
+        isnothing(lim) && continue
         scale_dict = Dict{String,Any}("domain" => [lim[1], lim[2]])
         do_clamp && (scale_dict["clamp"] = true)
         override[ch] = Dict{String,Any}("scale" => scale_dict)
     end
     override
 end
+
+# Narrow a config-prop to the type our sugar handlers expect, or `nothing`.
+_as_scales(s::AlgebraOfGraphics.Scales) = s
+_as_scales(_) = nothing
+_as_nt(nt::NamedTuple) = nt
+_as_nt(_) = nothing
+
+# Sugar appliers — dispatch the work over the `val` type. The Any fallback is
+# what fires when the prop key exists but the value isn't of the expected shape.
+_apply_scales_sugar!(args...) = nothing
+_apply_scales_sugar!(spec, s::AlgebraOfGraphics.Scales) =
+    let override = _scales_to_encoding_override(s)
+        isempty(override) || _merge_encoding_config!(spec, override)
+    end
+
+_apply_facet_sugar!(args...) = nothing
+_apply_facet_sugar!(spec, nt::NamedTuple) =
+    _merge_resolve_scale!(spec, _facet_nt_to_resolve_scale(nt))
+
+_apply_axis_sugar!(args...) = nothing
+_apply_axis_sugar!(spec, nt::NamedTuple) =
+    let override = _axis_nt_to_encoding_override(nt)
+        isempty(override) || _merge_encoding_config!(spec, override)
+    end
+
+# Sugar for VL resolve: independent_scales=true, =:x, =(:x,:y)
+_independent_axes(val::Bool) = val === true ? ["x", "y"] : String[]
+_independent_axes(val::Symbol) = [string(val)]
+_independent_axes(val) = [string(v) for v in val]
+
+_select_field_list(s::Symbol) = [s]
+_select_field_list(v) = v
+
+# `mark` in a VL spec can be a Dict (with `type` key) or a String shorthand.
+_mark_type(d::Dict) = get(d, "type", "")
+_mark_type(s::String) = s
+_mark_type(_) = ""
 
 function to_vegalite(v::VegaSpec)
     spec = to_vegalite(v.drawable)
@@ -2647,41 +2687,26 @@ function to_vegalite(v::VegaSpec)
         props = v.config.properties
         # First pass: apply AoG-style sugar (scales, facet) so user-supplied
         # `encoding=Dict(...)` in the second pass can still override on conflict.
-        if haskey(props, :scales) && props[:scales] isa AlgebraOfGraphics.Scales
-            override = _scales_to_encoding_override(props[:scales])
-            isempty(override) || _merge_encoding_config!(spec, override)
-        end
-        if haskey(props, :facet) && props[:facet] isa NamedTuple
-            _merge_resolve_scale!(spec, _facet_nt_to_resolve_scale(props[:facet]))
-        end
-        if haskey(props, :axis) && props[:axis] isa NamedTuple
-            override = _axis_nt_to_encoding_override(props[:axis])
-            isempty(override) || _merge_encoding_config!(spec, override)
-        end
+        haskey(props, :scales) && _apply_scales_sugar!(spec, props[:scales])
+        haskey(props, :facet) && _apply_facet_sugar!(spec, props[:facet])
+        haskey(props, :axis) && _apply_axis_sugar!(spec, props[:axis])
         for (k, val) in props
             sk = string(k)
             # Deep-merge encoding so config adds to (not overwrites) auto-generated channels
-            if sk == "encoding" && val isa Dict
+            if sk == "encoding" && !isnothing(_as_dict(val))
                 _merge_encoding_config!(spec, val)
             elseif sk in ("width", "height") && haskey(spec, "spec")
                 # For faceted specs, width/height go into the inner spec
                 spec["spec"][sk] = val
-            elseif sk == "scales" && val isa AlgebraOfGraphics.Scales
+            elseif sk == "scales" && !isnothing(_as_scales(val))
                 # Handled in first pass
-            elseif sk == "facet" && val isa NamedTuple
+            elseif sk == "facet" && !isnothing(_as_nt(val))
                 # Handled in first pass
-            elseif sk == "axis" && val isa NamedTuple
+            elseif sk == "axis" && !isnothing(_as_nt(val))
                 # Handled in first pass
             elseif sk == "independent_scales"
                 @warn "AlgebraOfVega: `config(independent_scales=$(repr(val)))` is deprecated; use `config(facet=(; linkxaxes=:none, linkyaxes=:none))` to mirror AlgebraOfGraphics." maxlog=1
-                # Sugar for VL resolve: independent_scales=true, =:x, =(:x,:y)
-                axes = if val === true
-                    ["x", "y"]
-                elseif val isa Symbol
-                    [string(val)]
-                else
-                    [string(v) for v in val]
-                end
+                axes = _independent_axes(val)
                 _merge_resolve_scale!(spec, Dict{String,Any}(ax => "independent" for ax in axes))
             elseif sk == "font_scale"
                 # Scale all default VL font sizes by val
@@ -2704,7 +2729,7 @@ function to_vegalite(v::VegaSpec)
                 aov["maxWidth"] = val
             elseif sk == "select"
                 # Collect select fields — processed after spec is built
-                select_fields = val isa Symbol ? [val] : val
+                select_fields = _select_field_list(val)
             else
                 spec[sk] = val
             end
@@ -2844,7 +2869,7 @@ function add_auto_interactivity!(spec::Dict{String,Any})
     enc = get(spec, "encoding", nothing)
     sublayers = get(spec, "layer", nothing)
     mark = get(spec, "mark", nothing)
-    mark_type = mark isa Dict ? get(mark, "type", "") : (mark isa String ? mark : "")
+    mark_type = _mark_type(mark)
     is_composite = _is_composite_mark(spec)
 
     # Skip all interactivity for composite marks (boxplot, errorbar, errorband)
@@ -2853,8 +2878,9 @@ function add_auto_interactivity!(spec::Dict{String,Any})
 
     # Check for aggregate encodings (count, mean, etc.) — zoom can't project on those
     function _has_aggregate(enc_dict, ch)
-        !isnothing(enc_dict) && haskey(enc_dict, ch) && enc_dict[ch] isa Dict &&
-            haskey(enc_dict[ch], "aggregate")
+        isnothing(enc_dict) && return false
+        d = _as_dict(get(enc_dict, ch, nothing))
+        !isnothing(d) && haskey(d, "aggregate")
     end
 
     # Find color field from top-level encoding only.
