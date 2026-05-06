@@ -3128,16 +3128,19 @@ function _count_facet_cols(vl::Dict)
         col_field = facet["field"]
     end
     isnothing(col_field) && return 1
-    data_vals = get(get(vl, "data", Dict()), "values", nothing)
-    if !isnothing(data_vals) && data_vals isa Vector
-        vals = Set()
-        for row in data_vals
-            row isa Dict && haskey(row, col_field) && push!(vals, row[col_field])
-        end
-        n = length(vals)
-        return n > 0 ? n : 1
+    data_vals = _as_vec(get(get(vl, "data", Dict()), "values", nothing))
+    isnothing(data_vals) && return 1
+    vals = Set()
+    for row in data_vals
+        _push_row_value!(vals, row, col_field)
     end
-    1
+    n = length(vals)
+    return n > 0 ? n : 1
+end
+
+_push_row_value!(args...) = nothing
+function _push_row_value!(vals, row::Dict, col_field)
+    haskey(row, col_field) && push!(vals, row[col_field])
 end
 
 """
