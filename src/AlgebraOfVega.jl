@@ -23,11 +23,15 @@ mutable struct Tic
     label::String
     _ns::UInt64
 end
+_is_string_label(::String) = true
+_is_string_label(e::Expr) = e.head === :string
+_is_string_label(_) = false
+
 macro tic(arg)
     v = esc(:_tic_)
     file = String(__source__.file)
     line = __source__.line
-    if arg isa String || (arg isa Expr && arg.head === :string)
+    if _is_string_label(arg)
         label = esc(arg)
         quote
             if $(Expr(:isdefined, v))
@@ -158,15 +162,26 @@ function vl_mark(type; kwargs...)
     d
 end
 
+# Type-narrowing helpers — return the value as the requested type or `nothing`.
+# Used by Vega-Lite spec walkers that previously tested `x isa Dict` / `x isa AbstractString`.
+_as_dict(d::Dict) = d
+_as_dict(_) = nothing
+_as_str(s::AbstractString) = s
+_as_str(_) = nothing
+
+_vl_tooltip_entry!(args...) = nothing
+function _vl_tooltip_entry!(tt, enc::Dict)
+    haskey(enc, "field") || return
+    entry = Dict{String,Any}("field" => enc["field"])
+    haskey(enc, "type") && (entry["type"] = enc["type"])
+    push!(tt, entry)
+end
+
 """Collect tooltip fields from an encoding dict (all channels that have a "field" key)."""
 function vl_tooltips(encoding)
     tt = Dict{String,Any}[]
-    for (ch, enc) in encoding
-        enc isa Dict || continue
-        haskey(enc, "field") || continue
-        entry = Dict{String,Any}("field" => enc["field"])
-        haskey(enc, "type") && (entry["type"] = enc["type"])
-        push!(tt, entry)
+    for (_, enc) in encoding
+        _vl_tooltip_entry!(tt, enc)
     end
     tt
 end
@@ -343,29 +358,27 @@ function vl_type(col)
     end
 end
 
+_infer_enc_type!(args...) = nothing
+function _infer_enc_type!(enc::Dict, table)
+    haskey(enc, "field") && !haskey(enc, "type") || return
+    field = Symbol(enc["field"])
+    if field in Tables.columnnames(table)
+        enc["type"] = vl_type(Tables.getcolumn(table, field))
+    end
+end
+
 function infer_types!(encoding::Dict, table)
     isnothing(table) && return encoding
-    for (ch, enc) in encoding
-        enc isa Dict || continue
-        if haskey(enc, "field") && !haskey(enc, "type")
-            field = Symbol(enc["field"])
-            if field in Tables.columnnames(table)
-                enc["type"] = vl_type(Tables.getcolumn(table, field))
-            end
-        end
+    for (_, enc) in encoding
+        _infer_enc_type!(enc, table)
     end
     encoding
 end
 
 # --- Extract components from AoG Layer ---
 
-function extract_visual(layer::AlgebraOfGraphics.Layer)
-    t = layer.transformation
-    t === identity && return nothing
-    t isa AlgebraOfGraphics.Visual && return t
-    t isa ComposedFunction && return _extract_from_composed(t, AlgebraOfGraphics.Visual)
-    nothing
-end
+extract_visual(layer::AlgebraOfGraphics.Layer) =
+    extract_transformation(layer, AlgebraOfGraphics.Visual)
 
 _unwrap_columns(cols::AlgebraOfGraphics.Columns) = cols.columns
 _unwrap_columns(cols) = cols
@@ -491,9 +504,8 @@ function _apply_bins!(bp::Dict{String,Any}, edges::AbstractVector)
 end
 
 # datalimits: only 2-tuple of Reals is meaningful
-_apply_datalimits!(_, _) = nothing
-function _apply_datalimits!(bp::Dict{String,Any}, dl::Tuple)
-    length(dl) == 2 && all(x -> x isa Real, dl) || return nothing
+_apply_datalimits!(args...) = nothing
+function _apply_datalimits!(bp::Dict{String,Any}, dl::Tuple{<:Real,<:Real})
     bp["extent"] = [float(dl[1]), float(dl[2])]
     nothing
 end
@@ -673,13 +685,19 @@ Quantile dotplot with nested interval overlay.
 dotinterval(; probs=[0.95, 0.5], n_dots=50, point=:median, detail=Symbol[], orientation::Symbol=:horizontal) =
     Layer(transformation=DotIntervalAnalysis(Float64.(probs), n_dots, point, Symbol.(detail), orientation))
 
-function _extract_from_composed(f::ComposedFunction, T::Type)
+# Direct hit on `T` — dispatches over the value's type rather than `isa`.
+_find_part(::Type, _) = nothing
+_find_part(::Type{T}, t::T) where {T} = t
+
+# Recurse through ComposedFunction halves looking for a `T`. Non-ComposedFunction
+# values fall to the `Any` fallback and return nothing.
+_walk_chain(args...) = nothing
+function _walk_chain(::Type{T}, f::ComposedFunction) where {T}
     for part in (f.outer, f.inner)
-        part isa T && return part
-        if part isa ComposedFunction
-            r = _extract_from_composed(part, T)
-            !isnothing(r) && return r
-        end
+        r = _find_part(T, part)
+        isnothing(r) || return r
+        r = _walk_chain(T, part)
+        isnothing(r) || return r
     end
     nothing
 end
@@ -687,9 +705,10 @@ end
 """Extract a transformation of type `T` from a layer's transformation chain."""
 function extract_transformation(layer::AlgebraOfGraphics.Layer, T::Type)
     t = layer.transformation
-    t isa T && return t
-    t isa ComposedFunction && return _extract_from_composed(t, T)
-    nothing
+    t === identity && return nothing
+    r = _find_part(T, t)
+    isnothing(r) || return r
+    _walk_chain(T, t)
 end
 
 """
@@ -2337,34 +2356,36 @@ end
 # Nominal is the safe coercion: any value can be treated as a category,
 # while quantitative requires numeric values — string categories can't be
 # widened without data loss.
+# Get `ls.encoding[axis]` as a Dict, or nothing if any step doesn't fit.
+_axis_enc(ls::Dict, axis) = let enc = _as_dict(get(ls, "encoding", nothing))
+    isnothing(enc) ? nothing : _as_dict(get(enc, axis, nothing))
+end
+_axis_enc(_, _) = nothing
+
 function _harmonize_axis_types!(layer_specs::Vector{Dict{String,Any}})
     for axis in ("x", "y")
         # field → any sublayer has `type=nominal` for it
         nominal_fields = Set{String}()
         for ls in layer_specs
-            enc = get(ls, "encoding", nothing)
-            enc isa Dict || continue
-            ae = get(enc, axis, nothing)
-            ae isa Dict || continue
-            f = get(ae, "field", nothing)
-            f isa AbstractString || continue
+            ae = _axis_enc(ls, axis)
+            isnothing(ae) && continue
+            f = _as_str(get(ae, "field", nothing))
+            isnothing(f) && continue
             get(ae, "type", nothing) == "nominal" && push!(nominal_fields, f)
         end
         isempty(nominal_fields) && continue
         for ls in layer_specs
-            enc = get(ls, "encoding", nothing)
-            enc isa Dict || continue
-            ae = get(enc, axis, nothing)
-            ae isa Dict || continue
-            f = get(ae, "field", nothing)
-            f isa AbstractString && f in nominal_fields || continue
+            ae = _axis_enc(ls, axis)
+            isnothing(ae) && continue
+            f = _as_str(get(ae, "field", nothing))
+            (!isnothing(f) && f in nominal_fields) || continue
             get(ae, "type", nothing) == "nominal" && continue
             ae["type"] = "nominal"
             # Drop scale config that's meaningless for nominal axes
-            sc = get(ae, "scale", nothing)
-            if sc isa Dict
-                st = get(sc, "type", nothing)
-                if st isa AbstractString && st in ("log", "sqrt", "pow", "symlog")
+            sc = _as_dict(get(ae, "scale", nothing))
+            if !isnothing(sc)
+                st = _as_str(get(sc, "type", nothing))
+                if !isnothing(st) && st in ("log", "sqrt", "pow", "symlog")
                     delete!(sc, "type")
                 end
                 isempty(sc) && delete!(ae, "scale")
