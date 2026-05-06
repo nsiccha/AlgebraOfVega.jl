@@ -22,20 +22,22 @@ Accepts `nothing` (no pre-filtering), a `Dict`, or a `Function(col, val) -> Bool
 function _resolve_filter_include(::Nothing, tbl)
     nothing
 end
+
+_js_width(w::Integer) = string(w)
+_js_width(w) = "'$w'"
+
+_filter_include_for(_, c, v) = (string(c) => [string(x) for x in v])
+function _filter_include_for(tbl, c, v::Function)
+    vals = unique(string.(Tables.getcolumn(tbl, Symbol(c))))
+    included = filter(v, vals)
+    length(included) < length(vals) ? (string(c) => included) : nothing
+end
+
 function _resolve_filter_include(d::AbstractDict, tbl)
-    cols = classify_columns(tbl)
     result = Dict{String, Vector{String}}()
     for (k, v) in d
-        c = string(k)
-        if v isa Function
-            vals = unique(string.(Tables.getcolumn(tbl, Symbol(c))))
-            included = filter(v, vals)
-            if length(included) < length(vals)
-                result[c] = included
-            end
-        else
-            result[c] = [string(x) for x in v]
-        end
+        entry = _filter_include_for(tbl, k, v)
+        isnothing(entry) || (result[first(entry)] = last(entry))
     end
     isempty(result) ? nothing : result
 end
@@ -102,7 +104,7 @@ padding (min 250px). Falls back to 800px if the container element isn't found.
 function explorer_js(; namespace="", plot_selector="#explorer-plot", spec_selector=nothing, width="container", height=350)
     spec_line = isnothing(spec_selector) ? "" : """
                 document.querySelector('$spec_selector').textContent = JSON.stringify(spec, null, 2);"""
-    js_width = width isa Integer ? string(width) : "'$width'"
+    js_width = _js_width(width)
     """
             $(namespace)_explorerFilterSelected = {};
 
@@ -692,7 +694,7 @@ function write_explorer_assets(dir, datasets_or_table; width="container", height
     ) for name in ds_names)
     write(joinpath(dir, "explorer-columns.json"), JSON.json(col_dict))
 
-    js_width = width isa Integer ? string(width) : "'$width'"
+    js_width = _js_width(width)
 
     # Write explorer.js (self-contained IIFE that fetches data)
     write(joinpath(dir, "explorer.js"), """

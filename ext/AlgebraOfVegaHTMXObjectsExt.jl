@@ -14,6 +14,12 @@ import AlgebraOfVega: with_plot_caption, draws_summary_table, _sanitize_id,
 # so JSON payloads survive in data-* attributes.
 _attr_escape(s) = replace(string(s), "&" => "&amp;", "\"" => "&quot;")
 
+_as_nt_or_nothing(nt::NamedTuple) = nt
+_as_nt_or_nothing(_) = nothing
+
+_ci_str(s::Symbol) = string(s)
+_ci_str(s) = s
+
 """
     with_plot_caption(plot_node, caption::CaptionSpec; plot_id,
                       data_download=true,
@@ -177,7 +183,7 @@ function with_plot_caption(spec::VegaSpec, caption::CaptionSpec;
     controls, plot_node = if isnothing(auto_remap)
         nothing, to_node(spec; id=plot_id_s)
     else
-        remap_kw = auto_remap isa NamedTuple ? auto_remap : (;)
+        remap_kw = something(_as_nt_or_nothing(auto_remap), (;))
         _auto_remap_parts(plot_id_s, spec; remap_kw...)
     end
 
@@ -186,7 +192,7 @@ function with_plot_caption(spec::VegaSpec, caption::CaptionSpec;
         if isnothing(args)
             nothing
         else
-            ci_val = summary_ci isa Symbol ? string(summary_ci) : summary_ci
+            ci_val = _ci_str(summary_ci)
             opts = Dict{String,Any}(
                 "ci" => ci_val,
                 "sigfigs" => summary_sigfigs,
