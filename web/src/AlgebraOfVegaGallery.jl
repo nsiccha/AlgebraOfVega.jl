@@ -332,11 +332,11 @@ const APPDATA = AoVAppData()
     end
 
     # === Per-demo rendering ===
-    # Bundled mount: three named variants own per-demo data; a single
-    # `@get index(name::Symbol)` route serves all three at /demo/<name>.
-    # Gallery cards are built inline at the only consumer (gallery_index).
+    # Bundled mount: each variant is its own @include with its data,
+    # routes, and the @get index that serves its body. Gallery cards are
+    # built by the demo bundle's `card` IP.
     @include demo = begin
-        @struct brush = begin
+        @include brush = begin
             label       = "Brush → Server Stats"
             description = "Brush a scatter plot, server computes stats on selection"
             plot_spec   = data(cars()) *
@@ -360,7 +360,7 @@ const APPDATA = AoVAppData()
                     "which computes summary statistics in Julia and returns them as HTML."),
                 vdraw(plot_spec;
                     id="brush-demo",
-                    signals=[(signal="brush", url=string(__parent__/"brush_stats"), target="#brush-stats", debounce=200)],
+                    signals=[(signal="brush", url=string(__self__/"stats"), target="#brush-stats", debounce=200)],
                 ),
                 h.div(; id="brush-stats", class="aov-brush-stats")(
                     h.p(h.small("Drag a rectangle on the plot to select points.")),
@@ -369,16 +369,61 @@ const APPDATA = AoVAppData()
                 h.pre(h.code("""# In the @htmx struct:
 vdraw(spec;
     id="brush-demo",
-    signals=[(signal="brush", url="/brush_stats", target="#brush-stats")],
+    signals=[(signal="brush", url=string(__self__/"stats"), target="#brush-stats")],
 )
 
 # The signal listener sends brush bounds as query params:
-#   GET /brush_stats?horsepower=[50,200]&mpg=[15,30]
+#   GET /demo/brush/stats?horsepower=[50,200]&mpg=[15,30]
 # Server computes stats and returns HTML fragment.""")),
             )
+
+            @get index = body
+
+            @get stats(; horsepower="", mpg="") = begin
+                c = cars()
+                hp_range = isempty(horsepower) ? nothing : JSON.parse(horsepower)
+                mpg_range = isempty(mpg) ? nothing : JSON.parse(mpg)
+
+                if isnothing(hp_range) || isnothing(mpg_range)
+                    h.div(; id="brush-stats")(
+                        h.p(h.small("Drag a rectangle on the plot to select points.")),
+                    )
+                else
+                    hp_min, hp_max = extrema(hp_range)
+                    mpg_min, mpg_max = extrema(mpg_range)
+                    mask = [
+                        hp_min <= hp <= hp_max && mpg_min <= m <= mpg_max
+                        for (hp, m) in zip(c.horsepower, c.mpg)
+                    ]
+                    n = sum(mask)
+                    if n == 0
+                        h.div(; id="brush-stats")(h.p("No points in selection."))
+                    else
+                        sel_hp = c.horsepower[mask]
+                        sel_mpg = c.mpg[mask]
+                        sel_origins = c.origin[mask]
+                        origin_counts = Dict{String,Int}()
+                        for o in sel_origins
+                            origin_counts[o] = get(origin_counts, o, 0) + 1
+                        end
+                        h.div(; id="brush-stats")(
+                            h.h4("Selection: $n points"),
+                            h.table(; role="grid")(
+                                h.thead(h.tr(h.th("Stat"), h.th("Horsepower"), h.th("MPG"))),
+                                h.tbody(
+                                    h.tr(h.td("Min"), h.td(string(minimum(sel_hp))), h.td(string(minimum(sel_mpg)))),
+                                    h.tr(h.td("Max"), h.td(string(maximum(sel_hp))), h.td(string(maximum(sel_mpg)))),
+                                    h.tr(h.td("Mean"), h.td(string(round(sum(sel_hp)/n, digits=1))), h.td(string(round(sum(sel_mpg)/n, digits=1)))),
+                                ),
+                            ),
+                            h.p("Origins: ", join(["$o ($c)" for (o, c) in sort(collect(origin_counts))], ", ")),
+                        )
+                    end
+                end
+            end
         end
 
-        @struct update = begin
+        @include update = begin
             label       = "Server-Side Data Update"
             description = "Buttons fetch filtered data from server, plot animates update"
             origins     = ["All", "USA", "Europe", "Japan"]
@@ -394,7 +439,7 @@ vdraw(spec;
                 ),
                 h.div(; role="group")(
                     [h.button(o;
-                        hx_get=__parent__/"filter_data/$o",
+                        hx_get=__self__/"filter/$o",
                         hx_target="#update-script",
                         hx_swap="innerHTML",
                         class="outline",
@@ -403,17 +448,37 @@ vdraw(spec;
                 h.div(; id="update-script"),
                 h.h4("How it works"),
                 h.pre(h.code("""# Button triggers HTMX GET:
-#   <button hx-get="/update_data/USA" hx-target="#update-script">
+#   <button hx-get="/demo/update/filter/USA" hx-target="#update-script">
 
 # Server filters data and returns a script that updates the view:
-@get update_data(origin) = begin
+@get filter(origin) = begin
     filtered = origin == "All" ? cars() : filter_by_origin(cars(), origin)
     update_data("update-demo", filtered)
 end""")),
             )
+
+            @get index = body
+
+            @get filter(origin) = begin
+                c = cars()
+                if origin == "All"
+                    update_data("update-demo", c)
+                else
+                    mask = [o == origin for o in c.origin]
+                    filtered = (;
+                        horsepower = c.horsepower[mask],
+                        mpg = c.mpg[mask],
+                        origin = c.origin[mask],
+                        cylinders = c.cylinders[mask],
+                        weight = c.weight[mask],
+                        acceleration = c.acceleration[mask],
+                    )
+                    update_data("update-demo", filtered)
+                end
+            end
         end
 
-        @struct responsive = begin
+        @include responsive = begin
             label       = "Responsive Width"
             description = "Plots adapt to container width — 50%, side-by-side, faceted"
             scatter_spec  = data(cars()) * mapping(:horsepower, :mpg, color=:origin) * visual(Scatter)
@@ -444,6 +509,8 @@ end""")),
                 h.p("Click the ⋯ menu to Save as PNG/SVG."),
                 vdraw(scatter_spec; actions=true),
             )
+
+            @get index = body
         end
 
         card(name::Symbol) = let d = getproperty(__self__, name); href = __self__/string(name)
@@ -452,73 +519,6 @@ end""")),
                     hx_target="#content", hx_swap="innerHTML", hx_push_url="true")),
                 h.p(d.description),
             )
-        end
-
-        @get index(name::Symbol) = getproperty(__self__, name).body
-
-        # Per-demo route helpers — each scoped to the variant that uses it.
-        # /demo/brush_stats serves the per-selection summary that demo.brush's
-        # signal callback hits; /demo/filter_data/<origin> serves the dataset
-        # swap that demo.update's buttons trigger.
-        @get brush_stats(; horsepower="", mpg="") = begin
-            c = cars()
-            hp_range = isempty(horsepower) ? nothing : JSON.parse(horsepower)
-            mpg_range = isempty(mpg) ? nothing : JSON.parse(mpg)
-
-            if isnothing(hp_range) || isnothing(mpg_range)
-                h.div(; id="brush-stats")(
-                    h.p(h.small("Drag a rectangle on the plot to select points.")),
-                )
-            else
-                hp_min, hp_max = extrema(hp_range)
-                mpg_min, mpg_max = extrema(mpg_range)
-                mask = [
-                    hp_min <= hp <= hp_max && mpg_min <= m <= mpg_max
-                    for (hp, m) in zip(c.horsepower, c.mpg)
-                ]
-                n = sum(mask)
-                if n == 0
-                    h.div(; id="brush-stats")(h.p("No points in selection."))
-                else
-                    sel_hp = c.horsepower[mask]
-                    sel_mpg = c.mpg[mask]
-                    sel_origins = c.origin[mask]
-                    origin_counts = Dict{String,Int}()
-                    for o in sel_origins
-                        origin_counts[o] = get(origin_counts, o, 0) + 1
-                    end
-                    h.div(; id="brush-stats")(
-                        h.h4("Selection: $n points"),
-                        h.table(; role="grid")(
-                            h.thead(h.tr(h.th("Stat"), h.th("Horsepower"), h.th("MPG"))),
-                            h.tbody(
-                                h.tr(h.td("Min"), h.td(string(minimum(sel_hp))), h.td(string(minimum(sel_mpg)))),
-                                h.tr(h.td("Max"), h.td(string(maximum(sel_hp))), h.td(string(maximum(sel_mpg)))),
-                                h.tr(h.td("Mean"), h.td(string(round(sum(sel_hp)/n, digits=1))), h.td(string(round(sum(sel_mpg)/n, digits=1)))),
-                            ),
-                        ),
-                        h.p("Origins: ", join(["$o ($c)" for (o, c) in sort(collect(origin_counts))], ", ")),
-                    )
-                end
-            end
-        end
-
-        @get filter_data(origin) = begin
-            c = cars()
-            if origin == "All"
-                update_data("update-demo", c)
-            else
-                mask = [o == origin for o in c.origin]
-                filtered = (;
-                    horsepower = c.horsepower[mask],
-                    mpg = c.mpg[mask],
-                    origin = c.origin[mask],
-                    cylinders = c.cylinders[mask],
-                    weight = c.weight[mask],
-                    acceleration = c.acceleration[mask],
-                )
-                update_data("update-demo", filtered)
-            end
         end
     end
 
