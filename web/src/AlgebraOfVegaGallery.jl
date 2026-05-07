@@ -268,7 +268,7 @@ const APPDATA = AoVAppData()
             )
         end
 
-        detail = h.div(; class="aov-detail")(
+        @get plot = h.div(; class="aov-detail")(
             __parent__.plot_nav(id),
             h.h2(e.title),
             h.p(e.description),
@@ -278,7 +278,7 @@ const APPDATA = AoVAppData()
             e.json_details,
         )
 
-        card_with_specs = h.div(; class="aov-card-with-specs")(
+        @get card_plot = h.div(; class="aov-card-with-specs")(
             vdraw(e.spec),
             h.details(
                 h.summary("Julia Code"),
@@ -290,19 +290,16 @@ const APPDATA = AoVAppData()
             ),
         )
 
-        static_plot_full = begin
+        @get spec = MIMEResponse("application/json", e.vegalite_json)
+        @get standalone = e.standalone_html
+
+        @get static_plot = begin
             e.ensure_static_png()
             h.div(
                 h.h3(e.title),
                 h.img(; src=__parent__/"plot_img/$(id).png"),
             )
         end
-
-        @get  plot        = detail
-        @get  card_plot   = card_with_specs
-        @get  spec        = MIMEResponse("application/json", e.vegalite_json)
-        @get  standalone  = e.standalone_html
-        @get  static_plot = static_plot_full
         @post flag = begin
             __appdata__.flags.toggle!(id)
             flag_button()
