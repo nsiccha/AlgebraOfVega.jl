@@ -68,15 +68,6 @@ function _preaggregate(raw, group_keys::Symbol...)
        q025=out_q025, q10=out_q10, q25=out_q25, median=out_med, q75=out_q75, q90=out_q90, q975=out_q975)
 end
 
-# --- Utilities (stateless I/O / formatting) ---
-
-function escape_html(s::AbstractString)
-    s = replace(s, "&" => "&amp;")
-    s = replace(s, "<" => "&lt;")
-    s = replace(s, ">" => "&gt;")
-    s
-end
-
 # --- AppData: every data/cached value the app holds ---
 #
 # A single DO global. Per-id state (loaded spec, derived properties)
