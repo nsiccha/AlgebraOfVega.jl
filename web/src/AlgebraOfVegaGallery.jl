@@ -435,6 +435,14 @@ end""")),
         @get index(name::Symbol) = getproperty(__self__, name).body
     end
 
+    demo_card(name::Symbol) = let d = getproperty(demo, name); href = __self__/"demo/$name"
+        h.article(
+            h.h4(h.a(d.label; href=href, hx_get=href,
+                hx_target="#content", hx_swap="innerHTML", hx_push_url="true")),
+            h.p(d.description),
+        )
+    end
+
     gallery_index = h.div(; class="htmxo-gallery")(
         h.p("$(length(__appdata__.gallery.items)) examples of AlgebraOfGraphics.jl specs translated to Vega-Lite. ",
             h.a("Data Explorer →"; href=__self__/"explorer"),
@@ -444,13 +452,7 @@ end""")),
         [section(title, ids).normal for (title, ids) in __appdata__.plot_sections]...,
         h.section(
             h.h3("HTMX + Vega Demos"),
-            [let d = getproperty(demo, name); href = __self__/"demo/$name"
-                h.article(
-                    h.h4(h.a(d.label; href=href, hx_get=href,
-                        hx_target="#content", hx_swap="innerHTML", hx_push_url="true")),
-                    h.p(d.description),
-                )
-             end for name in (:brush, :update, :responsive)]...,
+            [demo_card(name) for name in (:brush, :update, :responsive)]...,
         ),
     )
 
