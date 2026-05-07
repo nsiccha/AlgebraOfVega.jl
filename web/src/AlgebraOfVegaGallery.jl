@@ -655,7 +655,10 @@ end""")),
         end
 
         @get index(name::Symbol) = let c = getproperty(__self__, name)
-            h.main(class="container")(
+            # No <main> wrapper here — AppContext's __page__ already
+            # supplies the page's single <main class="container-fluid">.
+            # A <section> is the semantic fit for "this captioned demo".
+            h.section(
                 h.h1(c.page_title),
                 h.p(c.page_intro),
                 isnothing(c.auto_remap) ?
