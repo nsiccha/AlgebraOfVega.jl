@@ -332,29 +332,27 @@ const APPDATA = AoVAppData()
     end
 
     # === Per-demo rendering ===
-    # Each HTMX+Vega demo is a *named* struct that owns its label,
-    # description, and the page body the route serves. The
-    # `@struct demo(name::Symbol)` dispatcher below extracts the
-    # variant via `getproperty(__parent__, Symbol("demo_$name"))` —
-    # no if/elseif over `name` — and derives the shared `card` shape
-    # once. Add a new demo by adding one named sibling.
-    @struct demo_brush = begin
-        label       = "Brush → Server Stats"
-        description = "Brush a scatter plot, server computes stats on selection"
-        body = h.div(; class="aov-demo-page")(
-            __parent__.plot_nav("demo_brush"),
-            h.h2("Brush → Server Stats"),
-            h.p("Drag a selection on the scatter plot. The brush bounds are sent to the server via HTMX, ",
-                "which computes summary statistics in Julia and returns them as HTML."),
-            vdraw(__parent__.brush_plot_spec;
-                id="brush-demo",
-                signals=[(signal="brush", url="/brush_stats", target="#brush-stats", debounce=200)],
-            ),
-            h.div(; id="brush-stats", class="aov-brush-stats")(
-                h.p(h.small("Drag a rectangle on the plot to select points.")),
-            ),
-            h.h4("How it works"),
-            h.pre(h.code("""# In the @htmx struct:
+    # Bundled mount: three named variants own per-demo data; a single
+    # `@get index(name::Symbol)` route serves all three at /demo/<name>.
+    # Gallery cards are built inline at the only consumer (gallery_index).
+    @include demo = begin
+        @struct brush = begin
+            label       = "Brush → Server Stats"
+            description = "Brush a scatter plot, server computes stats on selection"
+            body = h.div(; class="aov-demo-page")(
+                __parent__.__parent__.plot_nav("demo_brush"),
+                h.h2("Brush → Server Stats"),
+                h.p("Drag a selection on the scatter plot. The brush bounds are sent to the server via HTMX, ",
+                    "which computes summary statistics in Julia and returns them as HTML."),
+                vdraw(__parent__.__parent__.brush_plot_spec;
+                    id="brush-demo",
+                    signals=[(signal="brush", url="/brush_stats", target="#brush-stats", debounce=200)],
+                ),
+                h.div(; id="brush-stats", class="aov-brush-stats")(
+                    h.p(h.small("Drag a rectangle on the plot to select points.")),
+                ),
+                h.h4("How it works"),
+                h.pre(h.code("""# In the @htmx struct:
 vdraw(spec;
     id="brush-demo",
     signals=[(signal="brush", url="/brush_stats", target="#brush-stats")],
@@ -363,34 +361,34 @@ vdraw(spec;
 # The signal listener sends brush bounds as query params:
 #   GET /brush_stats?horsepower=[50,200]&mpg=[15,30]
 # Server computes stats and returns HTML fragment.""")),
-        )
-    end
+            )
+        end
 
-    @struct demo_update = begin
-        label       = "Server-Side Data Update"
-        description = "Buttons fetch filtered data from server, plot animates update"
-        origins     = ["All", "USA", "Europe", "Japan"]
-        body = h.div(; class="aov-demo-page")(
-            __parent__.plot_nav("demo_update"),
-            h.h2("Server-Side Data Filtering"),
-            h.p("Click a button to fetch filtered data from the server. ",
-                "The Vega view's dataset is swapped without re-creating the plot — axes animate smoothly."),
-            vdraw(
-                data(cars()) * mapping(:horsepower, :mpg, color=:origin) * visual(Scatter) *
-                config(width=550, height=350, title="Click a button to filter");
-                id="update-demo",
-            ),
-            h.div(; role="group")(
-                [h.button(o;
-                    hx_get=__parent__/"filter_data/$o",
-                    hx_target="#update-script",
-                    hx_swap="innerHTML",
-                    class="outline",
-                ) for o in origins]...
-            ),
-            h.div(; id="update-script"),
-            h.h4("How it works"),
-            h.pre(h.code("""# Button triggers HTMX GET:
+        @struct update = begin
+            label       = "Server-Side Data Update"
+            description = "Buttons fetch filtered data from server, plot animates update"
+            origins     = ["All", "USA", "Europe", "Japan"]
+            body = h.div(; class="aov-demo-page")(
+                __parent__.__parent__.plot_nav("demo_update"),
+                h.h2("Server-Side Data Filtering"),
+                h.p("Click a button to fetch filtered data from the server. ",
+                    "The Vega view's dataset is swapped without re-creating the plot — axes animate smoothly."),
+                vdraw(
+                    data(cars()) * mapping(:horsepower, :mpg, color=:origin) * visual(Scatter) *
+                    config(width=550, height=350, title="Click a button to filter");
+                    id="update-demo",
+                ),
+                h.div(; role="group")(
+                    [h.button(o;
+                        hx_get=__parent__.__parent__/"filter_data/$o",
+                        hx_target="#update-script",
+                        hx_swap="innerHTML",
+                        class="outline",
+                    ) for o in origins]...
+                ),
+                h.div(; id="update-script"),
+                h.h4("How it works"),
+                h.pre(h.code("""# Button triggers HTMX GET:
 #   <button hx-get="/update_data/USA" hx-target="#update-script">
 
 # Server filters data and returns a script that updates the view:
@@ -398,51 +396,43 @@ vdraw(spec;
     filtered = origin == "All" ? cars() : filter_by_origin(cars(), origin)
     update_data("update-demo", filtered)
 end""")),
-        )
-    end
+            )
+        end
 
-    @struct demo_responsive = begin
-        label       = "Responsive Width"
-        description = "Plots adapt to container width — 50%, side-by-side, faceted"
-        scatter_spec  = data(cars()) * mapping(:horsepower, :mpg, color=:origin) * visual(Scatter)
-        faceted_spec  = data(cars()) * mapping(:horsepower, :mpg, col=:origin) * visual(Scatter)
-        body = h.div(; class="aov-demo-page")(
-            h.h2("Responsive Width Demo"),
-            h.p("Plots adapt to their container width. Resize the browser to see them reflow."),
+        @struct responsive = begin
+            label       = "Responsive Width"
+            description = "Plots adapt to container width — 50%, side-by-side, faceted"
+            scatter_spec  = data(cars()) * mapping(:horsepower, :mpg, color=:origin) * visual(Scatter)
+            faceted_spec  = data(cars()) * mapping(:horsepower, :mpg, col=:origin) * visual(Scatter)
+            body = h.div(; class="aov-demo-page")(
+                h.h2("Responsive Width Demo"),
+                h.p("Plots adapt to their container width. Resize the browser to see them reflow."),
 
-            h.h4("Full width (layered)"),
-            vdraw(scatter_spec + (data(cars()) * mapping(:horsepower, :mpg) * linear())),
+                h.h4("Full width (layered)"),
+                vdraw(scatter_spec + (data(cars()) * mapping(:horsepower, :mpg) * linear())),
 
-            h.h4("50% width"),
-            h.div(; data_cell="half")(vdraw(scatter_spec)),
+                h.h4("50% width"),
+                h.div(; data_cell="half")(vdraw(scatter_spec)),
 
-            h.h4("Side by side (50% each)"),
-            h.div(; data_cell="row")(
-                h.div(vdraw(scatter_spec)),
-                h.div(vdraw(scatter_spec + (data(cars()) * mapping(:horsepower, :mpg) * linear()))),
-            ),
+                h.h4("Side by side (50% each)"),
+                h.div(; data_cell="row")(
+                    h.div(vdraw(scatter_spec)),
+                    h.div(vdraw(scatter_spec + (data(cars()) * mapping(:horsepower, :mpg) * linear()))),
+                ),
 
-            h.h4("Faceted — full width"),
-            vdraw(faceted_spec),
+                h.h4("Faceted — full width"),
+                vdraw(faceted_spec),
 
-            h.h4("Faceted — 60% width"),
-            h.div(; data_cell="three-fifths")(vdraw(faceted_spec)),
+                h.h4("Faceted — 60% width"),
+                h.div(; data_cell="three-fifths")(vdraw(faceted_spec)),
 
-            h.h4("Saveable (actions=true)"),
-            h.p("Click the ⋯ menu to Save as PNG/SVG."),
-            vdraw(scatter_spec; actions=true),
-        )
-    end
+                h.h4("Saveable (actions=true)"),
+                h.p("Click the ⋯ menu to Save as PNG/SVG."),
+                vdraw(scatter_spec; actions=true),
+            )
+        end
 
-    @struct demo(name::Symbol) = begin
-        d    = getproperty(__parent__, Symbol("demo_$name"))
-        href = __self__/"demo_page/$name"
-        card = h.article(
-            h.h4(h.a(d.label; href=href, hx_get=href,
-                hx_target="#content", hx_swap="innerHTML", hx_push_url="true")),
-            h.p(d.description),
-        )
-        body = d.body
+        @get index(name::Symbol) = getproperty(__self__, name).body
     end
 
     gallery_index = h.div(; class="htmxo-gallery")(
@@ -454,7 +444,13 @@ end""")),
         [section(title, ids).normal for (title, ids) in __appdata__.plot_sections]...,
         h.section(
             h.h3("HTMX + Vega Demos"),
-            [demo(n).card for n in (:brush, :update, :responsive)]...,
+            [let d = getproperty(demo, name); href = __self__/"demo/$name"
+                h.article(
+                    h.h4(h.a(d.label; href=href, hx_get=href,
+                        hx_target="#content", hx_swap="innerHTML", hx_push_url="true")),
+                    h.p(d.description),
+                )
+             end for name in (:brush, :update, :responsive)]...,
         ),
     )
 
@@ -513,7 +509,7 @@ end""")),
 
     # === Captioned-plot demos ===
     # Bundled mount: three named variants own the per-variant data, and
-    # the single route lives in the same scope. URLs: /captioned/demo/<name>.
+    # the single route lives in the same scope. URLs: /captioned/<name>.
     @include captioned = begin
         @struct preagg = begin
             id            = "captioned-demo"
@@ -580,7 +576,7 @@ end""")),
             page_intro    = "Verifies auto-summary on raw-draws lineribbon (LineRibbonAnalysis)."
         end
 
-        @get demo(name::Symbol) = let c = getproperty(__self__, name)
+        @get index(name::Symbol) = let c = getproperty(__self__, name)
             h.main(class="container")(
                 h.h1(c.page_title),
                 h.p(c.page_intro),
@@ -739,8 +735,6 @@ end""")),
             end
         end
     end
-
-    @get demo_page(name::Symbol) = demo(name).body
 
     @get filter_data(origin) = begin
         c = cars()
