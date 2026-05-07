@@ -3040,31 +3040,72 @@ function vega_head(;
             details[title] > summary > svg { width: 14px !important; height: 14px !important; }
             .chart-wrapper { height: auto !important; }
 
-            /* AoV utility classes (domain-specific; generic ones use HTMXObjects u-* utilities) */
+            /* AoV-specific role classes. Generic concepts (gallery
+               grid, sortable table, status badges, …) live upstream in
+               HTMXObjects; this block only carries roles peculiar to
+               the AoV gallery shell. */
             .aov-plot-area { width: 100%; min-width: 0; }
-            .aov-w-8 { width: 8rem; }
-            .aov-w-50 { width: 50%; }
-            .aov-w-60 { width: 60%; }
-            .aov-img-fluid { max-width: 100%; }
-            .aov-flex-1 { flex: 1; }
-            .aov-grid-cell { border: 1px solid var(--pico-muted-border-color); border-radius: 0.2rem; padding: 0.2rem; overflow: hidden; min-width: 0; }
-            .aov-grid-cell-failed { opacity: 0.4; }
-            .aov-grid-cell-title { font-weight: bold; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 0.1rem; }
             .aov-grid-page { width: 100vw; padding: 0.5rem; font-size: 0.5em; }
-            .aov-grid-16 { display: grid; grid-template-columns: repeat(16, 1fr); gap: 0.25rem; }
-            .aov-grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.5rem; }
-            .aov-card { margin: 0; padding: 0.5rem; min-width: 0; overflow: hidden; }
-            .aov-card-header { padding: 0 0 0.25rem; margin: 0; display: flex; align-items: center; flex-wrap: wrap; }
-            .aov-card-title-link { font-size: 0.9em; font-weight: bold; text-decoration: none; }
-            .aov-card-title { font-size: 0.9em; font-weight: bold; }
-            .aov-mr-auto { margin-right: auto; }
+            /* Dense compact grid (16 cols) and gallery static grid (4 cols).
+               Both compose with upstream `.htmxo-grid`, supplying only the
+               column-count + gap variables; child styling stays scoped here. */
+            .aov-grid-dense  { --htmxo-grid-cols: 16; --htmxo-grid-gap: 0.25rem; }
+            .aov-grid-static { --htmxo-grid-cols: 4;  --htmxo-grid-gap: 0.5rem; }
+            /* Compact gallery cells: <figure> in a grid container; <figcaption> is the title. */
+            .aov-grid-dense > figure, .aov-grid-static > figure {
+                margin: 0; border: 1px solid var(--pico-muted-border-color);
+                border-radius: 0.2rem; padding: 0.2rem;
+                overflow: hidden; min-width: 0;
+            }
+            .aov-grid-dense > figure > figcaption, .aov-grid-static > figure > figcaption {
+                font-weight: bold; white-space: nowrap; overflow: hidden;
+                text-overflow: ellipsis; margin-bottom: 0.1rem;
+            }
+            /* Static gallery cards: <article><header><a/><button/></header><img/></article>. */
+            .aov-grid-static > article {
+                margin: 0; padding: 0.5rem; min-width: 0; overflow: hidden;
+            }
+            .aov-grid-static > article > header {
+                padding: 0 0 0.25rem; margin: 0;
+                display: flex; align-items: center; flex-wrap: wrap;
+            }
+            .aov-grid-static > article > header > a {
+                font-size: 0.9em; font-weight: bold; text-decoration: none;
+            }
+            .aov-grid-dense > figure img, .aov-grid-static > figure img,
+            .aov-grid-static > article img { width: 100%; }
             .aov-cb-mid { vertical-align: middle; margin-right: 0.3em; }
             .aov-context-bar { padding: 0.5rem 0; font-size: 0.75em; opacity: 0.6; display: flex; gap: 1em; align-items: center; }
+            /* Plot nav: a strip of role=button anchors. The first one
+               ("← Gallery") pushes everything after it to the right. */
             .aov-plot-nav { display: flex; flex-wrap: wrap; gap: 0.25rem; margin-bottom: 1rem; align-items: center; }
-            .aov-back-link { font-size: 0.9em; }
-            .aov-plot-row { display: flex; gap: 1rem; }
-            .aov-plot-row-tight { display: flex; gap: 0.5rem; margin-top: 1rem; }
-            .aov-plot-nav-btn { margin: 0.1rem; font-size: 0.85em; padding: 0.3rem 0.6rem; }
+            .aov-plot-nav > a:first-child { margin-right: auto; }
+            .aov-plot-nav > a { margin: 0.1rem; font-size: 0.85em; padding: 0.3rem 0.6rem; }
+
+            /* Responsive demo cells. The demo's whole point is to
+               showcase widths, so the cell width is the cell's *role*
+               and lives on a `data-cell` attribute. */
+            .aov-demo-page > [data-cell="half"]          { width: 50%; }
+            .aov-demo-page > [data-cell="three-fifths"]  { width: 60%; }
+            .aov-demo-page > [data-cell="row"]           { display: flex; gap: 1rem; }
+            .aov-demo-page > [data-cell="row"] > div     { flex: 1; }
+
+            /* Semantic roles. Bare <pre> and <small> rely on Pico defaults. */
+            .aov-code-scroll { max-height: 25rem; overflow-y: auto; }
+            .aov-static-section { margin-bottom: 2rem; }
+            .aov-static-section h3 { margin-bottom: 0.5rem; }
+            .aov-detail h4, .aov-demo-page h4 { margin-top: 1.5rem; }
+            .aov-detail .aov-json-details { margin-top: 1rem; }
+            .aov-card-with-specs > details { margin-top: 0.5rem; }
+            .aov-card-with-specs > details + details { margin-top: 0.25rem; }
+            .aov-brush-stats { margin-top: 1rem; }
+
+            /* Captioned-plot data preview: <details data-mode="pretty|raw">
+               wraps a role=group toggle and two [data-view] body divs. The
+               mode attribute drives visibility; aria-pressed drives the
+               button state. */
+            .aov-data-preview[data-mode="pretty"] > [data-view="raw"] { display: none; }
+            .aov-data-preview[data-mode="raw"]    > [data-view="pretty"] { display: none; }
         """),
         vega_runtime(),
     ]
@@ -3538,20 +3579,20 @@ function vega_runtime()
         },
 
         // Public: toggle between Pretty and Raw views inside a captioned plot's
-        // <details>. Lazily renders the chosen view on first switch.
+        // <details>. Sets details[data-mode] (CSS keys off it to show/hide
+        // [data-view] wrappers) and aria-pressed on the toggle buttons.
+        // Lazily renders the chosen view on first switch.
         toggleDataView: function(btn, view) {
             var details = btn.closest('details');
             if (!details) return;
-            details.querySelectorAll('.aov-toggle-btn').forEach(function(b) {
-                var on = b.dataset.view === view;
-                b.classList.toggle('aov-toggle-active', on);
-                if (on) b.setAttribute('aria-pressed', 'true');
-                else b.removeAttribute('aria-pressed');
-            });
-            var pretty = details.querySelector('.aov-data-pretty');
-            var raw = details.querySelector('.aov-data-raw');
-            if (pretty) pretty.hidden = view !== 'pretty';
-            if (raw) raw.hidden = view !== 'raw';
+            details.dataset.mode = view;
+            var group = details.querySelector('[role="group"]');
+            if (group) {
+                group.querySelectorAll('button[data-view]').forEach(function(b) {
+                    if (b.dataset.view === view) b.setAttribute('aria-pressed', 'true');
+                    else b.removeAttribute('aria-pressed');
+                });
+            }
             this._lazyRenderDataView(details, view);
         },
 

@@ -13,9 +13,6 @@ using HTMXObjects: RecordingRoutes
 
 include("test/runtests.jl")
 
-_is_html_node(::HTMX.Node) = true
-_is_html_node(_) = false
-
 _push_compose_parts!(args...) = nothing
 function _push_compose_parts!(lines, t::ComposedFunction)
     push!(lines, "  outer: $(t.outer) ($(typeof(t.outer)))")
@@ -71,66 +68,7 @@ function _preaggregate(raw, group_keys::Symbol...)
        q025=out_q025, q10=out_q10, q25=out_q25, median=out_med, q75=out_q75, q90=out_q90, q975=out_q975)
 end
 
-# --- Plot specifications (file-based gallery) ---
-#
-# The hardcoded ~2000-line PLOTS literal previously lived here. It has
-# been split into one file per entry under
-# `examples/aov-gallery/<section>/<id>.jl`, with a `# title:` /
-# `# description:` metadata header and the spec body verbatim. The
-# directory layout determines section grouping (one `_section.md`
-# per dir).
-#
-# `PLOTS` and `PLOT_SECTIONS` are reconstructed from the file tree
-# below as compatibility shims so the rest of this file can stay
-# unchanged. The 5-tuple shape `(id, title, description, code_string,
-# spec_thunk)` is preserved; new code can use `_gallery::Gallery`,
-# `find_item(_gallery, id)`, and `gallery_grid(...)` directly.
-const _GALLERY_DIR = joinpath(dirname(dirname(@__DIR__)), "examples", "aov-gallery")
-const _gallery = Gallery(_GALLERY_DIR)
-
-# Load each item's body once at module init via `Base.include`, in
-# this module's namespace, so cars(), data(), mapping(), … resolve.
-# The `include` returns the file's last top-level expression, which is
-# the AoV spec the gallery card renders. Wrap in a thunk so existing
-# `entry[5]()` callsites keep working. Items whose body fails to eval
-# are stored with an error spec so the gallery still renders the rest.
-const _gallery_specs = Dict{String,Any}()
-for _it in _gallery.items
-    _gallery_specs[_it.id] = Base.include(@__MODULE__, _it.path)
-end
-
-PLOTS = [
-    (it.id, it.title, it.description, it.code_string, () -> _gallery_specs[it.id])
-    for it in _gallery.items
-]
-
-# `RecordingRoutes` (from HTMXObjects's TreebarsExt) provides the canonical
-# recording flow — IP-backed `polling_fetchindex` with per-path progress
-# phases, summary article on completion, `?force=true` to re-record. Mounted
-# below at `/record_gallery` via @include with the gallery path list.
-const _RECORDING_PATHS = let ids = [it.id for it in _gallery.items]
-    vcat(
-        ["/"],
-        ["/plot/$id"       for id in ids],
-        ["/standalone/$id" for id in ids],
-        ["/spec/$id"       for id in ids],
-        ["/aov_runtime_js", "/explorer", "/flagged"],
-    )
-end
-const _RECORDING_DIR = joinpath(dirname(dirname(@__DIR__)), "docs", "src", "public", "live-aov")
-_recording_base() = get(ENV, "RECORD_BASE_PREFIX", "/AlgebraOfVega.jl/dev/live-aov")
-
-# --- Utilities ---
-
-
-function json_response(text)
-    HTTP.Response(200, ["Content-Type" => "application/json; charset=utf-8"], body=text)
-end
-
-function find_plot(id)
-    idx = findfirst(p -> p[1] == id, PLOTS)
-    isnothing(idx) ? nothing : PLOTS[idx]
-end
+# --- Utilities (stateless I/O / formatting) ---
 
 function escape_html(s::AbstractString)
     s = replace(s, "&" => "&amp;")
@@ -139,81 +77,70 @@ function escape_html(s::AbstractString)
     s
 end
 
-# --- Flagged plots persistence ---
-flags_file() = joinpath(@__DIR__, "..", "flagged.txt")
+# --- AppData: every data/cached value the app holds ---
+#
+# A single DO global. Per-id state (loaded spec, derived properties)
+# lives in the inline indexed `entry(id)` DO so it's cached by id and
+# disappears in lockstep with the `Gallery` it's keyed against. There
+# is no `_gallery_specs` Dict, no `PLOTS` 5-tuple shim, and no
+# `find_plot` linear scan — the upstream `Gallery` / `GalleryItem` /
+# `find_item` API is the source of truth.
 
-function load_flags()
-    s = Set{String}()
-    f = flags_file()
-    isfile(f) || return s
-    for line in readlines(f)
-        l = strip(line)
-        !isempty(l) && push!(s, l)
-    end
-    s
-end
+@dynamicstruct struct AoVAppData
+    gallery_dir = joinpath(dirname(dirname(@__DIR__)), "examples", "aov-gallery")
+    gallery     = Gallery(gallery_dir)
 
-function save_flags(flagged)
-    open(flags_file(), "w") do io
-        for id in sort(collect(flagged))
-            println(io, id)
+    flagged_path = joinpath(@__DIR__, "..", "flagged.txt")
+    plots_dir    = (let d = joinpath(@__DIR__, "..", "plots"); mkpath(d); d end)
+
+    # File-of-truth flag set. Owns the path and the ops that read/write
+    # it — callers never pass the path around. `load()` is an IP (re-
+    # reads the file each call); `save(set)` and `toggle!(id)` write.
+    @struct flags = begin
+        path = flagged_path
+        load() = begin
+            s = Set{String}()
+            isfile(path) || return s
+            for line in readlines(path)
+                l = strip(line)
+                !isempty(l) && push!(s, l)
+            end
+            s
+        end
+        save(set) = open(path, "w") do io
+            for fid in sort(collect(set))
+                println(io, fid)
+            end
+        end
+        toggle!(fid) = begin
+            s = load()
+            fid in s ? delete!(s, fid) : push!(s, fid)
+            save(s)
+            fid in s
         end
     end
-end
 
-function toggle_flag!(id)
-    flagged = load_flags()
-    if id in flagged
-        delete!(flagged, id)
-    else
-        push!(flagged, id)
-    end
-    save_flags(flagged)
-    id in flagged
-end
-
-# --- HTMXObjects App ---
-
-@htmx struct AppContext
-    flag_button(id) = let flagged = id in load_flags()
-        h.button(flagged ? "flagged" : "flag";
-            hx_post=__self__/"flag/$id",
-            hx_target="#flag-$id",
-            hx_swap="outerHTML",
-            id="flag-$id",
-            class=flagged ? "aov-flag-button is-flagged" : "aov-flag-button",
+    # Recording flow (HTMXObjectsTreebarsExt's `RecordingRoutes`).
+    recording_dir  = joinpath(dirname(dirname(@__DIR__)), "docs", "src", "public", "live-aov")
+    recording_base = get(ENV, "RECORD_BASE_PREFIX", "/AlgebraOfVega.jl/dev/live-aov")
+    recording_paths = let ids = [it.id for it in gallery.items]
+        vcat(
+            ["/"],
+            ["/entries/$id/plot"       for id in ids],
+            ["/entries/$id/standalone" for id in ids],
+            ["/entries/$id/spec"       for id in ids],
+            ["/aov_runtime_js", "/explorer", "/flagged"],
         )
     end
 
-    plot_card(id, title, description, ref_url=nothing) = begin
-        entry = find_plot(id)
-        let spec = isnothing(entry) ? nothing : entry[5]()
-            code_str = isnothing(entry) ? "" : entry[4]
-            is_node = _is_html_node(spec)
-            h.article(; class="htmxo-gallery-card")(
-                h.h4(; class="htmxo-gallery-card-title")(
-                    h.a(title; href=__self__/"standalone/$id", target="_blank"),
-                    is_node ? h.span() : h.a(" · static";
-                        class="htmxo-gallery-card-meta",
-                        href=__self__/"static_plot/$id", target="_blank"),
-                    flag_button(id),
-                    isnothing(ref_url) ? h.span() :
-                        h.a(" · ref"; class="htmxo-gallery-card-meta", href=ref_url, target="_blank"),
-                ),
-                isempty(description) ? h.span() :
-                    h.p(description; class="htmxo-gallery-card-description"),
-                isnothing(spec) ? h.p("Unknown plot") : is_node ? spec : vdraw(spec; id=id),
-                h.pre(h.code(code_str; class="language-julia"); class="htmxo-gallery-card-code"),
-            )
-        end
-    end
+    explorer_datasets = default_explorer_datasets()
 
-    # Group plots by category for the index. Order is simple → complex
+    # Curated section grouping for the index. Order is simple → complex
     # → tests/edge-cases. The final "Uncategorized" bucket collects
     # every gallery item not assigned to one of the curated sections
     # above; those are bug-repro / test items rather than curated
     # examples, so they render last.
-    _CURATED_SECTIONS = [
+    curated_sections = [
         ("Basic" => ["scatter", "bar", "line", "lines_only", "area", "histogram", "heatmap", "boxplot"]),
         ("Composition" => ["layered", "multi_layer", "stacked_bar", "grouped_bar", "bubble", "scatter_jitter", "custom_config"]),
         ("AoG: Basic Visualizations" => ["aog_scatter_basic", "aog_sine_lines", "aog_lines_scatter", "aog_two_sources", "aog_boxplot"]),
@@ -229,85 +156,360 @@ end
         ("AoG: Pregrouped" => ["pregrouped_boxplot", "pregrouped_boxplot_plain", "pregrouped_dose_response"]),
         ("AoG: Scales" => ["aog_log_transform", "aog_discrete_boxplot", "aog_combined_boxplot", "aog_barplot_names", "aog_dodge", "aog_legend_merge", "aog_multi_color"]),
     ]
-    PLOT_SECTIONS = let curated_ids = Set(id for (_, ids) in _CURATED_SECTIONS for id in ids),
-                        leftover = [it.id for it in _gallery.items if !(it.id in curated_ids)]
-        isempty(leftover) ? _CURATED_SECTIONS :
-            [_CURATED_SECTIONS..., "Tests / Edge cases" => leftover]
+
+    plot_sections = let curated_ids = Set(id for (_, ids) in curated_sections for id in ids),
+                        leftover = [it.id for it in gallery.items if !(it.id in curated_ids)]
+        isempty(leftover) ? curated_sections :
+            [curated_sections..., "Tests / Edge cases" => leftover]
     end
 
-    gallery_section(section_title, ids) = begin
-        entries = filter(!isnothing, [find_plot(id) for id in ids])
-        h.section(; class="htmxo-gallery-section")(
-            h.h3(section_title; class="htmxo-gallery-section-heading"),
-            [plot_card(e[1], e[2], e[3], length(e) >= 6 ? e[6] : nothing) for e in entries]...,
+    # Per-id loaded spec + derived display values. `Base.include` runs
+    # the example file in this module's namespace so cars(), data(),
+    # mapping(), … resolve, and returns the file's last top-level
+    # expression (the AoV spec). DO caches by id, so each id's file is
+    # evaluated at most once per instance.
+    @struct entry(id) = begin
+        item         = find_item(gallery, id)
+        title        = item.title
+        description  = item.description
+        code_string  = item.code_string
+        spec         = Base.include(@__MODULE__, item.path)
+        is_html_node = spec isa HTMX.Node
+
+        # Body renderings — pass through if the spec already produced
+        # HTML directly, otherwise vega-draw at the requested width.
+        body_card    = is_html_node ? spec : vdraw(spec; id=id)
+        body_compact = is_html_node ? spec : vdraw(spec; width="container")
+        body_plain   = is_html_node ? spec : vdraw(spec)
+
+        # Pure-data JSON derivations. `to_vegalite` errors for HTMX.Node
+        # specs, so these properties are only safe to reach for after
+        # `is_html_node` has been checked false (or via `json_details`,
+        # which gates internally).
+        vegalite_dict   = to_vegalite(spec)
+        vegalite_json   = JSON.json(vegalite_dict, 2)
+        escaped_json    = escape_html(vegalite_json)
+
+        json_details = is_html_node ? h.span() :
+            h.details(; class="aov-json-details")(
+                h.summary("Vega-Lite JSON Spec"),
+                h.pre(h.code(escaped_json); class="aov-code-scroll"),
+            )
+
+        standalone_html = is_html_node ?
+            h.html(h.head(vega_head()...), h.body(spec)) :
+            HTTP.Response(200, ["Content-Type" => "text/html; charset=utf-8"], body=to_html(spec))
+
+        static_png_path = joinpath(plots_dir, "$(id).png")
+        ensure_static_png() = (sdraw_file(spec, static_png_path; px_per_unit=2); static_png_path)
+    end
+end
+
+const APPDATA = AoVAppData()
+
+# --- HTMXObjects App ---
+
+@htmx struct AppContext
+    __appdata__ = APPDATA
+
+    # === Per-id rendering + routes ===
+    # Folded into one `@include` so all (id)-keyed routes share a single
+    # mount prefix (`/entries/<id>/…`), and the renderer properties live
+    # in the same scope as the routes that serve them. Plural mirrors
+    # WHMC's `@include posteriors(name)` (singular `posterior(name)`
+    # being the AppData entity). URL shape:
+    #   /entries/<id>/plot          (was /plot/<id>)
+    #   /entries/<id>/standalone    (was /standalone/<id>)
+    #   /entries/<id>/spec          (was /spec/<id>)
+    #   /entries/<id>/static_plot   (was /static_plot/<id>)
+    #   /entries/<id>/card_plot     (was /card_plot/<id>)
+    #   POST /entries/<id>/flag     (was POST /flag/<id>)
+    @include entries(id::String) = begin
+        e    = __appdata__.entry(id)
+        item = e.item
+
+        flag_button() = let flagged = id in __appdata__.flags.load()
+            h.button(flagged ? "flagged" : "flag";
+                hx_post=__self__/"flag",
+                hx_target="#flag-$id",
+                hx_swap="outerHTML",
+                id="flag-$id",
+                class="htmxo-toggle-button htmxo-flag-button",
+                aria_pressed=flagged,
+            )
+        end
+
+        card = if isnothing(item)
+            h.article(h.h4("Unknown plot: $id"))
+        else
+            h.article(
+                h.h4(
+                    h.a(e.title; href=__self__/"standalone", target="_blank"),
+                    e.is_html_node ? h.span() :
+                        h.a(" · static"; rel="external",
+                            href=__self__/"static_plot", target="_blank"),
+                    flag_button(),
+                ),
+                isempty(e.description) ? h.span() :
+                    h.p(e.description),
+                e.body_card,
+                h.pre(h.code(e.code_string; class="language-julia")),
+            )
+        end
+
+        compact = if isnothing(item) || isnothing(e.spec)
+            h.span()
+        else
+            h.figure(
+                h.figcaption(e.title),
+                e.body_compact,
+            )
+        end
+
+        static_compact = if isnothing(item) || isnothing(e.spec)
+            h.span()
+        else
+            e.ensure_static_png()
+            h.figure(
+                h.figcaption(e.title),
+                h.img(; src=__parent__/"plot_img/$(id).png"),
+            )
+        end
+
+        static_card = if isnothing(item)
+            h.article(h.p("Unknown: $id"))
+        else
+            e.ensure_static_png()
+            h.article(
+                h.header(
+                    h.a(e.title; href=__self__/"static_plot", target="_blank"),
+                    flag_button(),
+                ),
+                h.img(; src=__parent__/"plot_img/$(id).png"),
+            )
+        end
+
+        detail = if isnothing(item)
+            h.p("Unknown plot: $id")
+        else
+            h.div(; class="aov-detail")(
+                __parent__.plot_nav(id),
+                h.h2(e.title),
+                h.p(e.description),
+                e.body_plain,
+                h.h4("Julia Code"),
+                h.pre(h.code(e.code_string)),
+                e.json_details,
+            )
+        end
+
+        card_with_specs = if isnothing(item)
+            h.p("Unknown plot: $id")
+        else
+            h.div(; class="aov-card-with-specs")(
+                vdraw(e.spec),
+                h.details(
+                    h.summary("Julia Code"),
+                    h.pre(h.code(e.code_string)),
+                ),
+                h.details(
+                    h.summary("Vega-Lite JSON"),
+                    h.pre(h.code(e.escaped_json); class="aov-code-scroll"),
+                ),
+            )
+        end
+
+        standalone_response = if isnothing(item)
+            HTTP.Response(404, ["Content-Type" => "text/plain"], body="Unknown plot: $id")
+        else
+            e.standalone_html
+        end
+
+        static_plot_full = if isnothing(item)
+            h.p("Unknown plot: $id")
+        else
+            e.ensure_static_png()
+            h.div(
+                h.h3(e.title),
+                h.img(; src=__parent__/"plot_img/$(id).png"),
+            )
+        end
+
+        @get  plot        = detail
+        @get  card_plot   = card_with_specs
+        @get  spec        = MIMEResponse("application/json", e.vegalite_json)
+        @get  standalone  = standalone_response
+        @get  static_plot = static_plot_full
+        @post flag = begin
+            __appdata__.flags.toggle!(id)
+            flag_button()
+        end
+    end
+
+    # === Per-section rendering ===
+    # Folds the previous `gallery_section` and `static_gallery_section`
+    # (both keyed by `(section_title, ids)`) into one inline child.
+    @struct section(section_title, ids) = begin
+        items = filter(!isnothing,
+            [find_item(__appdata__.gallery, id) for id in ids])
+
+        # Cross-inline-child calls (`entries` is a sibling `@include`
+        # of AppContext) require `__parent__` — bare names only resolve
+        # for parent *fields/methods*, not parent indexed children.
+        normal = h.section(
+            h.h3(section_title),
+            [__parent__.entries(it.id).card for it in items]...,
+        )
+
+        static = h.div(; class="aov-static-section")(
+            h.h3(section_title),
+            h.div(; class="htmxo-grid aov-grid-static")(
+                [__parent__.entries(it.id).static_card for it in items]...,
+            ),
         )
     end
 
-    demo_card(href, title, description) = h.article(; class="htmxo-gallery-card")(
-        h.h4(; class="htmxo-gallery-card-title")(
-            h.a(title;
-                href=href,
-                hx_get=href,
-                hx_target="#main-content",
-                hx_swap="innerHTML",
-                hx_push_url="true"),
-        ),
-        h.p(description; class="htmxo-gallery-card-description"),
-    )
+    # === Per-demo rendering ===
+    # Each HTMX+Vega demo is a keyed entity: it owns its label,
+    # description, route URL, the card the index renders, and the full
+    # page the route serves. The single `@get demo_page(name)` route
+    # below dispatches to `demo(Symbol(name)).body` — one parameterized
+    # delegator instead of three near-duplicates.
+    @struct demo(name::Symbol) = begin
+        href = __self__/"demo_page/$name"
+
+        label, description = if name === :brush
+            ("Brush → Server Stats",    "Brush a scatter plot, server computes stats on selection")
+        elseif name === :update
+            ("Server-Side Data Update", "Buttons fetch filtered data from server, plot animates update")
+        elseif name === :responsive
+            ("Responsive Width",        "Plots adapt to container width — 50%, side-by-side, faceted")
+        else
+            ("Unknown demo: $name", "")
+        end
+
+        card = h.article(
+            h.h4(h.a(label; href=href, hx_get=href,
+                hx_target="#main-content", hx_swap="innerHTML", hx_push_url="true")),
+            h.p(description),
+        )
+
+        body = if name === :brush
+            h.div(; class="aov-demo-page")(
+                __parent__.plot_nav("demo_brush"),
+                h.h2("Brush → Server Stats"),
+                h.p("Drag a selection on the scatter plot. The brush bounds are sent to the server via HTMX, ",
+                    "which computes summary statistics in Julia and returns them as HTML."),
+                vdraw(__parent__.brush_plot_spec;
+                    id="brush-demo",
+                    signals=[(signal="brush", url="/brush_stats", target="#brush-stats", debounce=200)],
+                ),
+                h.div(; id="brush-stats", class="aov-brush-stats")(
+                    h.p(h.small("Drag a rectangle on the plot to select points.")),
+                ),
+                h.h4("How it works"),
+                h.pre(h.code("""# In the @htmx struct:
+vdraw(spec;
+    id="brush-demo",
+    signals=[(signal="brush", url="/brush_stats", target="#brush-stats")],
+)
+
+# The signal listener sends brush bounds as query params:
+#   GET /brush_stats?horsepower=[50,200]&mpg=[15,30]
+# Server computes stats and returns HTML fragment.""")),
+            )
+        elseif name === :update
+            let origins = ["All", "USA", "Europe", "Japan"]
+                h.div(; class="aov-demo-page")(
+                    __parent__.plot_nav("demo_update"),
+                    h.h2("Server-Side Data Filtering"),
+                    h.p("Click a button to fetch filtered data from the server. ",
+                        "The Vega view's dataset is swapped without re-creating the plot — axes animate smoothly."),
+                    vdraw(
+                        data(cars()) * mapping(:horsepower, :mpg, color=:origin) * visual(Scatter) *
+                        config(width=550, height=350, title="Click a button to filter");
+                        id="update-demo",
+                    ),
+                    h.div(; role="group")(
+                        [h.button(o;
+                            hx_get=__self__/"filter_data/$o",
+                            hx_target="#update-script",
+                            hx_swap="innerHTML",
+                            class="outline",
+                        ) for o in origins]...
+                    ),
+                    h.div(; id="update-script"),
+                    h.h4("How it works"),
+                    h.pre(h.code("""# Button triggers HTMX GET:
+#   <button hx-get="/update_data/USA" hx-target="#update-script">
+
+# Server filters data and returns a script that updates the view:
+@get update_data(origin) = begin
+    filtered = origin == "All" ? cars() : filter_by_origin(cars(), origin)
+    update_data("update-demo", filtered)
+end""")),
+                )
+            end
+        elseif name === :responsive
+            let spec = data(cars()) * mapping(:horsepower, :mpg, color=:origin) * visual(Scatter),
+                faceted_spec = data(cars()) * mapping(:horsepower, :mpg, col=:origin) * visual(Scatter)
+                h.div(; class="aov-demo-page")(
+                    h.h2("Responsive Width Demo"),
+                    h.p("Plots adapt to their container width. Resize the browser to see them reflow."),
+
+                    h.h4("Full width (layered)"),
+                    vdraw(spec + (data(cars()) * mapping(:horsepower, :mpg) * linear())),
+
+                    h.h4("50% width"),
+                    h.div(; data_cell="half")(vdraw(spec)),
+
+                    h.h4("Side by side (50% each)"),
+                    h.div(; data_cell="row")(
+                        h.div(vdraw(spec)),
+                        h.div(vdraw(spec + (data(cars()) * mapping(:horsepower, :mpg) * linear()))),
+                    ),
+
+                    h.h4("Faceted — full width"),
+                    vdraw(faceted_spec),
+
+                    h.h4("Faceted — 60% width"),
+                    h.div(; data_cell="three-fifths")(vdraw(faceted_spec)),
+
+                    h.h4("Saveable (actions=true)"),
+                    h.p("Click the ⋯ menu to Save as PNG/SVG."),
+                    vdraw(spec; actions=true),
+                )
+            end
+        else
+            h.p("Unknown demo: $name")
+        end
+    end
 
     gallery_index = h.div(; class="htmxo-gallery")(
-        h.p("$(length(PLOTS)) examples of AlgebraOfGraphics.jl specs translated to Vega-Lite. ",
+        h.p("$(length(__appdata__.gallery.items)) examples of AlgebraOfGraphics.jl specs translated to Vega-Lite. ",
             h.a("Data Explorer →"; href=__self__/"explorer"),
             " · ",
             h.a("View flagged plots →"; href=__self__/"flagged"),
         ),
-        [gallery_section(title, ids) for (title, ids) in PLOT_SECTIONS]...,
-        h.section(; class="htmxo-gallery-section")(
-            h.h3("HTMX + Vega Demos"; class="htmxo-gallery-section-heading"),
-            demo_card("/demo_brush",     "Brush → Server Stats",      "Brush a scatter plot, server computes stats on selection"),
-            demo_card("/demo_update",    "Server-Side Data Update",   "Buttons fetch filtered data from server, plot animates update"),
-            demo_card("/demo_responsive","Responsive Width",          "Plots adapt to container width — 50%, side-by-side, faceted"),
+        [section(title, ids).normal for (title, ids) in __appdata__.plot_sections]...,
+        h.section(
+            h.h3("HTMX + Vega Demos"),
+            [demo(n).card for n in (:brush, :update, :responsive)]...,
         ),
     )
 
     plot_nav(active_id) = h.nav(; class="aov-plot-nav")(
-        h.a("← Gallery"; href=__self__, hx_get=__self__, hx_target="#main-content", hx_swap="innerHTML", hx_push_url="true", role="button", class="outline secondary aov-mr-auto"),
-        [h.a(title;
-            href=__self__/"plot/$id",
-            hx_get=__self__/"plot/$id",
+        h.a("← Gallery"; href=__self__, hx_get=__self__, hx_target="#main-content", hx_swap="innerHTML", hx_push_url="true", role="button", class="outline secondary"),
+        [h.a(it.title;
+            href=__self__/"entries/$(it.id)/plot",
+            hx_get=__self__/"entries/$(it.id)/plot",
             hx_target="#main-content",
             hx_swap="innerHTML",
             hx_push_url="true",
             role="button",
-            class=(id == active_id ? "contrast" : "secondary outline") * " aov-plot-nav-btn",
-        ) for p in PLOTS for (id, title) in ((p[1], p[2]),)]...
+            class=(it.id == active_id ? "contrast" : "secondary outline"),
+        ) for it in __appdata__.gallery.items]...
     )
-
-    plot_detail(id) = begin
-        entry = find_plot(id)
-        if isnothing(entry)
-            h.p("Unknown plot: $id")
-        else
-            title, description, code_str, spec_fn = entry[2], entry[3], entry[4], entry[5]
-            let spec = spec_fn()
-                is_node = _is_html_node(spec)
-                plot_body = is_node ? spec : vdraw(spec)
-                json_details = is_node ? h.span() : h.details(; class="u-mt-4")(
-                    h.summary("Vega-Lite JSON Spec"),
-                    h.pre(h.code(escape_html(JSON.json(to_vegalite(spec), 2))); class="u-code-block u-scroll-y-lg"),
-                )
-                h.div(
-                    plot_nav(id),
-                    h.h2(title),
-                    h.p(description),
-                    plot_body,
-                    h.h4("Julia Code"; class="u-mt-5"),
-                    h.pre(h.code(code_str); class="u-code-block"),
-                    json_details,
-                )
-            end
-        end
-    end
 
     __page__(content) = htmx(
         h.main(class="container-fluid")(
@@ -325,63 +527,31 @@ end
     # Strips the wrapping `<script>...</script>` and serves the body
     # with `Content-Type: application/javascript`.
     @get aov_runtime_js = let
-        # `vega_runtime()` returns an HTMX `Node` wrapping a `<script>`
-        # element. `string(node)` gives the `HTMX.Node(...)` debug repr;
-        # we want the rendered HTML, then strip the `<script>` wrap.
         wrapped = sprint(show, MIME"text/html"(), vega_runtime())
         body = replace(wrapped, r"^\s*<script[^>]*>"i => "")
         body = replace(body, r"</script>\s*$"i => "")
         MIMEResponse("application/javascript; charset=utf-8", body)
     end
 
-    compact_card(id) = begin
-        entry = find_plot(id)
-        isnothing(entry) && return h.span()
-        let spec = entry[5]()
-            isnothing(spec) && return h.span()
-            is_node = _is_html_node(spec)
-            h.div(; class="aov-grid-cell")(
-                h.div(entry[2]; class="aov-grid-cell-title"),
-                is_node ? spec : vdraw(spec; width="container"),
-            )
-        end
-    end
+    @get compact = h.div(; class="aov-grid-page")(
+        h.h2("AlgebraOfVega Gallery"),
+        h.div(; class="htmxo-grid aov-grid-dense")(
+            [entries(it.id).compact
+             for (_, ids) in __appdata__.plot_sections
+             for it in filter(!isnothing,
+                              [find_item(__appdata__.gallery, id) for id in ids])]...,
+        ),
+    )
 
-    @get compact = begin
-        all_cards = [compact_card(e[1]) for section in PLOT_SECTIONS for e in filter(!isnothing, [find_plot(id) for id in section[2]])]
-        h.div(; class="aov-grid-page")(
-            h.h2("AlgebraOfVega Gallery"; class="u-mb-2"),
-            h.div(; class="aov-grid-16")(
-                all_cards...,
-            ),
-        )
-    end
-
-    static_compact_card(id) = begin
-        entry = find_plot(id)
-        isnothing(entry) && return h.span()
-        let spec = entry[5]()
-            isnothing(spec) && return h.span()
-            path = joinpath(plots_dir, "$id.png")
-            sdraw_file(spec, path; px_per_unit=2)
-            h.div(; class="aov-grid-cell")(
-                h.div(entry[2]; class="aov-grid-cell-title"),
-                h.img(; src=__self__/"plot_img/$id.png", class="u-w-full"),
-            )
-        end
-    end
-
-    @get static_compact = begin
-        all_cards = [static_compact_card(e[1]) for section in PLOT_SECTIONS for e in filter(!isnothing, [find_plot(id) for id in section[2]])]
-        h.div(; class="aov-grid-page")(
-            h.h2("AlgebraOfVega Static Gallery"; class="u-mb-2"),
-            h.div(; class="aov-grid-16")(
-                all_cards...,
-            ),
-        )
-    end
-
-    @get plot(id) = plot_detail[id]
+    @get static_compact = h.div(; class="aov-grid-page")(
+        h.h2("AlgebraOfVega Static Gallery"),
+        h.div(; class="htmxo-grid aov-grid-dense")(
+            [entries(it.id).static_compact
+             for (_, ids) in __appdata__.plot_sections
+             for it in filter(!isnothing,
+                              [find_item(__appdata__.gallery, id) for id in ids])]...,
+        ),
+    )
 
     @get captioned_demo = let
         id = "captioned-demo"
@@ -468,34 +638,6 @@ end
         )
     end
 
-    @get card_plot(id) = begin
-        entry = find_plot(id)
-        if isnothing(entry)
-            h.p("Unknown plot: $id")
-        else
-            title, code_str, spec_fn = entry[2], entry[4], entry[5]
-            let spec = spec_fn()
-                json_str = JSON.json(to_vegalite(spec), 2)
-                h.div(
-                    vdraw(spec),
-                    h.details(; class="u-mt-2")(
-                        h.summary("Julia Code"),
-                        h.pre(h.code(code_str); class="u-code-block u-text-sm"),
-                    ),
-                    h.details(; class="u-mt-1")(
-                        h.summary("Vega-Lite JSON"),
-                        h.pre(h.code(escape_html(json_str)); class="u-code-block u-text-sm u-scroll-y"),
-                    ),
-                )
-            end
-        end
-    end
-
-    @post flag(id) = begin
-        toggle_flag!(id)
-        flag_button(id)
-    end
-
     # `/record_gallery` is provided by the @include below. It mounts
     # HTMXObjects's `RecordingRoutes` (from HTMXObjectsTreebarsExt) at the
     # `/record_gallery` prefix and supplies the gallery path enumerator
@@ -503,71 +645,39 @@ end
     # invalidates the cached run and re-records.
 
     @get flagged = begin
-        flags = load_flags()
-        content = if isempty(flags)
+        flags = __appdata__.flags.load()
+        if isempty(flags)
             h.div(
                 h.h1("Flagged Plots"),
                 h.p("No flagged plots."),
-                h.a("← Back to gallery"; href=__self__, class="aov-back-link"),
+                h.a("← Back to gallery"; href=__self__, class="htmxo-back-link"),
             )
         else
             flagged_ids = sort(collect(flags))
-            flagged_entries = filter(!isnothing, [find_plot(id) for id in flagged_ids])
+            flagged_items = filter(!isnothing, [find_item(__appdata__.gallery, id) for id in flagged_ids])
             h.div(
-                h.h1("Flagged Plots ($(length(flagged_entries)))"),
-                h.a("← Back to gallery"; href=__self__, class="aov-back-link u-mb-4 u-inline-block"),
-                h.div(; class="aov-grid-4")(
-                    [plot_card(e[1], e[2], e[3], length(e) >= 6 ? e[6] : nothing) for e in flagged_entries]...,
+                h.h1("Flagged Plots ($(length(flagged_items)))"),
+                h.a("← Back to gallery"; href=__self__, class="htmxo-back-link"),
+                h.div(; class="htmxo-grid aov-grid-static")(
+                    [entries(it.id).card for it in flagged_items]...,
                 ),
             )
         end
-        content
     end
 
-    @get spec(id) = begin
-        entry = find_plot(id)
-        if isnothing(entry)
-            "Unknown plot: $id"
-        else
-            spec = entry[5]()
-            json_response(JSON.json(to_vegalite(spec), 2))
-        end
-    end
-
-    @get inspect_layer(expr) = begin
-        layer = if expr == "linear"
-            linear()
-        elseif expr == "smooth"
-            smooth()
-        elseif expr == "density"
-            density()
-        elseif expr == "histogram"
-            histogram()
-        elseif expr == "frequency"
-            frequency()
-        elseif expr == "expectation"
-            expectation()
-        else
-            nothing
-        end
-        if isnothing(layer)
-            "Unknown: $expr"
-        else
-            lines = String[]
-            push!(lines, "typeof: $(typeof(layer))")
-            push!(lines, "fields: $(fieldnames(typeof(layer)))")
-            t = layer.transformation
-            push!(lines, "transformation: $t")
-            push!(lines, "transformation type: $(typeof(t))")
-            _push_compose_parts!(lines, t)
-            if hasproperty(layer, :positional)
-                push!(lines, "positional: $(layer.positional)")
-            end
-            if hasproperty(layer, :named)
-                push!(lines, "named: $(layer.named)")
-            end
-            join(lines, "\n")
-        end
+    @get inspect_layer(expr::Symbol) = let
+        layer = (; linear, smooth, density, histogram, frequency, expectation)[expr]()
+        t = layer.transformation
+        lines = String[
+            "typeof: $(typeof(layer))",
+            "fields: $(fieldnames(typeof(layer)))",
+            "transformation: $t",
+            "transformation type: $(typeof(t))",
+        ]
+        _push_compose_parts!(lines, t)
+        hasproperty(layer, :positional) && push!(lines, "positional: $(layer.positional)")
+        hasproperty(layer, :named)      && push!(lines, "named: $(layer.named)")
+        join(lines, "\n")
     end
 
     # --- Pregrouped debug page ---
@@ -596,39 +706,21 @@ end
         h.div(
             vega_head(),
             h.h2("Pregrouped Debug"),
-            [h.div(; class="u-mb-6")(
+            [h.div(; class="aov-static-section")(
                 vdraw(s),
                 h.details(
                     h.summary("Spec JSON"),
-                    h.pre(h.code(JSON.json(to_vegalite(s), 2)); class="u-text-xs u-scroll-y-lg"),
+                    h.pre(h.code(JSON.json(to_vegalite(s), 2)); class="aov-code-scroll"),
                 ),
             ) for s in specs]...,
         )
     end
 
-    # --- Standalone HTML page for any plot ---
-    @get standalone(id) = begin
-        entry = find_plot(id)
-        if isnothing(entry)
-            HTTP.Response(404, ["Content-Type" => "text/plain"], body="Unknown plot: $id")
-        else
-            let spec = entry[5]()
-                if _is_html_node(spec)
-                    h.html(h.head(vega_head()...), h.body(spec))
-                else
-                    HTTP.Response(200, ["Content-Type" => "text/html; charset=utf-8"], body=to_html(spec))
-                end
-            end
-        end
-    end
-
     # --- Data Explorer (fully client-side) ---
 
-    EXPLORER_DATASETS = default_explorer_datasets()
-
     @get explorer = h.div(
-        explorer_widget(EXPLORER_DATASETS),
-        h.a("← Back to gallery"; href=__self__, class="u-inline-block u-mt-4"),
+        explorer_widget(__appdata__.explorer_datasets),
+        h.a("← Back to gallery"; href=__self__, class="htmxo-back-link"),
     )
 
     # --- Interactive demo: Brush → Server Stats ---
@@ -655,7 +747,7 @@ end
 
         if isnothing(hp_range) || isnothing(mpg_range)
             h.div(; id="brush-stats")(
-                h.p("Drag a rectangle on the plot to select points."; class="u-text-muted"),
+                h.p(h.small("Drag a rectangle on the plot to select points.")),
             )
         else
             hp_min, hp_max = extrema(hp_range)
@@ -691,98 +783,7 @@ end
         end
     end
 
-    @get demo_brush = h.div(
-            plot_nav("demo_brush"),
-            h.h2("Brush → Server Stats"),
-            h.p("Drag a selection on the scatter plot. The brush bounds are sent to the server via HTMX, ",
-                "which computes summary statistics in Julia and returns them as HTML."),
-            vdraw(brush_plot_spec;
-                id="brush-demo",
-                signals=[(signal="brush", url="/brush_stats", target="#brush-stats", debounce=200)],
-            ),
-            h.div(; id="brush-stats", class="u-mt-4")(
-                h.p("Drag a rectangle on the plot to select points."; class="u-text-muted"),
-            ),
-            h.h4("How it works"; class="u-mt-5"),
-            h.pre(h.code("""# In the @htmx struct:
-vdraw(spec;
-    id="brush-demo",
-    signals=[(signal="brush", url="/brush_stats", target="#brush-stats")],
-)
-
-# The signal listener sends brush bounds as query params:
-#   GET /brush_stats?horsepower=[50,200]&mpg=[15,30]
-# Server computes stats and returns HTML fragment.""");
-                class="u-code-block"),
-    )
-
-    # --- Interactive demo: Server-side data update ---
-
-    @get demo_update = begin
-        origins = ["All", "USA", "Europe", "Japan"]
-        h.div(
-            plot_nav("demo_update"),
-            h.h2("Server-Side Data Filtering"),
-            h.p("Click a button to fetch filtered data from the server. ",
-                "The Vega view's dataset is swapped without re-creating the plot — axes animate smoothly."),
-            vdraw(
-                data(cars()) * mapping(:horsepower, :mpg, color=:origin) * visual(Scatter) *
-                config(width=550, height=350, title="Click a button to filter");
-                id="update-demo",
-            ),
-            h.div(; class="aov-plot-row-tight")(
-                [h.button(o;
-                    hx_get=__self__/"filter_data/$o",
-                    hx_target="#update-script",
-                    hx_swap="innerHTML",
-                    class="outline",
-                ) for o in origins]...
-            ),
-            h.div(; id="update-script"),
-            h.h4("How it works"; class="u-mt-5"),
-            h.pre(h.code("""# Button triggers HTMX GET:
-#   <button hx-get="/update_data/USA" hx-target="#update-script">
-
-# Server filters data and returns a script that updates the view:
-@get update_data(origin) = begin
-    filtered = origin == "All" ? cars() : filter_by_origin(cars(), origin)
-    update_data("update-demo", filtered)
-end""");
-                class="u-code-block"),
-        )
-    end
-
-    @get demo_responsive = begin
-        let spec = data(cars()) * mapping(:horsepower, :mpg, color=:origin) * visual(Scatter)
-            faceted_spec = data(cars()) * mapping(:horsepower, :mpg, col=:origin) * visual(Scatter)
-            h.div(
-                h.h2("Responsive Width Demo"),
-                h.p("Plots adapt to their container width. Resize the browser to see them reflow."),
-
-                h.h4("Full width (layered)"),
-                vdraw(spec + (data(cars()) * mapping(:horsepower, :mpg) * linear())),
-
-                h.h4("50% width"; class="u-mt-5"),
-                h.div(; class="aov-w-50")(vdraw(spec)),
-
-                h.h4("Side by side (50% each)"; class="u-mt-5"),
-                h.div(; class="aov-plot-row")(
-                    h.div(; class="aov-flex-1")(vdraw(spec)),
-                    h.div(; class="aov-flex-1")(vdraw(spec + (data(cars()) * mapping(:horsepower, :mpg) * linear()))),
-                ),
-
-                h.h4("Faceted — full width"; class="u-mt-5"),
-                vdraw(faceted_spec),
-
-                h.h4("Faceted — 60% width"; class="u-mt-5"),
-                h.div(; class="aov-w-60")(vdraw(faceted_spec)),
-
-                h.h4("Saveable (actions=true)"; class="u-mt-5"),
-                h.p("Click the ⋯ menu to Save as PNG/SVG."),
-                vdraw(spec; actions=true),
-            )
-        end
-    end
+    @get demo_page(name::Symbol) = demo(name).body
 
     @get filter_data(origin) = begin
         c = cars()
@@ -802,27 +803,7 @@ end""");
         end
     end
 
-    plots_dir = let d = joinpath(@__DIR__, "..", "plots"); mkpath(d); d end
-
-    @get static_plot(id) = begin
-        entry = find_plot(id)
-        if isnothing(entry)
-            h.p("Unknown plot: $id")
-        else
-            title, spec_fn = entry[2], entry[5]
-            let spec = spec_fn()
-                path = joinpath(plots_dir, "$id.png")
-                sdraw_file(spec, path; px_per_unit=2)
-                h.div(
-                    h.h3(title),
-                    h.img(; src=__self__/"plot_img/$id.png", class="aov-img-fluid"),
-                )
-            end
-        end
-    end
-
-    @get plot_img(filename) = begin
-        path = joinpath(plots_dir, filename)
+    @get plot_img(filename) = let path = joinpath(__appdata__.plots_dir, filename)
         if isfile(path)
             HTTP.Response(200, ["Content-Type" => "image/png"], read(path))
         else
@@ -830,49 +811,18 @@ end""");
         end
     end
 
-    static_plot_card(id) = begin
-        let entry = find_plot(id)
-            isnothing(entry) && return h.article(h.p("Unknown: $id"))
-            title = entry[2]
-            let spec = entry[5]()
-                path = joinpath(plots_dir, "$id.png")
-                sdraw_file(spec, path; px_per_unit=2)
-                h.article(; class="aov-card")(
-                    h.header(; class="aov-card-header")(
-                        h.a(title;
-                            href=__self__/"static_plot/$id", target="_blank",
-                            class="aov-card-title-link",
-                        ),
-                        flag_button(id),
-                    ),
-                    h.img(; src=__self__/"plot_img/$id.png", class="u-w-full"),
-                )
-            end
-        end
-    end
-
-    static_gallery_section(section_title, ids) = begin
-        entries = filter(!isnothing, [find_plot(id) for id in ids])
-        h.div(; class="u-mb-6")(
-            h.h3(section_title; class="u-mb-2"),
-            h.div(; class="aov-grid-4")(
-                [static_plot_card(e[1]) for e in entries]...,
-            ),
-        )
-    end
-
     @get static_gallery = h.div(
         h.h2("Static Gallery (Makie/CairoMakie)"),
-        [static_gallery_section(title, ids) for (title, ids) in PLOT_SECTIONS]...,
+        [section(title, ids).static for (title, ids) in __appdata__.plot_sections]...,
     )
 
     @include tests = TestRoutes(; __req__, test_module=@__MODULE__)
 
     @include record_gallery = RecordingRoutes(;
         app_type=AppContext,
-        paths=_RECORDING_PATHS,
-        record_dir=_RECORDING_DIR,
-        record_base=_recording_base(),
+        paths=__appdata__.recording_paths,
+        record_dir=__appdata__.recording_dir,
+        record_base=__appdata__.recording_base,
         label="Recording AoV gallery",
     )
 end

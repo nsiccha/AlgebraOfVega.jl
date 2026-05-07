@@ -92,21 +92,19 @@ function with_plot_caption(plot_node, caption::CaptionSpec;
     if data_preview || has_pretty
         preview_id = plot_id * "-data-preview"
         if has_pretty && data_preview
-            details = h.details(; class="aov-data-preview",
+            details = h.details(; class="aov-data-preview", data_mode="pretty",
                                 ontoggle="if(this.open) AoV._lazyRenderDataView(this, 'pretty')")(
                 h.summary("Show data"),
-                h.div(; class="aov-data-toggle", role="group")(
-                    h.button("Pretty"; type="button",
-                        class="outline aov-toggle-btn aov-toggle-active",
+                h.div(; role="group")(
+                    h.button("Pretty"; type="button", class="outline",
                         data_view="pretty", aria_pressed="true",
                         onclick="AoV.toggleDataView(this, 'pretty')"),
-                    h.button("Raw"; type="button",
-                        class="outline aov-toggle-btn",
+                    h.button("Raw"; type="button", class="outline",
                         data_view="raw",
                         onclick="AoV.toggleDataView(this, 'raw')"),
                 ),
-                h.div(; class="aov-data-pretty")(summary_table),
-                h.div(; class="aov-data-raw", hidden=true)(
+                h.div(; data_view="pretty")(summary_table),
+                h.div(; data_view="raw")(
                     h.div(; class="aov-data-raw-body", id=preview_id,
                           data_aov_plot_id=plot_id,
                           data_aov_labels=_attr_escape(labels_js))(),
@@ -117,18 +115,16 @@ function with_plot_caption(plot_node, caption::CaptionSpec;
             details = h.details(; class="aov-data-preview",
                                 ontoggle="if(this.open) AoV._lazyRenderDataView(this, 'pretty')")(
                 h.summary("Show summary"),
-                h.div(; class="aov-data-pretty")(summary_table),
+                summary_table,
             )
             push!(body, details)
         else
             details = h.details(; class="aov-data-preview",
                                 ontoggle="if(this.open) AoV._lazyRenderDataView(this, 'raw')")(
                 h.summary("Show data"),
-                h.div(; class="aov-data-raw")(
-                    h.div(; class="aov-data-raw-body", id=preview_id,
-                          data_aov_plot_id=plot_id,
-                          data_aov_labels=_attr_escape(labels_js))(),
-                ),
+                h.div(; class="aov-data-raw-body", id=preview_id,
+                      data_aov_plot_id=plot_id,
+                      data_aov_labels=_attr_escape(labels_js))(),
             )
             push!(body, details)
         end
