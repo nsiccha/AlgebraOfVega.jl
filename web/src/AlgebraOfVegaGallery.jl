@@ -230,36 +230,26 @@ const APPDATA = AoVAppData()
             )
         end
 
-        card = if isnothing(item)
-            h.article(h.h4("Unknown plot: $id"))
-        else
-            h.article(
-                h.h4(
-                    h.a(e.title; href=__self__/"standalone", target="_blank"),
-                    e.is_html_node ? h.span() :
-                        h.a(" · static"; rel="external",
-                            href=__self__/"static_plot", target="_blank"),
-                    flag_button(),
-                ),
-                isempty(e.description) ? h.span() :
-                    h.p(e.description),
-                e.body_card,
-                h.pre(h.code(e.code_string; class="language-julia")),
-            )
-        end
+        card = h.article(
+            h.h4(
+                h.a(e.title; href=__self__/"standalone", target="_blank"),
+                e.is_html_node ? h.span() :
+                    h.a(" · static"; rel="external",
+                        href=__self__/"static_plot", target="_blank"),
+                flag_button(),
+            ),
+            isempty(e.description) ? h.span() :
+                h.p(e.description),
+            e.body_card,
+            h.pre(h.code(e.code_string; class="language-julia")),
+        )
 
-        compact = if isnothing(item) || isnothing(e.spec)
-            h.span()
-        else
-            h.figure(
-                h.figcaption(e.title),
-                e.body_compact,
-            )
-        end
+        compact = h.figure(
+            h.figcaption(e.title),
+            e.body_compact,
+        )
 
-        static_compact = if isnothing(item) || isnothing(e.spec)
-            h.span()
-        else
+        static_compact = begin
             e.ensure_static_png()
             h.figure(
                 h.figcaption(e.title),
@@ -267,9 +257,7 @@ const APPDATA = AoVAppData()
             )
         end
 
-        static_card = if isnothing(item)
-            h.article(h.p("Unknown: $id"))
-        else
+        static_card = begin
             e.ensure_static_png()
             h.article(
                 h.header(
@@ -280,45 +268,29 @@ const APPDATA = AoVAppData()
             )
         end
 
-        detail = if isnothing(item)
-            h.p("Unknown plot: $id")
-        else
-            h.div(; class="aov-detail")(
-                __parent__.plot_nav(id),
-                h.h2(e.title),
-                h.p(e.description),
-                e.body_plain,
-                h.h4("Julia Code"),
+        detail = h.div(; class="aov-detail")(
+            __parent__.plot_nav(id),
+            h.h2(e.title),
+            h.p(e.description),
+            e.body_plain,
+            h.h4("Julia Code"),
+            h.pre(h.code(e.code_string)),
+            e.json_details,
+        )
+
+        card_with_specs = h.div(; class="aov-card-with-specs")(
+            vdraw(e.spec),
+            h.details(
+                h.summary("Julia Code"),
                 h.pre(h.code(e.code_string)),
-                e.json_details,
-            )
-        end
+            ),
+            h.details(
+                h.summary("Vega-Lite JSON"),
+                h.pre(h.code(e.escaped_json); class="aov-code-scroll"),
+            ),
+        )
 
-        card_with_specs = if isnothing(item)
-            h.p("Unknown plot: $id")
-        else
-            h.div(; class="aov-card-with-specs")(
-                vdraw(e.spec),
-                h.details(
-                    h.summary("Julia Code"),
-                    h.pre(h.code(e.code_string)),
-                ),
-                h.details(
-                    h.summary("Vega-Lite JSON"),
-                    h.pre(h.code(e.escaped_json); class="aov-code-scroll"),
-                ),
-            )
-        end
-
-        standalone_response = if isnothing(item)
-            HTTP.Response(404, ["Content-Type" => "text/plain"], body="Unknown plot: $id")
-        else
-            e.standalone_html
-        end
-
-        static_plot_full = if isnothing(item)
-            h.p("Unknown plot: $id")
-        else
+        static_plot_full = begin
             e.ensure_static_png()
             h.div(
                 h.h3(e.title),
@@ -329,7 +301,7 @@ const APPDATA = AoVAppData()
         @get  plot        = detail
         @get  card_plot   = card_with_specs
         @get  spec        = MIMEResponse("application/json", e.vegalite_json)
-        @get  standalone  = standalone_response
+        @get  standalone  = e.standalone_html
         @get  static_plot = static_plot_full
         @post flag = begin
             __appdata__.flags.toggle!(id)
@@ -341,8 +313,7 @@ const APPDATA = AoVAppData()
     # Folds the previous `gallery_section` and `static_gallery_section`
     # (both keyed by `(section_title, ids)`) into one inline child.
     @struct section(section_title, ids) = begin
-        items = filter(!isnothing,
-            [find_item(__appdata__.gallery, id) for id in ids])
+        items = [find_item(__appdata__.gallery, id) for id in ids]
 
         # Cross-inline-child calls (`entries` is a sibling `@include`
         # of AppContext) require `__parent__` — bare names only resolve
@@ -361,45 +332,29 @@ const APPDATA = AoVAppData()
     end
 
     # === Per-demo rendering ===
-    # Each HTMX+Vega demo is a keyed entity: it owns its label,
-    # description, route URL, the card the index renders, and the full
-    # page the route serves. The single `@get demo_page(name)` route
-    # below dispatches to `demo(Symbol(name)).body` — one parameterized
-    # delegator instead of three near-duplicates.
-    @struct demo(name::Symbol) = begin
-        href = __self__/"demo_page/$name"
-
-        label, description = if name === :brush
-            ("Brush → Server Stats",    "Brush a scatter plot, server computes stats on selection")
-        elseif name === :update
-            ("Server-Side Data Update", "Buttons fetch filtered data from server, plot animates update")
-        elseif name === :responsive
-            ("Responsive Width",        "Plots adapt to container width — 50%, side-by-side, faceted")
-        else
-            ("Unknown demo: $name", "")
-        end
-
-        card = h.article(
-            h.h4(h.a(label; href=href, hx_get=href,
-                hx_target="#main-content", hx_swap="innerHTML", hx_push_url="true")),
-            h.p(description),
-        )
-
-        body = if name === :brush
-            h.div(; class="aov-demo-page")(
-                __parent__.plot_nav("demo_brush"),
-                h.h2("Brush → Server Stats"),
-                h.p("Drag a selection on the scatter plot. The brush bounds are sent to the server via HTMX, ",
-                    "which computes summary statistics in Julia and returns them as HTML."),
-                vdraw(__parent__.brush_plot_spec;
-                    id="brush-demo",
-                    signals=[(signal="brush", url="/brush_stats", target="#brush-stats", debounce=200)],
-                ),
-                h.div(; id="brush-stats", class="aov-brush-stats")(
-                    h.p(h.small("Drag a rectangle on the plot to select points.")),
-                ),
-                h.h4("How it works"),
-                h.pre(h.code("""# In the @htmx struct:
+    # Each HTMX+Vega demo is a *named* struct that owns its label,
+    # description, and the page body the route serves. The
+    # `@struct demo(name::Symbol)` dispatcher below extracts the
+    # variant via `getproperty(__parent__, Symbol("demo_$name"))` —
+    # no if/elseif over `name` — and derives the shared `card` shape
+    # once. Add a new demo by adding one named sibling.
+    @struct demo_brush = begin
+        label       = "Brush → Server Stats"
+        description = "Brush a scatter plot, server computes stats on selection"
+        body = h.div(; class="aov-demo-page")(
+            __parent__.plot_nav("demo_brush"),
+            h.h2("Brush → Server Stats"),
+            h.p("Drag a selection on the scatter plot. The brush bounds are sent to the server via HTMX, ",
+                "which computes summary statistics in Julia and returns them as HTML."),
+            vdraw(__parent__.brush_plot_spec;
+                id="brush-demo",
+                signals=[(signal="brush", url="/brush_stats", target="#brush-stats", debounce=200)],
+            ),
+            h.div(; id="brush-stats", class="aov-brush-stats")(
+                h.p(h.small("Drag a rectangle on the plot to select points.")),
+            ),
+            h.h4("How it works"),
+            h.pre(h.code("""# In the @htmx struct:
 vdraw(spec;
     id="brush-demo",
     signals=[(signal="brush", url="/brush_stats", target="#brush-stats")],
@@ -408,30 +363,34 @@ vdraw(spec;
 # The signal listener sends brush bounds as query params:
 #   GET /brush_stats?horsepower=[50,200]&mpg=[15,30]
 # Server computes stats and returns HTML fragment.""")),
-            )
-        elseif name === :update
-            let origins = ["All", "USA", "Europe", "Japan"]
-                h.div(; class="aov-demo-page")(
-                    __parent__.plot_nav("demo_update"),
-                    h.h2("Server-Side Data Filtering"),
-                    h.p("Click a button to fetch filtered data from the server. ",
-                        "The Vega view's dataset is swapped without re-creating the plot — axes animate smoothly."),
-                    vdraw(
-                        data(cars()) * mapping(:horsepower, :mpg, color=:origin) * visual(Scatter) *
-                        config(width=550, height=350, title="Click a button to filter");
-                        id="update-demo",
-                    ),
-                    h.div(; role="group")(
-                        [h.button(o;
-                            hx_get=__self__/"filter_data/$o",
-                            hx_target="#update-script",
-                            hx_swap="innerHTML",
-                            class="outline",
-                        ) for o in origins]...
-                    ),
-                    h.div(; id="update-script"),
-                    h.h4("How it works"),
-                    h.pre(h.code("""# Button triggers HTMX GET:
+        )
+    end
+
+    @struct demo_update = begin
+        label       = "Server-Side Data Update"
+        description = "Buttons fetch filtered data from server, plot animates update"
+        origins     = ["All", "USA", "Europe", "Japan"]
+        body = h.div(; class="aov-demo-page")(
+            __parent__.plot_nav("demo_update"),
+            h.h2("Server-Side Data Filtering"),
+            h.p("Click a button to fetch filtered data from the server. ",
+                "The Vega view's dataset is swapped without re-creating the plot — axes animate smoothly."),
+            vdraw(
+                data(cars()) * mapping(:horsepower, :mpg, color=:origin) * visual(Scatter) *
+                config(width=550, height=350, title="Click a button to filter");
+                id="update-demo",
+            ),
+            h.div(; role="group")(
+                [h.button(o;
+                    hx_get=__parent__/"filter_data/$o",
+                    hx_target="#update-script",
+                    hx_swap="innerHTML",
+                    class="outline",
+                ) for o in origins]...
+            ),
+            h.div(; id="update-script"),
+            h.h4("How it works"),
+            h.pre(h.code("""# Button triggers HTMX GET:
 #   <button hx-get="/update_data/USA" hx-target="#update-script">
 
 # Server filters data and returns a script that updates the view:
@@ -439,41 +398,51 @@ vdraw(spec;
     filtered = origin == "All" ? cars() : filter_by_origin(cars(), origin)
     update_data("update-demo", filtered)
 end""")),
-                )
-            end
-        elseif name === :responsive
-            let spec = data(cars()) * mapping(:horsepower, :mpg, color=:origin) * visual(Scatter),
-                faceted_spec = data(cars()) * mapping(:horsepower, :mpg, col=:origin) * visual(Scatter)
-                h.div(; class="aov-demo-page")(
-                    h.h2("Responsive Width Demo"),
-                    h.p("Plots adapt to their container width. Resize the browser to see them reflow."),
+        )
+    end
 
-                    h.h4("Full width (layered)"),
-                    vdraw(spec + (data(cars()) * mapping(:horsepower, :mpg) * linear())),
+    @struct demo_responsive = begin
+        label       = "Responsive Width"
+        description = "Plots adapt to container width — 50%, side-by-side, faceted"
+        scatter_spec  = data(cars()) * mapping(:horsepower, :mpg, color=:origin) * visual(Scatter)
+        faceted_spec  = data(cars()) * mapping(:horsepower, :mpg, col=:origin) * visual(Scatter)
+        body = h.div(; class="aov-demo-page")(
+            h.h2("Responsive Width Demo"),
+            h.p("Plots adapt to their container width. Resize the browser to see them reflow."),
 
-                    h.h4("50% width"),
-                    h.div(; data_cell="half")(vdraw(spec)),
+            h.h4("Full width (layered)"),
+            vdraw(scatter_spec + (data(cars()) * mapping(:horsepower, :mpg) * linear())),
 
-                    h.h4("Side by side (50% each)"),
-                    h.div(; data_cell="row")(
-                        h.div(vdraw(spec)),
-                        h.div(vdraw(spec + (data(cars()) * mapping(:horsepower, :mpg) * linear()))),
-                    ),
+            h.h4("50% width"),
+            h.div(; data_cell="half")(vdraw(scatter_spec)),
 
-                    h.h4("Faceted — full width"),
-                    vdraw(faceted_spec),
+            h.h4("Side by side (50% each)"),
+            h.div(; data_cell="row")(
+                h.div(vdraw(scatter_spec)),
+                h.div(vdraw(scatter_spec + (data(cars()) * mapping(:horsepower, :mpg) * linear()))),
+            ),
 
-                    h.h4("Faceted — 60% width"),
-                    h.div(; data_cell="three-fifths")(vdraw(faceted_spec)),
+            h.h4("Faceted — full width"),
+            vdraw(faceted_spec),
 
-                    h.h4("Saveable (actions=true)"),
-                    h.p("Click the ⋯ menu to Save as PNG/SVG."),
-                    vdraw(spec; actions=true),
-                )
-            end
-        else
-            h.p("Unknown demo: $name")
-        end
+            h.h4("Faceted — 60% width"),
+            h.div(; data_cell="three-fifths")(vdraw(faceted_spec)),
+
+            h.h4("Saveable (actions=true)"),
+            h.p("Click the ⋯ menu to Save as PNG/SVG."),
+            vdraw(scatter_spec; actions=true),
+        )
+    end
+
+    @struct demo(name::Symbol) = begin
+        d    = getproperty(__parent__, Symbol("demo_$name"))
+        href = __self__/"demo_page/$name"
+        card = h.article(
+            h.h4(h.a(d.label; href=href, hx_get=href,
+                hx_target="#content", hx_swap="innerHTML", hx_push_url="true")),
+            h.p(d.description),
+        )
+        body = d.body
     end
 
     gallery_index = h.div(; class="htmxo-gallery")(
@@ -490,11 +459,11 @@ end""")),
     )
 
     plot_nav(active_id) = h.nav(; class="aov-plot-nav")(
-        h.a("← Gallery"; href=__self__, hx_get=__self__, hx_target="#main-content", hx_swap="innerHTML", hx_push_url="true", role="button", class="outline secondary"),
+        h.a("← Gallery"; href=__self__, hx_get=__self__, hx_target="#content", hx_swap="innerHTML", hx_push_url="true", role="button", class="outline secondary"),
         [h.a(it.title;
             href=__self__/"entries/$(it.id)/plot",
             hx_get=__self__/"entries/$(it.id)/plot",
-            hx_target="#main-content",
+            hx_target="#content",
             hx_swap="innerHTML",
             hx_push_url="true",
             role="button",
@@ -504,7 +473,7 @@ end""")),
 
     __page__(content) = htmx(
         h.main(class="container-fluid")(
-            h.div(content; id="main-content"),
+            h.div(content; id="content"),
         );
         pico_version="2",
         extra_head=(vega_head()..., htmxo_gallery_styles(), htmxo_syntax_head()...),
@@ -529,8 +498,7 @@ end""")),
         h.div(; class="htmxo-grid aov-grid-dense")(
             [entries(it.id).compact
              for (_, ids) in __appdata__.plot_sections
-             for it in filter(!isnothing,
-                              [find_item(__appdata__.gallery, id) for id in ids])]...,
+             for it in [find_item(__appdata__.gallery, id) for id in ids]]...,
         ),
     )
 
@@ -539,17 +507,21 @@ end""")),
         h.div(; class="htmxo-grid aov-grid-dense")(
             [entries(it.id).static_compact
              for (_, ids) in __appdata__.plot_sections
-             for it in filter(!isnothing,
-                              [find_item(__appdata__.gallery, id) for id in ids])]...,
+             for it in [find_item(__appdata__.gallery, id) for id in ids]]...,
         ),
     )
 
-    @get captioned_demo = let
-        id = "captioned-demo"
-        summary = _preaggregate(faceted_regression_predictions(), :x, :panel, :site)
-        the_spec = data(summary) * mapping(:x, :median, color=:panel, row=:site) *
-                   lineribbon(bands=[:q025 => :q975, :q10 => :q90, :q25 => :q75]) *
-                   config(title="Captioned Pre-aggregated Lineribbon")
+    # === Captioned-plot demos ===
+    # Each variant is a *named* struct that owns the spec, caption, and
+    # page metadata. The `@struct captioned(name::Symbol)` dispatcher
+    # composes the shared <main>/<h1>/<p>/with_plot_caption/styles
+    # frame from the variant's properties — no if/elseif over `name`.
+    @struct captioned_preagg = begin
+        id            = "captioned-demo"
+        the_spec      = data(_preaggregate(faceted_regression_predictions(), :x, :panel, :site)) *
+                        mapping(:x, :median, color=:panel, row=:site) *
+                        lineribbon(bands=[:q025 => :q975, :q10 => :q90, :q25 => :q75]) *
+                        config(title="Captioned Pre-aggregated Lineribbon")
         caption = HTMXObjects.CaptionSpec(;
             title = "Captioned pre-aggregated lineribbon",
             short = "Posterior medians + 50/80/95% CrIs across 2 conditions × 2 sites. " *
@@ -563,26 +535,18 @@ end""")),
                    "still returns the original input rows. The lazy 'Show data' details " *
                    "below the plot renders the same table client-side, sortable.",
         )
-        h.main(class="container")(
-            h.h1("Captioned plot demo"),
-            h.p("Verifies the HTMXObjects caption integration on the most common " *
-                "bruno path: pre-aggregated lineribbon + auto_remap_node via spec dispatch."),
-            with_plot_caption(the_spec, caption;
-                plot_id=id,
-                filename_base="lineribbon_summary",
-                auto_remap=(; dims=[:panel => "Condition", :site => "Site"]),
-            ),
-            HTMXObjects.caption_style(),
-            HTMXObjects.sortable_table_js(),
-            HTMXObjects.download_table_js(),
-        )
+        filename_base = "lineribbon_summary"
+        auto_remap    = (; dims=[:panel => "Condition", :site => "Site"])
+        page_title    = "Captioned plot demo"
+        page_intro    = "Verifies the HTMXObjects caption integration on the most common " *
+                        "bruno path: pre-aggregated lineribbon + auto_remap_node via spec dispatch."
     end
 
-    @get captioned_spec_demo = let
-        id = "captioned-spec-demo"
-        draws = sample_posterior_draws()
-        the_spec = data(draws) * mapping(:value, y=:parameter, color=:chain) * pointinterval() *
-                   config(title="Captioned pointinterval (spec dispatch)")
+    @struct captioned_spec = begin
+        id            = "captioned-spec-demo"
+        the_spec      = data(sample_posterior_draws()) *
+                        mapping(:value, y=:parameter, color=:chain) * pointinterval() *
+                        config(title="Captioned pointinterval (spec dispatch)")
         caption = HTMXObjects.CaptionSpec(;
             title = "Captioned pointinterval via spec dispatch",
             short = "Exercises `with_plot_caption(spec::VegaSpec, caption; auto_remap, summary_table=:auto)` — " *
@@ -591,26 +555,18 @@ end""")),
                    "PointIntervalAnalysis transformation, and auto-generates a `draws_summary_table` " *
                    "with one column per parameter (grouped by :chain via the color mapping).",
         )
-        h.main(class="container")(
-            h.h1("Captioned spec-dispatch demo"),
-            h.p("Verifies auto-summary + auto_remap placement (controls above, caption+plot+summary below)."),
-            with_plot_caption(the_spec, caption;
-                plot_id=id,
-                filename_base="pointinterval",
-                auto_remap=(; dims=[:chain => "Chain"]),
-            ),
-            HTMXObjects.caption_style(),
-            HTMXObjects.sortable_table_js(),
-            HTMXObjects.download_table_js(),
-        )
+        filename_base = "pointinterval"
+        auto_remap    = (; dims=[:chain => "Chain"])
+        page_title    = "Captioned spec-dispatch demo"
+        page_intro    = "Verifies auto-summary + auto_remap placement (controls above, caption+plot+summary below)."
     end
 
-    @get captioned_lineribbon_demo = let
-        id = "captioned-lineribbon-demo"
-        the_spec = data(grouped_regression_predictions()) *
-                   mapping(:x, :y, group=:draw, color=:group) *
-                   lineribbon() *
-                   config(width=500, height=350, title="Captioned raw-draws lineribbon")
+    @struct captioned_lineribbon = begin
+        id            = "captioned-lineribbon-demo"
+        the_spec      = data(grouped_regression_predictions()) *
+                        mapping(:x, :y, group=:draw, color=:group) *
+                        lineribbon() *
+                        config(width=500, height=350, title="Captioned raw-draws lineribbon")
         caption = HTMXObjects.CaptionSpec(;
             title = "Captioned lineribbon (raw draws, auto-summary)",
             short = "Verifies the lineribbon path of `_auto_summary_args`: long-format draws " *
@@ -619,15 +575,29 @@ end""")),
                    "summary table groups by [x, color, ...] and reports the value field's " *
                    "median + 95% CI per group.",
         )
-        h.main(class="container")(
-            h.h1("Captioned lineribbon (raw draws) demo"),
-            h.p("Verifies auto-summary on raw-draws lineribbon (LineRibbonAnalysis)."),
-            with_plot_caption(the_spec, caption; plot_id=id, filename_base="lineribbon"),
+        filename_base = "lineribbon"
+        auto_remap    = nothing
+        page_title    = "Captioned lineribbon (raw draws) demo"
+        page_intro    = "Verifies auto-summary on raw-draws lineribbon (LineRibbonAnalysis)."
+    end
+
+    @struct captioned(name::Symbol) = begin
+        c = getproperty(__parent__, Symbol("captioned_$name"))
+        body = h.main(class="container")(
+            h.h1(c.page_title),
+            h.p(c.page_intro),
+            isnothing(c.auto_remap) ?
+                with_plot_caption(c.the_spec, c.caption;
+                    plot_id=c.id, filename_base=c.filename_base) :
+                with_plot_caption(c.the_spec, c.caption;
+                    plot_id=c.id, filename_base=c.filename_base, auto_remap=c.auto_remap),
             HTMXObjects.caption_style(),
             HTMXObjects.sortable_table_js(),
             HTMXObjects.download_table_js(),
         )
     end
+
+    @get captioned_demo(name::Symbol) = captioned(name).body
 
     # `/record_gallery` is provided by the @include below. It mounts
     # HTMXObjects's `RecordingRoutes` (from HTMXObjectsTreebarsExt) at the
@@ -645,12 +615,11 @@ end""")),
             )
         else
             flagged_ids = sort(collect(flags))
-            flagged_items = filter(!isnothing, [find_item(__appdata__.gallery, id) for id in flagged_ids])
             h.div(
-                h.h1("Flagged Plots ($(length(flagged_items)))"),
+                h.h1("Flagged Plots ($(length(flagged_ids)))"),
                 h.a("← Back to gallery"; href=__self__, class="htmxo-back-link"),
                 h.div(; class="htmxo-grid aov-grid-static")(
-                    [entries(it.id).card for it in flagged_items]...,
+                    [entries(id).card for id in flagged_ids]...,
                 ),
             )
         end
