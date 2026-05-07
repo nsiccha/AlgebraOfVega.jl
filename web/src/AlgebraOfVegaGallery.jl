@@ -360,7 +360,7 @@ const APPDATA = AoVAppData()
                     "which computes summary statistics in Julia and returns them as HTML."),
                 vdraw(plot_spec;
                     id="brush-demo",
-                    signals=[(signal="brush", url="/brush_stats", target="#brush-stats", debounce=200)],
+                    signals=[(signal="brush", url=string(__parent__/"brush_stats"), target="#brush-stats", debounce=200)],
                 ),
                 h.div(; id="brush-stats", class="aov-brush-stats")(
                     h.p(h.small("Drag a rectangle on the plot to select points.")),
@@ -394,7 +394,7 @@ vdraw(spec;
                 ),
                 h.div(; role="group")(
                     [h.button(o;
-                        hx_get=__parent__.__parent__/"filter_data/$o",
+                        hx_get=__parent__/"filter_data/$o",
                         hx_target="#update-script",
                         hx_swap="innerHTML",
                         class="outline",
@@ -455,6 +455,71 @@ end""")),
         end
 
         @get index(name::Symbol) = getproperty(__self__, name).body
+
+        # Per-demo route helpers — each scoped to the variant that uses it.
+        # /demo/brush_stats serves the per-selection summary that demo.brush's
+        # signal callback hits; /demo/filter_data/<origin> serves the dataset
+        # swap that demo.update's buttons trigger.
+        @get brush_stats(; horsepower="", mpg="") = begin
+            c = cars()
+            hp_range = isempty(horsepower) ? nothing : JSON.parse(horsepower)
+            mpg_range = isempty(mpg) ? nothing : JSON.parse(mpg)
+
+            if isnothing(hp_range) || isnothing(mpg_range)
+                h.div(; id="brush-stats")(
+                    h.p(h.small("Drag a rectangle on the plot to select points.")),
+                )
+            else
+                hp_min, hp_max = extrema(hp_range)
+                mpg_min, mpg_max = extrema(mpg_range)
+                mask = [
+                    hp_min <= hp <= hp_max && mpg_min <= m <= mpg_max
+                    for (hp, m) in zip(c.horsepower, c.mpg)
+                ]
+                n = sum(mask)
+                if n == 0
+                    h.div(; id="brush-stats")(h.p("No points in selection."))
+                else
+                    sel_hp = c.horsepower[mask]
+                    sel_mpg = c.mpg[mask]
+                    sel_origins = c.origin[mask]
+                    origin_counts = Dict{String,Int}()
+                    for o in sel_origins
+                        origin_counts[o] = get(origin_counts, o, 0) + 1
+                    end
+                    h.div(; id="brush-stats")(
+                        h.h4("Selection: $n points"),
+                        h.table(; role="grid")(
+                            h.thead(h.tr(h.th("Stat"), h.th("Horsepower"), h.th("MPG"))),
+                            h.tbody(
+                                h.tr(h.td("Min"), h.td(string(minimum(sel_hp))), h.td(string(minimum(sel_mpg)))),
+                                h.tr(h.td("Max"), h.td(string(maximum(sel_hp))), h.td(string(maximum(sel_mpg)))),
+                                h.tr(h.td("Mean"), h.td(string(round(sum(sel_hp)/n, digits=1))), h.td(string(round(sum(sel_mpg)/n, digits=1)))),
+                            ),
+                        ),
+                        h.p("Origins: ", join(["$o ($c)" for (o, c) in sort(collect(origin_counts))], ", ")),
+                    )
+                end
+            end
+        end
+
+        @get filter_data(origin) = begin
+            c = cars()
+            if origin == "All"
+                update_data("update-demo", c)
+            else
+                mask = [o == origin for o in c.origin]
+                filtered = (;
+                    horsepower = c.horsepower[mask],
+                    mpg = c.mpg[mask],
+                    origin = c.origin[mask],
+                    cylinders = c.cylinders[mask],
+                    weight = c.weight[mask],
+                    acceleration = c.acceleration[mask],
+                )
+                update_data("update-demo", filtered)
+            end
+        end
     end
 
     gallery_index = h.div(; class="htmxo-gallery")(
@@ -691,71 +756,6 @@ end""")),
         explorer_widget(__appdata__.explorer_datasets),
         h.a("← Back to gallery"; href=__self__, class="htmxo-back-link"),
     )
-
-    # --- Interactive demo: Brush → Server Stats ---
-    # The plot spec lives on demo.brush; the brush_stats endpoint serves
-    # the per-selection summary that the brush plot's signal callback hits.
-
-    @get brush_stats(; horsepower="", mpg="") = begin
-        c = cars()
-        hp_range = isempty(horsepower) ? nothing : JSON.parse(horsepower)
-        mpg_range = isempty(mpg) ? nothing : JSON.parse(mpg)
-
-        if isnothing(hp_range) || isnothing(mpg_range)
-            h.div(; id="brush-stats")(
-                h.p(h.small("Drag a rectangle on the plot to select points.")),
-            )
-        else
-            hp_min, hp_max = extrema(hp_range)
-            mpg_min, mpg_max = extrema(mpg_range)
-            mask = [
-                hp_min <= hp <= hp_max && mpg_min <= m <= mpg_max
-                for (hp, m) in zip(c.horsepower, c.mpg)
-            ]
-            n = sum(mask)
-            if n == 0
-                h.div(; id="brush-stats")(h.p("No points in selection."))
-            else
-                sel_hp = c.horsepower[mask]
-                sel_mpg = c.mpg[mask]
-                sel_origins = c.origin[mask]
-                origin_counts = Dict{String,Int}()
-                for o in sel_origins
-                    origin_counts[o] = get(origin_counts, o, 0) + 1
-                end
-                h.div(; id="brush-stats")(
-                    h.h4("Selection: $n points"),
-                    h.table(; role="grid")(
-                        h.thead(h.tr(h.th("Stat"), h.th("Horsepower"), h.th("MPG"))),
-                        h.tbody(
-                            h.tr(h.td("Min"), h.td(string(minimum(sel_hp))), h.td(string(minimum(sel_mpg)))),
-                            h.tr(h.td("Max"), h.td(string(maximum(sel_hp))), h.td(string(maximum(sel_mpg)))),
-                            h.tr(h.td("Mean"), h.td(string(round(sum(sel_hp)/n, digits=1))), h.td(string(round(sum(sel_mpg)/n, digits=1)))),
-                        ),
-                    ),
-                    h.p("Origins: ", join(["$o ($c)" for (o, c) in sort(collect(origin_counts))], ", ")),
-                )
-            end
-        end
-    end
-
-    @get filter_data(origin) = begin
-        c = cars()
-        if origin == "All"
-            update_data("update-demo", c)
-        else
-            mask = [o == origin for o in c.origin]
-            filtered = (;
-                horsepower = c.horsepower[mask],
-                mpg = c.mpg[mask],
-                origin = c.origin[mask],
-                cylinders = c.cylinders[mask],
-                weight = c.weight[mask],
-                acceleration = c.acceleration[mask],
-            )
-            update_data("update-demo", filtered)
-        end
-    end
 
     @get plot_img(filename) = let path = joinpath(__appdata__.plots_dir, filename)
         if isfile(path)
