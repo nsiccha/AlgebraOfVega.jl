@@ -353,7 +353,8 @@ const APPDATA = AoVAppData()
                         ),
                     ),
                 )
-            body = h.div(; class="aov-demo-page")(
+
+            @get index = h.div(; class="aov-demo-page")(
                 __parent__.__parent__.plot_nav("demo_brush"),
                 h.h2("Brush → Server Stats"),
                 h.p("Drag a selection on the scatter plot. The brush bounds are sent to the server via HTMX, ",
@@ -376,8 +377,6 @@ vdraw(spec;
 #   GET /demo/brush/stats?horsepower=[50,200]&mpg=[15,30]
 # Server computes stats and returns HTML fragment.""")),
             )
-
-            @get index = body
 
             @get stats(; horsepower="", mpg="") = begin
                 c = cars()
@@ -427,7 +426,8 @@ vdraw(spec;
             label       = "Server-Side Data Update"
             description = "Buttons fetch filtered data from server, plot animates update"
             origins     = ["All", "USA", "Europe", "Japan"]
-            body = h.div(; class="aov-demo-page")(
+
+            @get index = h.div(; class="aov-demo-page")(
                 __parent__.__parent__.plot_nav("demo_update"),
                 h.h2("Server-Side Data Filtering"),
                 h.p("Click a button to fetch filtered data from the server. ",
@@ -457,8 +457,6 @@ vdraw(spec;
 end""")),
             )
 
-            @get index = body
-
             @get filter(origin) = begin
                 c = cars()
                 if origin == "All"
@@ -483,7 +481,8 @@ end""")),
             description = "Plots adapt to container width — 50%, side-by-side, faceted"
             scatter_spec  = data(cars()) * mapping(:horsepower, :mpg, color=:origin) * visual(Scatter)
             faceted_spec  = data(cars()) * mapping(:horsepower, :mpg, col=:origin) * visual(Scatter)
-            body = h.div(; class="aov-demo-page")(
+
+            @get index = h.div(; class="aov-demo-page")(
                 h.h2("Responsive Width Demo"),
                 h.p("Plots adapt to their container width. Resize the browser to see them reflow."),
 
@@ -509,8 +508,6 @@ end""")),
                 h.p("Click the ⋯ menu to Save as PNG/SVG."),
                 vdraw(scatter_spec; actions=true),
             )
-
-            @get index = body
         end
 
         card(name::Symbol) = let d = getproperty(__self__, name); href = __self__/string(name)
