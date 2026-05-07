@@ -83,10 +83,9 @@
     margin: 0.25rem 0 0;
 }
 
-/* AoV-only flag toggle (per-item star/flag in the title row). Lives
- * here for now since AoV is the only consumer; promote to a generic
- * `htmxo-` class once a second app needs the same. */
-.aov-flag-button {
+/* Toggle buttons (e.g. flag / star / pin) — uses native aria-pressed
+   for state, no modifier class. Generic across apps. */
+.htmxo-toggle-button {
     color: var(--htmxo-muted, currentColor);
     font-size: 0.7em;
     padding: 0.1rem 0.3rem;
@@ -96,9 +95,7 @@
     cursor: pointer;
     border-radius: 0.2rem;
 }
-.aov-flag-button.is-flagged {
-    color: var(--htmxo-error, currentColor);
-}
+.htmxo-toggle-button[aria-pressed="true"] { color: var(--htmxo-error, currentColor); }
 
 /* Toolbar (search + pagination). Sticks to the top of the gallery so
  * controls remain reachable while the user scrolls long lists. */
