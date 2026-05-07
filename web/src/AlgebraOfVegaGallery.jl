@@ -339,12 +339,26 @@ const APPDATA = AoVAppData()
         @struct brush = begin
             label       = "Brush → Server Stats"
             description = "Brush a scatter plot, server computes stats on selection"
+            plot_spec   = data(cars()) *
+                mapping(:horsepower, :mpg, color=:origin) *
+                visual(Scatter) *
+                config(
+                    width=550, height=350,
+                    title="Brush to Compute Server-Side Stats",
+                    params=[Dict("name" => "brush", "select" => "interval")],
+                    encoding=Dict(
+                        "opacity" => Dict(
+                            "condition" => Dict("param" => "brush", "value" => 1),
+                            "value" => 0.15,
+                        ),
+                    ),
+                )
             body = h.div(; class="aov-demo-page")(
                 __parent__.__parent__.plot_nav("demo_brush"),
                 h.h2("Brush → Server Stats"),
                 h.p("Drag a selection on the scatter plot. The brush bounds are sent to the server via HTMX, ",
                     "which computes summary statistics in Julia and returns them as HTML."),
-                vdraw(__parent__.__parent__.brush_plot_spec;
+                vdraw(plot_spec;
                     id="brush-demo",
                     signals=[(signal="brush", url="/brush_stats", target="#brush-stats", debounce=200)],
                 ),
@@ -432,15 +446,15 @@ end""")),
             )
         end
 
-        @get index(name::Symbol) = getproperty(__self__, name).body
-    end
+        card(name::Symbol) = let d = getproperty(__self__, name); href = __self__/string(name)
+            h.article(
+                h.h4(h.a(d.label; href=href, hx_get=href,
+                    hx_target="#content", hx_swap="innerHTML", hx_push_url="true")),
+                h.p(d.description),
+            )
+        end
 
-    demo_card(name::Symbol) = let d = getproperty(demo, name); href = __self__/"demo/$name"
-        h.article(
-            h.h4(h.a(d.label; href=href, hx_get=href,
-                hx_target="#content", hx_swap="innerHTML", hx_push_url="true")),
-            h.p(d.description),
-        )
+        @get index(name::Symbol) = getproperty(__self__, name).body
     end
 
     gallery_index = h.div(; class="htmxo-gallery")(
@@ -452,7 +466,7 @@ end""")),
         [section(title, ids).normal for (title, ids) in __appdata__.plot_sections]...,
         h.section(
             h.h3("HTMX + Vega Demos"),
-            [demo_card(name) for name in (:brush, :update, :responsive)]...,
+            [demo.card(name) for name in (:brush, :update, :responsive)]...,
         ),
     )
 
@@ -679,21 +693,8 @@ end""")),
     )
 
     # --- Interactive demo: Brush → Server Stats ---
-
-    brush_plot_spec = data(cars()) *
-        mapping(:horsepower, :mpg, color=:origin) *
-        visual(Scatter) *
-        config(
-            width=550, height=350,
-            title="Brush to Compute Server-Side Stats",
-            params=[Dict("name" => "brush", "select" => "interval")],
-            encoding=Dict(
-                "opacity" => Dict(
-                    "condition" => Dict("param" => "brush", "value" => 1),
-                    "value" => 0.15,
-                ),
-            ),
-        )
+    # The plot spec lives on demo.brush; the brush_stats endpoint serves
+    # the per-selection summary that the brush plot's signal callback hits.
 
     @get brush_stats(; horsepower="", mpg="") = begin
         c = cars()
