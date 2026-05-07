@@ -516,7 +516,7 @@ end""")),
         end
     end
 
-    gallery_index = h.div(; class="htmxo-gallery")(
+    @get index = h.div(; class="htmxo-gallery")(
         h.p("$(length(__appdata__.gallery.items)) examples of AlgebraOfGraphics.jl specs translated to Vega-Lite. ",
             h.a("Data Explorer →"; href=__self__/"explorer"),
             " · ",
@@ -549,8 +549,6 @@ end""")),
         pico_version="2",
         extra_head=(vega_head()..., htmxo_gallery_styles(), htmxo_syntax_head()...),
     )
-
-    @get index = gallery_index
 
     # Serve the AoV vega-embed runtime JS as a plain script so external
     # docs (VitePress, README inserts, etc.) can pull it in alongside
