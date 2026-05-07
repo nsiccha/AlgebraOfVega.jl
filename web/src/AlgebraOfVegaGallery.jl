@@ -512,92 +512,89 @@ end""")),
     )
 
     # === Captioned-plot demos ===
-    # Each variant is a *named* struct that owns the spec, caption, and
-    # page metadata. The `@struct captioned(name::Symbol)` dispatcher
-    # composes the shared <main>/<h1>/<p>/with_plot_caption/styles
-    # frame from the variant's properties — no if/elseif over `name`.
-    @struct captioned_preagg = begin
-        id            = "captioned-demo"
-        the_spec      = data(_preaggregate(faceted_regression_predictions(), :x, :panel, :site)) *
-                        mapping(:x, :median, color=:panel, row=:site) *
-                        lineribbon(bands=[:q025 => :q975, :q10 => :q90, :q25 => :q75]) *
-                        config(title="Captioned Pre-aggregated Lineribbon")
-        caption = HTMXObjects.CaptionSpec(;
-            title = "Captioned pre-aggregated lineribbon",
-            short = "Posterior medians + 50/80/95% CrIs across 2 conditions × 2 sites. " *
-                    "Use the picker to remap color/row; the data button always reflects " *
-                    "the underlying summary table.",
-            long = "The plot is built via the spec-dispatch `with_plot_caption` with " *
-                   "`auto_remap=(; dims=...)`, over a pre-aggregated summary (median, " *
-                   "q025, q10, q25, q75, q90, q975 columns). Controls appear above the " *
-                   "`<figure>` (controls → caption → plot). The CSV button reads from " *
-                   "the live Vega view via `view.data('source_0')`, so after a remap it " *
-                   "still returns the original input rows. The lazy 'Show data' details " *
-                   "below the plot renders the same table client-side, sortable.",
-        )
-        filename_base = "lineribbon_summary"
-        auto_remap    = (; dims=[:panel => "Condition", :site => "Site"])
-        page_title    = "Captioned plot demo"
-        page_intro    = "Verifies the HTMXObjects caption integration on the most common " *
-                        "bruno path: pre-aggregated lineribbon + auto_remap_node via spec dispatch."
-    end
+    # Bundled mount: three named variants own the per-variant data, and
+    # the single route lives in the same scope. URLs: /captioned/demo/<name>.
+    @include captioned = begin
+        @struct preagg = begin
+            id            = "captioned-demo"
+            the_spec      = data(_preaggregate(faceted_regression_predictions(), :x, :panel, :site)) *
+                            mapping(:x, :median, color=:panel, row=:site) *
+                            lineribbon(bands=[:q025 => :q975, :q10 => :q90, :q25 => :q75]) *
+                            config(title="Captioned Pre-aggregated Lineribbon")
+            caption = HTMXObjects.CaptionSpec(;
+                title = "Captioned pre-aggregated lineribbon",
+                short = "Posterior medians + 50/80/95% CrIs across 2 conditions × 2 sites. " *
+                        "Use the picker to remap color/row; the data button always reflects " *
+                        "the underlying summary table.",
+                long = "The plot is built via the spec-dispatch `with_plot_caption` with " *
+                       "`auto_remap=(; dims=...)`, over a pre-aggregated summary (median, " *
+                       "q025, q10, q25, q75, q90, q975 columns). Controls appear above the " *
+                       "`<figure>` (controls → caption → plot). The CSV button reads from " *
+                       "the live Vega view via `view.data('source_0')`, so after a remap it " *
+                       "still returns the original input rows. The lazy 'Show data' details " *
+                       "below the plot renders the same table client-side, sortable.",
+            )
+            filename_base = "lineribbon_summary"
+            auto_remap    = (; dims=[:panel => "Condition", :site => "Site"])
+            page_title    = "Captioned plot demo"
+            page_intro    = "Verifies the HTMXObjects caption integration on the most common " *
+                            "bruno path: pre-aggregated lineribbon + auto_remap_node via spec dispatch."
+        end
 
-    @struct captioned_spec = begin
-        id            = "captioned-spec-demo"
-        the_spec      = data(sample_posterior_draws()) *
-                        mapping(:value, y=:parameter, color=:chain) * pointinterval() *
-                        config(title="Captioned pointinterval (spec dispatch)")
-        caption = HTMXObjects.CaptionSpec(;
-            title = "Captioned pointinterval via spec dispatch",
-            short = "Exercises `with_plot_caption(spec::VegaSpec, caption; auto_remap, summary_table=:auto)` — " *
-                    "controls hoist above the figure, auto-summary table below the plot.",
-            long = "The `::VegaSpec` dispatch builds the plot internally, detects the " *
-                   "PointIntervalAnalysis transformation, and auto-generates a `draws_summary_table` " *
-                   "with one column per parameter (grouped by :chain via the color mapping).",
-        )
-        filename_base = "pointinterval"
-        auto_remap    = (; dims=[:chain => "Chain"])
-        page_title    = "Captioned spec-dispatch demo"
-        page_intro    = "Verifies auto-summary + auto_remap placement (controls above, caption+plot+summary below)."
-    end
+        @struct spec = begin
+            id            = "captioned-spec-demo"
+            the_spec      = data(sample_posterior_draws()) *
+                            mapping(:value, y=:parameter, color=:chain) * pointinterval() *
+                            config(title="Captioned pointinterval (spec dispatch)")
+            caption = HTMXObjects.CaptionSpec(;
+                title = "Captioned pointinterval via spec dispatch",
+                short = "Exercises `with_plot_caption(spec::VegaSpec, caption; auto_remap, summary_table=:auto)` — " *
+                        "controls hoist above the figure, auto-summary table below the plot.",
+                long = "The `::VegaSpec` dispatch builds the plot internally, detects the " *
+                       "PointIntervalAnalysis transformation, and auto-generates a `draws_summary_table` " *
+                       "with one column per parameter (grouped by :chain via the color mapping).",
+            )
+            filename_base = "pointinterval"
+            auto_remap    = (; dims=[:chain => "Chain"])
+            page_title    = "Captioned spec-dispatch demo"
+            page_intro    = "Verifies auto-summary + auto_remap placement (controls above, caption+plot+summary below)."
+        end
 
-    @struct captioned_lineribbon = begin
-        id            = "captioned-lineribbon-demo"
-        the_spec      = data(grouped_regression_predictions()) *
-                        mapping(:x, :y, group=:draw, color=:group) *
-                        lineribbon() *
-                        config(width=500, height=350, title="Captioned raw-draws lineribbon")
-        caption = HTMXObjects.CaptionSpec(;
-            title = "Captioned lineribbon (raw draws, auto-summary)",
-            short = "Verifies the lineribbon path of `_auto_summary_args`: long-format draws " *
-                    "table → per-x median [lo, hi] grouped by color, inside the Pretty/Raw toggle.",
-            long = "Uses `lineribbon()` over raw draws (one row per (x, draw, group)). The " *
-                   "summary table groups by [x, color, ...] and reports the value field's " *
-                   "median + 95% CI per group.",
-        )
-        filename_base = "lineribbon"
-        auto_remap    = nothing
-        page_title    = "Captioned lineribbon (raw draws) demo"
-        page_intro    = "Verifies auto-summary on raw-draws lineribbon (LineRibbonAnalysis)."
-    end
+        @struct lineribbon = begin
+            id            = "captioned-lineribbon-demo"
+            the_spec      = data(grouped_regression_predictions()) *
+                            mapping(:x, :y, group=:draw, color=:group) *
+                            lineribbon() *
+                            config(width=500, height=350, title="Captioned raw-draws lineribbon")
+            caption = HTMXObjects.CaptionSpec(;
+                title = "Captioned lineribbon (raw draws, auto-summary)",
+                short = "Verifies the lineribbon path of `_auto_summary_args`: long-format draws " *
+                        "table → per-x median [lo, hi] grouped by color, inside the Pretty/Raw toggle.",
+                long = "Uses `lineribbon()` over raw draws (one row per (x, draw, group)). The " *
+                       "summary table groups by [x, color, ...] and reports the value field's " *
+                       "median + 95% CI per group.",
+            )
+            filename_base = "lineribbon"
+            auto_remap    = nothing
+            page_title    = "Captioned lineribbon (raw draws) demo"
+            page_intro    = "Verifies auto-summary on raw-draws lineribbon (LineRibbonAnalysis)."
+        end
 
-    @struct captioned(name::Symbol) = begin
-        c = getproperty(__parent__, Symbol("captioned_$name"))
-        body = h.main(class="container")(
-            h.h1(c.page_title),
-            h.p(c.page_intro),
-            isnothing(c.auto_remap) ?
-                with_plot_caption(c.the_spec, c.caption;
-                    plot_id=c.id, filename_base=c.filename_base) :
-                with_plot_caption(c.the_spec, c.caption;
-                    plot_id=c.id, filename_base=c.filename_base, auto_remap=c.auto_remap),
-            HTMXObjects.caption_style(),
-            HTMXObjects.sortable_table_js(),
-            HTMXObjects.download_table_js(),
-        )
+        @get demo(name::Symbol) = let c = getproperty(__self__, name)
+            h.main(class="container")(
+                h.h1(c.page_title),
+                h.p(c.page_intro),
+                isnothing(c.auto_remap) ?
+                    with_plot_caption(c.the_spec, c.caption;
+                        plot_id=c.id, filename_base=c.filename_base) :
+                    with_plot_caption(c.the_spec, c.caption;
+                        plot_id=c.id, filename_base=c.filename_base, auto_remap=c.auto_remap),
+                HTMXObjects.caption_style(),
+                HTMXObjects.sortable_table_js(),
+                HTMXObjects.download_table_js(),
+            )
+        end
     end
-
-    @get captioned_demo(name::Symbol) = captioned(name).body
 
     # `/record_gallery` is provided by the @include below. It mounts
     # HTMXObjects's `RecordingRoutes` (from HTMXObjectsTreebarsExt) at the
