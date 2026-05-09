@@ -4370,7 +4370,7 @@ h.div()(
 )
 ```
 """
-const _CHANNEL_LABELS = Dict("color" => "Color", "row" => "Row", "column" => "Column", "detail" => "Ungrouped")
+_CHANNEL_LABELS = Dict("color" => "Color", "row" => "Row", "column" => "Column", "detail" => "Ungrouped")
 
 """
     mapping_controls(id, dimensions; kwargs...)
