@@ -268,7 +268,7 @@ const APPDATA = AoVAppData()
             )
         end
 
-        @get plot = h.div(; class="aov-detail")(
+        @get plot() = h.div(; class="aov-detail")(
             __parent__.plot_nav(id),
             h.h2(e.title),
             h.p(e.description),
@@ -278,7 +278,7 @@ const APPDATA = AoVAppData()
             e.json_details,
         )
 
-        @get card_plot = h.div(; class="aov-card-with-specs")(
+        @get card_plot() = h.div(; class="aov-card-with-specs")(
             vdraw(e.spec),
             h.details(
                 h.summary("Julia Code"),
@@ -290,17 +290,17 @@ const APPDATA = AoVAppData()
             ),
         )
 
-        @get spec = MIMEResponse("application/json", e.vegalite_json)
-        @get standalone = e.standalone_html
+        @get spec() = MIMEResponse("application/json", e.vegalite_json)
+        @get standalone() = e.standalone_html
 
-        @get static_plot = begin
+        @get static_plot() = begin
             e.ensure_static_png()
             h.div(
                 h.h3(e.title),
                 h.img(; src=__parent__/"plot_img/$(id).png"),
             )
         end
-        @post flag = begin
+        @post flag() = begin
             __appdata__.flags.toggle!(id)
             flag_button()
         end
@@ -351,7 +351,7 @@ const APPDATA = AoVAppData()
                     ),
                 )
 
-            @get index = h.div(; class="aov-demo-page")(
+            @get index() = h.div(; class="aov-demo-page")(
                 __parent__.__parent__.plot_nav("demo_brush"),
                 h.h2("Brush → Server Stats"),
                 h.p("Drag a selection on the scatter plot. The brush bounds are sent to the server via HTMX, ",
@@ -424,7 +424,7 @@ vdraw(spec;
             description = "Buttons fetch filtered data from server, plot animates update"
             origins     = ["All", "USA", "Europe", "Japan"]
 
-            @get index = h.div(; class="aov-demo-page")(
+            @get index() = h.div(; class="aov-demo-page")(
                 __parent__.__parent__.plot_nav("demo_update"),
                 h.h2("Server-Side Data Filtering"),
                 h.p("Click a button to fetch filtered data from the server. ",
@@ -479,7 +479,7 @@ end""")),
             scatter_spec  = data(cars()) * mapping(:horsepower, :mpg, color=:origin) * visual(Scatter)
             faceted_spec  = data(cars()) * mapping(:horsepower, :mpg, col=:origin) * visual(Scatter)
 
-            @get index = h.div(; class="aov-demo-page")(
+            @get index() = h.div(; class="aov-demo-page")(
                 h.h2("Responsive Width Demo"),
                 h.p("Plots adapt to their container width. Resize the browser to see them reflow."),
 
@@ -516,7 +516,7 @@ end""")),
         end
     end
 
-    @get index = h.div(; class="htmxo-gallery")(
+    @get index() = h.div(; class="htmxo-gallery")(
         h.p("$(length(__appdata__.gallery.items)) examples of AlgebraOfGraphics.jl specs translated to Vega-Lite. ",
             h.a("Data Explorer →"; href=__self__/"explorer"),
             " · ",
@@ -555,14 +555,14 @@ end""")),
     # vega-embed without scraping it out of `htmx(…)`'s page wrapper.
     # Strips the wrapping `<script>...</script>` and serves the body
     # with `Content-Type: application/javascript`.
-    @get aov_runtime_js = let
+    @get aov_runtime_js() = let
         wrapped = sprint(show, MIME"text/html"(), vega_runtime())
         body = replace(wrapped, r"^\s*<script[^>]*>"i => "")
         body = replace(body, r"</script>\s*$"i => "")
         MIMEResponse("application/javascript; charset=utf-8", body)
     end
 
-    @get compact = h.div(; class="aov-grid-page")(
+    @get compact() = h.div(; class="aov-grid-page")(
         h.h2("AlgebraOfVega Gallery"),
         h.div(; class="htmxo-grid aov-grid-dense")(
             [entries(it.id).compact
@@ -571,7 +571,7 @@ end""")),
         ),
     )
 
-    @get static_compact = h.div(; class="aov-grid-page")(
+    @get static_compact() = h.div(; class="aov-grid-page")(
         h.h2("AlgebraOfVega Static Gallery"),
         h.div(; class="htmxo-grid aov-grid-dense")(
             [entries(it.id).static_compact
@@ -674,7 +674,7 @@ end""")),
     # plus the docs-deploy `record_base` URL prefix. `?force=true`
     # invalidates the cached run and re-records.
 
-    @get flagged = begin
+    @get flagged() = begin
         flags = __appdata__.flags.load()
         if isempty(flags)
             h.div(
@@ -710,7 +710,7 @@ end""")),
     end
 
     # --- Pregrouped debug page ---
-    @get debug_pregrouped = begin
+    @get debug_pregrouped() = begin
         # Test case 1: basic with renamer
         spec1 = pregrouped(
             fill.(1:3, 100) => renamer(["A", "B", "C"]),
@@ -747,7 +747,7 @@ end""")),
 
     # --- Data Explorer (fully client-side) ---
 
-    @get explorer = h.div(
+    @get explorer() = h.div(
         explorer_widget(__appdata__.explorer_datasets),
         h.a("← Back to gallery"; href=__self__, class="htmxo-back-link"),
     )
@@ -760,7 +760,7 @@ end""")),
         end
     end
 
-    @get static_gallery = h.div(
+    @get static_gallery() = h.div(
         h.h2("Static Gallery (Makie/CairoMakie)"),
         [section(title, ids).static for (title, ids) in __appdata__.plot_sections]...,
     )
