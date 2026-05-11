@@ -279,7 +279,7 @@ const APPDATA = AoVAppData()
         )
 
         @get card_plot() = h.div(; class="aov-card-with-specs")(
-            vdraw(e.spec),
+            e.body_plain,
             h.details(
                 h.summary("Julia Code"),
                 h.pre(h.code(e.code_string)),
