@@ -52,7 +52,7 @@ AoG's `pregrouped(xs, ys, ...)` is the right hook when your data is already in n
 | Long-format draws + you want only the band (no centre line) | `ribbon` |
 | Precomputed `lo`/`hi` columns | `lineribbon(...; bands=[:lo50 => :hi50, :lo95 => :hi95])` (or `ribbon(...; bands=…)`) — `bands` is a vector of `lo => hi` Pairs of column names; skips the draw-based estimator |
 
-See [Uncertainty Visualisation](uncertainty.md) for full examples.
+See the [API Reference](api.md#tidybayes-style-uncertainty-analyses) for the full docstring set and the [Gallery](gallery.md) for worked examples.
 
 ## CDN versions
 

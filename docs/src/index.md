@@ -32,11 +32,9 @@ A `VegaSpec` (the result of `data * mapping * visual * config`) auto-renders in 
 |------|----------------|
 | [Getting Started](getting-started.md) | Quick example end-to-end, the algebra (`*`, `+`, `dims`), faceting, mark types |
 | [Translation Guide](translation.md)   | How AoG specs are lowered to Vega-Lite — mappings, layers, scales, the deep-merge contract |
-| [Interactivity](interactivity.md)     | Tooltips, legend filtering, dropdown selection, signal binding, HTMX wiring with `update_data` |
-| [Uncertainty Visualisation](uncertainty.md) | Tidybayes-style `lineribbon`, `pointinterval`, `gradient_interval`, `dotinterval`, `ribbon` |
-| [Gallery](gallery.md) and [Gallery Examples](gallery-examples.md) | ~50 worked examples, from scatter to ridgeline plots |
-| [FAQ / Gotchas](faq.md)               | Aliases (`vdraw`, `vdata`), common deep-merge surprises, faceting + select, legend binding caveats |
-| [API Reference](api.md)               | Full export list, organised by use case |
+| [Gallery](gallery.md)                 | Worked examples — scatter, ribbons, faceting, uncertainty, dashboards |
+| [FAQ / Gotchas](faq.md)               | Aliases (`vdraw`, `vdata`), deep-merge surprises, faceting + select, legend binding caveats, interactivity wiring |
+| [API Reference](api.md)               | Full export list, organised by use case (tidybayes-style `lineribbon` / `pointinterval` / `dotinterval` / `gradient_interval` / `ribbon` live here) |
 
 ## Installation
 

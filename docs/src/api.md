@@ -1,6 +1,6 @@
 # API Reference
 
-The full set of exports, organised by use case. For walkthroughs see [Getting Started](getting-started.md), [Translation](translation.md), [Interactivity](interactivity.md), [Uncertainty](uncertainty.md), and the [Gallery](gallery.md).
+The full set of exports, organised by use case. For walkthroughs see [Getting Started](getting-started.md), [Translation](translation.md), [Gallery](gallery.md), and the [FAQ](faq.md).
 
 ## Building specs
 
@@ -69,16 +69,21 @@ update_data
 
 ## Dynamic dashboard helpers
 
-For interactive dashboards where the user picks columns, channels, or facets at runtime:
+For interactive dashboards where the user picks columns, channels, or facets at runtime. `auto_remap_node` is the high-level entry point; the others are the building blocks.
 
-| Helper                        | Purpose                                                                          |
-|-------------------------------|----------------------------------------------------------------------------------|
-| `mapping_controls(...)`       | Render a set of HTMX-driven `<select>`s for channel ↔ column mapping             |
-| `resolve_channels(...)`       | Resolve user-picked channel/column choices into a concrete mapping               |
-| `refine_channels(...)`        | Refine a partial mapping with defaults                                            |
-| `auto_remap_node(spec; …)`    | Given a spec with placeholder channels, produce a remapped node from runtime input |
-| `with_plot_caption(node, caption; …)` | Wrap a plot node in a `<figure>` with a header (CSV download, optional details) — requires `using HTMXObjects` (provided by `AlgebraOfVegaHTMXObjectsExt`) |
-| `draws_summary_table(table; …)` | Build a "median [lo, hi]" summary table from long-format draws data — requires `using HTMXObjects` |
+```@docs
+auto_remap_node
+mapping_controls
+resolve_channels
+refine_channels
+```
+
+### Captioned plots (requires `using HTMXObjects`)
+
+```@docs
+with_plot_caption
+draws_summary_table
+```
 
 ## Tidybayes-style uncertainty analyses
 
@@ -101,7 +106,11 @@ ppc_overlay
 
 Useful when writing examples or exploring the API:
 
-`sample_cars`, `sample_tips`, `sample_stocks`, `sample_temperatures`, `sample_population` (+ `melt_population`), `sample_monthly_sales` (+ `melt_sales`), `sample_posterior_draws`, `sample_regression_predictions`, `sample_grouped_regression_predictions`, `sample_faceted_regression_predictions`, `sample_faceted_observations`, `classify_columns`, `table_to_rows`.
+`sample_cars`, `sample_tips`, `sample_stocks`, `sample_temperatures`, `sample_population` (+ `melt_population`), `sample_monthly_sales` (+ `melt_sales`), `sample_posterior_draws`, `sample_regression_predictions`, `sample_grouped_regression_predictions`, `sample_faceted_regression_predictions`, `sample_faceted_observations`, `classify_columns`, `table_to_rows`, `preaggregate`.
+
+```@docs
+preaggregate
+```
 
 ## Explorer widget
 

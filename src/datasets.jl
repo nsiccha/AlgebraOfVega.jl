@@ -52,12 +52,14 @@ sample_penguins() = (;
     sex = ["Male","Female","Female","Female","Male","Female","Female","Male","Female","Male","Female","Female","Male","Female","Female","Male","Female","Male","Male","Female","Female","Male","Male","Female","Male","Female","Female","Male","Male","Male","Female","Male","Female","Male","Female","Male","Female","Male","Female","Male","Male","Female","Male","Female","Male","Female","Male","Female","Female","Female"],
 )
 
+"Wide-format population table (5 age categories × male/female counts)."
 sample_population() = (;
     category = ["0-14","15-24","25-54","55-64","65+"],
     male = [25,18,40,12,10],
     female = [24,17,38,13,14],
 )
 
+"Pivot a `sample_population()`-shaped wide table to long format with columns `category`, `count`, `sex`."
 melt_population(pop) = let
     n = length(pop.category)
     (;
@@ -67,12 +69,14 @@ melt_population(pop) = let
     )
 end
 
+"Wide-format monthly sales table (12 months × online/store columns)."
 sample_monthly_sales() = (;
     month = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"],
     online = [120,135,140,160,180,200,220,210,190,175,160,250],
     store = [200,180,190,170,160,150,140,145,155,170,180,300],
 )
 
+"Pivot a `sample_monthly_sales()`-shaped wide table to long format with columns `month`, `sales`, `channel`."
 melt_sales(s) = let
     n = length(s.month)
     (;
