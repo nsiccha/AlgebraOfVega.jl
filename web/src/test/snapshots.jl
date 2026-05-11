@@ -1,18 +1,20 @@
 # Snapshot generation and comparison for VL spec regression testing.
 #
-# Usage:
-#   julia --project=web test/snapshots.jl generate   # save current specs as reference
-#   julia --project=web test/snapshots.jl compare     # compare current specs against saved reference
+# Usage (from the repo root or web/ dir):
+#   julia --project=web web/src/test/snapshots.jl generate   # save current specs as reference
+#   julia --project=web web/src/test/snapshots.jl compare    # compare current specs against saved reference
 #
 # Each gallery entry gets a deterministic RNG seed based on its ID,
 # so reordering entries doesn't change their output.
 
 using Random, JSON
 
-# Load the gallery module (which includes AlgebraOfVega)
-include(joinpath(@__DIR__, "..", "web", "src", "AlgebraOfVegaGallery.jl"))
+# Load the gallery module (which includes AlgebraOfVega, HTMXObjects, etc.)
+# This file lives at web/src/test/snapshots.jl → parent is web/src/
+include(joinpath(@__DIR__, "..", "AlgebraOfVegaGallery.jl"))
 using .AlgebraOfVegaGallery
 using AlgebraOfVega: to_vegalite
+using HTMXObjects: Gallery, GalleryItem, find_item
 
 SNAPSHOTS_DIR = joinpath(@__DIR__, "snapshots")
 
@@ -21,20 +23,33 @@ function entry_seed(id::String)
     hash(id) % UInt32
 end
 
-function generate_spec(entry)
-    id = entry[1]
-    spec_fn = entry[5]
+function generate_spec(item::GalleryItem)
+    id = item.id
     Random.seed!(entry_seed(id))
-    spec = spec_fn()
+    # Run the example in the gallery module's namespace so dataset
+    # aliases (cars(), tips(), …) and AoV exports all resolve.
+    spec = Base.include(AlgebraOfVegaGallery, item.path)
+    # Some examples return an HTMX.Node directly (widgets, custom HTML).
+    # Those have no VL JSON representation — store null.
     isnothing(spec) && return id => nothing
-    vl = to_vegalite(spec)
-    id => vl
+    try
+        vl = to_vegalite(spec)
+        id => vl
+    catch e
+        if e isa MethodError
+            # spec is an HTMX.Node or other non-VL type — expected for
+            # interactive widget examples; store null.
+            id => nothing
+        else
+            rethrow(e)
+        end
+    end
 end
 
 function generate_all()
     results = Dict{String,Any}()
-    for entry in AlgebraOfVegaGallery.PLOTS
-        id, vl = generate_spec(entry)
+    for item in AlgebraOfVegaGallery.APPDATA.gallery.items
+        id, vl = generate_spec(item)
         results[id] = vl
     end
     results
@@ -46,7 +61,7 @@ function save_snapshots(; dir=SNAPSHOTS_DIR)
     for (id, vl) in specs
         path = joinpath(dir, "$id.json")
         if isnothing(vl)
-            # Entry returns nothing (e.g. widget-only) — save empty marker
+            # Entry returns nothing or an HTMX.Node — save null marker
             write(path, "null")
         else
             write(path, JSON.json(vl, 2))
@@ -134,7 +149,7 @@ if abspath(PROGRAM_FILE) == @__FILE__
         ok = compare_snapshots()
         exit(ok ? 0 : 1)
     else
-        println("Usage: julia test/snapshots.jl [generate|compare]")
+        println("Usage: julia web/src/test/snapshots.jl [generate|compare]")
         exit(1)
     end
 end
