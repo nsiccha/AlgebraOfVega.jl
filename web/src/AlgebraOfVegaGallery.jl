@@ -726,8 +726,9 @@ end""")),
         ) * visual(BoxPlot) * config(title="3. Bruno QT pattern (axes/eachcol)")
 
         specs = [spec1, spec2, spec3]
+        # vega_head() is already injected by AppContext.__page__ (extra_head);
+        # don't duplicate it here (HTMX fragments reuse the runtime already in page).
         h.div(
-            vega_head(),
             h.h2("Pregrouped Debug"),
             [h.div(; class="aov-static-section")(
                 vdraw(s),
