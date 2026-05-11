@@ -27,6 +27,8 @@ grouped_regression_predictions(; kw...) = sample_grouped_regression_predictions(
 faceted_regression_predictions(; kw...) = sample_faceted_regression_predictions(; kw...)
 faceted_observations(; kw...) = sample_faceted_observations(; kw...)
 
+# TODO(proposal aov/preaggregate-helper.md): replace with AlgebraOfVega.preaggregate()
+# when that upstream function lands. This local shim (34 lines) becomes a one-liner.
 function _preaggregate(raw, group_keys::Symbol...)
     ct = Tables.columntable(raw)
     ys = ct.y
