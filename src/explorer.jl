@@ -1,5 +1,52 @@
 # Reusable data explorer widget and utilities
 
+# Map of `defaults=` NamedTuple keys → corresponding explorer DOM element ids.
+# Used by `_explorer_init_script` to emit dropdown-init JS for `explorer_widget`
+# / `explorer_controls_html`. Keep in sync with the element ids built in those
+# functions (`ex-x`, `ex-y`, ..., `ex-filter` for the initial filter-pill column).
+const _EXPLORER_DEFAULT_IDS = (
+    x      = "ex-x",
+    y      = "ex-y",
+    color  = "ex-color",
+    row    = "ex-row",
+    col    = "ex-col",
+    group  = "ex-group",
+    mark   = "ex-mark",
+    filter = "ex-filter",
+)
+
+"""
+    _explorer_init_script(defaults) -> String
+
+Build a JS body that, on a `setTimeout`, pre-populates the explorer
+dropdowns from `defaults` (a NamedTuple of `(x, y, color, row, col,
+group, mark, filter)` columns / strings) and calls `AoV.explorerUpdate()`
+to render. Empty/missing keys are skipped; returns `""` if no keys are
+forwardable so callers can elide the `<script>` entirely.
+"""
+function _explorer_init_script(defaults)
+    sets = String[]
+    for (k, id) in pairs(_EXPLORER_DEFAULT_IDS)
+        haskey(defaults, k) || continue
+        val = string(defaults[k])
+        isempty(val) && continue
+        # Single-quote-safe: the values come from column names; we still
+        # escape backslashes and single quotes to avoid breaking the JS literal.
+        esc = replace(replace(val, "\\" => "\\\\"), "'" => "\\'")
+        push!(sets, "var el = document.getElementById('$id'); if (el) { el.value = '$esc'; }")
+    end
+    isempty(sets) && return ""
+    """
+    setTimeout(function() {
+        $(join(sets, "\n        "))
+        if (typeof AoV !== 'undefined') {
+            if (AoV._explorerUpdateFilterPills) AoV._explorerUpdateFilterPills();
+            if (AoV.explorerUpdate) AoV.explorerUpdate();
+        }
+    }, 100);
+    """
+end
+
 """
     default_explorer_datasets()
 
@@ -426,6 +473,11 @@ When mark is "line+ribbon", a "Ribbon levels" text input appears for tuning quan
   callback `(col, val) -> Bool` applied to every categorical column. Default: `nothing` (all values
   selected).
 - `marks`: list of `value => label` pairs for the mark dropdown (default: `_default_marks()`)
+- `defaults`: optional NamedTuple `(; x, y, color, row, col, group, mark, filter)` of column
+  names / mark values used to emit an inline init `<script>` that pre-populates the dropdowns
+  and calls `AoV.explorerUpdate()` after a 100ms `setTimeout`. Empty when missing — no script
+  emitted. Use this when the available columns are only known at the call site (e.g. dynamic
+  upstream tables); for column-known-at-build-time defaults prefer the `default_*` kwargs.
 """
 function explorer_controls_html(datasets_or_table; default_ds="penguins", onchange_fn="explorerUpdate()",
         default_x="bill_length", default_y="bill_depth", default_color=:species, default_group=nothing,
@@ -433,7 +485,8 @@ function explorer_controls_html(datasets_or_table; default_ds="penguins", onchan
         default_filter_include=nothing,
         default_indep_x=false, default_indep_y=false,
         default_log_x=false, default_log_y=false,
-        marks=_default_marks())
+        marks=_default_marks(),
+        defaults=NamedTuple())
     datasets = _wrap_datasets(datasets_or_table)
     ds_names = sort(collect(keys(datasets)))
     default_ds = default_ds in ds_names ? default_ds : first(ds_names)
@@ -506,7 +559,10 @@ function explorer_controls_html(datasets_or_table; default_ds="penguins", onchan
   </label>
 </div>
 <div id="ex-filter-pills" class="u-flex u-flex-wrap u-mb-2"></div>
-<div id="explorer-plot" class="aov-plot-area"></div>"""
+<div id="explorer-plot" class="aov-plot-area"></div>""" *
+    (let init = _explorer_init_script(defaults)
+        isempty(init) ? "" : "<script>$init</script>"
+    end)
 end
 
 """
@@ -539,6 +595,11 @@ When mark is "line+ribbon", a "Ribbon levels" text input appears for tuning quan
   selected).
 - `marks`: list of `value => label` pairs for the mark dropdown (default: `_default_marks()`)
 - `show_spec`: whether to show the Vega-Lite JSON spec details section (default: false)
+- `defaults`: optional NamedTuple `(; x, y, color, row, col, group, mark, filter)` of column
+  names / mark values used to emit an inline init `<script>` that pre-populates the dropdowns
+  and calls `AoV.explorerUpdate()` after a 100ms `setTimeout`. Empty when missing — no script
+  emitted. Use this when the available columns are only known at the call site (e.g. dynamic
+  upstream tables); for column-known-at-build-time defaults prefer the `default_*` kwargs.
 
 Faceted specs use responsive cell widths derived from the container's `clientWidth`
 rather than a fixed size. See [`explorer_js`](@ref) for details.
@@ -552,7 +613,8 @@ function explorer_widget(datasets_or_table; default_ds="penguins",
         default_indep_x=false, default_indep_y=false,
         default_log_x=false, default_log_y=false,
         width="container", height=350,
-        marks=_default_marks(), show_spec=false)
+        marks=_default_marks(), show_spec=false,
+        defaults=NamedTuple())
     datasets = _wrap_datasets(datasets_or_table)
     ds_names = sort(collect(keys(datasets)))
     default_ds = default_ds in ds_names ? default_ds : first(ds_names)
@@ -660,6 +722,14 @@ function explorer_widget(datasets_or_table; default_ds="penguins",
             AoV.explorerUpdate();
             """
         ),
+
+        # Optional defaults-init script: pre-populates dropdowns from a
+        # caller-supplied `defaults=(; x, y, color, row, col, group, mark, filter)`
+        # NamedTuple, then re-runs `AoV.explorerUpdate()`. Emitted only when
+        # at least one forwardable key is non-empty.
+        (let init = _explorer_init_script(defaults)
+            isempty(init) ? "" : h.script(init)
+        end),
     )
 end
 
