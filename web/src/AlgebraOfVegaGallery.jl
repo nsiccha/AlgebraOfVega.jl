@@ -111,13 +111,9 @@ end
     recording_dir  = joinpath(dirname(dirname(@__DIR__)), "docs", "src", "public", "live-aov")
     recording_base = get(ENV, "RECORD_BASE_PREFIX", "/AlgebraOfVega.jl/dev/live-aov")
     recording_paths = let ids = [it.id for it in gallery.items]
-        vcat(
-            ["/"],
-            ["/entries/$id/plot"       for id in ids],
-            ["/entries/$id/standalone" for id in ids],
-            ["/entries/$id/spec"       for id in ids],
-            ["/aov_runtime_js", "/explorer", "/flagged"],
-        )
+        ["/";
+         ["/entries/$id/$route" for id in ids for route in ("plot", "standalone", "spec")];
+         ["/aov_runtime_js", "/explorer", "/flagged"]]
     end
 
     explorer_datasets = default_explorer_datasets()
