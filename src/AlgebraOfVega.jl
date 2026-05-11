@@ -4271,19 +4271,6 @@ function _replicate_or_keep!(new_vals, v::Dict, field, uniques)
     end
 end
 
-"""
-    to_node(spec; id, width, height, actions, signals)
-
-Convert a spec to an HTMX `Node` containing a div + script that calls `vegaEmbed`.
-Requires vega/vega-lite/vega-embed scripts to be loaded (use `vega_head()` in page head).
-
-## Keyword arguments
-- `id`: element ID (auto-generated if not provided)
-- `width`, `height`: override spec dimensions
-- `actions`: show Vega action links (default false)
-- `signals`: vector of signal→HTMX wirings. Each entry is a NamedTuple or Dict:
-  `(signal="brush", url="/on_brush", target="#detail")` or with optional `swap`, `debounce`.
-"""
 _as_vl_dict(d::Dict) = copy(d)
 _as_vl_dict(s) = to_vegalite(s)
 
@@ -4296,6 +4283,21 @@ _sig_get(sig, key::Symbol) = sig[string(key)]
 _sig_get(sig::NamedTuple, key::Symbol, default) = get(sig, key, default)
 _sig_get(sig, key::Symbol, default) = get(sig, string(key), default)
 
+"""
+    to_node(spec; id, width, height, actions, signals)
+
+Convert a spec to an HTMX `Node` containing a div + script that calls `vegaEmbed`.
+Requires vega/vega-lite/vega-embed scripts to be loaded (use `vega_head()` in page head).
+
+## Keyword arguments
+- `id`: element ID (auto-generated if not provided)
+- `width`, `height`: override spec dimensions
+- `actions`: show Vega action links (default false)
+- `signals`: vector of signal→HTMX wirings. Each entry is a NamedTuple or Dict:
+  `(signal="brush", url="/on_brush", target="#detail")` or with optional `swap`, `debounce`.
+- `fit_width`: when `true` (default) set `width: "container"` for single-view specs and
+  apply numeric responsive widths for layered/faceted specs.
+"""
 function to_node(spec; id=nothing, width=nothing, height=nothing, actions=false, signals=nothing, fit_width=true)
     vl = _as_vl_dict(spec)
     !isnothing(width) && (vl["width"] = width)
@@ -4371,50 +4373,7 @@ function update_data(id, table; name="source_0")
     h.script("AoV.updateData('$id', $json, '$name');")
 end
 
-"""
-    mapping_controls(id, dimensions; color_default="", row_default="", column_default="", channels=[:color, :row])
-
-Client-side dropdowns that remap encoding channels on an already-rendered plot.
-Calls `AoV.remapEncoding(id, {color: ..., row: ...})` — no server round-trip.
-
-- `id`: must match the `id` kwarg passed to `to_node(spec; id=...)`
-- `dimensions`: vector of `Pair{String,String}` (field => label) or bare strings/symbols
-- `channels`: which encoding channels to show editable dropdowns for (default `[:color, :row, :column]`)
-- `fixed`: `Dict` of channel => field that are always applied but not user-editable (e.g. `Dict(:column => :quantity)`)
-
-## Example
-```julia
-id = "my-plot"
-h.div()(
-    mapping_controls(id, [:origin => "Origin", :cylinders => "Cylinders"];
-        color_default="origin", fixed=Dict(:column => :cylinders)),
-    to_node(data(df) * mapping(:x, :y, color=:origin, col=:cylinders) * visual(Scatter); id=id),
-)
-```
-"""
 _CHANNEL_LABELS = Dict("color" => "Color", "row" => "Row", "column" => "Column", "detail" => "Ungrouped")
-
-"""
-    mapping_controls(id, dimensions; kwargs...)
-
-Client-side multi-select mapping picker for Vega-Lite encoding channels.
-
-Each channel (color, row, column, ungrouped/detail) is a multi-select. When 2+
-fields are selected for one channel, a synthetic combo column is built on
-`spec.data.values`. One channel is always "pinned" — the catch-all that
-auto-absorbs any dims not in another channel. The pinned channel's select is
-disabled; its contents are computed.
-
-## Keyword arguments
-- `id`: must match the `id` kwarg passed to `to_node(spec; id=...)`
-- `dimensions`: vector of `Pair{String,String}` (field => label) or bare strings/symbols
-- `color_default`, `row_default`, `column_default`, `detail_default`: initial selections (vector or single string)
-- `channels`: which channels to show (default `[:color, :row, :column, :detail]`)
-- `pinned`: which channel is the catch-all (default `:color`)
-- `fixed`: `Dict` of channel => field(s) that are always applied but not user-editable
-- `table`: optional table for field validation
-- `spec`: optional AoG spec — if provided, validates that all dimension fields survive into the VL data (warns if a field was dropped during AoG summary)
-"""
 
 """
     resolve_channels(dimensions; color_default, row_default, column_default, detail_default, pinned, fixed, channels)
@@ -4688,6 +4647,48 @@ function _source_tables_from_spec(spec)
     out
 end
 
+"""
+    mapping_controls(id, dimensions; kwargs...)
+    mapping_controls(id, resolved::NamedTuple; table=nothing, spec=nothing)
+
+Client-side multi-select picker that remaps Vega-Lite encoding channels on an
+already-rendered plot. Each channel (color, row, column, ungrouped/detail) is a
+multi-select; selecting 2+ fields for one channel synthesises a combo column on
+`spec.data.values`. One channel is always "pinned" — the catch-all that
+auto-absorbs any dims not in another channel.
+
+The first form (vector of dimensions) calls [`resolve_channels`](@ref) under
+the hood; the second form accepts a pre-resolved NamedTuple (e.g. from
+[`refine_channels`](@ref)) for callers that need to inspect / mutate the
+resolution before rendering.
+
+## Keyword arguments
+
+- `id`: must match the `id` kwarg passed to `to_node(spec; id=...)`
+- `dimensions`: vector of `Pair{String,String}` (field => label) or bare strings/symbols
+- `color_default`, `row_default`, `column_default`, `detail_default`: initial selections
+  (vector or single string)
+- `channels`: which channels to show (default `[:color, :row, :column, :detail]`)
+- `pinned`: which channel is the catch-all (default `:color`)
+- `fixed`: `Dict` of channel => field(s) that are always applied but not user-editable,
+  e.g. `Dict(:column => :cylinders)`
+- `table`: optional table for field validation
+- `spec`: optional AoG spec — if provided, validates that all dimension fields survive
+  into the VL data (warns if a field was dropped during AoG summary)
+
+## Example
+
+```julia
+id = "my-plot"
+h.div()(
+    mapping_controls(id, ["origin" => "Origin", "cylinders" => "Cylinders"];
+        color_default="origin", fixed=Dict(:column => :cylinders)),
+    to_node(data(df) * mapping(:x, :y, color=:origin, col=:cylinders) * visual(Scatter); id=id),
+)
+```
+
+For fully-automatic picker + plot construction, prefer [`auto_remap_node`](@ref).
+"""
 function mapping_controls(id, dimensions::AbstractVector; table=nothing, spec=nothing, kwargs...)
     resolved = resolve_channels(dimensions; kwargs...)
     mapping_controls(id, resolved; table, spec)
