@@ -2617,16 +2617,38 @@ end
 _aog_axis_key_to_vl_channel(k::Symbol) =
     k === :X ? "x" : k === :Y ? "y" : k === :Z ? "z" : nothing
 
-"""Translate an AoG `Scales` object into a VL encoding-override dict (X/Y/Z scales only)."""
+# Per-channel scale options forwarded from a `scales(X=(; scale=..., nice=..., ...))`
+# NamedTuple into the VL `encoding.<ch>.scale` dict. Maps Julia key → VL key.
+const _SCALES_NT_FORWARD = (
+    nice   = "nice",
+    zero   = "zero",
+    domain = "domain",
+    clamp  = "clamp",
+)
+
+"""Translate an AoG `Scales` object into a VL encoding-override dict (X/Y/Z scales only).
+
+Per-channel kwargs forwarded into the VL `scale` dict:
+- `scale` — translated via `_aog_scale_fn_to_vl` (log/log2/log10/sqrt/identity)
+- `nice`, `zero`, `domain`, `clamp` — passed through verbatim
+
+Channels with no forwardable kwargs are skipped (no `scale` key emitted)."""
 function _scales_to_encoding_override(sc::AlgebraOfGraphics.Scales)
     override = Dict{String,Any}()
     for (axis_key, props) in pairs(sc.dict)
         ch = _aog_axis_key_to_vl_channel(axis_key)
         isnothing(ch) && continue
+        vl_scale = Dict{String,Any}()
         scale_fn = get(props, :scale, nothing)
-        isnothing(scale_fn) && continue
-        vl_scale = _aog_scale_fn_to_vl(scale_fn)
-        isnothing(vl_scale) && continue
+        if !isnothing(scale_fn)
+            translated = _aog_scale_fn_to_vl(scale_fn)
+            !isnothing(translated) && merge!(vl_scale, translated)
+        end
+        for (jl_key, vl_key) in pairs(_SCALES_NT_FORWARD)
+            haskey(props, jl_key) || continue
+            vl_scale[vl_key] = props[jl_key]
+        end
+        isempty(vl_scale) && continue
         override[ch] = Dict{String,Any}("scale" => vl_scale)
     end
     override
