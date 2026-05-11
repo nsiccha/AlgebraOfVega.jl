@@ -216,8 +216,7 @@ const APPDATA = AoVAppData()
     #   /entries/<id>/card_plot     (was /card_plot/<id>)
     #   POST /entries/<id>/flag     (was POST /flag/<id>)
     @include entries(id::String) = begin
-        e    = __appdata__.entry(id)
-        item = e.item
+        e = __appdata__.entry(id)
 
         flag_button() = let flagged = id in __appdata__.flags.load()
             h.button(flagged ? "flagged" : "flag";
