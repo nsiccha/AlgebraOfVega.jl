@@ -760,6 +760,8 @@ end""")),
         [section(title, ids).static for (title, ids) in __appdata__.plot_sections]...,
     )
 
+    @include structure = HTMXObjects.StructureRoutes(; root=AppContext)
+
     @include tests = TestRoutes(; __req__, test_module=@__MODULE__)
 
     @include record_gallery = RecordingRoutes(;
