@@ -13,12 +13,6 @@ using HTMXObjects: RecordingRoutes
 
 include("test/runtests.jl")
 
-_push_compose_parts!(args...) = nothing
-function _push_compose_parts!(lines, t::ComposedFunction)
-    push!(lines, "  outer: $(t.outer) ($(typeof(t.outer)))")
-    push!(lines, "  inner: $(t.inner) ($(typeof(t.inner)))")
-end
-
 # --- Sample datasets (from AlgebraOfVega.datasets) ---
 # Local aliases to keep existing plot code unchanged
 cars() = sample_cars()
@@ -700,7 +694,10 @@ end""")),
             "transformation: $t",
             "transformation type: $(typeof(t))",
         ]
-        _push_compose_parts!(lines, t)
+        if t isa ComposedFunction
+            push!(lines, "  outer: $(t.outer) ($(typeof(t.outer)))")
+            push!(lines, "  inner: $(t.inner) ($(typeof(t.inner)))")
+        end
         hasproperty(layer, :positional) && push!(lines, "positional: $(layer.positional)")
         hasproperty(layer, :named)      && push!(lines, "named: $(layer.named)")
         join(lines, "\n")
