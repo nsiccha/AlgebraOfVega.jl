@@ -154,6 +154,10 @@ end
             [curated_sections..., "Tests / Edge cases" => leftover]
     end
 
+    # Flat ordered list of all GalleryItems across every section —
+    # eliminates repeated `for (_, ids) … for it in [find_item(…)]` in routes.
+    gallery_items = [find_item(gallery, id) for (_, ids) in plot_sections for id in ids]
+
     # Per-id loaded spec + derived display values. `Base.include` runs
     # the example file in this module's namespace so cars(), data(),
     # mapping(), … resolve, and returns the file's last top-level
@@ -565,18 +569,14 @@ end""")),
     @get compact() = h.div(; class="aov-grid-page")(
         h.h2("AlgebraOfVega Gallery"),
         h.div(; class="htmxo-grid aov-grid-dense")(
-            [entries(it.id).compact
-             for (_, ids) in __appdata__.plot_sections
-             for it in [find_item(__appdata__.gallery, id) for id in ids]]...,
+            [entries(it.id).compact for it in __appdata__.gallery_items]...,
         ),
     )
 
     @get static_compact() = h.div(; class="aov-grid-page")(
         h.h2("AlgebraOfVega Static Gallery"),
         h.div(; class="htmxo-grid aov-grid-dense")(
-            [entries(it.id).static_compact
-             for (_, ids) in __appdata__.plot_sections
-             for it in [find_item(__appdata__.gallery, id) for id in ids]]...,
+            [entries(it.id).static_compact for it in __appdata__.gallery_items]...,
         ),
     )
 
@@ -656,11 +656,8 @@ end""")),
             h.section(
                 h.h1(c.page_title),
                 h.p(c.page_intro),
-                isnothing(c.auto_remap) ?
-                    with_plot_caption(c.the_spec, c.caption;
-                        plot_id=c.id, filename_base=c.filename_base) :
-                    with_plot_caption(c.the_spec, c.caption;
-                        plot_id=c.id, filename_base=c.filename_base, auto_remap=c.auto_remap),
+                with_plot_caption(c.the_spec, c.caption;
+                    plot_id=c.id, filename_base=c.filename_base, auto_remap=c.auto_remap),
                 HTMXObjects.caption_style(),
                 HTMXObjects.sortable_table_js(),
                 HTMXObjects.download_table_js(),
