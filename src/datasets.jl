@@ -185,6 +185,86 @@ function sample_faceted_observations(; n_per_cell=5)
     (x=rows_x, y=rows_y, panel=rows_panel, site=rows_site)
 end
 
+# --- Pre-aggregation helper for ribbon/quantile plots ---
+
+"""
+    _quantile_colname(p::Real) -> String
+
+Map a probability to the canonical AoV column name:
+- `0.5` → `"median"`
+- else: zero-padded 3-digit representation with trailing zeros stripped
+  (minimum 2 digits). Examples: `0.025 → "q025"`, `0.10 → "q10"`,
+  `0.25 → "q25"`, `0.975 → "q975"`.
+"""
+function _quantile_colname(p::Real)
+    p == 0.5 && return "median"
+    n = round(Int, p * 1000)
+    s = lpad(string(n), 3, '0')
+    while length(s) > 2 && endswith(s, '0')
+        s = s[1:end-1]
+    end
+    "q" * s
+end
+
+"""
+    preaggregate(table; y=:y, group_keys=Symbol[], probs=[0.025, 0.10, 0.25, 0.5, 0.75, 0.90, 0.975])
+
+Group `table` by `group_keys`, compute `y`-column quantiles per group,
+return a `DataFrame`-shaped `NamedTuple` of vectors with `group_keys` plus
+quantile columns.
+
+Column naming: `q<NNN>` for fractional quantiles (e.g. `q025` for 0.025,
+`q10` for 0.10) and `median` for 0.5. Compatible with
+`lineribbon(bands=[:q025 => :q975, ...])` call patterns.
+
+Returns a `NamedTuple` of column vectors (the AoV-canonical lightweight
+table shape — `data(...)` accepts it directly via Tables.jl). If you need
+a true `DataFrame` for downstream `select` / `transform!` chains, wrap
+with `DataFrame(preaggregate(...))` at the call site.
+"""
+function preaggregate(table;
+        y::Symbol = :y,
+        group_keys = Symbol[],
+        probs::AbstractVector{<:Real} = [0.025, 0.10, 0.25, 0.5, 0.75, 0.90, 0.975])
+    group_keys = collect(Symbol, group_keys)
+    ct = Tables.columntable(table)
+    ys = Tables.getcolumn(ct, y)
+    key_cols = [Tables.getcolumn(ct, k) for k in group_keys]
+    nk = length(group_keys)
+
+    groups = Dict{Any,Vector{Int}}()
+    for i in eachindex(ys)
+        key = nk == 0 ? () :
+              nk == 1 ? key_cols[1][i] :
+              Tuple(kc[i] for kc in key_cols)
+        push!(get!(Vector{Int}, groups, key), i)
+    end
+
+    sorted_keys = sort!(collect(keys(groups)))
+    out_keys = [Any[] for _ in 1:nk]
+    colnames = Symbol.(_quantile_colname.(probs))
+    out_qs = [Float64[] for _ in probs]
+
+    for key in sorted_keys
+        idxs = groups[key]
+        v = sort(ys[idxs])
+        if nk == 1
+            push!(out_keys[1], key)
+        elseif nk > 1
+            for (j, k) in enumerate(key)
+                push!(out_keys[j], k)
+            end
+        end
+        for (j, p) in enumerate(probs)
+            push!(out_qs[j], quantile(v, p))
+        end
+    end
+
+    key_pairs = (k => out_keys[i] for (i, k) in enumerate(group_keys))
+    quant_pairs = (n => out_qs[i] for (i, n) in enumerate(colnames))
+    (; key_pairs..., quant_pairs...)
+end
+
 # --- Utilities for the explorer widget ---
 
 """

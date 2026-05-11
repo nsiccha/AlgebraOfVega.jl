@@ -129,7 +129,7 @@ export sample_cars, sample_tips, sample_stocks, sample_temperatures,
     sample_posterior_draws, sample_regression_predictions,
     sample_grouped_regression_predictions, sample_faceted_regression_predictions,
     sample_faceted_observations,
-    classify_columns, table_to_rows
+    classify_columns, table_to_rows, preaggregate
 # Explorer exports
 export default_explorer_datasets, explorer_widget, write_explorer_assets,
     explorer_controls_html, explorer_js, explorer_data_init_js
