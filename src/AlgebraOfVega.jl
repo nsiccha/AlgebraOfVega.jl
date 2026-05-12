@@ -12,6 +12,7 @@ using Makie: Scatter, Lines, ScatterLines, BarPlot, Heatmap, BoxPlot,
     Plot, plot
 import Makie 
 using JSON, Tables, Statistics
+using Dates: TimeType
 using HTMX
 import HTMX: h
 
@@ -358,7 +359,9 @@ _field_label(sel::Pair{<:Any,<:AbstractString}) = last(sel)
 function vl_type(col)
     T = eltype(col)
     T = Base.nonmissingtype(T)
-    if T <: Number
+    if T <: TimeType
+        "temporal"
+    elseif T <: Number
         "quantitative"
     elseif T <: AbstractString || T <: Symbol
         "nominal"
@@ -2563,11 +2566,36 @@ Handles all translation: mark types, encodings, statistical transforms, config m
 and auto-interactivity.
 """
 function to_vegalite(layer::AlgebraOfGraphics.Layer)
-    layer_to_vl(layer)
+    spec = layer_to_vl(layer)
+    _apply_no_zero_default!(spec)
+    spec
 end
 
 function to_vegalite(layers::AlgebraOfGraphics.Layers)
-    layers_to_vl(layers)
+    spec = layers_to_vl(layers)
+    _apply_no_zero_default!(spec)
+    spec
+end
+
+# AoV default: don't auto-include zero on quantitative x/y axes (overrides VL's
+# default `scale.zero=true`). Users opt back in via
+# `config(scales=scales(Y=(; zero=true)))` or `encoding=Dict("y"=>Dict("scale"=>Dict("zero"=>true)))`.
+_apply_no_zero_default!(_) = nothing
+function _apply_no_zero_default!(spec::Dict)
+    if haskey(spec, "encoding") && spec["encoding"] isa Dict
+        for ch in ("x", "y")
+            enc = get(spec["encoding"], ch, nothing)
+            enc isa Dict || continue
+            get(enc, "type", nothing) == "quantitative" || continue
+            scale = get!(enc, "scale", Dict{String,Any}())
+            scale isa Dict || continue
+            haskey(scale, "zero") || (scale["zero"] = false)
+        end
+    end
+    if haskey(spec, "layer")
+        for sub in spec["layer"]; _apply_no_zero_default!(sub); end
+    end
+    if haskey(spec, "spec"); _apply_no_zero_default!(spec["spec"]); end
 end
 
 function _deep_merge_encoding!(target_enc::Dict, config_enc::Dict)
