@@ -83,7 +83,7 @@ end
     # File-of-truth flag set. Owns the path and the ops that read/write
     # it — callers never pass the path around. `load()` is an IP (re-
     # reads the file each call); `save(set)` and `toggle!(id)` write.
-    @struct flags = begin
+    @include flags = begin
         path = flagged_path
         load() = begin
             s = Set{String}()
@@ -155,7 +155,7 @@ end
     # mapping(), … resolve, and returns the file's last top-level
     # expression (the AoV spec). DO caches by id, so each id's file is
     # evaluated at most once per instance.
-    @struct entry(id) = begin
+    @include entry(id) = begin
         item         = find_item(gallery, id)
         title        = item.title
         description  = item.description
@@ -304,7 +304,7 @@ const APPDATA = AoVAppData()
     # === Per-section rendering ===
     # Folds the previous `gallery_section` and `static_gallery_section`
     # (both keyed by `(section_title, ids)`) into one inline child.
-    @struct section(section_title, ids) = begin
+    @include section(section_title, ids) = begin
         items = [find_item(__appdata__.gallery, id) for id in ids]
 
         # Cross-inline-child calls (`entries` is a sibling `@include`
@@ -575,7 +575,7 @@ end""")),
     # Bundled mount: three named variants own the per-variant data, and
     # the single route lives in the same scope. URLs: /captioned/<name>.
     @include captioned = begin
-        @struct preagg = begin
+        @include preagg = begin
             id            = "captioned-demo"
             the_spec      = data(_preaggregate(faceted_regression_predictions(), :x, :panel, :site)) *
                             mapping(:x, :median, color=:panel, row=:site) *
@@ -601,7 +601,7 @@ end""")),
                             "bruno path: pre-aggregated lineribbon + auto_remap_node via spec dispatch."
         end
 
-        @struct spec = begin
+        @include spec = begin
             id            = "captioned-spec-demo"
             the_spec      = data(sample_posterior_draws()) *
                             mapping(:value, y=:parameter, color=:chain) * pointinterval() *
@@ -620,7 +620,7 @@ end""")),
             page_intro    = "Verifies auto-summary + auto_remap placement (controls above, caption+plot+summary below)."
         end
 
-        @struct lineribbon = begin
+        @include lineribbon = begin
             id            = "captioned-lineribbon-demo"
             the_spec      = data(grouped_regression_predictions()) *
                             mapping(:x, :y, group=:draw, color=:group) *
