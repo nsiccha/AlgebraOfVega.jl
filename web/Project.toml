@@ -4,8 +4,9 @@ version = "0.1.0"
 
 [deps]
 AlgebraOfGraphics = "cbdf2221-f076-402e-a563-3d30da359d67"
-CairoMakie = "13f3f980-e62b-5c42-98c6-ff1f3baf88f0"
 AlgebraOfVega = "a2420894-485a-4f42-a4fc-c4323ec6fb2b"
+CairoMakie = "13f3f980-e62b-5c42-98c6-ff1f3baf88f0"
+Dates = "ade2ca70-3891-5945-98fb-dc099432e06a"
 DynamicObjects = "23d02862-63fe-4c6e-8fdb-1d52cbbd39d5"
 HTMX = "27f3e1ef-6ef8-44dc-9e9a-2fb23ed44e83"
 HTMXObjects = "b12ef442-5798-4353-80f3-9562b03a0cb6"
