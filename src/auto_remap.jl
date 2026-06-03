@@ -574,6 +574,12 @@ end
 function _scrub_independent_resolve_if_unfaceted!(vl::Dict)
     haskey(vl, "facet") && return
     haskey(vl, "spec") && !isnothing(_as_dict(vl["spec"])) && return
+    # Encoding-faceted specs (row=/col= → encoding.row/encoding.column) are
+    # genuinely faceted even with no top-level `facet` key and no nested `spec`.
+    # Don't strip a legitimate `resolve.scale.{x,y} = "independent"` the user
+    # authored via `config(facet=(; linkxaxes=:none, linkyaxes=:none))` — there it
+    # really does mean "independent across facet rows/columns".
+    _has_encoding_facet(vl) && return
     resolve = _as_dict(get(vl, "resolve", nothing))
     isnothing(resolve) && return
     scale = _as_dict(get(resolve, "scale", nothing))

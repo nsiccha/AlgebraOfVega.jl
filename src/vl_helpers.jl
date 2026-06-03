@@ -31,6 +31,16 @@ _as_dict(_) = nothing
 _as_str(s::AbstractString) = s
 _as_str(_) = nothing
 
+# Encoding-faceted? A spec faceted via `row=`/`col=` encoding channels carries
+# `encoding.row` / `encoding.column` but has NO top-level `facet` operator and
+# NO nested `spec`. `to_node` (fit_width sizing) and the auto-remap resolve
+# scrubber must agree on this — a single source of truth so an encoding-faceted
+# spec is never misclassified as a flat layered one by one site but not the other.
+function _has_encoding_facet(vl::Dict)
+    enc = _as_dict(get(vl, "encoding", nothing))
+    !isnothing(enc) && (haskey(enc, "row") || haskey(enc, "column"))
+end
+
 _vl_tooltip_entry!(args...) = nothing
 function _vl_tooltip_entry!(tt, enc::Dict)
     haskey(enc, "field") || return

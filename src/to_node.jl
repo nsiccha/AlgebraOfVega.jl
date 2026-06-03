@@ -179,9 +179,7 @@ function to_node(spec; id=nothing, width=nothing, height=nothing, actions=false,
     has_explicit_inner_width = !isnothing(inner_spec) && haskey(inner_spec, "width")
     if fit_width && !has_explicit_width && !has_explicit_inner_width && !haskey(vl, "hconcat") && !haskey(vl, "vconcat")
         # Detect faceting: explicit facet key, nested spec, or row/column encoding channels
-        _enc = something(_as_dict(get(vl, "encoding", nothing)), Dict())
-        has_enc_facet = haskey(_enc, "row") || haskey(_enc, "column")
-        is_faceted = haskey(vl, "facet") || haskey(vl, "spec") || has_enc_facet
+        is_faceted = haskey(vl, "facet") || haskey(vl, "spec") || _has_encoding_facet(vl)
         is_layered = haskey(vl, "layer") || is_faceted || haskey(vl, "concat")
         # VL composite marks (boxplot, errorbar, errorband) internally create layers —
         # "width: container" and "autosize: fit" don't work for them
