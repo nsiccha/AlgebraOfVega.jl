@@ -382,6 +382,12 @@ function _selector_scale_modifier(sel::Pair)
     _selector_scale_modifier_dst(first(sel), last(sel))
 end
 _selector_scale_modifier_dst(src, dst::Function) = dst
+# A sorter/renamer `Renamer` on a facet channel carries the facet-header order;
+# it is not `<:Function`, so capture it explicitly here. The type-agnostic
+# `_attach_modifier` path re-attaches it to the resolved selector, and
+# `_apply_selector_modifier!(::Renamer)` re-translates it into VL `sort` after
+# the auto-remap picker rebuilds the layer.
+_selector_scale_modifier_dst(src, dst::AlgebraOfGraphics.Renamer) = dst
 _selector_scale_modifier_dst(src, dst::Pair) = _selector_scale_modifier(Pair(src, first(dst)))
 _selector_scale_modifier_dst(args...) = nothing
 

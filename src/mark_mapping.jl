@@ -84,6 +84,16 @@ _apply_selector_modifier!(field::Dict{String,Any}, dst::AbstractString) = (field
 # color ends up as quantitative, which won't merge with sibling layers
 # (e.g. ECDFPlot) that hardcode nominal → dual color legends.
 _apply_selector_modifier!(field::Dict{String,Any}, ::typeof(AlgebraOfGraphics.nonnumeric)) = (field["type"] = "nominal"; field)
+# sorter(ks) / renamer(ks => …) → AoG `Renamer` whose `uniquevalues` is the
+# explicit data-domain order. On a facet channel (row/col) this becomes a
+# Vega-Lite `sort` array so the facet headers follow the requested order.
+# `data_to_vl` emits raw column values (no relabeling on the VL path), so the
+# sort domain must be the raw `uniquevalues`, not the display `labels`.
+# A keyless `renamer([...])` has `uniquevalues === nothing` → no sort to apply.
+function _apply_selector_modifier!(field::Dict{String,Any}, r::AlgebraOfGraphics.Renamer)
+    r.uniquevalues !== nothing && (field["sort"] = collect(r.uniquevalues))
+    field
+end
 function _apply_selector_modifier!(field::Dict{String,Any}, dst::Pair)
     _apply_selector_modifier!(field, first(dst))
     _apply_selector_modifier!(field, last(dst))
