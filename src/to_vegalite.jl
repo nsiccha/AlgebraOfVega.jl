@@ -10,12 +10,14 @@ and auto-interactivity.
 function to_vegalite(layer::AlgebraOfGraphics.Layer)
     spec = layer_to_vl(layer)
     _apply_no_zero_default!(spec)
+    _densify_facet_sort!(spec)
     spec
 end
 
 function to_vegalite(layers::AlgebraOfGraphics.Layers)
     spec = layers_to_vl(layers)
     _apply_no_zero_default!(spec)
+    _densify_facet_sort!(spec)
     spec
 end
 
@@ -38,6 +40,68 @@ function _apply_no_zero_default!(spec::Dict)
         for sub in spec["layer"]; _apply_no_zero_default!(sub); end
     end
     if haskey(spec, "spec"); _apply_no_zero_default!(spec["spec"]); end
+end
+
+# Vega-Lite mis-binds faceted panels when a facet channel carries an explicit
+# `sort` array AND the row×column cross-product is sparse (some cells have no
+# data): VL fills the sorted header slots positionally, so a missing combination
+# shifts real panels under the wrong header. (Third-party VL behaviour, not an
+# AoV bug — repro in ~/scratch/heizung_shot: `with_sort` BROKEN vs `sort_dense`
+# CORRECT; the `encoding.column` shorthand and the top-level `facet` operator
+# forms fail identically, which is why the fix lives at the shared data level.)
+# Densify the cross-product: for every missing (row, col) cell, append a filler
+# row so the slot owns a cell. The filler is a CLONE of an existing row with its
+# measure (y) nulled — cloning keeps a valid colour/x value so no `null` category
+# leaks into the colour scale (a bare keys-only filler recolours the real series,
+# verified), and the null measure means no mark is drawn in the genuinely-empty
+# cell. Only fires when a facet `sort` is present and BOTH axes are faceted —
+# unsorted specs and single-axis facets already render sparse data correctly.
+_densify_facet_sort!(_) = nothing
+function _densify_facet_sort!(spec::Dict)
+    facet = _as_dict(get(spec, "facet", nothing))
+    enc = _as_dict(get(spec, "encoding", nothing))
+    # row/col channels: `facet` operator form vs `encoding` shorthand form.
+    row_ch = isnothing(facet) ? _as_dict(get(enc, "row", nothing)) : _as_dict(get(facet, "row", nothing))
+    col_ch = isnothing(facet) ? _as_dict(get(enc, "column", nothing)) : _as_dict(get(facet, "column", nothing))
+    _has_sort(ch) = !isnothing(ch) && get(ch, "sort", nothing) isa AbstractVector
+    (_has_sort(row_ch) || _has_sort(col_ch)) || return
+    # Cross-product sparsity only exists when both axes are faceted.
+    (isnothing(row_ch) || isnothing(col_ch)) && return
+    row_field = get(row_ch, "field", nothing)
+    col_field = get(col_ch, "field", nothing)
+    (row_field isa AbstractString && col_field isa AbstractString) || return
+    data = _as_dict(get(spec, "data", nothing))
+    isnothing(data) && return
+    vals = get(data, "values", nothing)
+    (vals isa AbstractVector && !isempty(vals)) || return  # named datasets / urls: can't densify here
+    donor = nothing
+    for r in vals; r isa Dict && (donor = r; break); end
+    isnothing(donor) && return
+    # Positional measure fields to null so a filler draws no mark. `x` (the
+    # independent axis) is left intact; nulling `y`/`y2`/`x2` covers the
+    # line/area/point/bar marks faceted small-multiples use.
+    inner_enc = isnothing(facet) ? enc : _as_dict(get(_as_dict(get(spec, "spec", nothing)), "encoding", nothing))
+    measure_fields = String[]
+    if !isnothing(inner_enc)
+        for pc in ("y", "y2", "x2")
+            ce = _as_dict(get(inner_enc, pc, nothing))
+            isnothing(ce) && continue
+            f = get(ce, "field", nothing)
+            f isa AbstractString && push!(measure_fields, f)
+        end
+    end
+    rowvals = unique(r[row_field] for r in vals if r isa Dict && haskey(r, row_field))
+    colvals = unique(r[col_field] for r in vals if r isa Dict && haskey(r, col_field))
+    present = Set((get(r, row_field, nothing), get(r, col_field, nothing)) for r in vals if r isa Dict)
+    for rv in rowvals, cv in colvals
+        (rv, cv) in present && continue
+        filler = copy(donor)
+        filler[row_field] = rv
+        filler[col_field] = cv
+        for mf in measure_fields; filler[mf] = nothing; end
+        push!(vals, filler)
+    end
+    return
 end
 
 function _deep_merge_encoding!(target_enc::Dict, config_enc::Dict)
