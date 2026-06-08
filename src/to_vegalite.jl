@@ -58,11 +58,23 @@ end
 # unsorted specs and single-axis facets already render sparse data correctly.
 _densify_facet_sort!(_) = nothing
 function _densify_facet_sort!(spec::Dict)
+    # Recurse into layered / faceted children first (mirrors _apply_no_zero_default!).
+    # A layered spec (`+` overlay) or facet-operator spec carries its per-sublayer
+    # encodings in `layer` / the inner `spec`, and — when sibling sublayers don't
+    # share a liftable channel — the top level then has NO `encoding` of its own.
+    if haskey(spec, "layer")
+        for sub in spec["layer"]; _densify_facet_sort!(sub); end
+    end
+    if haskey(spec, "spec"); _densify_facet_sort!(spec["spec"]); end
     facet = _as_dict(get(spec, "facet", nothing))
     enc = _as_dict(get(spec, "encoding", nothing))
-    # row/col channels: `facet` operator form vs `encoding` shorthand form.
-    row_ch = isnothing(facet) ? _as_dict(get(enc, "row", nothing)) : _as_dict(get(facet, "row", nothing))
-    col_ch = isnothing(facet) ? _as_dict(get(enc, "column", nothing)) : _as_dict(get(facet, "column", nothing))
+    # row/col channels: `facet` operator form vs `encoding` shorthand form. Guard the
+    # source first — `get(nothing, ...)` has no method, so an encoding-less layered
+    # spec would otherwise throw here.
+    src = isnothing(facet) ? enc : facet
+    isnothing(src) && return
+    row_ch = _as_dict(get(src, "row", nothing))
+    col_ch = _as_dict(get(src, "column", nothing))
     _has_sort(ch) = !isnothing(ch) && get(ch, "sort", nothing) isa AbstractVector
     (_has_sort(row_ch) || _has_sort(col_ch)) || return
     # Cross-product sparsity only exists when both axes are faceted.
