@@ -242,7 +242,7 @@ function update_data(id, table; name="source_0")
     h.script("AoV.updateData('$id', $json, '$name');")
 end
 
-_CHANNEL_LABELS = Dict("color" => "Color", "row" => "Row", "column" => "Column", "detail" => "Ungrouped")
+_CHANNEL_LABELS = Dict("color" => "Color", "row" => "Row", "column" => "Column", "detail" => "Ungrouped", "off" => "Pooled")
 
 """
     resolve_channels(dimensions; color_default, row_default, column_default, detail_default, pinned, fixed, channels)
@@ -265,6 +265,7 @@ Returns a NamedTuple with:
 """
 function resolve_channels(dimensions;
     color_default=String[], row_default=String[], column_default=String[], detail_default=String[],
+    off_default=String[],
     x_default=String[], y_default=String[],
     channels=[:color, :row, :column, :detail],
     pinned::Symbol=:color,
@@ -275,6 +276,10 @@ function resolve_channels(dimensions;
     row_default = _norm_string_list(row_default)
     column_default = _norm_string_list(column_default)
     detail_default = _norm_string_list(detail_default)
+    # `off` (label "Pooled") is a picker channel that maps to NO encoding: its
+    # dims are removed from the mark so their values pool. Tracked in `defaults`
+    # so the generic pinned-absorb loop excludes off-dims from the catch-all.
+    off_default = _norm_string_list(off_default)
     x_default = _norm_string_list(x_default)
     y_default = _norm_string_list(y_default)
     # x/y are single-select; keep only the first field if multiple are passed.
@@ -282,6 +287,7 @@ function resolve_channels(dimensions;
     length(y_default) > 1 && (y_default = y_default[1:1])
     defaults = Dict("color" => color_default, "row" => row_default,
                      "column" => column_default, "detail" => detail_default,
+                     "off" => off_default,
                      "x" => x_default, "y" => y_default)
     extra_assigned_norm = String[string(f) for f in extra_assigned]
 
@@ -354,6 +360,7 @@ function resolve_channels(dimensions;
     row_fields = get(defaults, "row", String[])
     column_fields = get(defaults, "column", String[])
     detail_fields = get(defaults, "detail", String[])
+    off_fields = get(defaults, "off", String[])
     x_fields = get(defaults, "x", String[])
     y_fields = get(defaults, "y", String[])
 
@@ -387,7 +394,7 @@ function resolve_channels(dimensions;
     fixed_kw = isempty(fixed_kw_parts) ? (;) : merge(fixed_kw_parts...)
 
     (; color_kw, row_kw, column_kw, fixed_kw, detail,
-       color_fields, row_fields, column_fields, detail_fields,
+       color_fields, row_fields, column_fields, detail_fields, off_fields,
        x_fields, y_fields,
        dim_label_map, dims, defaults, fixed=fixed_norm, pinned, channels,
        extra_assigned=extra_assigned_norm)
@@ -476,6 +483,7 @@ function refine_channels(resolved::NamedTuple, tables...)
         row_default=get(resolved.defaults, "row", String[]),
         column_default=get(resolved.defaults, "column", String[]),
         detail_default=resolved.detail_fields,
+        off_default=get(resolved.defaults, "off", String[]),
         x_default=get(resolved.defaults, "x", String[]),
         y_default=get(resolved.defaults, "y", String[]),
         channels=resolved.channels,

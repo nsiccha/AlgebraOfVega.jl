@@ -496,7 +496,7 @@ end
 # Same idea as `_remap_node_parts`: expose the (controls, plot_node) pair for
 # composition with `with_plot_caption` et al.
 function _auto_remap_parts(plot_id, spec; dims, fixed=Dict(), pinned::Symbol=:row,
-                            axes::Bool=false)
+                            axes::Bool=false, off=String[])
     layers = _spec_layers(spec)
     raw_dfs = [extract_data(l) for l in layers]
     any(isnothing, raw_dfs) && error("auto_remap_node: every layer must have associated data (no Pregrouped layers supported here)")
@@ -533,13 +533,16 @@ function _auto_remap_parts(plot_id, spec; dims, fixed=Dict(), pinned::Symbol=:ro
     extra_assigned = filter(f -> f in dim_fields, pos_all)
     x_default = enable_axes ? filter(f -> f in dim_fields, axis_defs.x) : String[]
     y_default = enable_axes ? filter(f -> f in dim_fields, axis_defs.y) : String[]
-    channels = enable_axes ? [:x, :y, :color, :row, :column, :detail] :
-                             [:color, :row, :column, :detail]
+    # `off` (Pooled) dims start absent from the encoding (opt-in; only the dims
+    # the caller passes — never an auto-default). Restricted to remappable dims.
+    off_default = filter(f -> f in dim_fields, String[string(f) for f in off])
+    channels = enable_axes ? [:x, :y, :color, :row, :column, :detail, :off] :
+                             [:color, :row, :column, :detail, :off]
     resolved = resolve_channels(effective_dims;
         color_default=defaults["color"],
         row_default=defaults["row"],
         column_default=defaults["column"],
-        x_default, y_default,
+        x_default, y_default, off_default,
         channels, pinned, fixed,
         extra_assigned)
     resolved = refine_channels(resolved, dfs...)
@@ -665,15 +668,17 @@ function mapping_controls(id, resolved::NamedTuple; table=nothing, spec=nothing)
     # Separate editable channels (for JS logic) from fixed
     editable_channels = [ch for ch in channels if !haskey(fixed_js, string(ch))]
 
-    # Ensure :detail is always last in the channel order (for both editable and all)
-    editable_channels = vcat(filter(!=(Symbol("detail")), editable_channels),
-                    :detail in editable_channels ? [:detail] : Symbol[])
+    # Ensure :detail then :off ("Pooled") are always last in the channel order
+    # (for both editable and all). :off maps to no VL encoding — its dims are
+    # removed from the mark so their values pool into one line.
+    _tail = (:detail, :off)
+    _order(chs) = vcat([c for c in chs if !(c in _tail)], [c for c in _tail if c in chs])
+    editable_channels = _order(editable_channels)
     all_ch_strs = [string(ch) for ch in editable_channels]
 
     # Build unified channel UI: all channels (editable + fixed) rendered identically.
     # Fixed channels have disabled select + disabled radio.
-    all_ui_channels = vcat(filter(!=(Symbol("detail")), channels),
-                           :detail in channels ? [:detail] : Symbol[])
+    all_ui_channels = _order(channels)
     sel_size = string(clamp(length(dims), 2, 4))
     selects = map(all_ui_channels) do ch
         ch_str = string(ch)
@@ -682,6 +687,9 @@ function mapping_controls(id, resolved::NamedTuple; table=nothing, spec=nothing)
         is_pinned = !is_fixed && ch_str == pinned_str
         # x/y are single-select axis channels — no combo, no pin radio.
         is_axis = ch_str == "x" || ch_str == "y"
+        # :off (Pooled) can't be the catch-all pin — its dims are removed from
+        # the encoding, not absorbed — so its pin radio is disabled like x/y.
+        is_no_pin = is_axis || ch_str == "off"
         # Determine which fields are selected
         default_set = if is_fixed
             Set(fixed_js[ch_str])
@@ -728,12 +736,12 @@ function mapping_controls(id, resolved::NamedTuple; table=nothing, spec=nothing)
         if is_pinned
             radio_attrs = merge(radio_attrs, (; checked="checked"))
         end
-        if is_fixed || is_axis
+        if is_fixed || is_no_pin
             radio_attrs = merge(radio_attrs, (; disabled="disabled"))
         end
-        # x/y render the radio disabled (they can't be pinned — catch-all
-        # makes no sense on a single-select axis channel) so the column layout
-        # stays consistent with color/row/column/detail.
+        # x/y and :off render the radio disabled (they can't be pinned — a
+        # catch-all makes no sense on a single-select axis or on the pooled
+        # channel) so the column layout stays consistent with color/row/column.
         h.div()(
             h.label(; class="u-flex-tight")(
                 h.input(; radio_attrs...),
@@ -930,7 +938,8 @@ function mapping_controls(id, resolved::NamedTuple; table=nothing, spec=nothing)
     hint = h.small(; class="u-text-muted u-mb-1")(
         "Assign dimensions to channels (multi-select). ",
         "The pinned channel (", h.strong("●"), ") auto-fills with unassigned dimensions. ",
-        "Selecting 2+ dimensions in one channel combines them.",
+        "Selecting 2+ dimensions in one channel combines them. ",
+        "“Pooled” removes a dimension from the plot entirely — its values merge into one.",
     )
 
     h.div()(
