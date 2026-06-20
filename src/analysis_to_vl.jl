@@ -212,7 +212,10 @@ function _ribbon_to_vl(
     band_labels::Union{Vector{String},Nothing}=nothing
 )
     summary_data = Dict{String,Any}("values" => summary)
-    opacities = range(0.2, 0.6, length=length(band_cols))
+    # range(...; length=1) rejects distinct endpoints, so a single band
+    # gets a fixed mid-gradient opacity (mirrors the stroke_widths idiom
+    # in _interval_to_vl above). Two-or-more bands keep the gradient.
+    opacities = length(band_cols) == 1 ? [0.4] : range(0.2, 0.6, length=length(band_cols))
 
     detail_enc = if !isempty(detail_fields)
         length(detail_fields) == 1 ?
