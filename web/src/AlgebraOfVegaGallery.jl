@@ -83,7 +83,7 @@ end
     # File-of-truth flag set. Owns the path and the ops that read/write
     # it — callers never pass the path around. `load()` is an IP (re-
     # reads the file each call); `save(set)` and `toggle!(id)` write.
-    @include flags = begin
+    @struct flags = begin
         path = flagged_path
         load() = begin
             s = Set{String}()
@@ -155,7 +155,7 @@ end
     # mapping(), … resolve, and returns the file's last top-level
     # expression (the AoV spec). DO caches by id, so each id's file is
     # evaluated at most once per instance.
-    @include entry(id) = begin
+    @struct entry(id) = begin
         item         = find_item(gallery, id)
         title        = item.title
         description  = item.description
