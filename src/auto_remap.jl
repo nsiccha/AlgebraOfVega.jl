@@ -496,7 +496,8 @@ end
 # Same idea as `_remap_node_parts`: expose the (controls, plot_node) pair for
 # composition with `with_plot_caption` et al.
 function _auto_remap_parts(plot_id, spec; dims, fixed=Dict(), pinned::Symbol=:row,
-                            axes::Bool=false, off=String[])
+                            axes::Bool=false, off=String[],
+                            color=nothing, row=nothing, column=nothing, detail=nothing)
     layers = _spec_layers(spec)
     raw_dfs = [extract_data(l) for l in layers]
     any(isnothing, raw_dfs) && error("auto_remap_node: every layer must have associated data (no Pregrouped layers supported here)")
@@ -530,6 +531,10 @@ function _auto_remap_parts(plot_id, spec; dims, fixed=Dict(), pinned::Symbol=:ro
     dim_fields = Set{String}(_dim_first(d) for d in effective_dims)
     defaults = _layer_channel_defaults(layers)
     defaults = Dict(ch => filter(f -> f in dim_fields, fs) for (ch, fs) in defaults)
+    for (ch, val) in [("color", color), ("row", row), ("column", column), ("detail", detail)]
+        isnothing(val) && continue
+        defaults[ch] = filter(f -> f in dim_fields, _norm_string_list(val))
+    end
     extra_assigned = filter(f -> f in dim_fields, pos_all)
     x_default = enable_axes ? filter(f -> f in dim_fields, axis_defs.x) : String[]
     y_default = enable_axes ? filter(f -> f in dim_fields, axis_defs.y) : String[]
