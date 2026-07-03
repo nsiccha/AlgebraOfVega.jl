@@ -580,7 +580,7 @@ function _auto_remap_parts(plot_id, spec; dims, fixed=Dict(), pinned::Symbol=:ro
 
     controls = isempty(resolved.dims) ? "" : mapping_controls(plot_id, resolved; spec=new_spec)
     plot = to_node(vl; id=plot_id)
-    (controls, plot)
+    (controls, plot, vl)
 end
 
 # Drop `resolve.scale.x|y == "independent"` entries when the spec is not
