@@ -225,6 +225,12 @@ function _ribbon_to_vl(
         nothing
     end
 
+    # NOTE: x is emitted `quantitative` on every band (area) + line layer below, and we
+    # deliberately do NOT sort `summary` by x or set an `order`/`sort` — Vega-Lite orders a
+    # line/area mark's vertices by the continuous (quantitative) positional field by default.
+    # So `summary` row order is immaterial (compute path = Dict-order; bands= path = native
+    # table order). Don't "fix" the unsorted summary or drop this reliance without adding an
+    # explicit x `sort`, or lines scribble (verified fleet-wide + the TreeArrays interop, 2026-07).
     template_layers = Dict{String,Any}[]
     for (i, (lo_col, hi_col)) in enumerate(band_cols)
         x_enc = Dict{String,Any}("field" => x_field, "type" => "quantitative")
