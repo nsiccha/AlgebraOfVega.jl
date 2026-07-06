@@ -3,6 +3,7 @@ using AlgebraOfVega
 using AlgebraOfGraphics
 using Tables
 using HTMX
+using FillArrays
 
 @testset "classify_columns" begin
     nt = AlgebraOfVega.sample_cars()
@@ -591,4 +592,74 @@ end
     # Check that groupby is set on window transforms
     @test vl2["transform"][1]["groupby"] == ["c"]
     @test vl2["transform"][2]["groupby"] == ["c"]
+end
+
+# Lazy ND->1D tiled column (mirrors `repeat(vals; inner, outer)` without
+# materializing) — a stand-in for TreeArrays' `TreeData` axis-coordinate
+# columns, which flatten combinatorially and must stay lazy until the JSON
+# `values` boundary.
+struct TiledCol{T} <: AbstractVector{T}
+    vals::Vector{T}
+    inner::Int
+    outer::Int
+end
+Base.size(t::TiledCol) = (length(t.vals) * t.inner * t.outer,)
+function Base.getindex(t::TiledCol, i::Int)
+    @boundscheck checkbounds(t, i)
+    blocklen = length(t.vals) * t.inner
+    p = mod1(i, blocklen)
+    j = fld(p - 1, t.inner) + 1
+    @inbounds t.vals[j]
+end
+
+# Bare, non-DataFrame Tables.jl source: a plain `NamedTuple` of vectors,
+# with a constant `FillArrays.Fill` column and a lazy `TiledCol` coordinate
+# column — no DataFrames anywhere in this file. Factored out so TreeArrays'
+# real `TreeData` can later be dropped in as a second case (swap the body
+# for `src = tree_data`) exercising the identical asserts below.
+function _nondf_source(; n_x=5, n_draws=8, cats=["a", "b"])
+    n = n_x * n_draws * length(cats)
+    xs = TiledCol(collect(1:n_x), n_draws, length(cats))
+    draw = repeat(1:n_draws, outer=n_x * length(cats))
+    cat = repeat(cats, inner=n_x * n_draws)
+    ys = Float64.(collect(xs)) .+ Float64.(mod1.(1:n, 7))
+    (; x=xs, y=ys, draw=draw, cat=cat, model=FillArrays.Fill("m1", n)), n
+end
+
+function _assert_nondf_pipeline(src, n)
+    # 1. Plain mark over the bare source.
+    vl1 = to_vegalite(data(src) * mapping(:x, :y) * visual(Scatter))
+    @test vl1["mark"]["type"] == "point"
+    @test haskey(vl1, "encoding")
+    @test length(vl1["data"]["values"]) == n
+
+    # 2. Tidybayes lineribbon, grouped: `draw` (8 samples per (x, cat) cell)
+    # is the AoG tidybayes sample dimension `compute_ribbon_summary`
+    # aggregates over; `cat` is the varying group/color column that must
+    # actually partition the data — this exercises `_group_indices` for real
+    # (multi-row groups), including grouping BY the lazy `TiledCol` `x`.
+    vl2 = to_vegalite(data(src) * mapping(:x, :y, group=:draw, color=:cat) * lineribbon())
+    @test haskey(vl2, "layer")
+    @test length(vl2["layer"]) >= 2
+end
+
+@testset "non-DataFrame Tables source (NamedTuple + Fill + tiled lazy column)" begin
+    src, n = _nondf_source()
+    @test src isa NamedTuple
+    _assert_nondf_pipeline(src, n)
+
+    ct = Tables.columntable(src)
+
+    # 3. THE EMPIRICAL QUESTION: does Tables.columntable preserve `Fill`
+    # (O(1) storage) or densify it into a plain Vector?
+    fill_type = typeof(ct.model)
+    println("Tables.columntable(src).model :: ", fill_type)
+    @test ct.model isa FillArrays.Fill
+    @test collect(ct.model) == collect(src.model)
+
+    # 4. Same empirical question for the lazy tiled coordinate column.
+    tiled_type = typeof(ct.x)
+    println("Tables.columntable(src).x :: ", tiled_type)
+    @test ct.x isa TiledCol
+    @test collect(ct.x) == collect(src.x)
 end
