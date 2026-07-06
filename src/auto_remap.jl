@@ -543,10 +543,12 @@ function _auto_remap_parts(plot_id, spec; dims, fixed=Dict(), pinned::Symbol=:ro
     off_default = filter(f -> f in dim_fields, String[string(f) for f in off])
     channels = enable_axes ? [:x, :y, :color, :row, :column, :detail, :off] :
                              [:color, :row, :column, :detail, :off]
+    detail_default = get(defaults, "detail", String[])
     resolved = resolve_channels(effective_dims;
         color_default=defaults["color"],
         row_default=defaults["row"],
         column_default=defaults["column"],
+        detail_default,
         x_default, y_default, off_default,
         channels, pinned, fixed,
         extra_assigned)
@@ -578,7 +580,7 @@ function _auto_remap_parts(plot_id, spec; dims, fixed=Dict(), pinned::Symbol=:ro
 
     controls = isempty(resolved.dims) ? "" : mapping_controls(plot_id, resolved; spec=new_spec)
     plot = to_node(vl; id=plot_id)
-    (controls, plot)
+    (controls, plot, vl)
 end
 
 # Drop `resolve.scale.x|y == "independent"` entries when the spec is not
