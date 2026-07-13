@@ -663,3 +663,103 @@ end
     @test ct.x isa TiledCol
     @test collect(ct.x) == collect(src.x)
 end
+
+@testset "plot_size structural estimator" begin
+    # Unit tests over hand-built VL spec Dicts — the four geometries plot_size
+    # claims to handle, plus the config overrides and the width:"container"
+    # guard. Exact px follow deterministically from the named VL-default +
+    # chrome-overhead constants (continuous 200, discrete step 20, facet spacing
+    # 20, axis 40, title 30, facet-header 20). See plot_size.jl.
+    D(kv...) = Dict{String,Any}(kv...)
+    vals(v) = D("values" => v)
+    q(f) = D("field" => f, "type" => "quantitative")
+    nom(f) = D("field" => f, "type" => "nominal")
+
+    # 1. plain continuous scatter → 200 + 40 (axis) each way.
+    @test plot_size(D("mark" => "point", "encoding" => D("x" => q("a"), "y" => q("b")),
+                      "data" => vals([D("a" => 1, "b" => 2)]))) == (; width = 240.0, height = 240.0)
+
+    # 2. title band adds 30 to height only.
+    @test plot_size(D("mark" => "point", "title" => "T", "encoding" => D("x" => q("a"), "y" => q("b")),
+                      "data" => vals([D("a" => 1, "b" => 2)]))) == (; width = 240.0, height = 270.0)
+
+    # 3. categorical-y (4 nominal bands) → 4*20 tall panel; +30 title.
+    @test plot_size(D("mark" => "bar", "title" => "T", "encoding" => D("x" => q("v"), "y" => nom("g")),
+                      "data" => vals([D("g" => "a", "v" => 1), D("g" => "b", "v" => 2),
+                                      D("g" => "c", "v" => 3), D("g" => "d", "v" => 4)]))) ==
+        (; width = 240.0, height = 150.0)
+
+    # 4. facet operator, single field, columns:1, N=3, inner explicit 500x60; +title.
+    @test plot_size(D("title" => "T", "facet" => nom("grp"), "columns" => 1,
+                      "spec" => D("width" => 500, "height" => 60,
+                                  "layer" => [D("mark" => "area", "encoding" => D("x" => q("v")))]),
+                      "data" => vals([D("grp" => "a"), D("grp" => "b"), D("grp" => "c")]))) ==
+        (; width = 540.0, height = 310.0)
+
+    # 5. facet operator, single field, columns:3, N=6 → wraps to 2 rows x 3 cols.
+    @test plot_size(D("facet" => nom("grp"), "columns" => 3,
+                      "spec" => D("encoding" => D("x" => q("v"), "y" => q("w"))),
+                      "data" => vals([D("grp" => string(i)) for i in 1:6]))) ==
+        (; width = 700.0, height = 480.0)
+
+    # 6. encoding-shorthand row(2) x column(3) facet; +title.
+    @test plot_size(D("mark" => "point", "title" => "T",
+                      "encoding" => D("x" => q("a"), "y" => q("b"), "row" => nom("r"), "column" => nom("c")),
+                      "data" => vals([D("r" => ri, "c" => ci, "a" => 1, "b" => 2)
+                                      for ri in ["x", "y"] for ci in ["p", "q", "s"]]))) ==
+        (; width = 700.0, height = 510.0)
+
+    # 7. config.view.step override honoured on a discrete axis (5 bands * 30).
+    @test plot_size(D("encoding" => D("y" => D("field" => "g", "type" => "ordinal"), "x" => q("v")),
+                      "config" => D("view" => D("step" => 30)),
+                      "data" => vals([D("g" => string(i), "v" => i) for i in 1:5]))) ==
+        (; width = 240.0, height = 190.0)
+
+    # 8. explicit numeric top-level width/height win over the structural model.
+    @test plot_size(D("width" => 400, "height" => 300, "encoding" => D("x" => q("a")),
+                      "data" => vals(Any[]))) == (; width = 440.0, height = 340.0)
+
+    # 9. width:"container" is non-numeric → continuous fallback, no crash.
+    @test plot_size(D("width" => "container", "encoding" => D("x" => q("a"), "y" => q("b")),
+                      "data" => vals([D("a" => 1, "b" => 2)]))) == (; width = 240.0, height = 240.0)
+
+    # 10. config.facet.spacing override changes the inter-panel gap (3 panels → 2 gaps).
+    @test plot_size(D("facet" => nom("grp"), "columns" => 1,
+                      "spec" => D("width" => 500, "height" => 60,
+                                  "layer" => [D("mark" => "area", "encoding" => D("x" => q("v")))]),
+                      "config" => D("facet" => D("spacing" => 40)),
+                      "data" => vals([D("grp" => "a"), D("grp" => "b"), D("grp" => "c")]))) ==
+        (; width = 540.0, height = 320.0)
+
+    # 11. cardinality scan dedupes: repeated facet-field values count once.
+    @test plot_size(D("facet" => nom("grp"), "columns" => 1,
+                      "spec" => D("width" => 500, "height" => 60,
+                                  "layer" => [D("mark" => "area", "encoding" => D("x" => q("v")))]),
+                      "data" => vals([D("grp" => "a"), D("grp" => "a"), D("grp" => "b")]))).height ==
+        plot_size(D("facet" => nom("grp"), "columns" => 1,
+                    "spec" => D("width" => 500, "height" => 60,
+                                "layer" => [D("mark" => "area", "encoding" => D("x" => q("v")))]),
+                    "data" => vals([D("grp" => "a"), D("grp" => "b")]))).height  # 2 distinct panels either way
+
+    # 12. destructuring + field-access contract.
+    let s = D("mark" => "point", "encoding" => D("x" => q("a"), "y" => q("b")),
+              "data" => vals([D("a" => 1, "b" => 2)]))
+        w, h = plot_size(s)
+        @test w == 240.0 && h == 240.0
+        @test plot_size(s).width == 240.0
+        @test plot_size(s).height == 240.0
+    end
+
+    # Integration: the Layer/Layers/VegaSpec convenience method lowers via
+    # to_vegalite, so real emission flows through the same estimator.
+    # Invariants only here (not exact px): the exact structural model is pinned
+    # by the Dict-method cases above; this just proves the convenience method
+    # lowers a real spec through to_vegalite and out the same estimator.
+    df = (; x = [1.0, 2.0, 3.0], y = [4.0, 5.0, 6.0], g = ["a", "b", "c"])
+    plain = plot_size(data(df) * mapping(:x, :y) * visual(Scatter))
+    @test plain isa NamedTuple && plain.width > 0 && plain.height > 0
+
+    # A col-faceted spec is wider than the same single-panel spec (more columns).
+    faceted = plot_size(data(df) * mapping(:x, :y, col=:g) * visual(Scatter))
+    @test faceted.width > plain.width
+end
