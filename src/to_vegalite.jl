@@ -408,8 +408,11 @@ Skipped when:
 - Color encoding is only in sublayers, not top-level (VL `bind: "legend"` silently
   breaks layered specs where color is per-sublayer — renders empty)
 
-Also skips adding opacity conditions to sublayers whose mark already has an intentional
-`opacity` property (e.g. CI band areas with `mark.opacity: 0.2`).
+Also skips adding the opacity condition when the mark already has an intentional
+`opacity` property — both for sublayers (e.g. CI band areas with `mark.opacity: 0.2`)
+and for single-view marks (e.g. `visual(Lines; opacity=0.15)` on a top-level-colored
+line ensemble). An explicit `mark.opacity` always wins; the auto legend-dim only applies
+when the user hasn't set their own opacity.
 """
 function add_auto_interactivity!(spec::Dict{String,Any})
     # Don't add interactivity if user already defined params (via config)
@@ -547,7 +550,16 @@ function add_auto_interactivity!(spec::Dict{String,Any})
                 end
             end
         elseif !isnothing(enc) && !haskey(enc, "opacity")
-            enc["opacity"] = opacity_condition
+            # Don't clobber an explicit mark.opacity (e.g. visual(Lines; opacity=0.15))
+            # with the legend-binding opacity condition — mirrors the sublayer branch above,
+            # which already skips marks carrying an intentional `opacity`. VL's encoding-level
+            # opacity overrides mark-level, so injecting the condition here would silently drop
+            # the user's explicit opacity (its empty-state value is 1 → full opacity).
+            top_mark = _as_dict(mark)
+            mark_has_opacity = !isnothing(top_mark) && haskey(top_mark, "opacity")
+            if !mark_has_opacity
+                enc["opacity"] = opacity_condition
+            end
         end
     end
 
