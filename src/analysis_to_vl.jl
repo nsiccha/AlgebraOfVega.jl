@@ -209,6 +209,76 @@ function analysis_to_vl(a::GradientIntervalAnalysis, layer::AlgebraOfGraphics.La
     spec
 end
 
+function _ribbon_tooltips(x_field, x_label, median_col, color_field, band_cols, band_labels)
+    widest_lo, widest_hi = band_cols[1]
+    widest_label = isnothing(band_labels) ? "" : band_labels[1]
+    lo_title = widest_label == "" ? widest_lo : "$(widest_label) lo"
+    hi_title = widest_label == "" ? widest_hi : "$(widest_label) hi"
+    tt = Dict{String,Any}[
+        Dict{String,Any}("field" => x_field, "type" => "quantitative", "title" => x_label),
+        Dict{String,Any}("field" => median_col, "type" => "quantitative", "title" => "median"),
+    ]
+    !isnothing(color_field) && push!(tt, Dict{String,Any}("field" => color_field, "type" => "nominal"))
+    push!(tt, Dict{String,Any}("field" => widest_lo, "type" => "quantitative", "title" => lo_title))
+    push!(tt, Dict{String,Any}("field" => widest_hi, "type" => "quantitative", "title" => hi_title))
+    tt
+end
+
+# Single-x fallback for lineribbon. An `area` band and the median `line` are both
+# interpolated ALONG x, so at a single x value they have zero x-extent and render
+# nothing (the whole plot goes blank). Fall back to a vertical pointinterval glyph:
+# each band becomes a `rule` (y=lo→y2=hi) with the same widest-thin→narrowest-thick
+# strokeWidth ramp as analysis_to_vl(::PointIntervalAnalysis), and the median becomes
+# a stroked white `point` (matching _interval_point_layer's dot). Grouped series get
+# an `xOffset` by color so they don't stack on the same x. (decision `1ipps5p`.)
+function _ribbon_single_x_to_vl(summary_data, x_field, x_label, y_label, median_col,
+        band_cols; color_field=nothing, color_label=nothing, facet=nothing,
+        is_sublayer=false, band_labels=nothing)
+    stroke_widths = length(band_cols) == 1 ? [8.0] : range(1.5, 8, length=length(band_cols))
+    function x_enc()
+        e = Dict{String,Any}("field" => x_field, "type" => "quantitative")
+        x_label != x_field && (e["title"] = x_label)
+        e
+    end
+    layers = Dict{String,Any}[]
+    for (i, (lo_col, hi_col)) in enumerate(band_cols)
+        enc = Dict{String,Any}(
+            "x" => x_enc(),
+            "y" => Dict{String,Any}("field" => lo_col, "type" => "quantitative", "title" => y_label),
+            "y2" => Dict{String,Any}("field" => hi_col),
+        )
+        if !isnothing(color_field)
+            c = Dict{String,Any}("field" => color_field, "type" => "nominal")
+            !isnothing(color_label) && color_label != color_field && (c["title"] = color_label)
+            enc["color"] = c
+            enc["xOffset"] = Dict{String,Any}("field" => color_field, "type" => "nominal")
+        end
+        push!(layers, Dict{String,Any}(
+            "mark" => Dict{String,Any}("type" => "rule", "strokeWidth" => stroke_widths[i]),
+            "encoding" => enc,
+        ))
+    end
+    pt_enc = Dict{String,Any}(
+        "x" => x_enc(),
+        "y" => Dict{String,Any}("field" => median_col, "type" => "quantitative", "title" => y_label),
+    )
+    !isnothing(color_field) && (pt_enc["xOffset"] = Dict{String,Any}("field" => color_field, "type" => "nominal"))
+    push!(layers, Dict{String,Any}(
+        "mark" => Dict{String,Any}("type" => "point", "filled" => true, "size" => 60,
+            "color" => "white", "stroke" => "#333", "strokeWidth" => 1.5),
+        "encoding" => pt_enc,
+    ))
+
+    _add_analysis_tooltips!(layers, _ribbon_tooltips(x_field, x_label, median_col, color_field, band_cols, band_labels))
+
+    spec = Dict{String,Any}("data" => summary_data, "layer" => layers)
+    if !is_sublayer
+        spec["\$schema"] = "https://vega.github.io/schema/vega-lite/v5.json"
+    end
+    _wrap_with_facet!(spec, facet)
+    spec
+end
+
 function _ribbon_to_vl(
     summary::Vector{<:Dict{String}},
     x_field::String, x_label::String, y_label::String,
@@ -221,6 +291,12 @@ function _ribbon_to_vl(
     band_labels::Union{Vector{String},Nothing}=nothing
 )
     summary_data = Dict{String,Any}("values" => summary)
+    # Single x value ⇒ area/line have no x-extent and render nothing; fall back to
+    # a vertical pointinterval glyph so the plot stays visible (decision `1ipps5p`).
+    if length(unique(row[x_field] for row in summary if haskey(row, x_field))) == 1
+        return _ribbon_single_x_to_vl(summary_data, x_field, x_label, y_label, median_col,
+            band_cols; color_field, color_label, facet, is_sublayer, band_labels)
+    end
     # range(...; length=1) rejects distinct endpoints, so a single band
     # gets a fixed mid-gradient opacity (mirrors the stroke_widths idiom
     # in _interval_to_vl above). Two-or-more bands keep the gradient.
@@ -283,18 +359,7 @@ function _ribbon_to_vl(
         append!(layers, template_layers)
     end
 
-    widest_lo, widest_hi = band_cols[1]
-    widest_label = isnothing(band_labels) ? "" : band_labels[1]
-    lo_title = widest_label == "" ? widest_lo : "$(widest_label) lo"
-    hi_title = widest_label == "" ? widest_hi : "$(widest_label) hi"
-    tt = Dict{String,Any}[
-        Dict{String,Any}("field" => x_field, "type" => "quantitative", "title" => x_label),
-        Dict{String,Any}("field" => median_col, "type" => "quantitative", "title" => "median"),
-    ]
-    !isnothing(color_field) && push!(tt, Dict{String,Any}("field" => color_field, "type" => "nominal"))
-    push!(tt, Dict{String,Any}("field" => widest_lo, "type" => "quantitative", "title" => lo_title))
-    push!(tt, Dict{String,Any}("field" => widest_hi, "type" => "quantitative", "title" => hi_title))
-    _add_analysis_tooltips!(layers, tt)
+    _add_analysis_tooltips!(layers, _ribbon_tooltips(x_field, x_label, median_col, color_field, band_cols, band_labels))
 
     spec = Dict{String,Any}("data" => summary_data, "layer" => layers)
     if !isnothing(color_field)
