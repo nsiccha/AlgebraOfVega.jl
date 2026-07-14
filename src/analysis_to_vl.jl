@@ -224,22 +224,23 @@ function _ribbon_tooltips(x_field, x_label, median_col, color_field, band_cols, 
     tt
 end
 
-# Single-x fallback for lineribbon. An `area` band and the median `line` are both
-# interpolated ALONG x, so at a single x value they have zero x-extent and render
-# nothing (the whole plot goes blank). Fall back to a vertical pointinterval glyph:
-# each band becomes a `rule` (y=lo→y2=hi) with the same widest-thin→narrowest-thick
-# strokeWidth ramp as analysis_to_vl(::PointIntervalAnalysis), and the median becomes
-# a stroked white `point` (matching _interval_point_layer's dot). Grouped series get
-# an `xOffset` by color so they don't stack on the same x. (decision `1ipps5p`.)
-function _ribbon_single_x_to_vl(summary_data, x_field, x_label, y_label, median_col,
-        band_cols; color_field=nothing, color_label=nothing, facet=nothing,
-        is_sublayer=false, band_labels=nothing)
+# Build the "single-x glyph" layers for a lineribbon. An `area` band and the median
+# `line` are both interpolated ALONG x, so a group with a single x value has zero
+# x-extent and renders nothing. The glyph replaces it with a vertical pointinterval:
+# each band → a `rule` (y=lo→y2=hi) with the same widest-thin→narrowest-thick
+# strokeWidth ramp as analysis_to_vl(::PointIntervalAnalysis), the median → a stroked
+# white `point` (matching _interval_point_layer). Grouped series get an `xOffset` by
+# color so they don't stack on the same x. `filter_expr` (a VL predicate string)
+# scopes these layers to just the single-x rows when overlaid on a normal ribbon —
+# so multi-x groups keep their area/line and only single-x groups get the glyph.
+# (decisions `1ipps5p`, `1liuv2o`.)
+function _ribbon_glyph_layers(x_field, x_label, y_label, median_col, band_cols;
+        color_field=nothing, color_label=nothing, filter_expr=nothing)
     stroke_widths = length(band_cols) == 1 ? [8.0] : range(1.5, 8, length=length(band_cols))
-    function x_enc()
-        e = Dict{String,Any}("field" => x_field, "type" => "quantitative")
-        x_label != x_field && (e["title"] = x_label)
-        e
+    x_enc() = let e = Dict{String,Any}("field" => x_field, "type" => "quantitative")
+        x_label != x_field && (e["title"] = x_label); e
     end
+    _ft() = Dict{String,Any}[Dict{String,Any}("filter" => filter_expr)]
     layers = Dict{String,Any}[]
     for (i, (lo_col, hi_col)) in enumerate(band_cols)
         enc = Dict{String,Any}(
@@ -253,30 +254,43 @@ function _ribbon_single_x_to_vl(summary_data, x_field, x_label, y_label, median_
             enc["color"] = c
             enc["xOffset"] = Dict{String,Any}("field" => color_field, "type" => "nominal")
         end
-        push!(layers, Dict{String,Any}(
-            "mark" => Dict{String,Any}("type" => "rule", "strokeWidth" => stroke_widths[i]),
-            "encoding" => enc,
-        ))
+        l = Dict{String,Any}("mark" => Dict{String,Any}("type" => "rule", "strokeWidth" => stroke_widths[i]), "encoding" => enc)
+        isnothing(filter_expr) || (l["transform"] = _ft())
+        push!(layers, l)
     end
     pt_enc = Dict{String,Any}(
         "x" => x_enc(),
         "y" => Dict{String,Any}("field" => median_col, "type" => "quantitative", "title" => y_label),
     )
     !isnothing(color_field) && (pt_enc["xOffset"] = Dict{String,Any}("field" => color_field, "type" => "nominal"))
-    push!(layers, Dict{String,Any}(
+    pt = Dict{String,Any}(
         "mark" => Dict{String,Any}("type" => "point", "filled" => true, "size" => 60,
             "color" => "white", "stroke" => "#333", "strokeWidth" => 1.5),
         "encoding" => pt_enc,
-    ))
+    )
+    isnothing(filter_expr) || (pt["transform"] = _ft())
+    push!(layers, pt)
+    layers
+end
 
-    _add_analysis_tooltips!(layers, _ribbon_tooltips(x_field, x_label, median_col, color_field, band_cols, band_labels))
-
-    spec = Dict{String,Any}("data" => summary_data, "layer" => layers)
-    if !is_sublayer
-        spec["\$schema"] = "https://vega.github.io/schema/vega-lite/v5.json"
+# Tag each summary row with `__single_x__`: does its drawing group (color × facet ×
+# detail — the fields that split one line/area) collapse to a single x value? Such
+# groups render nothing as area/line, so they get the glyph overlay instead. Returns
+# whether ANY group is single-x — only then is tagging applied + the overlay added,
+# so plots with no single-x group are emitted byte-identically to before. (`1liuv2o`.)
+function _mark_single_x_groups!(summary, x_field, group_fields)
+    counts = Dict{Any,Set{Any}}()
+    for row in summary
+        haskey(row, x_field) || continue
+        key = Tuple(get(row, f, nothing) for f in group_fields)
+        push!(get!(Set{Any}, counts, key), row[x_field])
     end
-    _wrap_with_facet!(spec, facet)
-    spec
+    any(length(xs) == 1 for xs in values(counts)) || return false
+    for row in summary
+        key = Tuple(get(row, f, nothing) for f in group_fields)
+        row["__single_x__"] = length(get(counts, key, Set{Any}())) == 1
+    end
+    true
 end
 
 function _ribbon_to_vl(
@@ -288,15 +302,10 @@ function _ribbon_to_vl(
     color_label::Union{String,Nothing}=nothing,
     detail_fields::Vector{String}=String[],
     facet=nothing, show_line::Bool=true, is_sublayer::Bool=false,
-    band_labels::Union{Vector{String},Nothing}=nothing
+    band_labels::Union{Vector{String},Nothing}=nothing,
+    single_x_glyph::Bool=true, facet_fields::Vector{String}=String[]
 )
     summary_data = Dict{String,Any}("values" => summary)
-    # Single x value ⇒ area/line have no x-extent and render nothing; fall back to
-    # a vertical pointinterval glyph so the plot stays visible (decision `1ipps5p`).
-    if length(unique(row[x_field] for row in summary if haskey(row, x_field))) == 1
-        return _ribbon_single_x_to_vl(summary_data, x_field, x_label, y_label, median_col,
-            band_cols; color_field, color_label, facet, is_sublayer, band_labels)
-    end
     # range(...; length=1) rejects distinct endpoints, so a single band
     # gets a fixed mid-gradient opacity (mirrors the stroke_widths idiom
     # in _interval_to_vl above). Two-or-more bands keep the gradient.
@@ -359,6 +368,24 @@ function _ribbon_to_vl(
         append!(layers, template_layers)
     end
 
+    # M2 single-x overlay: any group (color × facet × detail) that collapses to one x
+    # renders nothing as area/line, so overlay a pointinterval glyph scoped to just
+    # those rows via a `__single_x__` filter. Multi-x groups keep their ribbon; only
+    # single-x groups become visible. Opt out with `single_x_glyph=false`. Subsumes the
+    # old whole-plot fallback: an all-single-x plot is every group being single-x. The
+    # glyph layers are intentionally NOT `_lr_layer`-tagged, so the interactive legend
+    # rebuild (js_runtime `_aov.lineribbon`) preserves them untouched. (`1liuv2o`.)
+    if single_x_glyph
+        group_fields = String[]
+        !isnothing(color_field) && push!(group_fields, color_field)
+        append!(group_fields, facet_fields)
+        append!(group_fields, detail_fields)
+        if _mark_single_x_groups!(summary, x_field, group_fields)
+            append!(layers, _ribbon_glyph_layers(x_field, x_label, y_label, median_col, band_cols;
+                color_field, color_label, filter_expr="datum.__single_x__"))
+        end
+    end
+
     _add_analysis_tooltips!(layers, _ribbon_tooltips(x_field, x_label, median_col, color_field, band_cols, band_labels))
 
     spec = Dict{String,Any}("data" => summary_data, "layer" => layers)
@@ -393,7 +420,8 @@ function analysis_to_vl(a::LineRibbonAnalysis, layer::AlgebraOfGraphics.Layer; i
 
     _ribbon_to_vl(summary, x_field, x_label, y_label, "__median__", band_cols;
         color_field, color_label, detail_fields=detail_strs,
-        facet, show_line=a.show_line, is_sublayer, band_labels)
+        facet, show_line=a.show_line, is_sublayer, band_labels,
+        single_x_glyph=a.single_x_glyph, facet_fields)
 end
 
 function analysis_to_vl(a::PrecomputedRibbonAnalysis, layer::AlgebraOfGraphics.Layer; is_sublayer=false)
@@ -422,7 +450,8 @@ function analysis_to_vl(a::PrecomputedRibbonAnalysis, layer::AlgebraOfGraphics.L
 
     _ribbon_to_vl(summary, x_field, x_label, y_label, median_col, band_cols;
         color_field, color_label, detail_fields=detail_strs,
-        facet, show_line=a.show_line, is_sublayer)
+        facet, show_line=a.show_line, is_sublayer,
+        single_x_glyph=a.single_x_glyph, facet_fields)
 end
 
 function analysis_to_vl(a::DotIntervalAnalysis, layer::AlgebraOfGraphics.Layer; is_sublayer=false)
