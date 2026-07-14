@@ -20,12 +20,14 @@ struct LineRibbonAnalysis <: TidybayesAnalysis
     probs::Vector{Float64}
     show_line::Bool
     detail_fields::Vector{Symbol}
+    single_x_glyph::Bool
 end
 
 struct PrecomputedRibbonAnalysis <: TidybayesAnalysis
     bands::Vector{Pair{Symbol,Symbol}}
     show_line::Bool
     detail_fields::Vector{Symbol}
+    single_x_glyph::Bool
 end
 
 struct PrecomputedIntervalAnalysis <: TidybayesAnalysis
@@ -102,13 +104,18 @@ outermost first.
 
     data(summary) * mapping(:x, :median => "Response") *
         lineribbon(bands=[:q025 => :q975, :q25 => :q75])
+
+`single_x_glyph` (default `true`): any group/facet whose data collapses to a
+single x value (where an area/line would render nothing) is instead drawn as a
+vertical pointinterval glyph (rule-bands + a stroked median point) so it stays
+visible. Set `false` to opt out (single-x groups revert to invisible area/line).
 """
-function lineribbon(; probs=[0.95, 0.8, 0.5], bands=nothing, detail=Symbol[])
+function lineribbon(; probs=[0.95, 0.8, 0.5], bands=nothing, detail=Symbol[], single_x_glyph=true)
     if !isnothing(bands)
         parsed = Pair{Symbol,Symbol}[Symbol(first(b)) => Symbol(last(b)) for b in bands]
-        return Layer(transformation=PrecomputedRibbonAnalysis(parsed, true, Symbol.(detail)))
+        return Layer(transformation=PrecomputedRibbonAnalysis(parsed, true, Symbol.(detail), single_x_glyph))
     end
-    Layer(transformation=LineRibbonAnalysis(Float64.(probs), true, Symbol.(detail)))
+    Layer(transformation=LineRibbonAnalysis(Float64.(probs), true, Symbol.(detail), single_x_glyph))
 end
 
 """
@@ -122,12 +129,12 @@ kwarg for pre-aggregated data.
     data(preds) * mapping(:x, :y, group=:draw) * ribbon()
     data(summary) * mapping(:x, :median) * ribbon(bands=[:q025 => :q975])
 """
-function ribbon(; probs=[0.95, 0.8, 0.5], bands=nothing, detail=Symbol[])
+function ribbon(; probs=[0.95, 0.8, 0.5], bands=nothing, detail=Symbol[], single_x_glyph=true)
     if !isnothing(bands)
         parsed = Pair{Symbol,Symbol}[Symbol(first(b)) => Symbol(last(b)) for b in bands]
-        return Layer(transformation=PrecomputedRibbonAnalysis(parsed, false, Symbol.(detail)))
+        return Layer(transformation=PrecomputedRibbonAnalysis(parsed, false, Symbol.(detail), single_x_glyph))
     end
-    Layer(transformation=LineRibbonAnalysis(Float64.(probs), false, Symbol.(detail)))
+    Layer(transformation=LineRibbonAnalysis(Float64.(probs), false, Symbol.(detail), single_x_glyph))
 end
 
 """
