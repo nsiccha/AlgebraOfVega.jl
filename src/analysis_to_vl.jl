@@ -431,7 +431,7 @@ function analysis_to_vl(a::DotIntervalAnalysis, layer::AlgebraOfGraphics.Layer; 
 
     push!(interval_layers, _interval_point_layer(group_field, color_field, ax.group_axis, ax.offset_key;
                                                    value_axis=ax.value_axis,
-                                                   size=50, color="white", stroke="#333", strokeWidth=1.5))
+                                                   size=50, color="white"))
     _add_analysis_tooltips!(interval_layers, _interval_tooltips(value_label, group_field, color_field, a.probs))
 
     push!(layers, Dict{String,Any}(
