@@ -59,7 +59,16 @@ function _interval_point_layer(group_field, color_field, group_axis::String, off
     if !isnothing(color_field) && !isnothing(group_field)
         pt_enc[offset_key] = Dict{String,Any}("field" => color_field, "type" => "nominal")
     end
-    mark = Dict{String,Any}("type" => "point", "filled" => true, (string(k) => v for (k,v) in pairs(mark_opts))...)
+    # White-filled median dot with a dark stroke. The stroke is load-bearing, not
+    # cosmetic: the interval `rule` behind this dot collapses to nothing when its
+    # width is ~0 (lo==hi — a near-constant series, or one degenerate group inside
+    # a wide shared domain), leaving the dot on vega's default WHITE background. A
+    # bare white dot then vanishes. white-fill + dark-ring stays visible on ANY
+    # background (fill covers dark, ring covers light). Callers may override via
+    # mark_opts (splatted last).
+    mark = Dict{String,Any}("type" => "point", "filled" => true,
+        "stroke" => "#333", "strokeWidth" => 1.5,
+        (string(k) => v for (k,v) in pairs(mark_opts))...)
     Dict{String,Any}("mark" => mark, "encoding" => pt_enc)
 end
 
