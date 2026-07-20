@@ -10,9 +10,10 @@ import Statistics
 import AlgebraOfVega: with_plot_caption, draws_summary_table, _sanitize_id,
                       _auto_summary_args, _auto_remap_parts, to_node, VegaSpec
 
-# HTMX.jl writes attribute values verbatim (no HTML escape). Escape " and &
-# so JSON payloads survive in data-* attributes.
-_attr_escape(s) = replace(string(s), "&" => "&amp;", "\"" => "&quot;")
+# HTMX 1.0 escapes attribute values itself (`&`, `"`, `'`, `<`, `>`), and the
+# HTML parser decodes them back before JS/`dataset` ever sees them — so JSON
+# payloads are passed through VERBATIM here. Escaping them again would emit
+# `&amp;quot;` and break `JSON.parse` on the other side.
 
 _as_nt_or_nothing(nt::NamedTuple) = nt
 _as_nt_or_nothing(_) = nothing
@@ -71,7 +72,7 @@ function with_plot_caption(plot_node, caption::CaptionSpec;
         push!(actions,
             h.button("⬇ CSV";
                 type="button", class="outline caption-action",
-                onclick="AoV.downloadPlotData('$(plot_id)', '$(fname)', $(_attr_escape(labels_js)))"))
+                onclick="AoV.downloadPlotData('$(plot_id)', '$(fname)', $(labels_js))"))
     end
     if !isnothing(images)
         for fmt in images
@@ -107,7 +108,7 @@ function with_plot_caption(plot_node, caption::CaptionSpec;
                 h.div(; data_view="raw")(
                     h.div(; class="aov-data-raw-body", id=preview_id,
                           data_aov_plot_id=plot_id,
-                          data_aov_labels=_attr_escape(labels_js))(),
+                          data_aov_labels=labels_js)(),
                 ),
             )
             push!(body, details)
@@ -124,7 +125,7 @@ function with_plot_caption(plot_node, caption::CaptionSpec;
                 h.summary("Show data"),
                 h.div(; class="aov-data-raw-body", id=preview_id,
                       data_aov_plot_id=plot_id,
-                      data_aov_labels=_attr_escape(labels_js))(),
+                      data_aov_labels=labels_js)(),
             )
             push!(body, details)
         end
@@ -206,7 +207,7 @@ function with_plot_caption(spec::VegaSpec, caption::CaptionSpec;
             h.div(; class="aov-data-pretty-body",
                   id="$(plot_id_s)-pretty",
                   data_aov_plot_id=plot_id_s,
-                  data_aov_summary_opts=_attr_escape(JSON.json(opts)))()
+                  data_aov_summary_opts=JSON.json(opts))()
         end
     else
         summary_table
