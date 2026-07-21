@@ -19,6 +19,7 @@ Treebars = "e1e568c4-3a56-40a4-95fa-9b9c6c16fccb"
 AlgebraOfVegaHTMXObjectsExt = "HTMXObjects"
 
 [compat]
+HTMX = "1"
 julia = "1"
 
 [extras]
