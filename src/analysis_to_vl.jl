@@ -1,5 +1,24 @@
 # --- Shared helpers for interval analysis → VL ---
 
+# The interval analyses reduce the value column with `quantile`, so it must hold
+# real numbers. A categorical column here almost always means the positional
+# mappings were written in the OTHER orientation's order: `:horizontal`
+# summarizes positional 1 and takes its group from `y=` (positional 2 is not
+# consumed), while `:vertical` expects `mapping(category, value)` and summarizes
+# positional 2. Without this guard that mistake surfaces as
+# `MethodError: no method matching isfinite(::String)` from inside Statistics,
+# which names neither the column nor the fix.
+function _check_interval_value_column(table, value_field::String, orientation::Symbol)
+    Symbol(value_field) in Tables.columnnames(table) || return nothing
+    col = Tables.getcolumn(table, Symbol(value_field))
+    eltype(col) <: Union{Real,Missing} && return nothing
+    any(x -> x isa Real, col) && return nothing
+    hint = orientation === :horizontal ?
+        "with orientation=:horizontal the value column is the FIRST positional mapping and the category comes from `y=` — write `mapping(<value>, y=:$value_field)`, or keep `mapping(:$value_field, <value>)` and pass `orientation=:vertical`" :
+        "with orientation=:vertical the value column is the SECOND positional mapping — write `mapping(:$value_field, <value>)`"
+    error("interval analysis: value column \"$value_field\" has non-numeric eltype $(eltype(col)) and cannot be reduced with `quantile`; $hint.")
+end
+
 function _extract_interval_fields(layer, orientation::Symbol=:horizontal; default_value="value")
     table = extract_data(layer)
     if orientation === :horizontal
@@ -17,6 +36,7 @@ function _extract_interval_fields(layer, orientation::Symbol=:horizontal; defaul
     else
         error("orientation must be :horizontal or :vertical, got :$orientation")
     end
+    _check_interval_value_column(table, value_field, orientation)
     color_field = haskey(layer.named, :color) ? _field_name(layer.named[:color]) : nothing
     color_label = haskey(layer.named, :color) ? _field_label(layer.named[:color]) : nothing
     facet, facet_fields = _extract_facet_info(layer)
@@ -461,7 +481,7 @@ function analysis_to_vl(a::DotIntervalAnalysis, layer::AlgebraOfGraphics.Layer; 
 
     vals = Tables.getcolumn(table, Symbol(value_field))
     key_fields = String[f for f in [group_field, color_field, facet_fields..., detail_strs...] if !isnothing(f)]
-    idx_groups = _group_indices(_key_columns(table; fields=key_fields))
+    idx_groups = _group_indices(_key_columns(table; fields=key_fields), length(vals))
 
     # Quantile dots
     dot_rows = Dict{String,Any}[]
