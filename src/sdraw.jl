@@ -143,6 +143,8 @@ function _extract_aog_facet_color_kw(layer)
             facet_kw[:col] = sf
         elseif haskey(layer.named, :row) && _field_name(layer.named[:row]) == ff
             facet_kw[:row] = sf
+        elseif haskey(layer.named, :layout) && _field_name(layer.named[:layout]) == ff
+            facet_kw[:layout] = sf
         end
     end
     color_kw = isnothing(color_field) ? Dict{Symbol,Any}() :

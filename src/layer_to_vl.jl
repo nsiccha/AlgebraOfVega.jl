@@ -172,12 +172,19 @@ function layers_to_vl(layers::AlgebraOfGraphics.Layers)
         end
     end
 
-    # Also collect facet from regular layer encodings (col=/row= → column/row channels)
+    # Also collect facet from regular layer encodings (col=/row= → column/row channels,
+    # layout= → the single-field `facet` wrap channel). VL compiles a `facet` channel
+    # left inside a `layer` array without complaint but SILENTLY DROPS it (verified by
+    # headless compile: no `layout` in the emitted Vega spec, no warning), so a plain
+    # layer's layout= has to be lifted to the operator here or the panels never appear.
+    # Only lift it when no grid channel claimed the operator first — VL cannot mix the
+    # wrap and grid forms.
     for ls in layer_specs
         enc = get(ls, "encoding", nothing)
         isnothing(enc) && continue
         haskey(enc, "column") && !haskey(outer_facet, "column") && (outer_facet["column"] = enc["column"])
         haskey(enc, "row") && !haskey(outer_facet, "row") && (outer_facet["row"] = enc["row"])
+        haskey(enc, "facet") && isempty(outer_facet) && merge!(outer_facet, enc["facet"])
     end
 
     if !isempty(outer_facet)
@@ -230,12 +237,13 @@ function layers_to_vl(layers::AlgebraOfGraphics.Layers)
             pushfirst!(existing, Dict{String,Any}("filter" => "datum.__src === '$(tag)'"))
             ls["transform"] = existing
         end
-        # Strip column/row from sublayer encodings — facet is at top level
+        # Strip column/row/facet from sublayer encodings — facet is at top level
         for ls in layer_specs
             enc = get(ls, "encoding", nothing)
             isnothing(enc) && continue
             delete!(enc, "column")
             delete!(enc, "row")
+            delete!(enc, "facet")
         end
         _harmonize_axis_types!(layer_specs)
         spec["data"] = Dict{String,Any}("values" => merged_values)

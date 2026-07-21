@@ -171,7 +171,15 @@ function vega_controls(; zoom=true, actions=true)
     h.div(; class="aov-context-bar")(children...)
 end
 
-"""Count the number of facet columns in a VL spec by inspecting the data."""
+"""
+Count the number of facet columns in a VL spec by inspecting the data.
+
+Covers both operator forms: the 2-D grid (`facet: {column}`) and the single-field
+wrap (`facet: {field}`, emitted for `layout=`). A wrap facet with a sibling
+`columns: N` lays out at most `N` panels per row regardless of cardinality, so the
+count is clamped by it — otherwise the responsive-resize hint sizes the view for
+more columns than Vega actually renders.
+"""
 function _count_facet_cols(vl::Dict)
     facet = get(vl, "facet", nothing)
     isnothing(facet) && return 1
@@ -189,7 +197,10 @@ function _count_facet_cols(vl::Dict)
         _push_row_value!(vals, row, col_field)
     end
     n = length(vals)
-    return n > 0 ? n : 1
+    n <= 0 && return 1
+    cols = get(vl, "columns", nothing)
+    cols isa Number && cols >= 1 && (n = min(n, round(Int, cols)))
+    return n
 end
 
 _push_row_value!(args...) = nothing

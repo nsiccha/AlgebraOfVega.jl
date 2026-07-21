@@ -211,26 +211,55 @@ _vl_prob_field(prefix, prob) = "$(prefix)_$(replace(string(prob), "." => "_"))_"
 
 # --- Facet helpers for TidybayesAnalysis ---
 
-"""Extract `:col`/`:row` from a layer's named mappings, returning a VL facet dict and field name list."""
+"""Build the VL facet-channel encoding for one facet field (`{field, type[, title]}`)."""
+function _facet_channel_enc(field, label)
+    enc = Dict{String,Any}("field" => field, "type" => "nominal")
+    !isnothing(label) && label != field && (enc["title"] = label)
+    enc
+end
+
+"""
+Extract `:col`/`:row`/`:layout` from a layer's named mappings, returning a VL facet dict
+and the list of facet field names.
+
+`:col`/`:row` lower to the 2-D grid form of the facet operator (`facet: {column, row}`).
+`:layout` is AoG's *single-dimension wrap* facet and lowers to the wrap form
+(`facet: {field, type}`) — the only form Vega-Lite's `columns: N` actually wraps; on the
+`column`/`row` grid channels a sibling `columns` is ignored. When `:layout` is combined
+with `:col`/`:row` (VL cannot mix the two operator forms) it takes the free grid channel,
+`column` first then `row`.
+
+The returned `facet_fields` are the analysis grouping key: without the layout field in
+here, preaggregation (`compute_ribbon_summary` / `compute_interval_summary`) pools across
+panels and drops the column entirely.
+"""
 function _extract_facet_info(layer)
     col_field = haskey(layer.named, :col) ? _field_name(layer.named[:col]) : nothing
     col_label = haskey(layer.named, :col) ? _field_label(layer.named[:col]) : nothing
     row_field = haskey(layer.named, :row) ? _field_name(layer.named[:row]) : nothing
     row_label = haskey(layer.named, :row) ? _field_label(layer.named[:row]) : nothing
+    layout_field = haskey(layer.named, :layout) ? _field_name(layer.named[:layout]) : nothing
+    layout_label = haskey(layer.named, :layout) ? _field_label(layer.named[:layout]) : nothing
     facet = Dict{String,Any}()
-    if !isnothing(col_field)
-        col_enc = Dict{String,Any}("field" => col_field, "type" => "nominal")
-        !isnothing(col_label) && col_label != col_field && (col_enc["title"] = col_label)
-        facet["column"] = col_enc
-    end
-    if !isnothing(row_field)
-        row_enc = Dict{String,Any}("field" => row_field, "type" => "nominal")
-        !isnothing(row_label) && row_label != row_field && (row_enc["title"] = row_label)
-        facet["row"] = row_enc
-    end
+    !isnothing(col_field) && (facet["column"] = _facet_channel_enc(col_field, col_label))
+    !isnothing(row_field) && (facet["row"] = _facet_channel_enc(row_field, row_label))
     facet_fields = String[]
     !isnothing(col_field) && push!(facet_fields, col_field)
     !isnothing(row_field) && push!(facet_fields, row_field)
+    if !isnothing(layout_field)
+        lay_enc = _facet_channel_enc(layout_field, layout_label)
+        if isempty(facet)
+            merge!(facet, lay_enc)              # wrap form: facet: {field, type}
+        elseif !haskey(facet, "column")
+            facet["column"] = lay_enc
+        elseif !haskey(facet, "row")
+            facet["row"] = lay_enc
+        else
+            @warn "AlgebraOfVega: `layout=$layout_field` ignored — `col=` and `row=` already occupy both facet dimensions." maxlog=1
+            layout_field = nothing
+        end
+        !isnothing(layout_field) && push!(facet_fields, layout_field)
+    end
     facet, facet_fields
 end
 
