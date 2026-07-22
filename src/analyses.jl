@@ -296,8 +296,13 @@ end
 # Single-pass O(n) grouping by key columns → Dict{key => Vector{Int}}.
 # Function barrier: `_group_indices_impl` sees a concrete `Tuple` of columns,
 # so the key `map` and dict ops specialize on actual eltypes instead of `Any`.
-function _group_indices(columns::Vector{<:AbstractVector})
-    isempty(columns) && return Dict{Tuple{}, Vector{Int}}()
+#
+# With NO key columns the whole table is ONE group keyed by `()`. Returning an
+# empty Dict here instead silently drops every row: the interval summaries then
+# produce zero rows and the spec serializes as `data.values: []`, so an
+# ungrouped `pointinterval()` renders a blank plot with no error anywhere.
+function _group_indices(columns::Vector{<:AbstractVector}, nrows::Int)
+    isempty(columns) && return Dict{Tuple{}, Vector{Int}}(() => collect(1:nrows))
     _group_indices_impl(Tuple(columns))
 end
 
@@ -343,7 +348,7 @@ end
 function compute_interval_summary(table, x_field::String, group_field::Union{String,Nothing}, probs::Vector{Float64}, point::Symbol; color_field::Union{String,Nothing}=nothing, facet_fields::Vector{String}=String[], detail_fields::Vector{String}=String[])
     vals = Tables.getcolumn(table, Symbol(x_field))
     key_fields = String[f for f in [group_field, color_field, facet_fields..., detail_fields...] if !isnothing(f)]
-    idx_groups = _group_indices(_key_columns(table; fields=key_fields))
+    idx_groups = _group_indices(_key_columns(table; fields=key_fields), length(vals))
 
     rows = Dict{String,Any}[]
     sizehint!(rows, length(idx_groups))
@@ -377,7 +382,7 @@ function compute_ribbon_summary(table, x_field::String, y_field::String, group_f
     ys = Tables.getcolumn(table, Symbol(y_field))
     key_fields = String[f for f in [x_field, color_field, facet_fields..., detail_fields...] if !isnothing(f)]
     kc = _key_columns(table; fields=key_fields)
-    idx_groups = _group_indices(kc)
+    idx_groups = _group_indices(kc, length(xs))
 
     # Precompute per-prob quantile field names + lo/hi fractions — these are
     # called O(groups × probs) times so must not re-allocate strings inside.
