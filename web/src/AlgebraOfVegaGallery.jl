@@ -4,14 +4,12 @@ using HTMXObjects
 using AlgebraOfVega
 import CairoMakie
 using JSON
-using TestModules, Random, Tables, Statistics
+using Random, Tables, Statistics
 # Load Treebars before importing RecordingRoutes — Treebars activates
 # HTMXObjects's HTMXObjectsTreebarsExt, which injects `RecordingRoutes`
 # into the HTMXObjects namespace.
 using Treebars
 using HTMXObjects: RecordingRoutes
-
-include("test/runtests.jl")
 
 # --- Sample datasets (from AlgebraOfVega.datasets) ---
 # Local aliases to keep existing plot code unchanged
@@ -759,7 +757,11 @@ end""")),
 
     @include structure = HTMXObjects.StructureRoutes(; root=AppContext)
 
-    @include tests = TestRoutes(; __req__, test_module=@__MODULE__)
+    # Documented, selectively-runnable @testitems from the package's test/
+    # suite. Test bodies are never imported here — TestRoutes discovers the
+    # catalog from the package project and runs each selection in an isolated
+    # Pkg.test child process.
+    @include tests = TestRoutes(; project=pkgdir(AlgebraOfVega))
 
     @include record_gallery = RecordingRoutes(;
         app_type=AppContext,

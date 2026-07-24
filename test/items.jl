@@ -1,12 +1,23 @@
-using TestModules
-using AlgebraOfVega
-using AlgebraOfGraphics
-using Tables
-using HTMX
-using FillArrays
-import Statistics
+using TestItemRunner
 
-@testset "classify_columns" begin
+# Shared imports — re-evaluated independently inside every test item that lists
+# `AoVTestImports` in its `setup`. Test bodies stay isolated; each item module
+# gets its own copy of these `using`s. `Test` is injected automatically.
+@testsnippet AoVTestImports begin
+    using AlgebraOfVega
+    using AlgebraOfGraphics
+    using Tables
+    using HTMX
+    import Statistics
+end
+
+# --- Tests ---
+
+"""
+`classify_columns` buckets a Tables.jl source's columns into numeric vs
+categorical, and the result is invariant to `Tables.columntable` normalization.
+"""
+@testitem "classify_columns" setup=[AoVTestImports] tags=[:columns] begin
     nt = AlgebraOfVega.sample_cars()
     cols = AlgebraOfVega.classify_columns(nt)
     @test "horsepower" in cols.numeric
@@ -21,7 +32,11 @@ import Statistics
     @test cols2.categorical == cols.categorical
 end
 
-@testset "table_to_rows" begin
+"""
+`table_to_rows` transposes a column table into a `Vector{Dict{String,Any}}`,
+one dict per row, preserving values by column name.
+"""
+@testitem "table_to_rows" setup=[AoVTestImports] tags=[:columns] begin
     nt = AlgebraOfVega.sample_tips()
     rows = AlgebraOfVega.table_to_rows(nt)
     @test length(rows) == length(nt.total_bill)
@@ -30,7 +45,11 @@ end
     @test rows[1]["sex"] == nt.sex[1]
 end
 
-@testset "explorer_js" begin
+"""
+`explorer_js` emits the client-side data-explorer runtime: channel selectors,
+container sizing, independent-axis resolve, and default cell dimensions.
+"""
+@testitem "explorer_js" setup=[AoVTestImports] tags=[:explorer] begin
     js = AlgebraOfVega.explorer_js()
     @test occursin("ex-group", js)
     @test occursin("encoding.detail", js)
@@ -59,7 +78,11 @@ end
     @test occursin("independent", js)
 end
 
-@testset "explorer_controls_html" begin
+"""
+`explorer_controls_html` renders the explorer's control panel — channel/mark
+pickers, per-dataset defaults, and independent-axis toggles.
+"""
+@testitem "explorer_controls_html" setup=[AoVTestImports] tags=[:explorer] begin
     datasets = AlgebraOfVega.default_explorer_datasets()
     html = AlgebraOfVega.explorer_controls_html(datasets)
     @test occursin("ex-group", html)
@@ -91,7 +114,11 @@ end
     @test occursin("Independent Y", html)
 end
 
-@testset "explorer_widget" begin
+"""
+`explorer_widget` assembles the full explorer node; it returns a renderable for
+a range of options (titles, spec visibility, defaults, custom marks).
+"""
+@testitem "explorer_widget" setup=[AoVTestImports] tags=[:explorer] begin
     datasets = AlgebraOfVega.default_explorer_datasets()
 
     w = AlgebraOfVega.explorer_widget(datasets)
@@ -121,14 +148,22 @@ end
     @test occursin("Independent Y", ws)
 end
 
-@testset "explorer_data_init_js" begin
+"""
+`explorer_data_init_js` serializes the explorer datasets + column metadata into
+the client-side bootstrap globals `_explorerDatasets` / `_explorerColumns`.
+"""
+@testitem "explorer_data_init_js" setup=[AoVTestImports] tags=[:explorer] begin
     datasets = AlgebraOfVega.default_explorer_datasets()
     js = AlgebraOfVega.explorer_data_init_js(datasets)
     @test occursin("_explorerDatasets", js)
     @test occursin("_explorerColumns", js)
 end
 
-@testset "sample datasets" begin
+"""
+The bundled sample datasets are well-formed Tables.jl sources: non-empty, with
+every column the same length.
+"""
+@testitem "sample datasets" setup=[AoVTestImports] tags=[:datasets] begin
     for f in [AlgebraOfVega.sample_cars, AlgebraOfVega.sample_tips,
               AlgebraOfVega.sample_stocks, AlgebraOfVega.sample_temperatures]
         tbl = f()
@@ -142,7 +177,12 @@ end
     end
 end
 
-@testset "filter_include" begin
+"""
+`_resolve_filter_include` normalizes the explorer's `filter_include` spec
+(list, unary predicate, or `(col, val)` predicate) to `Dict{String,Vector{String}}`,
+and `_filter_init_js` emits the matching client bootstrap.
+"""
+@testitem "filter_include" setup=[AoVTestImports] tags=[:explorer] begin
     datasets = AlgebraOfVega.default_explorer_datasets()
     tbl = datasets["cars"]
 
@@ -171,7 +211,11 @@ end
     @test w !== nothing
 end
 
-@testset "_default_marks" begin
+"""
+`_default_marks` is the explorer's canonical mark menu — seven entries, `point`
+first, including the `line+ribbon` uncertainty mark.
+"""
+@testitem "_default_marks" setup=[AoVTestImports] tags=[:explorer] begin
     marks = AlgebraOfVega._default_marks()
     @test marks isa Vector{Pair{String,String}}
     @test length(marks) == 7
@@ -179,14 +223,22 @@ end
     @test any(p -> first(p) == "line+ribbon", marks)
 end
 
-@testset "explorer_js log scale" begin
+"""
+The explorer runtime supports per-axis log scales via the `ex-log-x` / `ex-log-y`
+toggles.
+"""
+@testitem "explorer_js log scale" setup=[AoVTestImports] tags=[:explorer] begin
     js = AlgebraOfVega.explorer_js()
     @test occursin("ex-log-x", js)
     @test occursin("ex-log-y", js)
     @test occursin("type: 'log'", js)
 end
 
-@testset "explorer_js line+ribbon" begin
+"""
+The explorer runtime implements the client-side line+ribbon summary (per-x
+median + quantile bands) driven by the `ex-ribbon-levels` control.
+"""
+@testitem "explorer_js line+ribbon" setup=[AoVTestImports] tags=[:explorer] begin
     js = AlgebraOfVega.explorer_js()
     @test occursin("line+ribbon", js)
     @test occursin("_quantile", js)
@@ -195,7 +247,11 @@ end
     @test occursin("summaryData", js)
 end
 
-@testset "explorer_controls_html log and ribbon" begin
+"""
+The explorer control panel exposes the log-scale toggles and the (initially
+hidden) ribbon-levels control, revealed for the `line+ribbon` mark.
+"""
+@testitem "explorer_controls_html log and ribbon" setup=[AoVTestImports] tags=[:explorer] begin
     datasets = AlgebraOfVega.default_explorer_datasets()
     html = AlgebraOfVega.explorer_controls_html(datasets)
     @test occursin("ex-log-x", html)
@@ -204,16 +260,20 @@ end
     @test occursin("Log Y", html)
     @test occursin("ex-ribbon-levels", html)
     @test occursin("Ribbon levels:", html)
-    @test occursin("display:none;", html)
+    @test occursin("id=\"ex-ribbon-levels-label\" class=\"u-hidden\"", html)
 
     html2 = AlgebraOfVega.explorer_controls_html(datasets; default_mark="line+ribbon")
     @test occursin("line + ribbon", html2)
 end
 
-@testset "explorer_controls_html dataset hiding" begin
+"""
+The dataset dropdown is hidden when only one dataset is present and shown
+(labelled `Dataset:`) when several are.
+"""
+@testitem "explorer_controls_html dataset hiding" setup=[AoVTestImports] tags=[:explorer] begin
     single = Dict("mydata" => AlgebraOfVega.sample_cars())
     html = AlgebraOfVega.explorer_controls_html(single)
-    @test occursin("display:none;", html)
+    @test occursin("<label class=\"u-hidden\">Dataset:", html)
     @test occursin("ex-dataset", html)
 
     multi = AlgebraOfVega.default_explorer_datasets()
@@ -221,12 +281,16 @@ end
     @test occursin("Dataset:", html2)
 end
 
-@testset "bare table support" begin
+"""
+The explorer accepts a bare (single) Tables.jl source in addition to a
+`Dict` of datasets; `_wrap_datasets` normalizes a bare table under a `"data"` key.
+"""
+@testitem "bare table support" setup=[AoVTestImports] tags=[:explorer] begin
     tbl = AlgebraOfVega.sample_penguins()
 
     html = AlgebraOfVega.explorer_controls_html(tbl)
     @test occursin("ex-x", html)
-    @test occursin("display:none;", html)
+    @test occursin("<label class=\"u-hidden\">Dataset:", html)
 
     w = AlgebraOfVega.explorer_widget(tbl;
         default_x="bill_length", default_y="bill_depth")
@@ -240,7 +304,11 @@ end
     @test haskey(wrapped, "data")
 end
 
-@testset "explorer_widget log and ribbon" begin
+"""
+The assembled `explorer_widget` string carries the log-scale and ribbon-levels
+controls end-to-end.
+"""
+@testitem "explorer_widget log and ribbon" setup=[AoVTestImports] tags=[:explorer] begin
     datasets = AlgebraOfVega.default_explorer_datasets()
     ws = string(AlgebraOfVega.explorer_widget(datasets))
     @test occursin("ex-log-x", ws)
@@ -251,7 +319,12 @@ end
     @test occursin("Ribbon levels", ws)
 end
 
-@testset "pregrouped boxplot" begin
+"""
+`pregrouped` builds a boxplot layer from parallel group/value vectors. Renamer
+labels feed the nominal-x `sort` order; without a renamer, group keys stringify.
+`is_pregrouped` detects the resulting layer.
+"""
+@testitem "pregrouped boxplot" setup=[AoVTestImports] tags=[:translation] begin
     # Basic pregrouped with renamer
     spec_obj = pregrouped(
         fill.(1:3, 10) => renamer(["A", "B", "C"]),
@@ -285,7 +358,11 @@ end
     @test AlgebraOfVega.is_pregrouped(layer)
 end
 
-@testset "vdata alias" begin
+"""
+`vdata` is an alias for `data`; specs built with either lower to identical
+Vega-Lite.
+"""
+@testitem "vdata alias" setup=[AoVTestImports] tags=[:translation] begin
     df = (; x=[1, 2, 3], y=[4, 5, 6])
     # vdata should work identically to data
     spec1 = data(df) * mapping(:x, :y) * visual(Scatter)
@@ -293,7 +370,11 @@ end
     @test to_vegalite(spec1) == to_vegalite(spec2)
 end
 
-@testset "independent_scales config" begin
+"""
+`config(independent_scales=...)` lowers to a Vega-Lite `resolve.scale` block —
+`true` frees both axes, a `Symbol` or tuple frees the named ones.
+"""
+@testitem "independent_scales config" setup=[AoVTestImports] tags=[:translation, :config] begin
     df = (; x=[1, 2], y=[3, 4], g=["a", "b"])
 
     # independent_scales=true → resolve both axes
@@ -319,7 +400,13 @@ end
     @test vl3["resolve"]["scale"]["y"] == "independent"
 end
 
-@testset "scales / facet config (AoG mirror)" begin
+"""
+The AoG-mirror `scales(...)` / `facet=(; linkxaxes/linkyaxes)` / `axis=(; limits, clamp)`
+config sugar lowers to Vega-Lite encoding scale (`type`/`base`/`domain`/`clamp`)
+and `resolve.scale`. Explicit user `encoding` always wins on conflict, and the
+legacy `independent_scales=true` path still works (with a deprecation warning).
+"""
+@testitem "scales / facet config (AoG mirror)" setup=[AoVTestImports] tags=[:translation, :config] begin
     df = (; x=[1.0, 2.0], y=[3.0, 4.0], g=["a", "b"])
 
     # scales(Y=(; scale=log10)) → VL encoding y.scale.type == "log"
@@ -404,7 +491,12 @@ end
     @test vl11["encoding"]["x"]["scale"]["domain"] == [-1.0, 1.0]
 end
 
-@testset "VL helpers" begin
+"""
+The low-level Vega-Lite helpers: `vl_enc` builds an encoding dict (dropping
+`nothing` fields), `vl_mark` returns a bare string or a props dict, and
+`vl_tooltips` collects the field-bearing channels.
+"""
+@testitem "VL helpers" setup=[AoVTestImports] tags=[:translation] begin
     # vl_enc
     enc = AlgebraOfVega.vl_enc(:x; type="quantitative", title="X axis")
     @test enc["field"] == "x"
@@ -438,7 +530,12 @@ end
     @test fields == Set(["hp", "mpg", "origin"])
 end
 
-@testset "extract_transformation generic" begin
+"""
+`extract_transformation` pulls a layer's analysis of a requested type (tidybayes
+`LineRibbonAnalysis`, AoG `DensityAnalysis`, …) and returns `nothing` for a
+mismatched type or a plain visual layer.
+"""
+@testitem "extract_transformation generic" setup=[AoVTestImports] tags=[:translation] begin
     # TidybayesAnalysis
     layer = data((; x=[1.0], y=[1.0])) * mapping(:x, :y, group=:x) * lineribbon()
     a = AlgebraOfVega.extract_transformation(layer, AlgebraOfVega.TidybayesAnalysis)
@@ -459,11 +556,16 @@ end
     @test isnothing(a4)
 end
 
-@testset "layer_to_vl dispatch" begin
+"""
+`to_vegalite` dispatches each layer kind to its handler — plain marks, density
+(`transform`), histogram (`bin`), lineribbon (`layer`), ECDF (`step-after`) —
+and emits `\$schema` only at the top level, never in sublayers.
+"""
+@testitem "layer_to_vl dispatch" setup=[AoVTestImports] tags=[:translation] begin
     # Plain layer
     df = (; x=[1, 2], y=[3, 4])
     vl = to_vegalite(data(df) * mapping(:x, :y) * visual(Scatter))
-    @test vl["mark"] == "point"
+    @test vl["mark"] == Dict{String,Any}("type" => "point", "filled" => true)
     @test haskey(vl, "\$schema")
 
     # Density → dispatched correctly
@@ -493,7 +595,11 @@ end
     end
 end
 
-@testset "ecdf_grid" begin
+"""
+`ecdf_grid` renders a grid of ECDF panels (one per parameter) as an `HTMX.Node`,
+optionally grouped by a color column.
+"""
+@testitem "ecdf_grid" setup=[AoVTestImports] tags=[:analysis] begin
     tbl = (; alpha=collect(1.0:10.0), beta=collect(11.0:20.0), chain=repeat(1:2, 5))
     grid = ecdf_grid(tbl, [:alpha, :beta]; group=:chain)
     @test grid isa HTMX.Node
@@ -506,7 +612,12 @@ end
     @test grid2 isa HTMX.Node
 end
 
-@testset "ppc_overlay" begin
+"""
+`ppc_overlay` builds a posterior-predictive-check layer stack (`Layers`) over
+observed + predicted data, optionally adding a truth layer and a model-comparison
+color channel; it composes with `config`.
+"""
+@testitem "ppc_overlay" setup=[AoVTestImports] tags=[:tidybayes] begin
     obs = (; x=[1.0, 2.0, 3.0], y=[4.0, 5.0, 6.0])
     pred = (; x=[1.0, 1.0, 2.0, 2.0, 3.0, 3.0], y=[3.5, 4.5, 4.5, 5.5, 5.5, 6.5], draw=[1, 2, 1, 2, 1, 2])
 
@@ -532,7 +643,11 @@ end
     @test layers3 isa AlgebraOfGraphics.Layers
 end
 
-@testset "VL_SCHEMA constant" begin
+"""
+`VL_SCHEMA` is the pinned Vega-Lite v5 schema URL, stamped as `\$schema` on every
+top-level spec.
+"""
+@testitem "VL_SCHEMA constant" setup=[AoVTestImports] tags=[:translation] begin
     @test AlgebraOfVega.VL_SCHEMA == "https://vega.github.io/schema/vega-lite/v5.json"
 
     # All top-level specs should have schema
@@ -541,7 +656,12 @@ end
     @test vl["\$schema"] == AlgebraOfVega.VL_SCHEMA
 end
 
-@testset "lookup tables" begin
+"""
+The dispatch tables: `plottype_to_mark` (`_MARK_MAP`), `plottype_to_mark_props`
+(`_MARK_PROPS`), `aog_named_to_vl_channel` (`_CHANNEL_MAP`, with passthrough),
+and `selector_to_field`. Unsupported plot types throw.
+"""
+@testitem "lookup tables" setup=[AoVTestImports] tags=[:translation] begin
     # _MARK_MAP coverage
     @test AlgebraOfVega.plottype_to_mark(Scatter) == "point"
     @test AlgebraOfVega.plottype_to_mark(Lines) == "line"
@@ -553,7 +673,7 @@ end
     # _MARK_PROPS
     @test AlgebraOfVega.plottype_to_mark_props(ScatterLines) == Dict{String,Any}("point" => true)
     @test AlgebraOfVega.plottype_to_mark_props(Stairs) == Dict{String,Any}("interpolate" => "step-after")
-    @test AlgebraOfVega.plottype_to_mark_props(Scatter) == Dict{String,Any}()
+    @test AlgebraOfVega.plottype_to_mark_props(Scatter) == Dict{String,Any}("filled" => true)
 
     # _CHANNEL_MAP
     @test AlgebraOfVega.aog_named_to_vl_channel(:color) == "color"
@@ -571,7 +691,30 @@ end
     @test p["title"] == "Label"
 end
 
-@testset "ECDFPlot" begin
+"""
+`ScatterLines` lowers to a line with point markers but never sets Vega-Lite's
+`filled` mark property, which would close each colored line into a polygon.
+"""
+@testitem "ScatterLines stays unfilled" setup=[AoVTestImports] tags=[:translation, :regression] begin
+    tbl = (;
+        x=[1, 2, 3, 1, 2, 3],
+        y=[1.0, 2.0, 1.5, 3.0, 2.5, 4.0],
+        subject=["a", "a", "a", "b", "b", "b"],
+    )
+    vl = to_vegalite(
+        data(tbl) * mapping(:x, :y; color=:subject) * visual(ScatterLines),
+    )
+
+    @test vl["mark"] == Dict{String,Any}("type" => "line", "point" => true)
+    @test !haskey(vl["mark"], "filled")
+end
+
+"""
+The `ECDFPlot` mark lowers to a stepped line with three `transform`s (two window
++ one calculate) over the synthesized `__ecdf__` field; a color channel adds the
+matching window `groupby`.
+"""
+@testitem "ECDFPlot" setup=[AoVTestImports] tags=[:translation] begin
     # Basic ECDF
     df = (; x=collect(1.0:10.0))
     spec_obj = data(df) * mapping(:x) * visual(ECDFPlot)
@@ -595,56 +738,65 @@ end
     @test vl2["transform"][2]["groupby"] == ["c"]
 end
 
-# Lazy ND->1D tiled column (mirrors `repeat(vals; inner, outer)` without
-# materializing) — a stand-in for TreeArrays' `TreeData` axis-coordinate
-# columns, which flatten combinatorially and must stay lazy until the JSON
-# `values` boundary.
-struct TiledCol{T} <: AbstractVector{T}
-    vals::Vector{T}
-    inner::Int
-    outer::Int
-end
-Base.size(t::TiledCol) = (length(t.vals) * t.inner * t.outer,)
-function Base.getindex(t::TiledCol, i::Int)
-    @boundscheck checkbounds(t, i)
-    blocklen = length(t.vals) * t.inner
-    p = mod1(i, blocklen)
-    j = fld(p - 1, t.inner) + 1
-    @inbounds t.vals[j]
-end
+"""
+The pipeline accepts a bare, non-DataFrame Tables.jl source — a `NamedTuple` of
+vectors carrying a lazy `TiledCol` coordinate column and a `FillArrays.Fill`
+constant — through both a plain mark and a grouped tidybayes lineribbon.
+It also pins the empirical `Tables.columntable` question: `Fill` and `TiledCol`
+survive the round-trip without densifying. Stand-in for TreeArrays' `TreeData`.
+"""
+@testitem "non-DataFrame Tables source (NamedTuple + Fill + tiled lazy column)" setup=[AoVTestImports] tags=[:tables, :tidybayes] begin
+    using FillArrays
 
-# Bare, non-DataFrame Tables.jl source: a plain `NamedTuple` of vectors,
-# with a constant `FillArrays.Fill` column and a lazy `TiledCol` coordinate
-# column — no DataFrames anywhere in this file. Factored out so TreeArrays'
-# real `TreeData` can later be dropped in as a second case (swap the body
-# for `src = tree_data`) exercising the identical asserts below.
-function _nondf_source(; n_x=5, n_draws=8, cats=["a", "b"])
-    n = n_x * n_draws * length(cats)
-    xs = TiledCol(collect(1:n_x), n_draws, length(cats))
-    draw = repeat(1:n_draws, outer=n_x * length(cats))
-    cat = repeat(cats, inner=n_x * n_draws)
-    ys = Float64.(collect(xs)) .+ Float64.(mod1.(1:n, 7))
-    (; x=xs, y=ys, draw=draw, cat=cat, model=FillArrays.Fill("m1", n)), n
-end
+    # Lazy ND->1D tiled column (mirrors `repeat(vals; inner, outer)` without
+    # materializing) — a stand-in for TreeArrays' `TreeData` axis-coordinate
+    # columns, which flatten combinatorially and must stay lazy until the JSON
+    # `values` boundary.
+    struct TiledCol{T} <: AbstractVector{T}
+        vals::Vector{T}
+        inner::Int
+        outer::Int
+    end
+    Base.size(t::TiledCol) = (length(t.vals) * t.inner * t.outer,)
+    function Base.getindex(t::TiledCol, i::Int)
+        @boundscheck checkbounds(t, i)
+        blocklen = length(t.vals) * t.inner
+        p = mod1(i, blocklen)
+        j = fld(p - 1, t.inner) + 1
+        @inbounds t.vals[j]
+    end
 
-function _assert_nondf_pipeline(src, n)
-    # 1. Plain mark over the bare source.
-    vl1 = to_vegalite(data(src) * mapping(:x, :y) * visual(Scatter))
-    @test vl1["mark"]["type"] == "point"
-    @test haskey(vl1, "encoding")
-    @test length(vl1["data"]["values"]) == n
+    # Bare, non-DataFrame Tables.jl source: a plain `NamedTuple` of vectors,
+    # with a constant `FillArrays.Fill` column and a lazy `TiledCol` coordinate
+    # column — no DataFrames anywhere in this file. Factored out so TreeArrays'
+    # real `TreeData` can later be dropped in as a second case (swap the body
+    # for `src = tree_data`) exercising the identical asserts below.
+    function _nondf_source(; n_x=5, n_draws=8, cats=["a", "b"])
+        n = n_x * n_draws * length(cats)
+        xs = TiledCol(collect(1:n_x), n_draws, length(cats))
+        draw = repeat(1:n_draws, outer=n_x * length(cats))
+        cat = repeat(cats, inner=n_x * n_draws)
+        ys = Float64.(collect(xs)) .+ Float64.(mod1.(1:n, 7))
+        (; x=xs, y=ys, draw=draw, cat=cat, model=FillArrays.Fill("m1", n)), n
+    end
 
-    # 2. Tidybayes lineribbon, grouped: `draw` (8 samples per (x, cat) cell)
-    # is the AoG tidybayes sample dimension `compute_ribbon_summary`
-    # aggregates over; `cat` is the varying group/color column that must
-    # actually partition the data — this exercises `_group_indices` for real
-    # (multi-row groups), including grouping BY the lazy `TiledCol` `x`.
-    vl2 = to_vegalite(data(src) * mapping(:x, :y, group=:draw, color=:cat) * lineribbon())
-    @test haskey(vl2, "layer")
-    @test length(vl2["layer"]) >= 2
-end
+    function _assert_nondf_pipeline(src, n)
+        # 1. Plain mark over the bare source.
+        vl1 = to_vegalite(data(src) * mapping(:x, :y) * visual(Scatter))
+        @test vl1["mark"]["type"] == "point"
+        @test haskey(vl1, "encoding")
+        @test length(vl1["data"]["values"]) == n
 
-@testset "non-DataFrame Tables source (NamedTuple + Fill + tiled lazy column)" begin
+        # 2. Tidybayes lineribbon, grouped: `draw` (8 samples per (x, cat) cell)
+        # is the AoG tidybayes sample dimension `compute_ribbon_summary`
+        # aggregates over; `cat` is the varying group/color column that must
+        # actually partition the data — this exercises `_group_indices` for real
+        # (multi-row groups), including grouping BY the lazy `TiledCol` `x`.
+        vl2 = to_vegalite(data(src) * mapping(:x, :y, group=:draw, color=:cat) * lineribbon())
+        @test haskey(vl2, "layer")
+        @test length(vl2["layer"]) >= 2
+    end
+
     src, n = _nondf_source()
     @test src isa NamedTuple
     _assert_nondf_pipeline(src, n)
@@ -665,12 +817,16 @@ end
     @test collect(ct.x) == collect(src.x)
 end
 
-@testset "ungrouped interval analyses emit a summary row" begin
+"""
+Ungrouped point/gradient/dot interval analyses emit summary data instead of an
+empty plot, while explicitly grouped data still yields one row per group.
+"""
+@testitem "ungrouped interval analyses emit a summary row" setup=[AoVTestImports] tags=[:tidybayes, :regression] begin
     # Regression: with NO group/color/facet/detail field, `_group_indices` used
     # to return an empty Dict, so the interval summaries produced zero rows and
     # the spec serialized as `data.values: []` — a blank plot, no error.
     v = collect(range(-2.0, 2.0; length=64))
-    tbl = (; value = v)
+    tbl = (; value=v)
 
     for an in (pointinterval(), gradient_interval())
         vl = to_vegalite(data(tbl) * mapping(:value) * an)
@@ -688,16 +844,20 @@ end
     @test all(>(0), layer_rows)
 
     # Grouping still works and is unaffected.
-    g = (; value = vcat(v, v), grp = vcat(fill("a", 64), fill("b", 64)))
+    g = (; value=vcat(v, v), grp=vcat(fill("a", 64), fill("b", 64)))
     gvl = to_vegalite(data(g) * mapping(:value; color=:grp) * pointinterval())
     @test length(gvl["data"]["values"]) == 2
 end
 
-@testset "interval analyses reject a non-numeric value column" begin
+"""
+Interval analyses reject a non-numeric default value channel with a useful
+orientation hint; both documented vertical spellings remain valid.
+"""
+@testitem "interval analyses reject a non-numeric value column" setup=[AoVTestImports] tags=[:tidybayes, :regression] begin
     # Regression: `mapping(category, value)` is the :vertical form. Under the
     # default :horizontal it summarized the CATEGORY column, which used to blow
     # up as `MethodError: isfinite(::String)` from inside Statistics.
-    tbl = (; parameter = repeat(["a", "b"], inner=8), value = randn(16))
+    tbl = (; parameter=repeat(["a", "b"], inner=8), value=randn(16))
 
     err = try
         to_vegalite(data(tbl) * mapping(:parameter, :value; color=:parameter) * pointinterval())
@@ -714,7 +874,14 @@ end
     @test length(to_vegalite(data(tbl) * mapping(:parameter, :value) * pointinterval(orientation=:vertical))["data"]["values"]) == 2
 end
 
-@testset "plot_size structural estimator" begin
+"""
+The structural `plot_size` estimator computes `(width, height)` from a Vega-Lite
+spec Dict — continuous vs discrete axes, title/axis chrome, facet operator and
+row/column shorthand, `config.view.step` / `config.facet.spacing` overrides,
+`width:"container"` fallback, and explicit numeric sizes. The `Layer`/`VegaSpec`
+convenience method lowers through `to_vegalite` into the same estimator.
+"""
+@testitem "plot_size structural estimator" setup=[AoVTestImports] tags=[:plotsize] begin
     # Unit tests over hand-built VL spec Dicts — the four geometries plot_size
     # claims to handle, plus the config overrides and the width:"container"
     # guard. Exact px follow deterministically from the named VL-default +
