@@ -14,7 +14,10 @@ import Makie
 using JSON, Tables, Statistics
 using Dates: TimeType
 using HTMX
-import HTMX: h
+# `Raw` marks complete, trusted JS/CSS bytes. HTMX 1.0 escapes ordinary string
+# children (`&`, `"`, `'`, `<`, `>`), which mangles every `<script>`/`<style>`
+# body AoV emits — so every such child MUST be wrapped in `Raw(...)`.
+import HTMX: h, Raw
 
 include("tic.jl")
 

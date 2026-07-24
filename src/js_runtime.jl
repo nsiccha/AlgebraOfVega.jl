@@ -32,7 +32,7 @@ function vega_head(;
         h.script(src="https://cdn.jsdelivr.net/npm/vega-lite@$vegalite_version"),
         h.script(src="https://cdn.jsdelivr.net/npm/vega-embed@$vega_embed_version"),
         # Fix vega-embed actions SVG sizing when CSS frameworks (Pico) override defaults
-        h.style("""
+        h.style(Raw("""
             details[title] > summary > svg { width: 14px !important; height: 14px !important; }
             .chart-wrapper { height: auto !important; }
 
@@ -102,7 +102,7 @@ function vega_head(;
                button state. */
             .aov-data-preview[data-mode="pretty"] > [data-view="raw"] { display: none; }
             .aov-data-preview[data-mode="raw"]    > [data-view="pretty"] { display: none; }
-        """),
+        """)),
         vega_runtime(),
     ]
     settings = Dict{String,Any}()
@@ -110,8 +110,8 @@ function vega_head(;
     !isnothing(max_width) && (settings["maxWidth"] = max_width)
     !isnothing(actions) && (settings["defaultActions"] = actions)
     if !isempty(settings)
-        !isnothing(zoom) && push!(nodes, h.style(".vega-embed { zoom: $zoom; }"))
-        push!(nodes, h.script("window.AoV = Object.assign(window.AoV || {}, $(JSON.json(settings)));"))
+        !isnothing(zoom) && push!(nodes, h.style(Raw(".vega-embed { zoom: $zoom; }")))
+        push!(nodes, h.script(Raw("window.AoV = Object.assign(window.AoV || {}, $(JSON.json(settings)));")))
     end
     nodes
 end
@@ -152,7 +152,7 @@ function vega_controls(; zoom=true, actions=true)
         ))
         # Use a stylesheet to hide .vega-actions — works even for elements created later.
         # When defaultActions is already true (from vega_head), start with checkbox checked and sheet disabled.
-        push!(children, h.script("""
+        push!(children, h.script(Raw("""
             (function() {
                 if (!document.getElementById('aov-actions-hide')) {
                     var s = document.createElement('style');
@@ -166,12 +166,20 @@ function vega_controls(; zoom=true, actions=true)
                 var cb = document.querySelector('.aov-actions-toggle');
                 if (cb) cb.checked = !!show;
             })();
-        """))
+        """)))
     end
     h.div(; class="aov-context-bar")(children...)
 end
 
-"""Count the number of facet columns in a VL spec by inspecting the data."""
+"""
+Count the number of facet columns in a VL spec by inspecting the data.
+
+Covers both operator forms: the 2-D grid (`facet: {column}`) and the single-field
+wrap (`facet: {field}`, emitted for `layout=`). A wrap facet with a sibling
+`columns: N` lays out at most `N` panels per row regardless of cardinality, so the
+count is clamped by it — otherwise the responsive-resize hint sizes the view for
+more columns than Vega actually renders.
+"""
 function _count_facet_cols(vl::Dict)
     facet = get(vl, "facet", nothing)
     isnothing(facet) && return 1
@@ -189,7 +197,10 @@ function _count_facet_cols(vl::Dict)
         _push_row_value!(vals, row, col_field)
     end
     n = length(vals)
-    return n > 0 ? n : 1
+    n <= 0 && return 1
+    cols = get(vl, "columns", nothing)
+    cols isa Number && cols >= 1 && (n = min(n, round(Int, cols)))
+    return n
 end
 
 _push_row_value!(args...) = nothing
@@ -211,7 +222,7 @@ Client-side API:
 - Signal→HTMX wiring is set up automatically by `to_node(; signals=...)`
 """
 function vega_runtime()
-    h.script(raw"""
+    h.script(Raw(raw"""
     window.AoV = window.AoV || {
         views: {},
         _pending: {},
@@ -1098,5 +1109,5 @@ function vega_runtime()
             this._origSpecs[id] = savedOrig;
         }
     };
-    """)
+    """))
 end

@@ -224,7 +224,7 @@ function to_node(spec; id=nothing, width=nothing, height=nothing, actions=false,
 
     h.div(; class="aov-plot-area")(
         h.div(; id=id, class="u-w-full"),
-        h.script("AoV.embed('$id', $json, $embed_opts).then(function(){$signal_js});"),
+        h.script(Raw("AoV.embed('$id', $json, $embed_opts).then(function(){$signal_js});")),
     )
 end
 
@@ -239,7 +239,7 @@ function update_data(id, table; name="source_0")
     rows = Tables.rowtable(table)
     data = [Dict{String,Any}(string(k) => v for (k, v) in pairs(nt)) for nt in rows]
     json = JSON.json(data)
-    h.script("AoV.updateData('$id', $json, '$name');")
+    h.script(Raw("AoV.updateData('$id', $json, '$name');"))
 end
 
 _CHANNEL_LABELS = Dict("color" => "Color", "row" => "Row", "column" => "Column", "detail" => "Ungrouped", "off" => "Pooled")

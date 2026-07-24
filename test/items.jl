@@ -8,6 +8,7 @@ using TestItemRunner
     using AlgebraOfGraphics
     using Tables
     using HTMX
+    import Statistics
 end
 
 # --- Tests ---
@@ -796,6 +797,63 @@ survive the round-trip without densifying. Stand-in for TreeArrays' `TreeData`.
     println("Tables.columntable(src).x :: ", tiled_type)
     @test ct.x isa TiledCol
     @test collect(ct.x) == collect(src.x)
+end
+
+"""
+Ungrouped point/gradient/dot interval analyses emit summary data instead of an
+empty plot, while explicitly grouped data still yields one row per group.
+"""
+@testitem "ungrouped interval analyses emit a summary row" setup=[AoVTestImports] tags=[:tidybayes, :regression] begin
+    # Regression: with NO group/color/facet/detail field, `_group_indices` used
+    # to return an empty Dict, so the interval summaries produced zero rows and
+    # the spec serialized as `data.values: []` — a blank plot, no error.
+    v = collect(range(-2.0, 2.0; length=64))
+    tbl = (; value=v)
+
+    for an in (pointinterval(), gradient_interval())
+        vl = to_vegalite(data(tbl) * mapping(:value) * an)
+        rows = vl["data"]["values"]
+        @test length(rows) == 1
+        @test rows[1]["__point__"] ≈ Statistics.quantile(v, 0.5)
+        @test rows[1][AlgebraOfVega._vl_prob_field("lo", 0.95)] ≈ Statistics.quantile(v, 0.025)
+        @test rows[1][AlgebraOfVega._vl_prob_field("hi", 0.95)] ≈ Statistics.quantile(v, 0.975)
+    end
+
+    # dotinterval carries its rows on per-layer data instead of a top-level one.
+    dvl = to_vegalite(data(tbl) * mapping(:value) * dotinterval())
+    layer_rows = [length(l["data"]["values"]) for l in dvl["layer"] if haskey(l, "data")]
+    @test !isempty(layer_rows)
+    @test all(>(0), layer_rows)
+
+    # Grouping still works and is unaffected.
+    g = (; value=vcat(v, v), grp=vcat(fill("a", 64), fill("b", 64)))
+    gvl = to_vegalite(data(g) * mapping(:value; color=:grp) * pointinterval())
+    @test length(gvl["data"]["values"]) == 2
+end
+
+"""
+Interval analyses reject a non-numeric default value channel with a useful
+orientation hint; both documented vertical spellings remain valid.
+"""
+@testitem "interval analyses reject a non-numeric value column" setup=[AoVTestImports] tags=[:tidybayes, :regression] begin
+    # Regression: `mapping(category, value)` is the :vertical form. Under the
+    # default :horizontal it summarized the CATEGORY column, which used to blow
+    # up as `MethodError: isfinite(::String)` from inside Statistics.
+    tbl = (; parameter=repeat(["a", "b"], inner=8), value=randn(16))
+
+    err = try
+        to_vegalite(data(tbl) * mapping(:parameter, :value; color=:parameter) * pointinterval())
+        nothing
+    catch e
+        e
+    end
+    @test err isa ErrorException
+    @test occursin("parameter", err.msg)
+    @test occursin("orientation=:vertical", err.msg)
+
+    # Both documented spellings keep working.
+    @test length(to_vegalite(data(tbl) * mapping(:value; y=:parameter) * pointinterval())["data"]["values"]) == 2
+    @test length(to_vegalite(data(tbl) * mapping(:parameter, :value) * pointinterval(orientation=:vertical))["data"]["values"]) == 2
 end
 
 """

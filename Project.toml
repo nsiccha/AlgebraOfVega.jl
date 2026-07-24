@@ -20,6 +20,7 @@ AlgebraOfVegaHTMXObjectsExt = "HTMXObjects"
 
 [compat]
 TestItemRunner = "1"
+HTMX = "1"
 julia = "1"
 
 [extras]
