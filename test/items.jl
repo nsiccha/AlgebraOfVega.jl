@@ -692,6 +692,24 @@ and `selector_to_field`. Unsupported plot types throw.
 end
 
 """
+`ScatterLines` lowers to a line with point markers but never sets Vega-Lite's
+`filled` mark property, which would close each colored line into a polygon.
+"""
+@testitem "ScatterLines stays unfilled" setup=[AoVTestImports] tags=[:translation, :regression] begin
+    tbl = (;
+        x=[1, 2, 3, 1, 2, 3],
+        y=[1.0, 2.0, 1.5, 3.0, 2.5, 4.0],
+        subject=["a", "a", "a", "b", "b", "b"],
+    )
+    vl = to_vegalite(
+        data(tbl) * mapping(:x, :y; color=:subject) * visual(ScatterLines),
+    )
+
+    @test vl["mark"] == Dict{String,Any}("type" => "line", "point" => true)
+    @test !haskey(vl["mark"], "filled")
+end
+
+"""
 The `ECDFPlot` mark lowers to a stepped line with three `transform`s (two window
 + one calculate) over the synthesized `__ecdf__` field; a color channel adds the
 matching window `groupby`.

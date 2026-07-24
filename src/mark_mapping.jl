@@ -20,7 +20,7 @@ end
 """Extra VL mark properties that depend on Makie plot type (e.g. ScatterLines → point=true)."""
 _MARK_PROPS = [
     Scatter => Dict{String,Any}("filled" => true),
-    ScatterLines => Dict{String,Any}("point" => true, "filled" => true),
+    ScatterLines => Dict{String,Any}("point" => true),
     Stairs => Dict{String,Any}("interpolate" => "step-after"),
 ]
 
