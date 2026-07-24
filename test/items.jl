@@ -260,7 +260,7 @@ hidden) ribbon-levels control, revealed for the `line+ribbon` mark.
     @test occursin("Log Y", html)
     @test occursin("ex-ribbon-levels", html)
     @test occursin("Ribbon levels:", html)
-    @test occursin("display:none;", html)
+    @test occursin("id=\"ex-ribbon-levels-label\" class=\"u-hidden\"", html)
 
     html2 = AlgebraOfVega.explorer_controls_html(datasets; default_mark="line+ribbon")
     @test occursin("line + ribbon", html2)
@@ -273,7 +273,7 @@ The dataset dropdown is hidden when only one dataset is present and shown
 @testitem "explorer_controls_html dataset hiding" setup=[AoVTestImports] tags=[:explorer] begin
     single = Dict("mydata" => AlgebraOfVega.sample_cars())
     html = AlgebraOfVega.explorer_controls_html(single)
-    @test occursin("display:none;", html)
+    @test occursin("<label class=\"u-hidden\">Dataset:", html)
     @test occursin("ex-dataset", html)
 
     multi = AlgebraOfVega.default_explorer_datasets()
@@ -290,7 +290,7 @@ The explorer accepts a bare (single) Tables.jl source in addition to a
 
     html = AlgebraOfVega.explorer_controls_html(tbl)
     @test occursin("ex-x", html)
-    @test occursin("display:none;", html)
+    @test occursin("<label class=\"u-hidden\">Dataset:", html)
 
     w = AlgebraOfVega.explorer_widget(tbl;
         default_x="bill_length", default_y="bill_depth")
@@ -565,7 +565,7 @@ and emits `\$schema` only at the top level, never in sublayers.
     # Plain layer
     df = (; x=[1, 2], y=[3, 4])
     vl = to_vegalite(data(df) * mapping(:x, :y) * visual(Scatter))
-    @test vl["mark"] == "point"
+    @test vl["mark"] == Dict{String,Any}("type" => "point", "filled" => true)
     @test haskey(vl, "\$schema")
 
     # Density → dispatched correctly
@@ -673,7 +673,7 @@ and `selector_to_field`. Unsupported plot types throw.
     # _MARK_PROPS
     @test AlgebraOfVega.plottype_to_mark_props(ScatterLines) == Dict{String,Any}("point" => true)
     @test AlgebraOfVega.plottype_to_mark_props(Stairs) == Dict{String,Any}("interpolate" => "step-after")
-    @test AlgebraOfVega.plottype_to_mark_props(Scatter) == Dict{String,Any}()
+    @test AlgebraOfVega.plottype_to_mark_props(Scatter) == Dict{String,Any}("filled" => true)
 
     # _CHANNEL_MAP
     @test AlgebraOfVega.aog_named_to_vl_channel(:color) == "color"
