@@ -401,6 +401,43 @@ end
 end
 
 """
+A second `* config(...)` on an existing `VegaSpec` MERGES into the config already
+there instead of replacing it. Replacing silently dropped every earlier prop — an
+app helper appending `config(width=…, height=…)` after a caller's
+`config(facet=…, title=…)` emitted no `resolve` and no `title`, with no warning
+(and no `independent_scales` deprecation, since the props never reached
+`to_vegalite`). Later-wins on conflict, matching `+`.
+"""
+@testitem "config accumulates under repeated `*`" setup=[AoVTestImports] tags=[:translation, :config] begin
+    df = (; x=[1.0, 2.0], y=[3.0, 4.0], g=["a", "b"])
+    base = data(df) * mapping(:x, :y, col=:g) * visual(Scatter)
+
+    # Earlier props survive a later `* config(...)`.
+    vl = to_vegalite(base * config(title="T", facet=(; linkyaxes=:none)) *
+                     config(width=620, height=150))
+    @test vl["resolve"]["scale"]["y"] == "independent"
+    @test vl["title"] == "T"
+    # width/height land inner on facet-operator specs, top-level otherwise.
+    sized = get(vl, "spec", vl)
+    @test sized["width"] == 620
+    @test sized["height"] == 150
+
+    # The deprecated spelling still reaches to_vegalite (and still warns).
+    vl2 = (@test_logs (:warn, r"deprecated") match_mode=:any to_vegalite(
+        base * config(independent_scales=true) * config(width=620)))
+    @test vl2["resolve"]["scale"]["x"] == "independent"
+    @test vl2["resolve"]["scale"]["y"] == "independent"
+
+    # Later wins on conflict.
+    vl3 = to_vegalite(base * config(title="first") * config(title="second"))
+    @test vl3["title"] == "second"
+
+    # Config on the left: the spec's own config comes later, so it wins.
+    vl4 = to_vegalite(config(title="outer") * (base * config(title="inner")))
+    @test vl4["title"] == "inner"
+end
+
+"""
 The AoG-mirror `scales(...)` / `facet=(; linkxaxes/linkyaxes)` / `axis=(; limits, clamp)`
 config sugar lowers to Vega-Lite encoding scale (`type`/`base`/`domain`/`clamp`)
 and `resolve.scale`. Explicit user `encoding` always wins on conflict, and the
