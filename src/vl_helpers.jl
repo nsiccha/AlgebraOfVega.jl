@@ -103,18 +103,28 @@ Equivalent to `drawable * config(; kwargs...)`.
 """
 vlspec(drawable; kwargs...) = VegaSpec(drawable, isempty(kwargs) ? nothing : config(; kwargs...))
 
-# Composition: AoG drawable * Config → VegaSpec
-Base.:*(a::AlgebraOfGraphics.AbstractAlgebraic, c::Config) = VegaSpec(a, c)
-Base.:*(c::Config, a::AlgebraOfGraphics.AbstractAlgebraic) = VegaSpec(a, c)
-Base.:*(v::VegaSpec, c::Config) = VegaSpec(v.drawable, c)
-Base.:*(c::Config, v::VegaSpec) = VegaSpec(v.drawable, c)
-
-# Combine VegaSpecs: unwrap drawables, merge configs
+# Merge two configs, later-wins on key conflict (plain `merge` semantics).
+# Shared by `*` and `+` so config accumulates the same way under both.
 function _merge_configs(a::Union{Config,Nothing}, b::Union{Config,Nothing})
     isnothing(a) && return b
     isnothing(b) && return a
     Config(merge(a.properties, b.properties))
 end
+
+# Composition: AoG drawable * Config → VegaSpec
+Base.:*(a::AlgebraOfGraphics.AbstractAlgebraic, c::Config) = VegaSpec(a, c)
+Base.:*(c::Config, a::AlgebraOfGraphics.AbstractAlgebraic) = VegaSpec(a, c)
+# A second `* config(...)` MERGES into the config already on the spec rather than
+# replacing it — an app helper appending e.g. `config(width=…, height=…)` after a
+# caller's `config(facet=…, title=…)` used to silently drop every earlier prop,
+# with no warning and no error (the deprecation warning for `independent_scales`
+# didn't fire either, because the clobbered props never reached `to_vegalite`).
+# Later-wins, matching `+`/`merge`. Left operand comes first in the expression,
+# so the right one takes precedence.
+Base.:*(v::VegaSpec, c::Config) = VegaSpec(v.drawable, _merge_configs(v.config, c))
+Base.:*(c::Config, v::VegaSpec) = VegaSpec(v.drawable, _merge_configs(c, v.config))
+
+# Combine VegaSpecs: unwrap drawables, merge configs
 Base.:+(a::VegaSpec, b::VegaSpec) = VegaSpec(a.drawable + b.drawable, _merge_configs(a.config, b.config))
 Base.:+(a::VegaSpec, b::AlgebraOfGraphics.AbstractAlgebraic) = VegaSpec(a.drawable + b, a.config)
 Base.:+(a::AlgebraOfGraphics.AbstractAlgebraic, b::VegaSpec) = VegaSpec(a + b.drawable, b.config)
