@@ -34,6 +34,7 @@ export Scatter, Lines, ScatterLines, BarPlot, Heatmap, BoxPlot,
 # AlgebraOfVega exports
 export config, vdraw, sdraw, sdraw_file, vlspec, vdata
 export to_vegalite, to_json, to_html, to_node, vega_head, vega_controls, plot_size
+export plot_summary_md, PlotSummary
 export vega_runtime, update_data, vega_cdn_urls, mapping_controls, resolve_channels, refine_channels, auto_remap_node
 export with_plot_caption, draws_summary_table
 
