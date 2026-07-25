@@ -148,6 +148,223 @@ _as_vl_dict(s) = to_vegalite(s)
 _as_number(n::Number) = n
 _as_number(_) = nothing
 
+# --- The markdown (`?plain`) view of a plot node ----------------------------
+#
+# A plot node is an EMPTY `<div>` plus a `<script>` that embeds the spec at
+# runtime. HTMX's markdown renderer recurses transparently through `<div>` and
+# skips `<script>` outright, so a `text/markdown` render of a plot node used to
+# be zero bytes — a figure-only route served an empty body, making "renders a
+# correct figure" byte-indistinguishable from "renders nothing" for every
+# non-browser consumer (agents, CI gates, crawlers) on the `?plain` channel.
+#
+# `PlotSummary` closes that: a markdown-only child carrying a short, bounded
+# structural description of the spec. It emits NOTHING under `text/html`, so
+# the rendered page is byte-identical to before.
+
+"""
+    PlotSummary(text)
+
+A markdown-only child of an AoV plot node. Renders `text` under
+`MIME"text/markdown"` and *nothing at all* under `MIME"text/html"`, so it is
+invisible in the browser while making a `?plain` / `Accept: text/markdown` read
+of a figure non-empty. Built by [`to_node`](@ref) from [`plot_summary_md`](@ref).
+"""
+struct PlotSummary
+    text::String
+end
+
+Base.show(::IO, ::MIME"text/html", ::PlotSummary) = nothing
+Base.show(io::IO, ::MIME"text/markdown", s::PlotSummary) = print(io, s.text)
+
+# Channels are listed in this order when present; anything else follows
+# alphabetically, so the summary table is stable across runs.
+const _MD_CHANNEL_ORDER = ("x", "y", "x2", "y2", "xOffset", "yOffset",
+    "theta", "theta2", "radius", "radius2", "color", "fill", "stroke",
+    "opacity", "fillOpacity", "strokeOpacity", "strokeWidth", "strokeDash",
+    "size", "shape", "angle", "detail", "order", "row", "column", "facet",
+    "text", "tooltip", "href", "key", "url")
+
+# Bounds: a summary must stay short enough to read at a glance, and must mark
+# every elision so it never reads as the complete value.
+const _MD_MAX_CHANNELS = 12
+const _MD_MAX_MARKS = 6
+const _MD_MAX_FIELDS = 6
+const _MD_MAX_CELL = 60
+
+_md_trunc(s) = length(s) <= _MD_MAX_CELL ? s : first(s, _MD_MAX_CELL - 1) * "…"
+# Neutralize the characters that would break a markdown table row.
+_md_cell(x) = _md_trunc(replace(strip(string(x)), '|' => "\\|", '\n' => ' ', '\r' => ' '))
+
+_md_mark_name(m::AbstractString) = String(m)
+_md_mark_name(m::Dict) = string(get(m, "type", "mark"))
+_md_mark_name(_) = "mark"
+
+# The `field` of one entry in a multi-field channel def, or its own rendering.
+_md_field_name(e) = let d = _as_dict(e)
+    isnothing(d) ? string(e) : string(get(d, "field", get(d, "value", "—")))
+end
+
+# Walk a Vega-Lite spec tree, collecting the views that declare a mark, every
+# encoding-like block (outermost first, so inherited channels win), and every
+# data block. Handles layer / concat / hconcat / vconcat / facet-spec nesting.
+function _md_walk!(views, encs, datas, d::Dict)
+    enc = _as_dict(get(d, "encoding", nothing))
+    isnothing(enc) || push!(encs, enc)
+    fct = _as_dict(get(d, "facet", nothing))
+    isnothing(fct) || push!(encs, fct)
+    dat = _as_dict(get(d, "data", nothing))
+    isnothing(dat) || push!(datas, dat)
+    haskey(d, "mark") && push!(views, d)
+    for key in ("layer", "concat", "hconcat", "vconcat")
+        sub = get(d, key, nothing)
+        sub isa AbstractVector || continue
+        for s in sub
+            sd = _as_dict(s)
+            isnothing(sd) || _md_walk!(views, encs, datas, sd)
+        end
+    end
+    inner = _as_dict(get(d, "spec", nothing))
+    isnothing(inner) || _md_walk!(views, encs, datas, inner)
+    return views, encs, datas
+end
+
+# Render one channel definition as (field, type) table cells. Never emits data
+# values beyond an explicit `value:` / `datum:` constant, which is spec, not data.
+function _md_channel_cells(def)
+    # Multi-field channels (`tooltip` is normally a vector of field defs) list
+    # their field names rather than the raw Julia container.
+    if def isa AbstractVector
+        names = map(_md_field_name, def)
+        label = join(first(names, _MD_MAX_FIELDS), ", ")
+        length(names) > _MD_MAX_FIELDS && (label *= " … ($(length(names) - _MD_MAX_FIELDS) more)")
+        return (_md_cell(label), "")
+    end
+    d = _as_dict(def)
+    isnothing(d) && return (_md_cell(def), "")
+    field = get(d, "field", nothing)
+    agg = get(d, "aggregate", nothing)
+    label = if !isnothing(agg)
+        isnothing(field) ? "$(agg)()" : "$(agg)($(field))"
+    elseif !isnothing(field)
+        string(field)
+    elseif haskey(d, "value")
+        "constant $(d["value"])"
+    elseif haskey(d, "datum")
+        "datum $(d["datum"])"
+    else
+        "—"
+    end
+    tu = get(d, "timeUnit", nothing)
+    isnothing(tu) || (label = "$(tu)($(label))")
+    # `bin` may be `true` or a binparams Dict; only an explicit `false` is "not binned".
+    haskey(d, "bin") && d["bin"] !== false && (label *= " (binned)")
+    (_md_cell(label), _md_cell(get(d, "type", "")))
+end
+
+_md_title(vl::Dict) = let t = get(vl, "title", nothing)
+    t isa AbstractString ? t : (td = _as_dict(t); isnothing(td) ? nothing : get(td, "text", nothing))
+end
+
+_md_size(vl::Dict, key) = let v = get(vl, key, nothing)
+    isnothing(v) ? (inner = _as_dict(get(vl, "spec", nothing));
+                    isnothing(inner) ? nothing : get(inner, key, nothing)) : v
+end
+
+"""
+    plot_summary_md(vl::Dict; id=nothing)
+
+Return a short, bounded markdown description of a Vega-Lite spec: mark type(s),
+the channel→field encoding table, inline row/column counts, plot size and facet
+fields. Data *values* are never emitted — only counts — and every truncation is
+marked, so the result can never read as the complete value.
+
+Used by [`to_node`](@ref) to give every plot node a non-empty `text/markdown`
+rendering, so a `?plain` read of a route that renders a real figure is
+distinguishable from one that renders nothing.
+"""
+function plot_summary_md(vl::Dict; id=nothing)
+    views, encs, datas = _md_walk!(Dict[], Dict[], Dict[], vl)
+
+    marks = unique(_md_mark_name(get(v, "mark", nothing)) for v in views)
+    n_marks = length(marks)
+    n_marks > _MD_MAX_MARKS && (marks = marks[1:_MD_MAX_MARKS])
+    mark_str = isempty(marks) ? "(none)" : join(("`" * m * "`" for m in marks), " + ")
+    n_marks > _MD_MAX_MARKS && (mark_str *= " … ($(n_marks - _MD_MAX_MARKS) more)")
+
+    # Outermost encoding wins for a channel that several levels declare.
+    channels = Pair{String,Any}[]
+    seen = Set{String}()
+    for enc in encs, (ch, def) in enc
+        key = string(ch)
+        key in seen && continue
+        push!(seen, key)
+        push!(channels, key => def)
+    end
+    rank(ch) = something(findfirst(==(ch), _MD_CHANNEL_ORDER), length(_MD_CHANNEL_ORDER) + 1)
+    sort!(channels; by=p -> (rank(p.first), p.first))
+
+    rows = sum(d -> get(d, "values", nothing) isa AbstractVector ? length(d["values"]) : 0, datas; init=0)
+    cols = 0
+    for d in datas
+        vals = get(d, "values", nothing)
+        vals isa AbstractVector && !isempty(vals) || continue
+        row = _as_dict(first(vals))
+        isnothing(row) || (cols = max(cols, length(row)))
+    end
+    url = nothing
+    for d in datas
+        u = get(d, "url", nothing)
+        if u isa AbstractString
+            url = u
+            break
+        end
+    end
+
+    io = IOBuffer()
+    println(io)
+    print(io, "**Vega-Lite figure**")
+    isnothing(id) || print(io, " `", _md_cell(id), "`")
+    title = _md_title(vl)
+    isnothing(title) || print(io, " — ", _md_cell(title))
+    println(io)
+    println(io)
+
+    println(io, "- mark: ", mark_str, length(views) > 1 ? " ($(length(views)) layers)" : "")
+    if rows > 0
+        println(io, "- data: ", rows, " rows", cols > 0 ? " × $cols columns" : "", " (inline)")
+    elseif !isnothing(url)
+        println(io, "- data: `", _md_cell(url), "`")
+    else
+        println(io, "- data: (none inline)")
+    end
+    w, hgt = _md_size(vl, "width"), _md_size(vl, "height")
+    (isnothing(w) && isnothing(hgt)) ||
+        println(io, "- size: ", isnothing(w) ? "auto" : _md_cell(w), " × ", isnothing(hgt) ? "auto" : _md_cell(hgt))
+    # Only the genuine partition channels — deliberately NOT `_facet_fields`,
+    # which also collects sublayer `color` for the cross-source broadcast pass.
+    facets = [_md_cell(get(_as_dict(def), "field", ch))
+              for (ch, def) in channels if ch in ("row", "column", "facet") && !isnothing(_as_dict(def))]
+    isempty(facets) || println(io, "- facet: ", join(("`" * f * "`" for f in facets), ", "))
+    println(io)
+
+    if isempty(channels)
+        println(io, "_(no encoding channels)_")
+    else
+        println(io, "| channel | field | type |")
+        println(io, "| --- | --- | --- |")
+        for (ch, def) in first(channels, _MD_MAX_CHANNELS)
+            field, typ = _md_channel_cells(def)
+            println(io, "| ", _md_cell(ch), " | ", field, " | ", typ, " |")
+        end
+        length(channels) > _MD_MAX_CHANNELS &&
+            println(io, "| … | _", length(channels) - _MD_MAX_CHANNELS, " more channels elided_ |  |")
+    end
+    println(io)
+    String(take!(io))
+end
+
+plot_summary_md(spec; kwargs...) = plot_summary_md(_as_vl_dict(spec); kwargs...)
+
 # Look up a key in a per-signal entry. NamedTuple uses Symbol keys, Dict uses String.
 _sig_get(sig::NamedTuple, key::Symbol) = getproperty(sig, key)
 _sig_get(sig, key::Symbol) = sig[string(key)]
@@ -225,6 +442,9 @@ function to_node(spec; id=nothing, width=nothing, height=nothing, actions=false,
     h.div(; class="aov-plot-area")(
         h.div(; id=id, class="u-w-full"),
         h.script(Raw("AoV.embed('$id', $json, $embed_opts).then(function(){$signal_js});")),
+        # Markdown-only; emits zero bytes of HTML. Without it a `?plain` read of
+        # a figure-only route is an empty body — see `PlotSummary`.
+        PlotSummary(plot_summary_md(vl; id=id)),
     )
 end
 

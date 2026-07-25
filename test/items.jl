@@ -980,3 +980,101 @@ convenience method lowers through `to_vegalite` into the same estimator.
     faceted = plot_size(data(df) * mapping(:x, :y, col=:g) * visual(Scatter))
     @test faceted.width > plain.width
 end
+
+"""
+A plot node's `text/markdown` rendering (the `?plain` channel) is non-empty and
+structurally faithful, while its HTML rendering is unchanged.
+
+Regression: `to_node` emits an empty `<div>` plus a `<script>`; HTMX's markdown
+renderer recurses transparently through `<div>` and skips `<script>`, so a
+figure-only route served a 0-byte `?plain` body — making "renders a correct
+figure" byte-indistinguishable from "renders nothing" for every non-browser
+consumer.
+"""
+@testitem "plot nodes render a bounded markdown summary" setup=[AoVTestImports] tags=[:markdown, :regression] begin
+    md(x) = sprint(show, MIME"text/markdown"(), x)
+    html(x) = sprint(show, MIME"text/html"(), x)
+
+    D(ps...) = Dict{String,Any}(ps...)
+    q(f) = D("field" => f, "type" => "quantitative")
+    nom(f) = D("field" => f, "type" => "nominal")
+
+    # --- Dict-level: the summary content is pinned exactly. ---
+    spec = D("mark" => "bar",
+             "encoding" => D("y" => q("count"), "x" => nom("species"), "color" => nom("island")),
+             "width" => 400, "height" => 300,
+             "data" => D("values" => [D("species" => "a", "count" => 1, "island" => "x")]))
+    s = plot_summary_md(spec; id="vega-abc")
+    @test occursin("**Vega-Lite figure** `vega-abc`", s)
+    @test occursin("- mark: `bar`", s)
+    @test occursin("- data: 1 rows × 3 columns (inline)", s)
+    @test occursin("- size: 400 × 300", s)
+    # Canonical channel order (x before y before color), not Dict iteration order.
+    let ix = first(findfirst("| x |", s)),
+        iy = first(findfirst("| y |", s)),
+        ic = first(findfirst("| color |", s))
+        @test ix < iy < ic
+    end
+    @test occursin("| color | island | nominal |", s)
+    # Data VALUES are never emitted — only counts.
+    @test !occursin("\"a\"", s)
+
+    # Faceted specs: the partition channel is reported, and the nested
+    # `spec.width` is found.
+    fac = D("facet" => D("column" => nom("island")),
+            "spec" => D("width" => 200, "mark" => "point", "encoding" => D("x" => q("v"))),
+            "data" => D("values" => [D("island" => "x", "v" => 1)]))
+    @test occursin("- facet: `island`", plot_summary_md(fac))
+    @test occursin("- size: 200 × auto", plot_summary_md(fac))
+
+    # Layered specs list every distinct mark and the layer count.
+    lay = D("layer" => [D("mark" => "line", "encoding" => D("x" => q("a"))),
+                        D("mark" => "point", "encoding" => D("y" => q("b")))])
+    @test occursin("- mark: `line` + `point` (2 layers)", plot_summary_md(lay))
+
+    # Multi-field channels (tooltip) list field names, not the raw container.
+    tip = D("mark" => "bar",
+            "encoding" => D("tooltip" => [nom("g"), q("v")]))
+    @test occursin("| tooltip | g, v |", plot_summary_md(tip))
+    @test !occursin("Dict", plot_summary_md(tip))
+
+    # Bounded: a wide encoding elides, and says so.
+    wide = D("mark" => "point",
+             "encoding" => D(string("c", i) => q("f$i") for i in 1:30))
+    ws = plot_summary_md(wide)
+    @test occursin("more channels elided", ws)
+    @test count("\n| ", ws) <= 16  # header + separator + 12 rows + elision row
+
+    # A spec with no encoding at all still names its mark (never empty).
+    bare = plot_summary_md(D("mark" => "rect"))
+    @test occursin("- mark: `rect`", bare)
+    @test occursin("no encoding channels", bare)
+
+    # --- Integration: through the real node. ---
+    df = (; x = [1.0, 2.0, 3.0], y = [4.0, 5.0, 6.0], g = ["a", "b", "c"])
+    node = vdraw(data(df) * mapping(:x, :y, color=:g) * visual(Scatter))
+    @test !isempty(md(node))
+    @test occursin("**Vega-Lite figure**", md(node))
+    @test occursin("`point`", md(node))
+
+    # The summary is markdown-ONLY: it must contribute ZERO bytes of HTML, so
+    # the rendered page is byte-identical to the same node without it.
+    @test !occursin("Vega-Lite figure", html(node))
+    @test !occursin("| channel |", html(node))
+    let kids = HTMX.children(node)
+        @test last(kids) isa PlotSummary
+        @test html(node) == html(HTMX.Node(HTMX.tag(node), HTMX.attrs(node), kids[1:end-1]))
+    end
+
+    # The property that actually matters: a route rendering a real figure is not
+    # byte-identical to one rendering nothing, nor to a different figure.
+    @test md(node) != ""
+    @test md(node) != md(h.div())
+    @test md(node) != md(vdraw(data(df) * mapping(:x, :y) * visual(BarPlot)))
+
+    # A spec returned directly (no `vdraw`) gets the same summary rather than
+    # falling to HTMX's `string(val)` catch-all.
+    vs = data(df) * mapping(:x, :y) * visual(Scatter) * config(width=300)
+    @test occursin("**Vega-Lite figure**", md(vs))
+    @test occursin("- mark: `point`", md(vs))
+end
