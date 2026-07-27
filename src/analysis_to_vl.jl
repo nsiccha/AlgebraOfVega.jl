@@ -567,6 +567,12 @@ function density_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
     x_label = length(layer.positional) >= 1 ? _field_label(layer.positional[1]) : "value"
     y_field = haskey(layer.named, :y) ? _field_name(layer.named[:y]) : nothing
 
+    # `col=`/`row=`/`layout=` — the same facet operator every other analysis uses.
+    # Leaving these unread emitted a FLAT spec with a groupby-less density
+    # transform, i.e. one KDE pooled over every panel's rows: a plausible-looking
+    # wrong plot rather than an empty or failing one.
+    facet, facet_fields = _extract_facet_info(layer)
+
     vis = extract_visual(layer)
     opacity = 0.4
     if !isnothing(vis)
@@ -577,7 +583,13 @@ function density_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
     end
 
     if !isnothing(y_field)
-        # Faceted density
+        # Ridgeline: `y=` already claims the facet operator (wrap form, columns=1).
+        # VL cannot nest two facet operators, so a sibling col=/row=/layout= has
+        # nowhere to go — say so instead of dropping it silently.
+        if !isempty(facet)
+            dropped = join(("`$k=`" for k in (:col, :row, :layout) if haskey(layer.named, k)), ", ")
+            @warn "AlgebraOfVega: density() ignores $dropped when `y=$y_field` is given — `y=` already claims the facet operator (one panel per level) and Vega-Lite cannot nest two. Drop `y=` to facet by the other channel instead." maxlog=1
+        end
         spec = Dict{String,Any}(
             "data" => data_to_vl(table),
             "facet" => Dict{String,Any}("field" => y_field, "type" => "nominal",
@@ -606,9 +618,17 @@ function density_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
         color_field = haskey(layer.named, :color) ? _field_name(layer.named[:color]) : nothing
         color_label = haskey(layer.named, :color) ? _field_label(layer.named[:color]) : nothing
         density_transform = Dict{String,Any}("density" => x_field, "as" => ["val", "dens"])
-        if !isnothing(color_field)
-            density_transform["groupby"] = [color_field]
+        # The density transform DROPS every field it isn't told to keep, so the facet
+        # fields have to be in `groupby` or the panels have nothing to partition on.
+        # Colour first (keeps the unfaceted output byte-identical to before), and
+        # deduped — `mapping(:v; col=:p, color=:p)` is a normal spelling and VL
+        # rejects a repeated groupby field.
+        groupby = String[]
+        !isnothing(color_field) && push!(groupby, color_field)
+        for ff in facet_fields
+            ff in groupby || push!(groupby, ff)
         end
+        !isempty(groupby) && (density_transform["groupby"] = groupby)
 
         encoding = Dict{String,Any}(
             "x" => Dict{String,Any}("field" => "val", "type" => "quantitative", "title" => x_label),
@@ -631,6 +651,7 @@ function density_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
         if !is_sublayer
             spec["\$schema"] = "https://vega.github.io/schema/vega-lite/v5.json"
         end
+        _wrap_with_facet!(spec, facet)
         return spec
     end
 end
