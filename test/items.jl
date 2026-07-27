@@ -1115,3 +1115,92 @@ consumer.
     @test occursin("**Vega-Lite figure**", md(vs))
     @test occursin("- mark: `point`", md(vs))
 end
+
+"""
+`density()` honours the `col=` / `row=` / `layout=` facet channels, like every
+other analysis. It used to read only `y=` and `color=`, so a faceted density
+emitted a FLAT spec whose density transform had no `groupby` — one KDE pooled
+over every panel's rows, rendered as a single plausible-looking curve.
+
+The `groupby` is load-bearing, not belt-and-braces: measured against a headless
+Vega render, Vega-Lite applies an inner spec's `density` transform BEFORE
+partitioning for the facet operator, and that transform drops every field it was
+not told to keep. Without the facet field in `groupby` the facet has nothing left
+to partition on and collapses to one panel.
+"""
+@testitem "density honours col=/row=/layout= faceting" setup=[AoVTestImports] tags=[:translation, :regression] begin
+    params = ["a", "b", "c"]
+    tbl = (; parameter = repeat(params, inner=32),
+             draw      = repeat(1:32, outer=3),
+             value     = vcat((randn(32) .+ 10i for i in 1:3)...))
+
+    # --- The reported case: col= produced a flat, pooled, single-curve spec. ---
+    vl = to_vegalite(vdata(tbl) * mapping(:value; col=:parameter) * density())
+    @test vl["facet"]["column"]["field"] == "parameter"
+    @test haskey(vl, "spec")                      # the facet OPERATOR, not encoding.column
+    @test !haskey(vl, "mark")                     # mark moved inside `spec`
+    @test vl["spec"]["transform"][1]["groupby"] == ["parameter"]
+    @test vl["spec"]["mark"]["type"] == "area"
+    @test vl["data"]["values"] isa AbstractVector  # data stays OUTSIDE the facet
+
+    # --- row= takes the other grid channel. ---
+    rvl = to_vegalite(vdata(tbl) * mapping(:value; row=:parameter) * density())
+    @test rvl["facet"]["row"]["field"] == "parameter"
+    @test rvl["spec"]["transform"][1]["groupby"] == ["parameter"]
+
+    # --- layout= is the WRAP form, so a sibling `columns` actually governs. ---
+    lvl = to_vegalite(vdata(tbl) * mapping(:value; layout=:parameter) * density() * config(columns=3))
+    @test lvl["facet"]["field"] == "parameter"    # wrap form: facet:{field,type}
+    @test !haskey(lvl["facet"], "column")
+    @test lvl["columns"] == 3
+    @test lvl["spec"]["transform"][1]["groupby"] == ["parameter"]
+
+    # --- col= AND row= together: both grid channels, both in the groupby. ---
+    gvl = to_vegalite(vdata(tbl) * mapping(:value; col=:parameter, row=:draw) * density())
+    @test gvl["facet"]["column"]["field"] == "parameter"
+    @test gvl["facet"]["row"]["field"] == "draw"
+    @test sort(gvl["spec"]["transform"][1]["groupby"]) == ["draw", "parameter"]
+
+    # --- col= plus color=: colour first, and NOT duplicated when they name the
+    #     same field (VL rejects a repeated groupby entry).
+    cvl = to_vegalite(vdata(tbl) * mapping(:value; col=:parameter, color=:draw) * density())
+    @test cvl["spec"]["transform"][1]["groupby"] == ["draw", "parameter"]
+    @test cvl["spec"]["encoding"]["color"]["field"] == "draw"
+    same = to_vegalite(vdata(tbl) * mapping(:value; col=:parameter, color=:parameter) * density())
+    @test same["spec"]["transform"][1]["groupby"] == ["parameter"]
+
+    # --- `config(facet=(; linkxaxes=:none))` now lands on a spec that HAS a
+    #     facet to resolve against — the reported spec carried it over nothing.
+    fvl = to_vegalite(vdata(tbl) * mapping(:value; col=:parameter) * density() *
+                      config(width=160, height=180, facet=(; linkxaxes=:none)))
+    @test fvl["resolve"]["scale"]["x"] == "independent"
+    @test haskey(fvl, "facet")
+    @test fvl["spec"]["width"] == 160             # size routes INTO the inner spec
+    @test fvl["spec"]["height"] == 180
+
+    # --- Unfaceted output is untouched: bare density has no groupby at all, and
+    #     colour-only keeps exactly the single-field groupby it always had.
+    bare = to_vegalite(vdata(tbl) * mapping(:value) * density())
+    @test !haskey(bare["transform"][1], "groupby")
+    @test !haskey(bare, "facet")
+    conly = to_vegalite(vdata(tbl) * mapping(:value; color=:parameter) * density())
+    @test conly["transform"][1]["groupby"] == ["parameter"]
+    @test !haskey(conly, "facet")
+
+    # --- The `y=` ridgeline already owns the facet operator and VL cannot nest
+    #     two, so a sibling col= is named in a warning rather than dropped mute.
+    ridge = @test_logs (:warn,) match_mode=:any to_vegalite(
+        vdata(tbl) * mapping(:value; y=:parameter, col=:draw) * density())
+    @test ridge["facet"]["field"] == "parameter"   # ridgeline preserved
+    @test ridge["columns"] == 1
+
+    # --- Multi-layer (`+`): the density sublayer keeps its groupby, so the
+    #     facet lifted from the sibling mark has a field to partition on.
+    mvl = to_vegalite((vdata(tbl) * mapping(:value; col=:parameter) * density()) +
+                      (vdata(tbl) * mapping(:value; col=:parameter) * visual(Scatter)))
+    @test mvl["facet"]["column"]["field"] == "parameter"
+    dens_sub = only(l for l in mvl["spec"]["layer"]
+                    if any(haskey(t, "density") for t in get(l, "transform", [])))
+    dens_tr = only(t for t in dens_sub["transform"] if haskey(t, "density"))
+    @test dens_tr["groupby"] == ["parameter"]
+end
