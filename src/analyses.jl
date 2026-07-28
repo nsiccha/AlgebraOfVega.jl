@@ -433,3 +433,104 @@ function compute_ribbon_summary(table, x_field::String, y_field::String, group_f
     end
     rows
 end
+
+"""
+    _kde_bandwidth(sorted) -> Float64
+
+Gaussian-KDE bandwidth by the normal reference rule, byte-for-byte the formula
+vega-statistics' `bandwidthNRD` uses (`1.06 · min(σ, IQR/1.34) · n^(-1/5)`, with
+σ the *sample* standard deviation and the quartiles interpolated R-7 style —
+Julia's `std` and `quantile` defaults on both counts). Matching it is the whole
+point: `compute_density_summary` replaces a Vega `density` transform for faceted
+specs only, so an unfaceted and a faceted density of the same column must not
+draw visibly different curves.
+
+`sorted` must already be sorted (the quantiles are taken with `sorted=true`).
+Returns a non-positive or non-finite value for a degenerate group — `n < 2`, or
+every value identical — which callers must treat as "no KDE exists here".
+"""
+function _kde_bandwidth(sorted::AbstractVector{<:Real})
+    n = length(sorted)
+    n < 2 && return NaN
+    iqr = quantile(sorted, 0.75; sorted=true) - quantile(sorted, 0.25; sorted=true)
+    1.06 * min(std(sorted), iqr / 1.34) * n^(-0.2)
+end
+
+"""
+    compute_density_summary(table, x_field; group_fields=String[], npoints=200)
+
+Per-group Gaussian KDE evaluated on a **per-group** grid, emitted as plain rows
+`{"val", "dens", <each group field>}` — the `compute_ribbon_summary` pattern
+applied to `density()`.
+
+This exists because a Vega-Lite `density` transform computes ONE extent for the
+whole dataset even when it carries a `groupby`. Measured (headless Vega, two
+groups on `N(0,1)` and `N(1000,50)`): both panels' curves span the pooled
+`[-2.62, 1136.16]`, so the tight group occupies a fraction of a percent of its
+own panel, and `resolve.scale.x = independent` cannot fix it because the *data*
+extent, not the scale, is what is shared. Computing the curves here gives each
+group its own `[min, max]` and a full `npoints` grid inside it.
+
+`npoints` is 200 to match both ends of the convention it replaces:
+AlgebraOfGraphics' `DensityAnalysis` default and Vega's `maxsteps`. The extent is
+the group's observed `[min, max]` — again the same convention as the transform's
+default, just applied per group, so a KDE's tails stay truncated at the data
+limits exactly as before.
+
+A degenerate group (a single row, or every value identical) has no bandwidth and
+contributes no rows; its panel renders empty and a warning names how many groups
+were dropped. Cost is `O(npoints × nrows)` exponentials in total — the Gaussian
+sum is not truncated, so the curve matches vega-statistics to floating point.
+"""
+function compute_density_summary(table, x_field::String; group_fields::Vector{String}=String[], npoints::Int=200)
+    npoints >= 2 || throw(ArgumentError("compute_density_summary: npoints must be >= 2, got $npoints"))
+    vals = Tables.getcolumn(table, Symbol(x_field))
+    idx_groups = _group_indices(_key_columns(table; fields=group_fields), length(vals))
+
+    rows = Dict{String,Any}[]
+    sizehint!(rows, length(idx_groups) * npoints)
+    buf = Float64[]
+    degenerate = Any[]
+    for (key, idxs) in idx_groups
+        n = length(idxs)
+        n == 0 && continue
+        resize!(buf, n)
+        @inbounds for k in 1:n
+            buf[k] = float(vals[idxs[k]])
+        end
+        sort!(buf)
+        lo, hi = first(buf), last(buf)
+        h = _kde_bandwidth(buf)
+        if !isfinite(h) || h <= 0 || !(hi > lo)
+            push!(degenerate, key)
+            continue
+        end
+        inv_h = 1 / h
+        scale = inv_h / (n * sqrt(2 * pi))
+        step = (hi - lo) / (npoints - 1)
+        for j in 0:(npoints - 1)
+            # Pin the last sample to `hi` exactly — `lo + (npoints-1)*step` can
+            # land a rounding step short, which shows up as a sliver of missing
+            # area at the right edge of every panel.
+            x = j == npoints - 1 ? hi : lo + j * step
+            acc = 0.0
+            @inbounds for k in 1:n
+                z = (x - buf[k]) * inv_h
+                acc += exp(-0.5 * z * z)
+            end
+            row = Dict{String,Any}("val" => x, "dens" => acc * scale)
+            for (ki, f) in enumerate(group_fields)
+                row[f] = key[ki]
+            end
+            push!(rows, row)
+        end
+    end
+    if !isempty(degenerate)
+        # No `maxlog` here on purpose: this is one summary line per CALL, not per
+        # dropped group, and it is data-dependent — a `maxlog=1` would silence it
+        # for every later plot in the same session (and make it untestable once
+        # any earlier test had tripped it).
+        @warn "AlgebraOfVega: density() dropped $(length(degenerate)) group(s) with no computable KDE (a single row, or every value identical) — those panels render empty. First: $(first(degenerate))"
+    end
+    rows
+end
