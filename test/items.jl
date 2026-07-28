@@ -1119,55 +1119,66 @@ end
 """
 `density()` honours the `col=` / `row=` / `layout=` facet channels, like every
 other analysis. It used to read only `y=` and `color=`, so a faceted density
-emitted a FLAT spec whose density transform had no `groupby` — one KDE pooled
-over every panel's rows, rendered as a single plausible-looking curve.
+emitted a FLAT spec with no facet operator at all — one KDE pooled over every
+panel's rows, rendered as a single plausible-looking curve.
 
-The `groupby` is load-bearing, not belt-and-braces: measured against a headless
-Vega render, Vega-Lite applies an inner spec's `density` transform BEFORE
-partitioning for the facet operator, and that transform drops every field it was
-not told to keep. Without the facet field in `groupby` the facet has nothing left
-to partition on and collapses to one panel.
+A faceted density is now PREAGGREGATED in Julia (`compute_density_summary`), so
+the emitted spec carries `data.values` of `{val, dens, <group fields>}` rows and
+no `density` transform. The grouping key is asserted here through those rows;
+the per-panel extents that motivated the preaggregation are the next item.
 """
 @testitem "density honours col=/row=/layout= faceting" setup=[AoVTestImports] tags=[:translation, :regression] begin
+    # Every group must have enough rows for a KDE, so the grid case (col= × row=)
+    # needs a real cell population — hence chains × draws, not one row per cell.
     params = ["a", "b", "c"]
-    tbl = (; parameter = repeat(params, inner=32),
-             draw      = repeat(1:32, outer=3),
-             value     = vcat((randn(32) .+ 10i for i in 1:3)...))
+    ndraw = 40
+    tbl = (; parameter = repeat(params, inner=2ndraw),
+             chain     = repeat(repeat([1, 2], inner=ndraw), outer=3),
+             value     = vcat((randn(2ndraw) .+ 10i for i in 1:3)...))
+
+    # group field → sorted distinct levels present in the emitted KDE rows
+    levels(vl, field) = sort(unique(r[field] for r in vl["data"]["values"]))
+    rowkeys(vl) = sort(collect(keys(first(vl["data"]["values"]))))
 
     # --- The reported case: col= produced a flat, pooled, single-curve spec. ---
     vl = to_vegalite(vdata(tbl) * mapping(:value; col=:parameter) * density())
     @test vl["facet"]["column"]["field"] == "parameter"
     @test haskey(vl, "spec")                      # the facet OPERATOR, not encoding.column
     @test !haskey(vl, "mark")                     # mark moved inside `spec`
-    @test vl["spec"]["transform"][1]["groupby"] == ["parameter"]
+    @test !haskey(vl["spec"], "transform")        # preaggregated: no VL density transform
     @test vl["spec"]["mark"]["type"] == "area"
     @test vl["data"]["values"] isa AbstractVector  # data stays OUTSIDE the facet
+    @test rowkeys(vl) == ["dens", "parameter", "val"]
+    @test levels(vl, "parameter") == params
 
     # --- row= takes the other grid channel. ---
     rvl = to_vegalite(vdata(tbl) * mapping(:value; row=:parameter) * density())
     @test rvl["facet"]["row"]["field"] == "parameter"
-    @test rvl["spec"]["transform"][1]["groupby"] == ["parameter"]
+    @test levels(rvl, "parameter") == params
 
     # --- layout= is the WRAP form, so a sibling `columns` actually governs. ---
     lvl = to_vegalite(vdata(tbl) * mapping(:value; layout=:parameter) * density() * config(columns=3))
     @test lvl["facet"]["field"] == "parameter"    # wrap form: facet:{field,type}
     @test !haskey(lvl["facet"], "column")
     @test lvl["columns"] == 3
-    @test lvl["spec"]["transform"][1]["groupby"] == ["parameter"]
+    @test levels(lvl, "parameter") == params
 
-    # --- col= AND row= together: both grid channels, both in the groupby. ---
-    gvl = to_vegalite(vdata(tbl) * mapping(:value; col=:parameter, row=:draw) * density())
+    # --- col= AND row= together: both grid channels, both in the grouping key. ---
+    gvl = to_vegalite(vdata(tbl) * mapping(:value; col=:parameter, row=:chain) * density())
     @test gvl["facet"]["column"]["field"] == "parameter"
-    @test gvl["facet"]["row"]["field"] == "draw"
-    @test sort(gvl["spec"]["transform"][1]["groupby"]) == ["draw", "parameter"]
+    @test gvl["facet"]["row"]["field"] == "chain"
+    @test rowkeys(gvl) == ["chain", "dens", "parameter", "val"]
+    @test levels(gvl, "chain") == [1, 2]
+    @test levels(gvl, "parameter") == params
 
-    # --- col= plus color=: colour first, and NOT duplicated when they name the
-    #     same field (VL rejects a repeated groupby entry).
-    cvl = to_vegalite(vdata(tbl) * mapping(:value; col=:parameter, color=:draw) * density())
-    @test cvl["spec"]["transform"][1]["groupby"] == ["draw", "parameter"]
-    @test cvl["spec"]["encoding"]["color"]["field"] == "draw"
+    # --- col= plus color=: both are grouping fields, and NOT duplicated when
+    #     they name the same field (a repeated key would double every curve).
+    cvl = to_vegalite(vdata(tbl) * mapping(:value; col=:parameter, color=:chain) * density())
+    @test rowkeys(cvl) == ["chain", "dens", "parameter", "val"]
+    @test cvl["spec"]["encoding"]["color"]["field"] == "chain"
     same = to_vegalite(vdata(tbl) * mapping(:value; col=:parameter, color=:parameter) * density())
-    @test same["spec"]["transform"][1]["groupby"] == ["parameter"]
+    @test rowkeys(same) == ["dens", "parameter", "val"]
+    @test length(same["data"]["values"]) == 3 * 200   # 3 groups, not 3 groups twice over
 
     # --- `config(facet=(; linkxaxes=:none))` now lands on a spec that HAS a
     #     facet to resolve against — the reported spec carried it over nothing.
@@ -1178,10 +1189,13 @@ to partition on and collapses to one panel.
     @test fvl["spec"]["width"] == 160             # size routes INTO the inner spec
     @test fvl["spec"]["height"] == 180
 
-    # --- Unfaceted output is untouched: bare density has no groupby at all, and
-    #     colour-only keeps exactly the single-field groupby it always had.
+    # --- Unfaceted output is untouched: it KEEPS the VL density transform (one
+    #     shared axis wants one shared extent, and the curve stays live under a
+    #     brush selection). Bare density has no groupby at all; colour-only keeps
+    #     exactly the single-field groupby it always had.
     bare = to_vegalite(vdata(tbl) * mapping(:value) * density())
     @test !haskey(bare["transform"][1], "groupby")
+    @test bare["transform"][1]["density"] == "value"
     @test !haskey(bare, "facet")
     conly = to_vegalite(vdata(tbl) * mapping(:value; color=:parameter) * density())
     @test conly["transform"][1]["groupby"] == ["parameter"]
@@ -1190,17 +1204,105 @@ to partition on and collapses to one panel.
     # --- The `y=` ridgeline already owns the facet operator and VL cannot nest
     #     two, so a sibling col= is named in a warning rather than dropped mute.
     ridge = @test_logs (:warn,) match_mode=:any to_vegalite(
-        vdata(tbl) * mapping(:value; y=:parameter, col=:draw) * density())
+        vdata(tbl) * mapping(:value; y=:parameter, col=:chain) * density())
     @test ridge["facet"]["field"] == "parameter"   # ridgeline preserved
     @test ridge["columns"] == 1
 
-    # --- Multi-layer (`+`): the density sublayer keeps its groupby, so the
-    #     facet lifted from the sibling mark has a field to partition on.
+    # --- Multi-layer (`+`): the density sublayer's precomputed rows are merged
+    #     into the shared faceted dataset behind a `__src` filter, and they carry
+    #     the facet field so the lifted facet has something to partition on.
     mvl = to_vegalite((vdata(tbl) * mapping(:value; col=:parameter) * density()) +
                       (vdata(tbl) * mapping(:value; col=:parameter) * visual(Scatter)))
     @test mvl["facet"]["column"]["field"] == "parameter"
-    dens_sub = only(l for l in mvl["spec"]["layer"]
-                    if any(haskey(t, "density") for t in get(l, "transform", [])))
-    dens_tr = only(t for t in dens_sub["transform"] if haskey(t, "density"))
-    @test dens_tr["groupby"] == ["parameter"]
+    dens_sub = only(l for l in mvl["spec"]["layer"] if l["mark"]["type"] == "area")
+    @test !any(haskey(t, "density") for t in dens_sub["transform"])
+    dens_tag = match(r"'(\w+)'", only(t for t in dens_sub["transform"])["filter"])[1]
+    dens_rows = [r for r in mvl["data"]["values"] if r["__src"] == dens_tag]
+    @test length(dens_rows) == 3 * 200
+    @test sort(unique(r["parameter"] for r in dens_rows)) == params
+end
+
+"""
+A faceted `density()` samples each panel over its OWN `[min, max]`.
+
+Vega-Lite's `density` transform computes ONE extent for the whole dataset even
+when it carries a `groupby`. Measured against a headless Vega render, two groups
+drawn from `N(0,1)` and `N(1000,50)` both came back spanning the pooled
+`[-2.62, 1136.16]`, so the tight group occupied a fraction of a percent of its
+own panel — and `resolve.scale.x = independent` cannot repair it, because the
+shared quantity is the DATA extent, not the scale.
+
+`compute_density_summary` replaces the transform for faceted specs. It matches
+vega-statistics exactly where it can (`bandwidthNRD`; verified to ~2e-15 relative
+against `vega.randomKDE`) and differs only in the one place that is the point:
+the grid is per group.
+"""
+@testitem "density computes per-panel KDE extents" setup=[AoVTestImports] tags=[:translation, :regression] begin
+    n = 200
+    # Three parameters on wildly different scales — the shape that made the
+    # shared extent visible in the first place.
+    tbl = (; parameter = repeat(["tight", "mid", "wide"], inner=n),
+             value     = vcat(0.5 .+ 0.1 .* randn(n),
+                              3.0 .+ 0.4 .* randn(n),
+                              1000.0 .+ 50.0 .* randn(n)))
+    raw = Dict(p => [tbl.value[i] for i in eachindex(tbl.value) if tbl.parameter[i] == p]
+               for p in unique(tbl.parameter))
+
+    vl = to_vegalite(vdata(tbl) * mapping(:value; col=:parameter) * density())
+    rows = vl["data"]["values"]
+    @test length(rows) == 3 * 200          # npoints=200 per group (AoG's default, Vega's maxsteps)
+
+    # `stack: null` is part of the fix, not tidiness: a stacked VL `area` imputes
+    # every series out to the UNION of all series' x values, and it does so before
+    # the facet split — which put the pooled extent straight back into every panel.
+    @test haskey(vl["spec"]["encoding"]["y"], "stack")
+    @test isnothing(vl["spec"]["encoding"]["y"]["stack"])
+    # The unfaceted path is untouched — it keeps the transform AND its stacking.
+    @test !haskey(to_vegalite(vdata(tbl) * mapping(:value) * density())["encoding"]["y"], "stack")
+
+    for (p, vals) in raw
+        grid = [r["val"] for r in rows if r["parameter"] == p]
+        dens = [r["dens"] for r in rows if r["parameter"] == p]
+        @test length(grid) == 200
+        # The panel's grid is EXACTLY its own group's observed range — the same
+        # convention the VL transform's default extent uses, applied per group.
+        @test minimum(grid) == minimum(vals)
+        @test maximum(grid) == maximum(vals)
+        @test issorted(grid)
+        @test all(>=(0), dens)
+        # A pdf on its own support: the truncated trapezoid area is just under 1.
+        area = sum((grid[i+1] - grid[i]) * (dens[i+1] + dens[i]) / 2 for i in 1:199)
+        @test 0.9 < area <= 1.0
+    end
+
+    # The three extents are disjoint — under the old shared extent all three
+    # spanned the pooled range and this test could not tell them apart.
+    ext(p) = extrema(r["val"] for r in rows if r["parameter"] == p)
+    @test ext("tight")[2] < ext("mid")[1]
+    @test ext("mid")[2] < ext("wide")[1]
+
+    # A group with no computable KDE (every value identical, or a single row) is
+    # dropped with a warning rather than emitting a spike or a NaN curve.
+    degen = (; parameter = ["a", "a", "a", "b", "b", "b"],
+               value     = [1.0, 1.0, 1.0, 2.0, 3.0, 4.0])
+    dvl = @test_logs (:warn, r"no computable KDE") match_mode=:any to_vegalite(
+        vdata(degen) * mapping(:value; col=:parameter) * density())
+    @test sort(unique(r["parameter"] for r in dvl["data"]["values"])) == ["b"]
+
+    # The `y=` ridgeline is preaggregated too. With the VL transform this
+    # single-sublayer spec was hoisted above the facet split: one pooled curve,
+    # and — the transform having dropped the level field — a single panel.
+    rvl = to_vegalite(vdata(tbl) * mapping(:value; y=:parameter) * density())
+    @test rvl["facet"]["field"] == "parameter"
+    @test rvl["columns"] == 1
+    rrows = rvl["data"]["values"]
+    @test length(rrows) == 3 * 200
+    @test sort(collect(keys(first(rrows)))) == ["dens", "parameter", "val"]
+    @test !haskey(only(rvl["spec"]["layer"]), "transform")
+    @test isnothing(only(rvl["spec"]["layer"])["encoding"]["y"]["stack"])
+    for (p, vals) in raw
+        grid = [r["val"] for r in rrows if r["parameter"] == p]
+        @test minimum(grid) == minimum(vals)
+        @test maximum(grid) == maximum(vals)
+    end
 end

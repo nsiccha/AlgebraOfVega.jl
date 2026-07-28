@@ -561,6 +561,25 @@ function analysis_to_vl(a::DotIntervalAnalysis, layer::AlgebraOfGraphics.Layer; 
     spec
 end
 
+"""
+    _unstack_area!(encoding)
+
+Set `stack: null` on a density area's `y` encoding. Mandatory wherever the curves
+are preaggregated per group, and measured, not defensive: a Vega-Lite `area` mark
+stacks by default, and stacking pulls in an **impute** step that pads every series
+out to the UNION of all series' x values. That impute runs in the main dataflow,
+i.e. before the facet split, so each panel came back with its own 200 real points
+plus 200 zero-density points covering every other panel's range — per-group
+extents computed in Julia, then thrown away by Vega-Lite one step later. With
+`stack: null` the panels measure 200 points over exactly their own `[min, max]`.
+
+Applied only on the preaggregated path. The unfaceted density keeps Vega-Lite's
+transform and its stacking behaviour untouched here — that stacking is wrong for
+overlaid densities (AlgebraOfGraphics/Makie overlays them) but it is a separate,
+user-visible change and does not belong in this commit.
+"""
+_unstack_area!(encoding::Dict{String,Any}) = (encoding["y"]["stack"] = nothing; encoding)
+
 function density_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
     table = extract_data(layer)
     x_field = length(layer.positional) >= 1 ? _field_name(layer.positional[1]) : "value"
@@ -590,25 +609,42 @@ function density_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
             dropped = join(("`$k=`" for k in (:col, :row, :layout) if haskey(layer.named, k)), ", ")
             @warn "AlgebraOfVega: density() ignores $dropped when `y=$y_field` is given — `y=` already claims the facet operator (one panel per level) and Vega-Lite cannot nest two. Drop `y=` to facet by the other channel instead." maxlog=1
         end
+        # Julia-side KDE, one curve per ridgeline level. The VL `density` transform
+        # this replaces was NOT merely coarse here — it was wrong: with a single
+        # inner sublayer Vega-Lite hoists the transform above the facet split, and
+        # since it also drops every field not in `groupby`, the level field was gone
+        # by the time the facet wanted to partition on it. Measured (headless Vega,
+        # two levels): ONE panel, carrying one KDE pooled over both levels. The
+        # halfeye/raincloud gallery entries escape this only because
+        # `_faceted_layers_to_vl` gives them several inner sublayers, which forces
+        # Vega-Lite to scope the transform per panel instead.
+        dens_layer = Dict{String,Any}(
+            "mark" => Dict{String,Any}("type" => "area", "orient" => "vertical", "opacity" => opacity),
+            "encoding" => Dict{String,Any}(
+                "x" => Dict{String,Any}("field" => "val", "type" => "quantitative", "title" => x_label),
+                "y" => Dict{String,Any}("field" => "dens", "type" => "quantitative", "title" => nothing, "axis" => nothing),
+            ),
+        )
+        if isnothing(table)
+            # No data to preaggregate from — leave the transform in so the spec is
+            # still a valid density against whatever data is supplied downstream.
+            dens_layer["transform"] = [Dict{String,Any}("density" => x_field, "as" => ["val", "dens"])]
+            outer_data = nothing
+        else
+            _unstack_area!(dens_layer["encoding"])
+            outer_data = Dict{String,Any}("values" =>
+                compute_density_summary(table, x_field; group_fields=[y_field]))
+        end
         spec = Dict{String,Any}(
-            "data" => data_to_vl(table),
             "facet" => Dict{String,Any}("field" => y_field, "type" => "nominal",
                                          "header" => Dict{String,Any}("title" => nothing, "labelFontSize" => 14)),
             "columns" => 1,
             "spec" => Dict{String,Any}(
                 "width" => 500, "height" => 60,
-                "layer" => [
-                    Dict{String,Any}(
-                        "mark" => Dict{String,Any}("type" => "area", "orient" => "vertical", "opacity" => opacity),
-                        "transform" => [Dict{String,Any}("density" => x_field, "as" => ["val", "dens"])],
-                        "encoding" => Dict{String,Any}(
-                            "x" => Dict{String,Any}("field" => "val", "type" => "quantitative", "title" => x_label),
-                            "y" => Dict{String,Any}("field" => "dens", "type" => "quantitative", "title" => nothing, "axis" => nothing),
-                        ),
-                    ),
-                ],
+                "layer" => [dens_layer],
             ),
         )
+        !isnothing(outer_data) && (spec["data"] = outer_data)
         if !is_sublayer
             spec["\$schema"] = "https://vega.github.io/schema/vega-lite/v5.json"
         end
@@ -617,18 +653,14 @@ function density_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
         # Check for color grouping
         color_field = haskey(layer.named, :color) ? _field_name(layer.named[:color]) : nothing
         color_label = haskey(layer.named, :color) ? _field_label(layer.named[:color]) : nothing
-        density_transform = Dict{String,Any}("density" => x_field, "as" => ["val", "dens"])
-        # The density transform DROPS every field it isn't told to keep, so the facet
-        # fields have to be in `groupby` or the panels have nothing to partition on.
-        # Colour first (keeps the unfaceted output byte-identical to before), and
-        # deduped — `mapping(:v; col=:p, color=:p)` is a normal spelling and VL
-        # rejects a repeated groupby field.
+        # Grouping key: colour first (so the unfaceted output stays byte-identical
+        # to before), then the facet fields, deduped — `mapping(:v; col=:p, color=:p)`
+        # is a normal spelling and VL rejects a repeated `groupby` field.
         groupby = String[]
         !isnothing(color_field) && push!(groupby, color_field)
         for ff in facet_fields
             ff in groupby || push!(groupby, ff)
         end
-        !isempty(groupby) && (density_transform["groupby"] = groupby)
 
         encoding = Dict{String,Any}(
             "x" => Dict{String,Any}("field" => "val", "type" => "quantitative", "title" => x_label),
@@ -642,11 +674,30 @@ function density_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
 
         spec = Dict{String,Any}(
             "mark" => Dict{String,Any}("type" => "area", "orient" => "vertical", "opacity" => opacity),
-            "transform" => [density_transform],
             "encoding" => encoding,
         )
-        if !isnothing(table)
-            spec["data"] = data_to_vl(table)
+        # FACETED → preaggregate in Julia; UNFACETED → keep the VL transform.
+        #
+        # The transform's `groupby` splits the KDEs correctly but the *extent* is
+        # computed once over the whole dataset, so every panel samples one shared
+        # grid. On a shared axis that is only coarse; on panels it is the bug the
+        # facet was for — measured, two groups on `N(0,1)` and `N(1000,50)` both
+        # span `[-2.62, 1136.16]`, and `resolve.scale.x = independent` does not help
+        # because the extent lives in the data, not the scale.
+        #
+        # Unfaceted stays on the transform deliberately: one shared axis wants one
+        # shared extent, the existing snapshots stay byte-identical, and the curve
+        # keeps recomputing live under a brush selection or `update_data`, which
+        # precomputed rows cannot do.
+        if !isempty(facet) && !isnothing(table)
+            _unstack_area!(encoding)
+            spec["data"] = Dict{String,Any}("values" =>
+                compute_density_summary(table, x_field; group_fields=groupby))
+        else
+            density_transform = Dict{String,Any}("density" => x_field, "as" => ["val", "dens"])
+            !isempty(groupby) && (density_transform["groupby"] = groupby)
+            spec["transform"] = [density_transform]
+            !isnothing(table) && (spec["data"] = data_to_vl(table))
         end
         if !is_sublayer
             spec["\$schema"] = "https://vega.github.io/schema/vega-lite/v5.json"
