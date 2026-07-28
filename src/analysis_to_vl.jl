@@ -564,19 +564,26 @@ end
 """
     _unstack_area!(encoding)
 
-Set `stack: null` on a density area's `y` encoding. Mandatory wherever the curves
-are preaggregated per group, and measured, not defensive: a Vega-Lite `area` mark
-stacks by default, and stacking pulls in an **impute** step that pads every series
-out to the UNION of all series' x values. That impute runs in the main dataflow,
-i.e. before the facet split, so each panel came back with its own 200 real points
-plus 200 zero-density points covering every other panel's range — per-group
-extents computed in Julia, then thrown away by Vega-Lite one step later. With
+Set `stack: null` on a density area's `y` encoding. Applied to **every** density
+area — faceted, unfaceted, ridgeline — for two independent reasons.
+
+**Densities overlay, they do not stack.** A Vega-Lite `area` mark with a
+quantitative `y` and a nominal `color` stacks by default, so a colour-grouped
+`density()` drew each group resting on the one below it. AlgebraOfGraphics and
+Makie overlay them, and AoV's own `opacity: 0.4` on the mark only means anything
+if the curves are expected to overlap. User decision `1ceow72` — *unstack, match
+AlgebraOfGraphics/Makie*.
+
+**Stacking also silently globalizes a preaggregated grid** — measured, not
+defensive. Stacking pulls in an **impute** step that pads every series out to the
+UNION of all series' x values, and that impute runs in the main dataflow, i.e.
+before the facet split. So each panel came back with its own 200 real points plus
+200 zero-density points covering every other panel's range: per-group extents
+computed in Julia, then thrown away by Vega-Lite one step later. With
 `stack: null` the panels measure 200 points over exactly their own `[min, max]`.
 
-Applied only on the preaggregated path. The unfaceted density keeps Vega-Lite's
-transform and its stacking behaviour untouched here — that stacking is wrong for
-overlaid densities (AlgebraOfGraphics/Makie overlays them) but it is a separate,
-user-visible change and does not belong in this commit.
+The second reason makes this **mandatory** on the preaggregated path; the first
+makes it correct everywhere else.
 """
 _unstack_area!(encoding::Dict{String,Any}) = (encoding["y"]["stack"] = nothing; encoding)
 
@@ -625,13 +632,13 @@ function density_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
                 "y" => Dict{String,Any}("field" => "dens", "type" => "quantitative", "title" => nothing, "axis" => nothing),
             ),
         )
+        _unstack_area!(dens_layer["encoding"])
         if isnothing(table)
             # No data to preaggregate from — leave the transform in so the spec is
             # still a valid density against whatever data is supplied downstream.
             dens_layer["transform"] = [Dict{String,Any}("density" => x_field, "as" => ["val", "dens"])]
             outer_data = nothing
         else
-            _unstack_area!(dens_layer["encoding"])
             outer_data = Dict{String,Any}("values" =>
                 compute_density_summary(table, x_field; group_fields=[y_field]))
         end
@@ -653,9 +660,9 @@ function density_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
         # Check for color grouping
         color_field = haskey(layer.named, :color) ? _field_name(layer.named[:color]) : nothing
         color_label = haskey(layer.named, :color) ? _field_label(layer.named[:color]) : nothing
-        # Grouping key: colour first (so the unfaceted output stays byte-identical
-        # to before), then the facet fields, deduped — `mapping(:v; col=:p, color=:p)`
-        # is a normal spelling and VL rejects a repeated `groupby` field.
+        # Grouping key: colour first, then the facet fields, deduped —
+        # `mapping(:v; col=:p, color=:p)` is a normal spelling and VL rejects a
+        # repeated `groupby` field.
         groupby = String[]
         !isnothing(color_field) && push!(groupby, color_field)
         for ff in facet_fields
@@ -671,6 +678,7 @@ function density_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
             !isnothing(color_label) && color_label != color_field && (color_enc["title"] = color_label)
             encoding["color"] = color_enc
         end
+        _unstack_area!(encoding)
 
         spec = Dict{String,Any}(
             "mark" => Dict{String,Any}("type" => "area", "orient" => "vertical", "opacity" => opacity),
@@ -686,11 +694,9 @@ function density_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
         # because the extent lives in the data, not the scale.
         #
         # Unfaceted stays on the transform deliberately: one shared axis wants one
-        # shared extent, the existing snapshots stay byte-identical, and the curve
-        # keeps recomputing live under a brush selection or `update_data`, which
-        # precomputed rows cannot do.
+        # shared extent, and the curve keeps recomputing live under a brush
+        # selection or `update_data`, which precomputed rows cannot do.
         if !isempty(facet) && !isnothing(table)
-            _unstack_area!(encoding)
             spec["data"] = Dict{String,Any}("values" =>
                 compute_density_summary(table, x_field; group_fields=groupby))
         else
