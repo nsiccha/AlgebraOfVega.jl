@@ -1257,8 +1257,15 @@ the grid is per group.
     # the facet split — which put the pooled extent straight back into every panel.
     @test haskey(vl["spec"]["encoding"]["y"], "stack")
     @test isnothing(vl["spec"]["encoding"]["y"]["stack"])
-    # The unfaceted path is untouched — it keeps the transform AND its stacking.
-    @test !haskey(to_vegalite(vdata(tbl) * mapping(:value) * density())["encoding"]["y"], "stack")
+    # The unfaceted path keeps the VL transform but is unstacked too — densities
+    # overlay, they do not stack (user decision `1ceow72`). Both spellings, since
+    # only the colour-grouped one had anything to stack in the first place.
+    unf = to_vegalite(vdata(tbl) * mapping(:value) * density())
+    @test haskey(unf["encoding"]["y"], "stack") && isnothing(unf["encoding"]["y"]["stack"])
+    @test haskey(unf, "transform")   # …and it is still the transform, not preaggregated rows
+    unf_c = to_vegalite(vdata(tbl) * mapping(:value; color=:parameter) * density())
+    @test haskey(unf_c["encoding"]["y"], "stack") && isnothing(unf_c["encoding"]["y"]["stack"])
+    @test haskey(unf_c, "transform")
 
     for (p, vals) in raw
         grid = [r["val"] for r in rows if r["parameter"] == p]
