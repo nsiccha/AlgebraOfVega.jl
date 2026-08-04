@@ -43,6 +43,17 @@ one dict per row, preserving values by column name.
     @test rows[1] isa Dict{String,Any}
     @test rows[1]["total_bill"] == nt.total_bill[1]
     @test rows[1]["sex"] == nt.sex[1]
+
+    # Regression: the element type must be concretely Dict{String,Any} even for
+    # an EMPTY table or a column whose eltype is `Any` (e.g. preaggregate()'s
+    # group-key columns). An untyped comprehension infers `Any` there and
+    # returns a `Vector{Any}`, which misses `_ribbon_to_vl(::Vector{<:Dict{String}})`
+    # and 500s a pre-aggregated lineribbon over an empty study.
+    empty_rows = AlgebraOfVega.table_to_rows((x=Float64[], median=Float64[], lo=Float64[]))
+    @test empty_rows isa Vector{Dict{String,Any}}
+    @test isempty(empty_rows)
+    anycol_rows = AlgebraOfVega.table_to_rows((study=Any[], x=Any[], median=Float64[]))
+    @test anycol_rows isa Vector{Dict{String,Any}}
 end
 
 """
@@ -884,6 +895,35 @@ empty plot, while explicitly grouped data still yields one row per group.
     g = (; value=vcat(v, v), grp=vcat(fill("a", 64), fill("b", 64)))
     gvl = to_vegalite(data(g) * mapping(:value; color=:grp) * pointinterval())
     @test length(gvl["data"]["values"]) == 2
+end
+
+"""
+A pre-aggregated `lineribbon(bands=...)` over an EMPTY table serializes to an
+empty ribbon (`data.values: []`) rather than 500-ing — e.g. a single-study
+facet page whose study has no rows after dropping NaNs.
+"""
+@testitem "pre-aggregated lineribbon over an empty table" setup=[AoVTestImports] tags=[:tidybayes, :regression] begin
+    # Regression: preaggregate() emits `Any`-eltype group-key columns, so an
+    # empty result made `table_to_rows` infer `Vector{Any}`, which missed
+    # `_ribbon_to_vl(::Vector{<:Dict{String}})` — MethodError, a 500 on valid
+    # (empty) input.
+    agg = AlgebraOfVega.preaggregate((study=String[], x=Float64[], y=Float64[]);
+                                     y=:y, group_keys=[:study, :x], probs=[0.025, 0.5, 0.975])
+    med = Symbol(AlgebraOfVega._quantile_colname(0.5))
+    lo = Symbol(AlgebraOfVega._quantile_colname(0.025))
+    hi = Symbol(AlgebraOfVega._quantile_colname(0.975))
+
+    # no colour and colour-grouped both used to throw; both must now serialize.
+    vl = to_vegalite(data(agg) * mapping(:x, med => "Response") * lineribbon(bands=[lo => hi]))
+    @test isempty(vl["data"]["values"])
+    vlc = to_vegalite(data(agg) * mapping(:x, med => "Response", color=:study) * lineribbon(bands=[lo => hi]))
+    @test isempty(vlc["data"]["values"])
+
+    # Non-empty is unaffected: one row per (study, x) cell.
+    ne = AlgebraOfVega.preaggregate((study=["A", "A", "B", "B"], x=[1.0, 2.0, 1.0, 2.0], y=[0.1, 0.2, 0.3, 0.4]);
+                                    y=:y, group_keys=[:study, :x], probs=[0.025, 0.5, 0.975])
+    nvl = to_vegalite(data(ne) * mapping(:x, med => "Response", color=:study) * lineribbon(bands=[lo => hi]))
+    @test length(nvl["data"]["values"]) == 4
 end
 
 """
