@@ -293,5 +293,10 @@ Works with any table type (NamedTuples, DataFrames, etc.).
 function table_to_rows(tbl)
     cols = Tables.columnnames(tbl)
     n = length(Tables.getcolumn(tbl, first(cols)))
-    [Dict(string(c) => Tables.getcolumn(tbl, c)[i] for c in cols) for i in 1:n]
+    # Type the comprehension: with an EMPTY table (n==0) or an `Any`-eltype
+    # column (e.g. preaggregate()'s group-key columns), an untyped
+    # comprehension infers element type `Any` and returns a `Vector{Any}`,
+    # which misses `_ribbon_to_vl(::Vector{<:Dict{String}}, ...)` and 500s.
+    # Fixing it here corrects every downstream consumer at once.
+    Dict{String,Any}[Dict(string(c) => Tables.getcolumn(tbl, c)[i] for c in cols) for i in 1:n]
 end
