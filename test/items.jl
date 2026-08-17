@@ -1353,3 +1353,49 @@ the grid is per group.
         @test maximum(grid) == maximum(vals)
     end
 end
+
+"""
+`auto_remap` must not silently mis-facet when a `fixed=` facet field collides
+with a DIFFERENT field the base `mapping(...)` already assigns to that channel.
+Both a default channel kw and a fixed channel kw would then target the same AoG
+key; the base default wins the `_rebuild_layer` merge, dropping the pinned field
+and mis-faceting the plot with no signal. `refine_channels` now raises a clear
+error for that case (only for fixed fields that actually vary), while leaving
+the legitimate `fixed=` uses — a field absent from the base mapping, or the same
+field the base already assigns — untouched.
+"""
+@testitem "auto_remap fixed-channel conflict" setup=[AoVTestImports] tags=[:auto_remap, :regression] begin
+    # Two-value facet fields so nothing is refined out.
+    band = (dose = repeat([1.0, 10.0]; outer=8),
+            median = collect(1.0:16.0),
+            study = repeat(["S1", "S2"]; inner=8),
+            assay = repeat(["A1", "A2"]; inner=4, outer=2),
+            outcome = repeat(["Full", "Linear"]; inner=2, outer=4),
+            source = repeat(["p1", "p2"]; outer=8))
+    obs = (dose = [1.0, 10.0, 1.0, 10.0],
+           qoi = [1.0, 2.0, 3.0, 4.0],
+           study = ["S1", "S1", "S2", "S2"],
+           assay = ["A1", "A2", "A1", "A2"])
+    dims = ["source" => "Source", "outcome" => "Outcome",
+            "assay" => "Assay", "study" => "Study"]
+
+    # CONFLICT: base puts col=:assay, fixed puts :outcome on the same column
+    # channel → clear error naming both fields and the channel.
+    bands = data(band) * mapping(:dose, :median; row=:study, col=:assay, color=:source) * visual(Band)
+    observed = data(obs) * mapping(:dose, :qoi; row=:study, col=:assay) * visual(Scatter; color="black")
+    conflict = (bands + observed) * config(height=200)
+    @test_throws "already assigns" AlgebraOfVega._auto_remap_parts(
+        "c", conflict; dims=dims, fixed=Dict(:column => "outcome"), pinned=:row)
+    @test_throws ":column" AlgebraOfVega._auto_remap_parts(
+        "c", conflict; dims=dims, fixed=Dict(:column => "outcome"), pinned=:row)
+
+    # LEGIT (absent from base): base has no col=, fixed pins :assay to column.
+    legit = (data(band) * mapping(:dose, :median; row=:study, color=:source) * visual(Band) +
+             data(obs) * mapping(:dose, :qoi; row=:study) * visual(Scatter; color="black")) * config(height=200)
+    @test AlgebraOfVega._auto_remap_parts(
+        "l", legit; dims=dims, fixed=Dict(:column => "assay"), pinned=:row) isa Tuple
+
+    # LEGIT (same field): base col=:assay AND fixed column=assay agree — no error.
+    @test AlgebraOfVega._auto_remap_parts(
+        "a", conflict; dims=dims, fixed=Dict(:column => "assay"), pinned=:row) isa Tuple
+end

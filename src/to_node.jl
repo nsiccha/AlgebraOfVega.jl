@@ -694,6 +694,36 @@ function refine_channels(resolved::NamedTuple, tables...)
         kept = filter(_useful, fs)
         isempty(kept) || (useful_fixed[ch] = kept)
     end
+    # Validate: a `fixed=` facet/colour assignment must not collide with a
+    # DIFFERENT field the base `mapping(...)` already put on the same channel.
+    # When it does (e.g. base `col=:assay` + `fixed=Dict(:column=>"outcome")`),
+    # both a default channel kw and a fixed channel kw target the same AoG key;
+    # the `_rebuild_layer` merge lets the base default win, silently dropping the
+    # pinned field and mis-faceting the plot with no signal to the reader. We
+    # only check fixed fields that survived the `_useful` cardinality filter
+    # above, so a single-valued fixed field — which produces no facet anyway —
+    # never trips this. A fixed field absent from the base mapping (the
+    # documented legitimate `fixed=` use, e.g. the `auto_remap_node` docstring)
+    # has an empty base default for its channel and passes.
+    _flabel(f) = get(resolved.dim_label_map, f, f)
+    _flabels(fs) = join(("`$f`" * (_flabel(f) == f ? "" : " ($(_flabel(f)))") for f in fs), ", ")
+    for (ch, kept_fixed) in useful_fixed
+        ch in ("color", "row", "column") || continue
+        ch == string(resolved.pinned) && continue
+        conflicting = filter(f -> !(f in kept_fixed), get(resolved.defaults, ch, String[]))
+        isempty(conflicting) && continue
+        error("""
+        auto_remap: the :$ch channel is pinned via `fixed=` to $(_flabels(kept_fixed)), but the \
+        base `mapping(...)` already assigns $(_flabels(conflicting)) to the same channel. Two \
+        different fields cannot share the :$ch facet — the `fixed=` assignment is silently \
+        overridden by the base mapping's, dropping the pinned field and mis-faceting the plot. \
+        Fix it by ONE of:
+          • remove $(_flabels(conflicting)) from :$ch in the base `mapping(...)` (assign it another \
+        channel or drop it) so `fixed=` owns :$ch; or
+          • drop the `fixed=Dict(:$ch => …)` entry and set the field on :$ch directly in `mapping(...)`; or
+          • move $(_flabels(conflicting)) into `dims` and let the reader pick its channel at runtime \
+        instead of pinning one.""")
+    end
     unchanged = length(useful_dims) == length(resolved.dims) &&
                 length(useful_fixed) == length(resolved.fixed) &&
                 all(length(useful_fixed[k]) == length(resolved.fixed[k]) for k in keys(resolved.fixed))
