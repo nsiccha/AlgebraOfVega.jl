@@ -32,22 +32,40 @@ jobs:
       - uses: julia-actions/cache@v2
       - name: Install unregistered dependencies
         run: |
-          git clone -b kb-impl/DynamicObjects-sbpmx-reflect https://github.com/nsiccha/DynamicObjects.jl.git
-          git clone -b dev https://github.com/nsiccha/HTMX.jl.git
-          git clone -b devibe https://github.com/nsiccha/HTMXObjects.jl.git
-          git clone https://github.com/nsiccha/Treebars.jl.git
-          cp Project.toml Project.toml.test-backup
+          # Clone the unregistered deps OUTSIDE the checkout. TestItemRunner's
+          # `@run_package_tests` scans the project root recursively, so deps
+          # cloned as subdirs of the checkout would drag their OWN test suites
+          # into this run (204 spurious errors from tests whose deps we don't
+          # have). $RUNNER_TEMP is outside $GITHUB_WORKSPACE, so it is not
+          # scanned.
+          DEPS="$RUNNER_TEMP/aov-ci-deps"
+          mkdir -p "$DEPS"
+          git clone -b kb-impl/DynamicObjects-sbpmx-reflect https://github.com/nsiccha/DynamicObjects.jl.git "$DEPS/DynamicObjects.jl"
+          git clone -b dev https://github.com/nsiccha/HTMX.jl.git "$DEPS/HTMX.jl"
+          git clone -b devibe https://github.com/nsiccha/HTMXObjects.jl.git "$DEPS/HTMXObjects.jl"
+          git clone https://github.com/nsiccha/Treebars.jl.git "$DEPS/Treebars.jl"
           julia --project -e '
+            # Julia 1.11+ (setup-julia "1"/"pre") rejects `Pkg.develop(path=...)`
+            # for a package the active project already sources by url/rev
+            # ("`path` and `url` are conflicting specifications"). Strip the
+            # committed [sources] table from this throwaway CI checkout so the
+            # path-develops below are the sole source. No-op on 1.10 ("lts"),
+            # which ignores [sources] anyway.
+            import TOML
+            proj = Base.active_project()
+            d = TOML.parsefile(proj)
+            haskey(d, "sources") && delete!(d, "sources")
+            open(proj, "w") do io; TOML.print(io, d); end
             using Pkg
+            deps = ENV["RUNNER_TEMP"] * "/aov-ci-deps"
             Pkg.develop([
-              PackageSpec(path="DynamicObjects.jl"),
-              PackageSpec(path="HTMX.jl"),
-              PackageSpec(path="HTMXObjects.jl"),
-              PackageSpec(path="Treebars.jl"),
+              PackageSpec(path=joinpath(deps, "DynamicObjects.jl")),
+              PackageSpec(path=joinpath(deps, "HTMX.jl")),
+              PackageSpec(path=joinpath(deps, "HTMXObjects.jl")),
+              PackageSpec(path=joinpath(deps, "Treebars.jl")),
             ])
+            Pkg.resolve()
           '
-          mv Project.toml.test-backup Project.toml
-          julia --project -e 'using Pkg; Pkg.resolve()'
       - uses: julia-actions/julia-buildpkg@v1
       - name: Run tests
         run: julia --project=. -e 'using Pkg; Pkg.test(; coverage=true)'
