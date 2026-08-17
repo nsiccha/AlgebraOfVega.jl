@@ -37,9 +37,39 @@ jobs:
         run: cd docs && npm install
       - name: Install dependencies
         run: |
-          git clone https://github.com/nsiccha/HTMX.jl.git
-          git clone -b dev https://github.com/nsiccha/HTMXObjects.jl.git
-          julia --project=docs -e 'using Pkg; Pkg.develop([PackageSpec(path=pwd()), PackageSpec(path="HTMX.jl"), PackageSpec(path="HTMXObjects.jl")]); Pkg.instantiate()'
+          # Clone deps OUTSIDE the checkout (see test.yml). The pinned refs are
+          # the combination that actually precompiles together on Julia 1.12:
+          # HTMXObjects on `devibe` + DynamicObjects on `sbpmx-reflect`. The old
+          # `dev` HTMXObjects against the registered DynamicObjects fails to
+          # precompile (`HTMX.Cobweb` undefined + DynamicObjects API drift), so
+          # DynamicObjects must be developed here rather than pulled from the
+          # registry.
+          DEPS="$RUNNER_TEMP/aov-ci-deps"
+          mkdir -p "$DEPS"
+          git clone -b kb-impl/DynamicObjects-sbpmx-reflect https://github.com/nsiccha/DynamicObjects.jl.git "$DEPS/DynamicObjects.jl"
+          git clone -b dev https://github.com/nsiccha/HTMX.jl.git "$DEPS/HTMX.jl"
+          git clone -b devibe https://github.com/nsiccha/HTMXObjects.jl.git "$DEPS/HTMXObjects.jl"
+          git clone https://github.com/nsiccha/Treebars.jl.git "$DEPS/Treebars.jl"
+          julia --project=docs -e '
+            # See test.yml: Julia 1.11+ rejects path-develop of a package the
+            # active project already sources by url/rev. Strip [sources] from
+            # this throwaway docs env so the path-develops are the sole source.
+            import TOML
+            proj = Base.active_project()
+            d = TOML.parsefile(proj)
+            haskey(d, "sources") && delete!(d, "sources")
+            open(proj, "w") do io; TOML.print(io, d); end
+            using Pkg
+            deps = ENV["RUNNER_TEMP"] * "/aov-ci-deps"
+            Pkg.develop([
+              PackageSpec(path=pwd()),
+              PackageSpec(path=joinpath(deps, "DynamicObjects.jl")),
+              PackageSpec(path=joinpath(deps, "HTMX.jl")),
+              PackageSpec(path=joinpath(deps, "HTMXObjects.jl")),
+              PackageSpec(path=joinpath(deps, "Treebars.jl")),
+            ])
+            Pkg.instantiate()
+          '
       - name: Build and deploy
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
