@@ -14,6 +14,11 @@ jobs:
   test:
     runs-on: ${{ matrix.os }}
     strategy:
+      # A transient "Set up job" provisioning failure on the scarce Windows /
+      # macOS hosted runners must not cancel the other cells: without this, one
+      # flaky runner reds the whole matrix and discards the (passing) Linux +
+      # other-OS results. Each cell now runs and reports independently.
+      fail-fast: false
       matrix:
         julia-version: ['lts', '1', 'pre']
         julia-arch: [x64]
