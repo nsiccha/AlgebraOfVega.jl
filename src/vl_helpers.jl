@@ -74,8 +74,11 @@ Create a `Config` with Vega-Lite properties. Common options:
 - `params`, `transform` — VL interactivity parameters and data transforms
 - `select` — field(s) for client-side dropdown filtering (e.g. `select=:origin`)
 - `scales` — an AoG `scales(...)` object, mirroring `draw(spec, scales(...))`. Currently
-  translates X/Y/Z `scale=log`/`log2`/`log10`/`sqrt`/`identity` to VL scale types.
-  Example: `config(scales=scales(Y=(; scale=log10)))`.
+  translates X/Y/Z `scale=log`/`log2`/`log10`/`sqrt`/`symlog`/`identity` to VL scale types.
+  Example: `config(scales=scales(Y=(; scale=log10)))`. Use `scale=symlog` for a symlog
+  axis (linear near 0, log beyond — keeps genuine zeros a plain `log` axis cannot render),
+  optionally with `constant=` to tune the linear-region half-width (VL default 1):
+  `config(scales=scales(X=(; scale=symlog, constant=2)))`.
 - `facet` — an AoG-style NamedTuple passed to `draw(; facet=...)`. `linkxaxes=:none` /
   `linkyaxes=:none` translate to VL `resolve.scale.<axis>="independent"`.
   Example: `config(facet=(; linkxaxes=:none, linkyaxes=:none))`.

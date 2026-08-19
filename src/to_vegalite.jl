@@ -156,7 +156,8 @@ function _aog_scale_fn_to_vl(f)
     f === log2 && return Dict{String,Any}("type" => "log", "base" => 2)
     f === log && return Dict{String,Any}("type" => "log", "base" => ℯ)
     f === sqrt && return Dict{String,Any}("type" => "sqrt")
-    @warn "AlgebraOfVega: cannot translate scale function `$f` to a Vega-Lite scale; leaving axis untransformed. Supported: identity, log, log2, log10, sqrt." maxlog=1
+    f === symlog && return Dict{String,Any}("type" => "symlog")
+    @warn "AlgebraOfVega: cannot translate scale function `$f` to a Vega-Lite scale; leaving axis untransformed. Supported: identity, log, log2, log10, sqrt, symlog." maxlog=1
     nothing
 end
 
@@ -165,18 +166,23 @@ _aog_axis_key_to_vl_channel(k::Symbol) =
 
 # Per-channel scale options forwarded from a `scales(X=(; scale=..., nice=..., ...))`
 # NamedTuple into the VL `encoding.<ch>.scale` dict. Maps Julia key → VL key.
+# `constant` is the symlog linear-region half-width (VL default 1); it rides here
+# like the other VL-side scale details (these keys are Vega-Lite-only — AoG's
+# continuous X/Y/Z scale rejects them on the `sdraw`/Makie path).
 const _SCALES_NT_FORWARD = (
-    nice   = "nice",
-    zero   = "zero",
-    domain = "domain",
-    clamp  = "clamp",
+    nice     = "nice",
+    zero     = "zero",
+    domain   = "domain",
+    clamp    = "clamp",
+    constant = "constant",
 )
 
 """Translate an AoG `Scales` object into a VL encoding-override dict (X/Y/Z scales only).
 
 Per-channel kwargs forwarded into the VL `scale` dict:
-- `scale` — translated via `_aog_scale_fn_to_vl` (log/log2/log10/sqrt/identity)
-- `nice`, `zero`, `domain`, `clamp` — passed through verbatim
+- `scale` — translated via `_aog_scale_fn_to_vl` (log/log2/log10/sqrt/symlog/identity)
+- `nice`, `zero`, `domain`, `clamp`, `constant` — passed through verbatim
+  (`constant` tunes the `symlog` linear-region half-width)
 
 Channels with no forwardable kwargs are skipped (no `scale` key emitted)."""
 function _scales_to_encoding_override(sc::AlgebraOfGraphics.Scales)
