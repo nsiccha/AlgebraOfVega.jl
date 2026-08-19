@@ -10,6 +10,7 @@ and auto-interactivity.
 function to_vegalite(layer::AlgebraOfGraphics.Layer)
     spec = layer_to_vl(layer)
     _apply_no_zero_default!(spec)
+    _apply_no_truncate_default!(spec)
     _densify_facet_sort!(spec)
     spec
 end
@@ -17,6 +18,7 @@ end
 function to_vegalite(layers::AlgebraOfGraphics.Layers)
     spec = layers_to_vl(layers)
     _apply_no_zero_default!(spec)
+    _apply_no_truncate_default!(spec)
     _densify_facet_sort!(spec)
     spec
 end
@@ -40,6 +42,34 @@ function _apply_no_zero_default!(spec::Dict)
         for sub in spec["layer"]; _apply_no_zero_default!(sub); end
     end
     if haskey(spec, "spec"); _apply_no_zero_default!(spec["spec"]); end
+end
+
+# AoV default: never silently truncate the LABELS of user-read guides. Vega-Lite
+# clips legend / axis / facet-header labels to a pixel budget (`labelLimit` —
+# default 160 px for legend labels, 180 px for axis and header labels), rendering
+# anything longer as a trailing "…". Makie / `sdraw` never truncate, and the
+# ecosystem never-truncate rule (ui layer-root primer, section `fe7b91fb`: never
+# silently truncate/ellipsize content a human reads) forbids it — a translation
+# layer must not clip legend/axis text a consumer passed in full. So default
+# `labelLimit=0` ("no limit", per Vega's text-mark `limit` semantic:
+# https://vega.github.io/vega/docs/marks/text/ — "default 0, indicating no
+# limit") on every guide, unless a `labelLimit` is already present. Set on the
+# TOP-LEVEL `config`, so it covers every guide in single / layered / faceted
+# specs at once; a per-encoding `legend.labelLimit` / `axis.labelLimit` still
+# wins, and `config(config=Dict("legend"=>Dict("labelLimit"=>160)))` opts a spec
+# back into truncation. Scope is LABELS: titles use a separate `titleLimit`
+# (legend default 180) and are left at Vega-Lite defaults.
+const _NO_TRUNCATE_GUIDES = ("legend", "axis", "header")
+_apply_no_truncate_default!(_) = nothing
+function _apply_no_truncate_default!(spec::Dict)
+    cfg = get!(spec, "config", Dict{String,Any}())
+    cfg isa Dict || return spec
+    for g in _NO_TRUNCATE_GUIDES
+        guide = get!(cfg, g, Dict{String,Any}())
+        guide isa Dict || continue
+        haskey(guide, "labelLimit") || (guide["labelLimit"] = 0)
+    end
+    return spec
 end
 
 # Vega-Lite mis-binds faceted panels when a facet channel carries an explicit
@@ -114,6 +144,24 @@ function _densify_facet_sort!(spec::Dict)
         push!(vals, filler)
     end
     return
+end
+
+# Generic recursive dict merge: a nested-Dict value merges key-by-key into the
+# matching target Dict; every other value (strings, numbers, arrays) replaces.
+# Used for the `config(config=…)` passthrough so a user overlay preserves the
+# base config's other keys (no-truncate labelLimit defaults, font_scale sizes).
+function _deep_merge_dict!(target::Dict, src::Dict)
+    for (k, v) in src
+        sk = string(k)
+        tv = get(target, sk, nothing)
+        vd = _as_dict(v)
+        if !isnothing(vd) && tv isa Dict
+            _deep_merge_dict!(tv, vd)
+        else
+            target[sk] = v
+        end
+    end
+    return target
 end
 
 function _deep_merge_encoding!(target_enc::Dict, config_enc::Dict)
@@ -329,6 +377,13 @@ function to_vegalite(v::VegaSpec)
             elseif sk == "select"
                 # Collect select fields — processed after spec is built
                 select_fields = _select_field_list(val)
+            elseif sk == "config" && !isnothing(_as_dict(val))
+                # Deep-merge a user `config(config=…)` Dict into the base config
+                # rather than replacing it. The base config now carries the
+                # no-truncate `labelLimit` defaults (and any `font_scale` sizes),
+                # so a wholesale replace would silently drop them — re-enabling
+                # truncation just because the user set some unrelated config key.
+                _deep_merge_dict!(get!(spec, "config", Dict{String,Any}()), _as_dict(val))
             else
                 spec[sk] = val
             end
