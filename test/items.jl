@@ -537,6 +537,27 @@ legacy `independent_scales=true` path still works (with a deprecation warning).
                encoding=Dict(:x => Dict("scale" => Dict("domain" => [-1.0, 1.0]))))
     vl11 = to_vegalite(spec11)
     @test vl11["encoding"]["x"]["scale"]["domain"] == [-1.0, 1.0]
+
+    # scales(X=(; scale=symlog)) → VL encoding x.scale.type == "symlog".
+    # symlog is linear near 0, log beyond — it renders genuine x=0 observations
+    # that a plain `log` axis cannot (log(0) = -Inf collapses the whole axis).
+    spec12 = data(df) * mapping(:x, :y) * visual(Scatter) *
+        config(scales=scales(X=(; scale=symlog)))
+    vl12 = to_vegalite(spec12)
+    @test vl12["encoding"]["x"]["scale"]["type"] == "symlog"
+    @test !haskey(vl12["encoding"]["x"]["scale"], "base")
+
+    # scales(X=(; scale=symlog, constant=2)) → symlog + linear-region constant
+    spec13 = data(df) * mapping(:x, :y) * visual(Scatter) *
+        config(scales=scales(X=(; scale=symlog, constant=2)))
+    vl13 = to_vegalite(spec13)
+    @test vl13["encoding"]["x"]["scale"]["type"] == "symlog"
+    @test vl13["encoding"]["x"]["scale"]["constant"] == 2
+
+    # symlog keeps genuine zeros (linear region around 0) and is portable to the
+    # sdraw/Makie path — it is Makie.pseudolog10, a native reversible axis scale.
+    @test symlog(0.0) == 0.0
+    @test symlog(100.0) > symlog(1.0) > 0.0
 end
 
 """

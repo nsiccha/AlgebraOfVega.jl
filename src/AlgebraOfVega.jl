@@ -37,6 +37,32 @@ export to_vegalite, to_json, to_html, to_node, vega_head, vega_controls, plot_si
 export plot_summary_md, PlotSummary
 export vega_runtime, update_data, vega_cdn_urls, mapping_controls, resolve_channels, refine_channels, auto_remap_node
 export with_plot_caption, draws_summary_table
+export symlog
+
+"""
+    symlog
+
+Symlog scale marker for the sanctioned `scales=` API — e.g.
+`config(scales=scales(X=(; scale=symlog)))`. Selects a Vega-Lite `symlog`
+scale: **linear near 0, logarithmic beyond**. Unlike `log`/`log10` — which
+cannot represent a genuine `x=0`/`y=0` observation (`log(0) = -∞`, so a zero
+in the domain collapses the whole axis) — `symlog` renders the true zeros
+while still log-compressing a wide positive range. It is the right axis for a
+concentration/exposure variable that has real pre-dose zeros alongside a large
+dynamic range.
+
+Tune the half-width of the linear region around 0 with an optional `constant=`
+kwarg (Vega-Lite default `1`):
+`config(scales=scales(X=(; scale=symlog, constant=2)))`.
+
+`symlog` is `Makie.pseudolog10`, so `scale=symlog` is portable: the interactive
+(`vdraw`/Vega-Lite) path emits `scale.type="symlog"` and the static
+(`sdraw`/Makie) path gets the matching pseudo-log axis (unit linear region).
+The `constant` kwarg tunes the Vega-Lite path only (Makie's `pseudolog10` has a
+fixed unit linear region); like `nice`/`zero`/`domain`/`clamp`, it is a
+Vega-Lite-side scale detail.
+"""
+const symlog = Makie.pseudolog10
 
 """
     with_plot_caption(plot_node, caption; plot_id, kwargs...)
