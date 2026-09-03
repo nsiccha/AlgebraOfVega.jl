@@ -254,6 +254,72 @@ function _scales_to_encoding_override(sc::AlgebraOfGraphics.Scales)
     override
 end
 
+"""Translate the props of a categorical/continuous `scales(Color=(; palette, categories, colormap))`
+into a VL colour `scale` dict — or an empty dict if the `Scales` object names no `Color` scale.
+
+- `categories` → `scale.domain` (the group ORDER). AoG allows a plain value vector
+  (`["reference","Female","Male"]`) or `value => label` relabel pairs; either way the
+  domain is the VALUES (relabel targets are dropped — VL relabels via `legend.labelExpr`,
+  out of scope here).
+- `palette` → `scale.range` when it is an explicit colour vector, or `scale.scheme` when it
+  is a named Vega scheme (`Symbol`/`String`, e.g. `:tableau10`).
+- `colormap` → `scale.scheme` (the continuous-colour spelling of a named scheme).
+- `colorrange` → `scale.domain` (the continuous-colour value range, e.g. `(0.0, 1.0)`)."""
+function _color_scale_props_to_vl(props)
+    vl_scale = Dict{String,Any}()
+    if haskey(props, :categories)
+        cats = props[:categories]
+        vl_scale["domain"] = [c isa Pair ? first(c) : c for c in cats]
+    end
+    if haskey(props, :palette)
+        pal = props[:palette]
+        if pal isa Symbol || pal isa AbstractString
+            vl_scale["scheme"] = string(pal)
+        else
+            vl_scale["range"] = collect(pal)
+        end
+    end
+    haskey(props, :colormap) && (vl_scale["scheme"] = string(props[:colormap]))
+    haskey(props, :colorrange) && (vl_scale["domain"] = collect(props[:colorrange]))
+    vl_scale
+end
+
+"""Extract the VL colour `scale` dict from a `scales(Color=...)` object (empty if none)."""
+function _scales_to_color_scale(sc::AlgebraOfGraphics.Scales)
+    props = get(sc.dict, :Color, nothing)
+    isnothing(props) && return Dict{String,Any}()
+    _color_scale_props_to_vl(props)
+end
+
+"""Merge a colour `scale` dict into every colour encoding that carries a `field`,
+recursing through layered / faceted sublayers.
+
+Field-LESS colour encodings are deliberately SKIPPED. A layered analysis such as
+`pointinterval()` draws its median dot with a fixed white fill and NO colour field
+(`src/analysis_to_vl.jl` `_interval_point_layer`); broadcasting a colour override into
+that layer (what a raw `config(encoding=Dict("color"=>…))` does) injects a bare
+field-less colour encoding that Vega-Lite drops with a warning. Scoping to
+field-bearing colour encodings pins the palette/domain on the data-bearing layers only,
+leaving the deliberate field-less layer untouched."""
+function _merge_color_scale!(spec::Dict, color_scale::Dict)
+    isempty(color_scale) && return
+    enc = _as_dict(get(spec, "encoding", nothing))
+    if !isnothing(enc)
+        col = _as_dict(get(enc, "color", nothing))
+        if !isnothing(col) && haskey(col, "field")
+            existing = get!(col, "scale", Dict{String,Any}())
+            existing isa Dict ? merge!(existing, color_scale) : (col["scale"] = copy(color_scale))
+        end
+    end
+    if haskey(spec, "layer")
+        for sub in spec["layer"]; sub isa Dict && _merge_color_scale!(sub, color_scale); end
+    end
+    if haskey(spec, "spec") && spec["spec"] isa Dict
+        _merge_color_scale!(spec["spec"], color_scale)
+    end
+    return
+end
+
 """Merge a VL `resolve.scale` dict into `spec`, preserving any existing entries."""
 function _merge_resolve_scale!(spec::Dict, resolve_scale::Dict)
     isempty(resolve_scale) && return
@@ -304,10 +370,15 @@ _as_nt(_) = nothing
 # Sugar appliers — dispatch the work over the `val` type. The Any fallback is
 # what fires when the prop key exists but the value isn't of the expected shape.
 _apply_scales_sugar!(args...) = nothing
-_apply_scales_sugar!(spec, s::AlgebraOfGraphics.Scales) =
-    let override = _scales_to_encoding_override(s)
-        isempty(override) || _merge_encoding_config!(spec, override)
-    end
+function _apply_scales_sugar!(spec, s::AlgebraOfGraphics.Scales)
+    # X/Y/Z axis scales broadcast into every matching positional encoding.
+    override = _scales_to_encoding_override(s)
+    isempty(override) || _merge_encoding_config!(spec, override)
+    # A `Color` scale (palette/categories/colormap) is applied ONLY to colour
+    # encodings that carry a `field` — never broadcast onto a field-less layer.
+    _merge_color_scale!(spec, _scales_to_color_scale(s))
+    spec
+end
 
 _apply_facet_sugar!(args...) = nothing
 _apply_facet_sugar!(spec, nt::NamedTuple) =
@@ -393,6 +464,28 @@ function to_vegalite(v::VegaSpec)
         add_select_filters!(spec, v.drawable, select_fields)
     end
     add_auto_interactivity!(spec)
+    spec
+end
+
+"""
+    to_vegalite(spec, scales) -> Dict{String,Any}
+
+Mirror of `AlgebraOfGraphics.draw(spec, scales(...))`: lower `spec` (a `Layer`,
+`Layers`, or `VegaSpec`) to a Vega-Lite dict, then apply the AoG `Scales` override
+to it. This is the second-positional-argument form; `config(scales=scales(...))`
+applies the identical override inline.
+
+Handles X/Y/Z axis scales (log/log2/log10/sqrt/symlog + `nice`/`zero`/`domain`/
+`clamp`/`constant`) and a categorical/continuous `Color` scale — `palette`
+(explicit colours or a named scheme), `categories` (domain/group ORDER), `colormap`
+(named scheme), `colorrange` (continuous value range). The `Color` override is merged
+only into colour encodings that carry a `field`, so a layer with a deliberate
+field-less colour (e.g. a `pointinterval()` median dot) is never given a bare,
+VL-dropped colour encoding.
+"""
+function to_vegalite(v, sc::AlgebraOfGraphics.Scales)
+    spec = to_vegalite(v)
+    _apply_scales_sugar!(spec, sc)
     spec
 end
 

@@ -561,6 +561,73 @@ legacy `independent_scales=true` path still works (with a deprecation warning).
 end
 
 """
+Categorical `Color` scale override — `scales(Color=(palette=…, categories=…))` pins
+the group order (domain) and palette (range) on a layered analysis. It is applied
+ONLY to colour encodings that carry a `field`, so a `pointinterval()` median dot
+(fixed white fill, NO colour field) is left untouched instead of being broadcast a
+bare, VL-dropped colour encoding. Both the second-positional form
+`to_vegalite(spec, scales(…))` (mirroring `AoG.draw(spec, scales(…))`) and the inline
+`config(scales=scales(…))` form apply the same override.
+Regression for snag `apply-the-aov-us-45aac295`.
+"""
+@testitem "categorical Color scale override (scoped to field-bearing layers)" setup=[AoVTestImports] tags=[:translation, :config, :tidybayes, :regression] begin
+    pops = ["reference", "Female", "Male"]
+    draws = (; param = repeat(["a", "b"], inner=300),
+               population = repeat(repeat(pops, inner=100), outer=2),
+               value = Float64.(1:600) ./ 100)
+    spec = data(draws) * mapping(:value => "Effect", y=:param; color=:population) *
+        pointinterval()
+    palette = ["#bbbbbb", "#e41a1c", "#377eb8"]
+    sc = scales(Color=(palette=palette, categories=pops))
+
+    # --- Second-positional form: to_vegalite(spec, scales(Color=...)) ---
+    vl = to_vegalite(spec, sc)
+    layers = vl["layer"]
+    # The last layer is the median-point layer: fixed white fill, NO colour field.
+    median = layers[end]
+    rule_layers = layers[1:end-1]
+    @test !isempty(rule_layers)
+
+    for lyr in rule_layers
+        col = lyr["encoding"]["color"]
+        @test col["field"] == "population"          # data-bearing colour encoding
+        @test col["scale"]["domain"] == pops        # group ORDER pinned
+        @test col["scale"]["range"] == palette      # palette pinned
+    end
+    # The field-less median layer must NOT gain a colour encoding (no dropped colour).
+    @test !haskey(median["encoding"], "color")
+
+    # --- Inline config form is identical ---
+    vl_cfg = to_vegalite(spec * config(scales=sc))
+    @test vl_cfg["layer"][1]["encoding"]["color"]["scale"] ==
+          vl["layer"][1]["encoding"]["color"]["scale"]
+    @test !haskey(vl_cfg["layer"][end]["encoding"], "color")
+
+    # --- vdraw(spec, scales(...)) does not error ---
+    @test vdraw(spec, sc) isa HTMX.Node
+
+    # --- Named-scheme palette → scale.scheme; relabel-pair categories → domain values ---
+    sc2 = scales(Color=(palette=:tableau10,
+                        categories=["reference"=>"Ref", "Female"=>"F", "Male"=>"M"]))
+    vl2 = to_vegalite(spec, sc2)
+    c2 = vl2["layer"][1]["encoding"]["color"]["scale"]
+    @test c2["scheme"] == "tableau10"
+    @test c2["domain"] == pops
+
+    # --- X axis + Color compose in one scales() call ---
+    vl3 = to_vegalite(spec, scales(X=(; scale=log10), Color=(palette=palette, categories=pops)))
+    @test vl3["layer"][1]["encoding"]["x"]["scale"]["type"] == "log"
+    @test vl3["layer"][1]["encoding"]["color"]["scale"]["range"] == palette
+    @test !haskey(vl3["layer"][end]["encoding"], "color")
+
+    # --- Continuous colour: colormap → scheme, colorrange → domain ---
+    vl4 = to_vegalite(spec, scales(Color=(colormap=:viridis, colorrange=(0.0, 2.0))))
+    c4 = vl4["layer"][1]["encoding"]["color"]["scale"]
+    @test c4["scheme"] == "viridis"
+    @test c4["domain"] == [0.0, 2.0]
+end
+
+"""
 The low-level Vega-Lite helpers: `vl_enc` builds an encoding dict (dropping
 `nothing` fields), `vl_mark` returns a bare string or a props dict, and
 `vl_tooltips` collects the field-bearing channels.

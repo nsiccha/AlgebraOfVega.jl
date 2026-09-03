@@ -27,6 +27,16 @@ Named `vdraw` to avoid clashing with `AlgebraOfGraphics.draw` (Makie rendering).
 vdraw(spec; kwargs...) = to_node(spec; kwargs...)
 vdraw(; kwargs...) = spec -> vdraw(spec; kwargs...)
 
+"""
+    vdraw(spec, scales; kwargs...)
+
+Render an AoG spec with an AoG `Scales` override applied — the interactive mirror of
+`AlgebraOfGraphics.draw(spec, scales(...))`. Equivalent to `vdraw(to_vegalite(spec, scales); kwargs...)`.
+See `to_vegalite(spec, scales)` for the supported X/Y/Z axis scales and the `Color`
+(palette / categories / colormap) override.
+"""
+vdraw(spec, sc::AlgebraOfGraphics.Scales; kwargs...) = to_node(to_vegalite(spec, sc); kwargs...)
+
 # --- Renderer-agnostic dependency declaration ---
 
 """
