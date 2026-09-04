@@ -102,8 +102,32 @@ end
 
 _field_name(sel) = string(sel)
 _field_name(sel::Pair) = string(first(sel))
+
+# The display label is the last explicit string in a selector's modifier chain
+# (`:x => "L"` OR the nested `:x => sorter(...) => "L"`), falling back to the raw
+# field name when no relabel is given. The nested-`Pair` recursion is load-bearing:
+# without it an analysis path reads `:x => fn => "L"` as its field name and silently
+# drops "L". Plain layers avoid this by going through `_apply_selector_modifier!`.
 _field_label(sel) = _field_name(sel)
-_field_label(sel::Pair{<:Any,<:AbstractString}) = last(sel)
+function _field_label(sel::Pair)
+    lbl = _selector_label(last(sel))
+    isnothing(lbl) ? _field_name(sel) : lbl
+end
+_selector_label(x::AbstractString) = x
+_selector_label(x::Pair) = _selector_label(last(x))
+_selector_label(_) = nothing
+
+# The explicit categorical order from a selector's `sorter`/`renamer` modifier
+# anywhere in its `:x => mod => ...` chain, as a VL `sort` array (or `nothing`).
+# Mirrors `_apply_selector_modifier!`'s `Renamer` branch so analyses that rebuild
+# encodings from field names still order colour/group exactly like plain layers do.
+_selector_sort(sel) = nothing
+_selector_sort(r::AlgebraOfGraphics.Renamer) =
+    r.uniquevalues === nothing ? nothing : collect(r.uniquevalues)
+function _selector_sort(sel::Pair)
+    s = _selector_sort(first(sel))
+    isnothing(s) ? _selector_sort(last(sel)) : s
+end
 
 # --- Vega-Lite type inference ---
 
