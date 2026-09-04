@@ -628,6 +628,68 @@ Regression for snag `apply-the-aov-us-45aac295`.
 end
 
 """
+Interval analyses (`pointinterval`, `pointinterval(bands=…)`, `gradient_interval`,
+`dotinterval`) rebuild their colour/group encodings from field names, so a
+`sorter`/`renamer` modifier on the `color=`/`y=` selector was silently discarded —
+Vega then ordered the legend lexicographically ("45 mg" before "5 mg"). A plain
+`Lines` layer preserves the order (it goes through `_apply_selector_modifier!`).
+The fix threads the selector's `Renamer.uniquevalues` into the colour encoding, its
+group offset, and (for a `y=` sorter) the group axis as a VL `sort` array, and
+`_field_label` now follows the `:x => fn => "L"` chain so the relabel survives too.
+The field-less white median dot stays uncoloured; its offset still gets the sort.
+Regression for snag `aov-color-catego-1130ae28`.
+"""
+@testitem "interval analyses preserve color/group sorter order" setup=[AoVTestImports] tags=[:translation, :tidybayes, :regression] begin
+    # Dose groups whose lexicographic order ("45 mg" < "5 mg") differs from intent.
+    order = ["5 mg", "45 mg"]
+    preagg = (dose_group = ["5 mg", "45 mg"], median = [1.0, 2.0],
+              q025 = [0.5, 1.5], q975 = [1.5, 2.5])
+    draws = (value = [1.0, 1.1, 0.9, 2.0, 2.1, 1.9],
+             dose_group = ["5 mg", "5 mg", "5 mg", "45 mg", "45 mg", "45 mg"])
+
+    colorsel = :dose_group => sorter(order) => "Dominant dose"
+
+    # --- Pre-aggregated pointinterval: sort + relabel reach every field-bearing layer ---
+    vlp = to_vegalite(data(preagg) * mapping(:median, y=:dose_group; color=colorsel) *
+                      pointinterval(bands=[:q025 => :q975]))
+    rule = vlp["layer"][1]
+    @test rule["encoding"]["color"]["sort"] == order        # legend ORDER pinned
+    @test rule["encoding"]["color"]["title"] == "Dominant dose"  # relabel survives
+    @test rule["encoding"]["yOffset"]["sort"] == order      # offset follows the order
+    # The median dot is a fixed-white, field-less colour layer — no colour encoding,
+    # but its offset must still align with the colour order.
+    median = vlp["layer"][end]
+    @test !haskey(median["encoding"], "color")
+    @test median["encoding"]["yOffset"]["sort"] == order
+
+    # --- Computed pointinterval (probs) preserves it too ---
+    vlc = to_vegalite(data(draws) * mapping(:value, y=:dose_group; color=colorsel) *
+                      pointinterval())
+    @test vlc["layer"][1]["encoding"]["color"]["sort"] == order
+    @test vlc["layer"][1]["encoding"]["color"]["title"] == "Dominant dose"
+
+    # --- A `y=` (group) sorter drives the group axis, independently of colour ---
+    vlg = to_vegalite(data(preagg) *
+                      mapping(:median, y=(:dose_group => sorter(order)); color=colorsel) *
+                      pointinterval(bands=[:q025 => :q975]))
+    @test vlg["layer"][1]["encoding"]["y"]["sort"] == order
+
+    # --- Matches the plain `Lines` reference behaviour ---
+    linetbl = (x = [1.0, 2.0, 1.0, 2.0], y = [1.0, 1.5, 2.0, 2.5],
+               dose_group = ["5 mg", "5 mg", "45 mg", "45 mg"])
+    vll = to_vegalite(data(linetbl) * mapping(:x, :y; color=colorsel) * visual(Lines))
+    @test vll["encoding"]["color"]["sort"] == order
+    @test vll["encoding"]["color"]["title"] == "Dominant dose"
+
+    # --- No sorter → no `sort` keys anywhere (byte-identical to pre-fix output) ---
+    vln = to_vegalite(data(preagg) * mapping(:median, y=:dose_group; color=:dose_group) *
+                      pointinterval(bands=[:q025 => :q975]))
+    for lyr in vln["layer"], (_, e) in lyr["encoding"]
+        e isa Dict && @test !haskey(e, "sort")
+    end
+end
+
+"""
 The low-level Vega-Lite helpers: `vl_enc` builds an encoding dict (dropping
 `nothing` fields), `vl_mark` returns a bare string or a props dict, and
 `vl_tooltips` collects the field-bearing channels.
