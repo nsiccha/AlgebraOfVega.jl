@@ -71,3 +71,17 @@ The CI data is embedded as a separate area+y2 layer with its own inline data.
 ## Faceted specs
 
 For faceted specs (using `col=` or `row=` in mapping), config `width`/`height` are routed to the inner `spec` dict (per-cell size), not the top level (total size).
+
+### Median marker categories in interval plots
+
+`mapping(...; marker=:sex => "Sex")` also applies to `pointinterval()`,
+`pointinterval(bands=...)`, `gradient_interval()`, and the median in
+`dotinterval()`. The marker column participates in draw summarization, so
+categories are never pooled merely because their other mapping keys match.
+Intervals keep their colour mapping and the median retains its white fill and
+dark outline. Both orientations and facets preserve the mapping.
+
+Use `config(scales=scales(Marker=(categories=["Female", "Male"],
+palette=["circle", "square"])))` to keep marker categories and shapes stable
+across figures. As with `Color`, this override only touches field-bearing shape
+encodings; it does not add shape encodings to interval rules.
