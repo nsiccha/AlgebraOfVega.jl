@@ -301,21 +301,21 @@ that layer (what a raw `config(encoding=Dict("color"=>…))` does) injects a bar
 field-less colour encoding that Vega-Lite drops with a warning. Scoping to
 field-bearing colour encodings pins the palette/domain on the data-bearing layers only,
 leaving the deliberate field-less layer untouched."""
-function _merge_color_scale!(spec::Dict, color_scale::Dict)
+function _merge_color_scale!(spec::Dict, color_scale::Dict; channel::String="color")
     isempty(color_scale) && return
     enc = _as_dict(get(spec, "encoding", nothing))
     if !isnothing(enc)
-        col = _as_dict(get(enc, "color", nothing))
+        col = _as_dict(get(enc, channel, nothing))
         if !isnothing(col) && haskey(col, "field")
             existing = get!(col, "scale", Dict{String,Any}())
             existing isa Dict ? merge!(existing, color_scale) : (col["scale"] = copy(color_scale))
         end
     end
     if haskey(spec, "layer")
-        for sub in spec["layer"]; sub isa Dict && _merge_color_scale!(sub, color_scale); end
+        for sub in spec["layer"]; sub isa Dict && _merge_color_scale!(sub, color_scale; channel); end
     end
     if haskey(spec, "spec") && spec["spec"] isa Dict
-        _merge_color_scale!(spec["spec"], color_scale)
+        _merge_color_scale!(spec["spec"], color_scale; channel)
     end
     return
 end
@@ -377,6 +377,17 @@ function _apply_scales_sugar!(spec, s::AlgebraOfGraphics.Scales)
     # A `Color` scale (palette/categories/colormap) is applied ONLY to colour
     # encodings that carry a `field` — never broadcast onto a field-less layer.
     _merge_color_scale!(spec, _scales_to_color_scale(s))
+    marker = get(s.dict, :Marker, nothing)
+    if !isnothing(marker)
+        shape_scale = Dict{String,Any}()
+        if haskey(marker, :categories)
+            shape_scale["domain"] = [c isa Pair ? first(c) : c for c in marker[:categories]]
+        end
+        if haskey(marker, :palette)
+            shape_scale["range"] = [string(m) for m in marker[:palette]]
+        end
+        _merge_color_scale!(spec, shape_scale; channel="shape")
+    end
     spec
 end
 
