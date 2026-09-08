@@ -1549,3 +1549,7 @@ field the base already assigns — untouched.
     @test AlgebraOfVega._auto_remap_parts(
         "a", conflict; dims=dims, fixed=Dict(:column => "assay"), pinned=:row) isa Tuple
 end
+
+@testitem "interval categorical median markers" setup=[AoVTestImports] tags=[:translation, :tidybayes, :regression] begin
+    include(joinpath(@__DIR__, "interval_markers.jl"))
+end
