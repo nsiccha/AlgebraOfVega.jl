@@ -208,6 +208,11 @@ end
 
 Remap VL-style visual attributes to Makie equivalents (e.g. size → markersize).
 Returns the layer unchanged if no visual or no remapping needed.
+
+A VL-spelled `size` on a Scatter is a Vega area (px²); Makie `markersize` is a
+length (px), so the value is converted back with `_vl_size_to_markersize` —
+the inverse of the forward `_markersize_to_vl_size` — keeping one spec
+visually identical on both renderers.
 """
 function _fix_visual_attrs(layer::AlgebraOfGraphics.Layer)
     vis = extract_visual(layer)
@@ -215,7 +220,10 @@ function _fix_visual_attrs(layer::AlgebraOfGraphics.Layer)
     attrs = Dict(pairs(vis.attributes))
     changed = false
     if haskey(attrs, :size) && !haskey(attrs, :markersize)
-        attrs[:markersize] = pop!(attrs, :size)
+        v = pop!(attrs, :size)
+        # Only a true Scatter takes a marker size; other marks keep the value.
+        attrs[:markersize] = (vis.plottype <: Scatter && v isa Real) ?
+            _vl_size_to_markersize(v) : v
         changed = true
     end
     if haskey(attrs, :strokeWidth) && !haskey(attrs, :linewidth)

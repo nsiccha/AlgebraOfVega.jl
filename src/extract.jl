@@ -141,8 +141,35 @@ function data_to_vl(table)
     Dict{String,Any}("values" => vals)
 end
 
+"""Vega-Lite `size` matching a scalar Makie Scatter `markersize`.
+
+Makie `markersize` is a nominal length (px); Vega-Lite point `size` is an area,
+and the Vega renderer draws points with diameter √size (SVG-measured: size=8 →
+r=1.414, size=25 → r=2.5). Makie's default circle glyph spans 1/√2 of the
+nominal box (Bezier radius 0.3525 in Makie `src/conversions.jl`; CairoMakie
+render measures diameter ≈ 0.705 × markersize), so equal screen extent on both
+sides needs `size = (ms/√2)² = ms²/2` — e.g. `markersize=8` → `32`, which Vega
+draws 5.7px across, matching the static 5.6px dot. A VL-spelled `size` is
+already in Vega units and passes through untouched.
+"""
+_markersize_to_vl_size(ms::Real) = float(ms)^2 / 2
+
+"""Makie Scatter `markersize` matching a scalar Vega-Lite point `size`.
+
+Inverse of `_markersize_to_vl_size`, for the static (`sdraw`) remap of
+VL-spelled visual attributes. Non-positive input passes through: Makie itself
+rejects it, and this remap must not invent a new throw site.
+"""
+function _vl_size_to_markersize(s::Real)
+    f = float(s)
+    (isfinite(f) && f > 0) ? sqrt(2 * f) : s
+end
+
 function visual_attrs_to_mark_props(vis::AlgebraOfGraphics.Visual)
     props = Dict{String,Any}()
+    # Only a true Scatter becomes a Vega point mark, where `size` is an area.
+    # (ScatterLines lowers to a line mark, where `size` is a stroke width.)
+    scatter = vis.plottype <: Scatter
     for (k, v) in pairs(vis.attributes)
         sk = string(k)
         # Map Makie attribute names to Vega mark properties
@@ -152,7 +179,9 @@ function visual_attrs_to_mark_props(vis::AlgebraOfGraphics.Visual)
             props["color"] = string(v)
         elseif k === :strokeDash || k === :linestyle
             props["strokeDash"] = v
-        elseif k === :markersize || k === :size
+        elseif k === :markersize
+            props["size"] = (scatter && v isa Real) ? _markersize_to_vl_size(v) : v
+        elseif k === :size
             props["size"] = v
         elseif k === :strokeWidth || k === :linewidth
             props["strokeWidth"] = v
