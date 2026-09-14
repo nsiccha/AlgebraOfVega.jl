@@ -1009,6 +1009,35 @@ figure. Per-spec axis settings, including a log-y scale, reach separate axes.
 end
 
 """
+Static `lineribbon` lowering preserves `mapping` display labels: the
+precomputed `bands=` x/median labels reach every rebuilt Band + Lines layer,
+and colour/facet labels survive alongside the fields.
+"""
+@testitem "sdraw ribbon label preservation" setup=[AoVTestImports] tags=[:static] begin
+    rows = [(; t=i, m=sin(i / 5), lo=sin(i / 5) - 0.5, hi=sin(i / 5) + 0.5,
+              g=(i % 2 == 0 ? "a" : "b")) for i in 1:10]
+    spec = data(rows) *
+        mapping(:t => "Time (ms)", :m => "Response"; color=:g => "Group") *
+        lineribbon(bands=[:lo => :hi])
+    converted = AlgebraOfVega._convert_drawable(first(AlgebraOfVega._extract_drawable(spec)))
+    @test converted isa AlgebraOfGraphics.Layers
+    @test length(converted.layers) == 2  # one band + median line
+    band, line = converted.layers
+    @test band.positional[1] == (:t => "Time (ms)")
+    @test band.positional[2] == (:lo => "Response")
+    @test band.positional[3] == (:hi => "Response")
+    @test line.positional == Any[:t => "Time (ms)", :m => "Response"]
+    @test band.named[:color] == (:g => "Group")
+    @test line.named[:color] == (:g => "Group")
+
+    # Unlabeled specs keep bare symbols; a single band still lowers.
+    plain = data(rows) * mapping(:t, :m) * lineribbon(bands=[:lo => :hi])
+    converted_plain = AlgebraOfVega._convert_drawable(first(AlgebraOfVega._extract_drawable(plain)))
+    @test converted_plain.layers[1].positional[1] == :t
+    @test isempty(converted_plain.layers[1].named)
+end
+
+"""
 The dispatch tables: `plottype_to_mark` (`_MARK_MAP`), `plottype_to_mark_props`
 (`_MARK_PROPS`), `aog_named_to_vl_channel` (`_CHANNEL_MAP`, with passthrough),
 and `selector_to_field`. Unsupported plot types throw.
