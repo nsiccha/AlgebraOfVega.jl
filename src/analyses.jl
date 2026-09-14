@@ -66,6 +66,14 @@ With `orientation=:vertical`: value column on y-axis, category on x-axis.
 Requires two positional mappings `(category, value)`:
 
     data(draws) * mapping(:parameter, :value) * pointinterval(orientation=:vertical)
+
+When `color` identifies several intervals at the same category/facet position,
+those intervals are dodged automatically. A one-to-one metadata color remains
+centered. Map `dodge_y` explicitly for horizontal intervals, or `dodge_x` for
+vertical intervals, to choose a dodge field directly:
+
+    data(draws) * mapping(:value, y=:parameter, color=:dose, dodge_y=:model) *
+        pointinterval()
 """
 function pointinterval(; probs=[0.95, 0.8, 0.5], point=:median, bands=nothing,
                         detail=Symbol[], orientation::Symbol=:horizontal)
@@ -80,6 +88,7 @@ end
     gradient_interval(; probs=[0.95, 0.8, 0.5], point=:median, orientation=:horizontal)
 
 Nested credible intervals with uniform width and varying opacity + a point estimate.
+Color and `dodge_y`/`dodge_x` mappings follow `pointinterval` semantics.
 
     data(draws) * mapping(:value, y=:parameter) * gradient_interval()
     data(draws) * mapping(:parameter, :value) * gradient_interval(orientation=:vertical)
@@ -141,6 +150,7 @@ end
     dotinterval(; probs=[0.95, 0.5], n_dots=50, point=:median, orientation=:horizontal)
 
 Quantile dotplot with nested interval overlay.
+Color and `dodge_y`/`dodge_x` mappings follow `pointinterval` semantics.
 
     data(draws) * mapping(:value, y=:parameter) * dotinterval()
     data(draws) * mapping(:parameter, :value) * dotinterval(orientation=:vertical)
