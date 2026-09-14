@@ -948,6 +948,67 @@ top-level spec.
 end
 
 """
+`interactive=false` removes only AoV-generated Vega-Lite parameters, including
+the nested zoom parameter of a faceted spec. Explicit user parameters remain,
+and the second-positional `scales(...)` form accepts the same keyword.
+"""
+@testitem "noninteractive Vega-Lite lowering" setup=[AoVTestImports] tags=[:translation, :config] begin
+    has_params(x) = x isa AbstractDict ?
+        (haskey(x, "params") || any(has_params, values(x))) :
+        (x isa AbstractVector && any(has_params, x))
+
+    tbl = (; x=1:4, y=[1.0, 2.0, 4.0, 8.0], group=["a", "a", "b", "b"])
+    spec = data(tbl) * mapping(:x, :y; color=:group) * visual(Scatter) *
+        config(title="Interactive by default")
+    @test has_params(to_vegalite(spec))
+    @test !has_params(to_vegalite(spec; interactive=false))
+
+    faceted = data(tbl) * mapping(:x, :y; col=:group) * visual(Scatter) *
+        config(width=180)
+    @test has_params(to_vegalite(faceted))
+    @test !has_params(to_vegalite(faceted; interactive=false))
+
+    explicit = data(tbl) * mapping(:x, :y) * visual(Scatter) * config(
+        params=[Dict("name" => "chosen", "value" => 1)],
+    )
+    quiet_explicit = to_vegalite(explicit; interactive=false)
+    @test quiet_explicit["params"] == [Dict("name" => "chosen", "value" => 1)]
+
+    selected = data(tbl) * mapping(:x, :y) * visual(Scatter) * config(select=:group)
+    quiet_selected = to_vegalite(selected; interactive=false)
+    @test any(p -> p["name"] == "select_group", quiet_selected["params"])
+    @test haskey(quiet_selected, "transform")
+
+    sc = scales(Y=(; scale=log10))
+    @test !has_params(to_vegalite(spec, sc; interactive=false))
+    @test to_vegalite(Dict("mark" => "point"); interactive=false) == Dict("mark" => "point")
+end
+
+"""
+`sdraw!` composes independently configured static AoV panels in one Makie
+figure. Per-spec axis settings, including a log-y scale, reach separate axes.
+"""
+@testitem "sdraw! static panel composition" setup=[AoVTestImports] tags=[:static, :config] begin
+    import Makie
+
+    tbl = (; x=1:4, y=[1.0, 2.0, 4.0, 8.0])
+    linear = data(tbl) * mapping(:x, :y) * visual(Scatter) *
+        config(axis=(; title="Linear y"))
+    logged = data(tbl) * mapping(:x, :y) * visual(Scatter) *
+        config(axis=(; title="Log y"), scales=scales(Y=(; scale=log10)))
+
+    fig = Makie.Figure(size=(600, 300))
+    left = sdraw!(fig[1, 1], linear)
+    right = sdraw!(fig[1, 2], logged)
+
+    @test length(left) == 1
+    @test length(right) == 1
+    @test left[1].axis.title[] == "Linear y"
+    @test right[1].axis.title[] == "Log y"
+    @test right[1].axis.yscale[] === log10
+end
+
+"""
 The dispatch tables: `plottype_to_mark` (`_MARK_MAP`), `plottype_to_mark_props`
 (`_MARK_PROPS`), `aog_named_to_vl_channel` (`_CHANNEL_MAP`, with passthrough),
 and `selector_to_field`. Unsupported plot types throw.

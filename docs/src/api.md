@@ -37,6 +37,9 @@ to_node
 to_html
 to_json
 to_vegalite
+sdraw
+sdraw_file
+sdraw!
 vlspec
 ```
 
@@ -46,8 +49,27 @@ vlspec
 | `vdraw(spec)`  | Alias for `to_node` — use when you want a "draw"-shaped name without clashing with AoG's `draw` |
 | `to_html(spec)`| A standalone HTML string with the Vega CDN tags embedded                             |
 | `to_json(spec)`| Pretty-printed Vega-Lite JSON                                                       |
-| `to_vegalite(spec)` | Raw Vega-Lite spec as a `Dict{String,Any}`                                     |
-| `sdraw(spec)` / `sdraw_file(spec, path)` | Static SVG renderers (uses `vega-lite` CLI under the hood) |
+| `to_vegalite(spec; interactive=true)` | Raw Vega-Lite spec as a `Dict{String,Any}`; pass `interactive=false` to omit AoV-generated parameters |
+| `sdraw(spec, path; kwargs...)` | Save through AoG/Makie and return an `HTMX.Node` image pointing to `path` |
+| `sdraw_file(spec, path; kwargs...)` | Save through AoG/Makie and return `path`; keywords pass to `Makie.save` |
+| `sdraw!(position, spec)` | Draw into an existing Makie figure/layout position for static composition |
+
+The static functions require a loaded Makie backend such as CairoMakie. Compose
+panels with independently configured axes by drawing each spec into its own
+layout position and saving the parent figure:
+
+```julia
+using CairoMakie
+
+fig = Figure(size=(900, 400))
+sdraw!(fig[1, 1], mean_spec)
+sdraw!(fig[1, 2], sd_spec)  # may carry its own log-y scale
+save("adaptive-centering.png", fig; px_per_unit=2)
+```
+
+`interactive=false` disables only automatic zoom, legend, and nearest-point
+parameters. Explicit `config(params=...)` or `config(select=...)` remains
+explicitly requested output.
 
 A `VegaSpec` also has `Base.show(io, MIME"text/html"(), spec)` and `Base.show(io, MIME"application/vnd.vegalite.v5+json"(), spec)` methods, so you can render it implicitly via any host that picks a MIME type (Pluto, IJulia, HTMX response handlers, …) without calling any of the functions above.
 
