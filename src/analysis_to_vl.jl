@@ -42,12 +42,16 @@ function _extract_interval_fields(layer, orientation::Symbol=:horizontal; defaul
     color_field = haskey(layer.named, :color) ? _field_name(layer.named[:color]) : nothing
     color_label = haskey(layer.named, :color) ? _field_label(layer.named[:color]) : nothing
     color_sort = haskey(layer.named, :color) ? _selector_sort(layer.named[:color]) : nothing
+    dodge_key = orientation === :vertical ? :dodge_x : :dodge_y
+    dodge_field = haskey(layer.named, dodge_key) ? _field_name(layer.named[dodge_key]) : nothing
+    dodge_sort = haskey(layer.named, dodge_key) ? _selector_sort(layer.named[dodge_key]) : nothing
     marker_field = haskey(layer.named, :marker) ? _field_name(layer.named[:marker]) : nothing
     marker_label = haskey(layer.named, :marker) ? _field_label(layer.named[:marker]) : nothing
     marker_sort = haskey(layer.named, :marker) ? _selector_sort(layer.named[:marker]) : nothing
     facet, facet_fields = _extract_facet_info(layer)
     (; table, value_field, value_label, group_field, group_label, group_sort,
-       color_field, color_label, color_sort, marker_field, marker_label, marker_sort, facet, facet_fields, orientation)
+       color_field, color_label, color_sort, dodge_field, dodge_sort,
+       marker_field, marker_label, marker_sort, facet, facet_fields, orientation)
 end
 
 _interval_axes(orientation::Symbol) = orientation === :vertical ?
@@ -56,7 +60,8 @@ _interval_axes(orientation::Symbol) = orientation === :vertical ?
 
 function _add_group_color_encoding!(enc, group_field, color_field, group_axis::String, offset_key::String;
                                       group_label=nothing, color_label=nothing, show_axis_title=true,
-                                      group_sort=nothing, color_sort=nothing)
+                                      group_sort=nothing, color_sort=nothing,
+                                      offset_field=nothing, offset_sort=nothing)
     if !isnothing(group_field)
         g_enc = Dict{String,Any}("field" => group_field, "type" => "nominal")
         !show_axis_title && (g_enc["axis"] = Dict{String,Any}("title" => nothing))
@@ -69,22 +74,22 @@ function _add_group_color_encoding!(enc, group_field, color_field, group_axis::S
         !isnothing(color_label) && color_label != color_field && (color_enc["title"] = color_label)
         !isnothing(color_sort) && (color_enc["sort"] = color_sort)
         enc["color"] = color_enc
-        if !isnothing(group_field)
-            off_enc = Dict{String,Any}("field" => color_field, "type" => "nominal")
-            !isnothing(color_sort) && (off_enc["sort"] = color_sort)
-            enc[offset_key] = off_enc
-        end
     elseif !isnothing(group_field)
         c_enc = Dict{String,Any}("field" => group_field, "type" => "nominal", "legend" => nothing)
         !isnothing(group_sort) && (c_enc["sort"] = group_sort)
         enc["color"] = c_enc
     end
+    if !isnothing(group_field) && !isnothing(offset_field)
+        off_enc = Dict{String,Any}("field" => offset_field, "type" => "nominal")
+        !isnothing(offset_sort) && (off_enc["sort"] = offset_sort)
+        enc[offset_key] = off_enc
+    end
     enc
 end
 
-function _interval_point_layer(group_field, color_field, group_axis::String, offset_key::String;
+function _interval_point_layer(group_field, group_axis::String, offset_key::String;
                                  point_field::String="__point__", value_axis::String="x",
-                                 group_sort=nothing, color_sort=nothing,
+                                 group_sort=nothing, offset_field=nothing, offset_sort=nothing,
                                  marker_field=nothing, marker_label=nothing, marker_sort=nothing, mark_opts...)
     pt_enc = Dict{String,Any}(
         value_axis => Dict{String,Any}("field" => point_field, "type" => "quantitative"),
@@ -94,9 +99,9 @@ function _interval_point_layer(group_field, color_field, group_axis::String, off
         !isnothing(group_sort) && (g_enc["sort"] = group_sort)
         pt_enc[group_axis] = g_enc
     end
-    if !isnothing(color_field) && !isnothing(group_field)
-        off_enc = Dict{String,Any}("field" => color_field, "type" => "nominal")
-        !isnothing(color_sort) && (off_enc["sort"] = color_sort)
+    if !isnothing(offset_field) && !isnothing(group_field)
+        off_enc = Dict{String,Any}("field" => offset_field, "type" => "nominal")
+        !isnothing(offset_sort) && (off_enc["sort"] = offset_sort)
         pt_enc[offset_key] = off_enc
     end
     if !isnothing(marker_field)
@@ -118,6 +123,38 @@ function _interval_point_layer(group_field, color_field, group_axis::String, off
     Dict{String,Any}("mark" => mark, "encoding" => pt_enc)
 end
 
+function _add_interval_detail_fields!(detail_fields, group_field, color_field, facet_fields, fields...)
+    grouping_fields = [group_field, color_field, facet_fields..., detail_fields...]
+    for field in fields
+        if !isnothing(field) && !(field in grouping_fields)
+            push!(detail_fields, field)
+            push!(grouping_fields, field)
+        end
+    end
+    detail_fields
+end
+
+# A color mapping identifies visual groups, but it does not necessarily request
+# dodging. Only auto-dodge when multiple color levels would otherwise occupy the
+# same group/facet position. A relevant `dodge_x`/`dodge_y` mapping is an
+# explicit override and always wins.
+function _interval_offset(rows, group_field, color_field, facet_fields,
+                          dodge_field, dodge_sort, color_sort)
+    isnothing(group_field) && return nothing, nothing
+    !isnothing(dodge_field) && return dodge_field, dodge_sort
+    isnothing(color_field) && return nothing, nothing
+
+    position_fields = [group_field, facet_fields...]
+    colors_by_position = Dict{Tuple,Set{Any}}()
+    for row in rows
+        position = Tuple(row[field] for field in position_fields)
+        colors = get!(Set{Any}, colors_by_position, position)
+        push!(colors, row[color_field])
+        length(colors) > 1 && return color_field, color_sort
+    end
+    nothing, nothing
+end
+
 function _interval_tooltips(value_label, group_field, color_field, probs;
                               point_field::String="__point__")
     tt = Dict{String,Any}[Dict{String,Any}("field" => point_field, "type" => "quantitative", "title" => "$value_label (estimate)")]
@@ -132,13 +169,16 @@ end
 # --- Analysis → Vega-Lite spec ---
 
 function analysis_to_vl(a::PointIntervalAnalysis, layer::AlgebraOfGraphics.Layer; is_sublayer=false)
-    (; table, value_field, value_label, group_field, group_label, group_sort, color_field, color_label, color_sort, marker_field, marker_label, marker_sort, facet, facet_fields) = _extract_interval_fields(layer, a.orientation)
+    (; table, value_field, value_label, group_field, group_label, group_sort,
+       color_field, color_label, color_sort, dodge_field, dodge_sort,
+       marker_field, marker_label, marker_sort, facet, facet_fields) = _extract_interval_fields(layer, a.orientation)
     ax = _interval_axes(a.orientation)
     detail_strs = string.(a.detail_fields)
-    if !isnothing(marker_field) && !(marker_field in [group_field, color_field, facet_fields..., detail_strs...])
-        push!(detail_strs, marker_field)
-    end
+    _add_interval_detail_fields!(detail_strs, group_field, color_field, facet_fields,
+                                 marker_field, dodge_field)
     summary = compute_interval_summary(table, value_field, group_field, a.probs, a.point; color_field, facet_fields, detail_fields=detail_strs)
+    offset_field, offset_sort = _interval_offset(summary, group_field, color_field, facet_fields,
+                                                 dodge_field, dodge_sort, color_sort)
 
     sorted_probs = sort(a.probs, rev=true)
     stroke_widths = length(sorted_probs) == 1 ? [8.0] : range(1.5, 8, length=length(sorted_probs))
@@ -151,15 +191,16 @@ function analysis_to_vl(a::PointIntervalAnalysis, layer::AlgebraOfGraphics.Layer
         )
         _add_group_color_encoding!(enc, group_field, color_field, ax.group_axis, ax.offset_key;
                                     group_label, color_label, show_axis_title=false,
-                                    group_sort, color_sort)
+                                    group_sort, color_sort, offset_field, offset_sort)
         push!(layers, Dict{String,Any}(
             "mark" => Dict{String,Any}("type" => "rule", "strokeWidth" => stroke_widths[i]),
             "encoding" => enc,
         ))
     end
 
-    push!(layers, _interval_point_layer(group_field, color_field, ax.group_axis, ax.offset_key;
-                                         value_axis=ax.value_axis, group_sort, color_sort, marker_field, marker_label, marker_sort,
+    push!(layers, _interval_point_layer(group_field, ax.group_axis, ax.offset_key;
+                                         value_axis=ax.value_axis, group_sort, offset_field, offset_sort,
+                                         marker_field, marker_label, marker_sort,
                                          size=80, color="white"))
     _add_analysis_tooltips!(layers, _interval_tooltips(value_label, group_field, color_field, a.probs))
 
@@ -172,7 +213,9 @@ function analysis_to_vl(a::PointIntervalAnalysis, layer::AlgebraOfGraphics.Layer
 end
 
 function analysis_to_vl(a::PrecomputedIntervalAnalysis, layer::AlgebraOfGraphics.Layer; is_sublayer=false)
-    (; table, value_field, value_label, group_field, group_label, group_sort, color_field, color_label, color_sort, marker_field, marker_label, marker_sort, facet, facet_fields) = _extract_interval_fields(layer, a.orientation)
+    (; table, value_field, value_label, group_field, group_label, group_sort,
+       color_field, color_label, color_sort, dodge_field, dodge_sort,
+       marker_field, marker_label, marker_sort, facet, facet_fields) = _extract_interval_fields(layer, a.orientation)
     ax = _interval_axes(a.orientation)
 
     col_names = Set(string.(Tables.columnnames(table)))
@@ -184,6 +227,8 @@ function analysis_to_vl(a::PrecomputedIntervalAnalysis, layer::AlgebraOfGraphics
     end
 
     summary = table_to_rows(table)
+    offset_field, offset_sort = _interval_offset(summary, group_field, color_field, facet_fields,
+                                                 dodge_field, dodge_sort, color_sort)
     stroke_widths = length(a.bands) == 1 ? [8.0] : range(1.5, 8, length=length(a.bands))
 
     layers = Dict{String,Any}[]
@@ -195,16 +240,17 @@ function analysis_to_vl(a::PrecomputedIntervalAnalysis, layer::AlgebraOfGraphics
         )
         _add_group_color_encoding!(enc, group_field, color_field, ax.group_axis, ax.offset_key;
                                     group_label, color_label, show_axis_title=false,
-                                    group_sort, color_sort)
+                                    group_sort, color_sort, offset_field, offset_sort)
         push!(layers, Dict{String,Any}(
             "mark" => Dict{String,Any}("type" => "rule", "strokeWidth" => stroke_widths[i]),
             "encoding" => enc,
         ))
     end
 
-    push!(layers, _interval_point_layer(group_field, color_field, ax.group_axis, ax.offset_key;
+    push!(layers, _interval_point_layer(group_field, ax.group_axis, ax.offset_key;
                                          point_field=value_field, value_axis=ax.value_axis,
-                                         group_sort, color_sort, marker_field, marker_label, marker_sort, size=80, color="white"))
+                                         group_sort, offset_field, offset_sort,
+                                         marker_field, marker_label, marker_sort, size=80, color="white"))
 
     widest_lo = string(first(a.bands[1]))
     widest_hi = string(last(a.bands[1]))
@@ -226,13 +272,16 @@ function analysis_to_vl(a::PrecomputedIntervalAnalysis, layer::AlgebraOfGraphics
 end
 
 function analysis_to_vl(a::GradientIntervalAnalysis, layer::AlgebraOfGraphics.Layer; is_sublayer=false)
-    (; table, value_field, value_label, group_field, group_label, group_sort, color_field, color_label, color_sort, marker_field, marker_label, marker_sort, facet, facet_fields) = _extract_interval_fields(layer, a.orientation)
+    (; table, value_field, value_label, group_field, group_label, group_sort,
+       color_field, color_label, color_sort, dodge_field, dodge_sort,
+       marker_field, marker_label, marker_sort, facet, facet_fields) = _extract_interval_fields(layer, a.orientation)
     ax = _interval_axes(a.orientation)
     detail_strs = string.(a.detail_fields)
-    if !isnothing(marker_field) && !(marker_field in [group_field, color_field, facet_fields..., detail_strs...])
-        push!(detail_strs, marker_field)
-    end
+    _add_interval_detail_fields!(detail_strs, group_field, color_field, facet_fields,
+                                 marker_field, dodge_field)
     summary = compute_interval_summary(table, value_field, group_field, a.probs, a.point; color_field, facet_fields, detail_fields=detail_strs)
+    offset_field, offset_sort = _interval_offset(summary, group_field, color_field, facet_fields,
+                                                 dodge_field, dodge_sort, color_sort)
 
     sorted_probs = sort(a.probs, rev=true)
     opacities = range(0.2, 0.7, length=length(sorted_probs))
@@ -246,15 +295,16 @@ function analysis_to_vl(a::GradientIntervalAnalysis, layer::AlgebraOfGraphics.La
         )
         _add_group_color_encoding!(enc, group_field, color_field, ax.group_axis, ax.offset_key;
                                     group_label, color_label, show_axis_title=false,
-                                    group_sort, color_sort)
+                                    group_sort, color_sort, offset_field, offset_sort)
         push!(layers, Dict{String,Any}(
             "mark" => Dict{String,Any}("type" => "rule", "strokeWidth" => 14),
             "encoding" => enc,
         ))
     end
 
-    push!(layers, _interval_point_layer(group_field, color_field, ax.group_axis, ax.offset_key;
-                                         value_axis=ax.value_axis, group_sort, color_sort, marker_field, marker_label, marker_sort,
+    push!(layers, _interval_point_layer(group_field, ax.group_axis, ax.offset_key;
+                                         value_axis=ax.value_axis, group_sort, offset_field, offset_sort,
+                                         marker_field, marker_label, marker_sort,
                                          size=50, color="white"))
     _add_analysis_tooltips!(layers, _interval_tooltips(value_label, group_field, color_field, a.probs))
 
@@ -512,12 +562,13 @@ function analysis_to_vl(a::PrecomputedRibbonAnalysis, layer::AlgebraOfGraphics.L
 end
 
 function analysis_to_vl(a::DotIntervalAnalysis, layer::AlgebraOfGraphics.Layer; is_sublayer=false)
-    (; table, value_field, value_label, group_field, group_label, group_sort, color_field, color_label, color_sort, marker_field, marker_label, marker_sort, facet, facet_fields) = _extract_interval_fields(layer, a.orientation)
+    (; table, value_field, value_label, group_field, group_label, group_sort,
+       color_field, color_label, color_sort, dodge_field, dodge_sort,
+       marker_field, marker_label, marker_sort, facet, facet_fields) = _extract_interval_fields(layer, a.orientation)
     ax = _interval_axes(a.orientation)
     detail_strs = string.(a.detail_fields)
-    if !isnothing(marker_field) && !(marker_field in [group_field, color_field, facet_fields..., detail_strs...])
-        push!(detail_strs, marker_field)
-    end
+    _add_interval_detail_fields!(detail_strs, group_field, color_field, facet_fields,
+                                 marker_field, dodge_field)
 
     vals = Tables.getcolumn(table, Symbol(value_field))
     key_fields = String[f for f in [group_field, color_field, facet_fields..., detail_strs...] if !isnothing(f)]
@@ -548,6 +599,8 @@ function analysis_to_vl(a::DotIntervalAnalysis, layer::AlgebraOfGraphics.Layer; 
     end
 
     summary = compute_interval_summary(table, value_field, group_field, a.probs, a.point; color_field, facet_fields, detail_fields=detail_strs)
+    offset_field, offset_sort = _interval_offset(summary, group_field, color_field, facet_fields,
+                                                 dodge_field, dodge_sort, color_sort)
 
     # Dot layer
     dot_enc = Dict{String,Any}(
@@ -557,7 +610,7 @@ function analysis_to_vl(a::DotIntervalAnalysis, layer::AlgebraOfGraphics.Layer; 
     )
     _add_group_color_encoding!(dot_enc, group_field, color_field, ax.group_axis, ax.offset_key;
                                 group_label, color_label, show_axis_title=false,
-                                group_sort, color_sort)
+                                group_sort, color_sort, offset_field, offset_sort)
 
     layers = Dict{String,Any}[
         Dict{String,Any}(
@@ -577,16 +630,18 @@ function analysis_to_vl(a::DotIntervalAnalysis, layer::AlgebraOfGraphics.Layer; 
             ax.value2_axis => Dict{String,Any}("field" => _vl_prob_field("hi", prob)),
         )
         _add_group_color_encoding!(enc, group_field, color_field, ax.group_axis, ax.offset_key;
-                                    group_label, color_label, group_sort, color_sort)
+                                    group_label, color_label, group_sort, color_sort,
+                                    offset_field, offset_sort)
         push!(interval_layers, Dict{String,Any}(
             "mark" => Dict{String,Any}("type" => "rule", "strokeWidth" => stroke_widths[i], "color" => "#333"),
             "encoding" => enc,
         ))
     end
 
-    push!(interval_layers, _interval_point_layer(group_field, color_field, ax.group_axis, ax.offset_key;
+    push!(interval_layers, _interval_point_layer(group_field, ax.group_axis, ax.offset_key;
                                                    value_axis=ax.value_axis,
-                                                   group_sort, color_sort, marker_field, marker_label, marker_sort,
+                                                   group_sort, offset_field, offset_sort,
+                                                   marker_field, marker_label, marker_sort,
                                                    size=50, color="white"))
     _add_analysis_tooltips!(interval_layers, _interval_tooltips(value_label, group_field, color_field, a.probs))
 

@@ -634,7 +634,7 @@ Interval analyses (`pointinterval`, `pointinterval(bands=…)`, `gradient_interv
 Vega then ordered the legend lexicographically ("45 mg" before "5 mg"). A plain
 `Lines` layer preserves the order (it goes through `_apply_selector_modifier!`).
 The fix threads the selector's `Renamer.uniquevalues` into the colour encoding, its
-group offset, and (for a `y=` sorter) the group axis as a VL `sort` array, and
+collision-driven group offset, and (for a `y=` sorter) the group axis as a VL `sort` array, and
 `_field_label` now follows the `:x => fn => "L"` chain so the relabel survives too.
 The field-less white median dot stays uncoloured; its offset still gets the sort.
 Regression for snag `aov-color-catego-1130ae28`.
@@ -642,15 +642,16 @@ Regression for snag `aov-color-catego-1130ae28`.
 @testitem "interval analyses preserve color/group sorter order" setup=[AoVTestImports] tags=[:translation, :tidybayes, :regression] begin
     # Dose groups whose lexicographic order ("45 mg" < "5 mg") differs from intent.
     order = ["5 mg", "45 mg"]
-    preagg = (dose_group = ["5 mg", "45 mg"], median = [1.0, 2.0],
+    preagg = (parameter = fill("theta", 2), dose_group = ["5 mg", "45 mg"], median = [1.0, 2.0],
               q025 = [0.5, 1.5], q975 = [1.5, 2.5])
     draws = (value = [1.0, 1.1, 0.9, 2.0, 2.1, 1.9],
+             parameter = fill("theta", 6),
              dose_group = ["5 mg", "5 mg", "5 mg", "45 mg", "45 mg", "45 mg"])
 
     colorsel = :dose_group => sorter(order) => "Dominant dose"
 
     # --- Pre-aggregated pointinterval: sort + relabel reach every field-bearing layer ---
-    vlp = to_vegalite(data(preagg) * mapping(:median, y=:dose_group; color=colorsel) *
+    vlp = to_vegalite(data(preagg) * mapping(:median, y=:parameter; color=colorsel) *
                       pointinterval(bands=[:q025 => :q975]))
     rule = vlp["layer"][1]
     @test rule["encoding"]["color"]["sort"] == order        # legend ORDER pinned
@@ -663,7 +664,7 @@ Regression for snag `aov-color-catego-1130ae28`.
     @test median["encoding"]["yOffset"]["sort"] == order
 
     # --- Computed pointinterval (probs) preserves it too ---
-    vlc = to_vegalite(data(draws) * mapping(:value, y=:dose_group; color=colorsel) *
+    vlc = to_vegalite(data(draws) * mapping(:value, y=:parameter; color=colorsel) *
                       pointinterval())
     @test vlc["layer"][1]["encoding"]["color"]["sort"] == order
     @test vlc["layer"][1]["encoding"]["color"]["title"] == "Dominant dose"
@@ -681,11 +682,103 @@ Regression for snag `aov-color-catego-1130ae28`.
     @test vll["encoding"]["color"]["sort"] == order
     @test vll["encoding"]["color"]["title"] == "Dominant dose"
 
-    # --- No sorter → no `sort` keys anywhere (byte-identical to pre-fix output) ---
+    # --- No sorter → no `sort` keys anywhere ---
     vln = to_vegalite(data(preagg) * mapping(:median, y=:dose_group; color=:dose_group) *
                       pointinterval(bands=[:q025 => :q975]))
     for lyr in vln["layer"], (_, e) in lyr["encoding"]
         e isa Dict && @test !haskey(e, "sort")
+    end
+end
+
+"""
+Interval colour is not synonymous with dodge intent. A one-to-one colour used as
+metadata stays centered even when other facets use other colours; multiple colour
+levels at the same categorical position still dodge automatically. The existing
+`dodge_y`/`dodge_x` mappings provide an explicit, independently sortable dodge
+field and are retained through draw summarization.
+Regression for the subject-interval offset reported in brief `1emioaj`.
+"""
+@testitem "interval color only dodges colliding estimates" setup=[AoVTestImports] tags=[:translation, :tidybayes, :regression] begin
+    function channel_encodings(node, channel)
+        found = Any[]
+        if node isa AbstractDict
+            enc = get(node, "encoding", nothing)
+            enc isa AbstractDict && haskey(enc, channel) && push!(found, enc[channel])
+            for child in values(node)
+                append!(found, channel_encodings(child, channel))
+            end
+        elseif node isa AbstractVector
+            for child in node
+                append!(found, channel_encodings(child, channel))
+            end
+        end
+        found
+    end
+
+    # The same subject has a different metadata colour in each facet, but only
+    # one interval occupies each subject/facet position. A global offset scale
+    # must not shift either interval away from the row center.
+    metadata_draws = (
+        value = [0.8, 1.0, 1.1, 1.2, 1.8, 2.0, 2.1, 2.2],
+        subject = fill("S1", 8),
+        dose = vcat(fill("5 mg", 4), fill("45 mg", 4)),
+        panel = vcat(fill("A", 4), fill("B", 4)),
+    )
+    for vertical in (false, true)
+        analyses = vertical ?
+            (pointinterval(orientation=:vertical), gradient_interval(orientation=:vertical), dotinterval(orientation=:vertical)) :
+            (pointinterval(), gradient_interval(), dotinterval())
+        m = vertical ? mapping(:subject, :value; color=:dose, col=:panel) :
+                       mapping(:value; y=:subject, color=:dose, col=:panel)
+        offset_key = vertical ? "xOffset" : "yOffset"
+        for analysis in analyses
+            vl = to_vegalite(data(metadata_draws) * m * analysis)
+            @test isempty(channel_encodings(vl, offset_key))
+            @test !isempty(channel_encodings(vl, "color"))
+        end
+    end
+
+    metadata_summary = (
+        median = [1.0, 2.0], lo = [0.8, 1.8], hi = [1.2, 2.2],
+        subject = fill("S1", 2), dose = ["5 mg", "45 mg"], panel = ["A", "B"],
+    )
+    for vertical in (false, true)
+        m = vertical ? mapping(:subject, :median; color=:dose, col=:panel) :
+                       mapping(:median; y=:subject, color=:dose, col=:panel)
+        vl = to_vegalite(data(metadata_summary) * m *
+            pointinterval(bands=[:lo => :hi], orientation=vertical ? :vertical : :horizontal))
+        @test isempty(channel_encodings(vl, vertical ? "xOffset" : "yOffset"))
+    end
+
+    # Several colour groups at the same categorical position still need the
+    # convenient automatic dodge used by shared-effect interval plots.
+    regimes = ["Prior", "PK only", "Joint"]
+    collision_draws = (
+        value = repeat([-0.1, 0.0, 0.1, 0.2], 3) .+ repeat([-0.3, 0.0, 0.3], inner=4),
+        margin = fill("Random-effect SD", 12),
+        regime = repeat(regimes, inner=4),
+    )
+    for analysis in (pointinterval(), gradient_interval(), dotinterval())
+        vl = to_vegalite(data(collision_draws) *
+            mapping(:value; y=:margin, color=:regime) * analysis)
+        offsets = channel_encodings(vl, "yOffset")
+        @test !isempty(offsets)
+        @test all(e -> e["field"] == "regime", offsets)
+    end
+
+    # Explicit dodge remains independent of colour and its field survives the
+    # Julia-side summary grouping.
+    dodge_sel = :regime => sorter(regimes)
+    explicit_draws = merge(collision_draws, (source=fill("Estimate", 12),))
+    for vertical in (false, true)
+        m = vertical ? mapping(:margin, :value; color=:source, dodge_x=dodge_sel) :
+                       mapping(:value; y=:margin, color=:source, dodge_y=dodge_sel)
+        analysis = pointinterval(orientation=vertical ? :vertical : :horizontal)
+        vl = to_vegalite(data(explicit_draws) * m * analysis)
+        offsets = channel_encodings(vl, vertical ? "xOffset" : "yOffset")
+        @test !isempty(offsets)
+        @test all(e -> e["field"] == "regime" && e["sort"] == regimes, offsets)
+        @test length(vl["data"]["values"]) == 3
     end
 end
 
