@@ -1,13 +1,15 @@
 # --- Public API: to_vegalite ---
 
 """
-    to_vegalite(spec) -> Dict{String,Any}
+    to_vegalite(spec; interactive=true) -> Dict{String,Any}
 
 Convert an AoG `Layer`, `Layers`, or `VegaSpec` to a Vega-Lite JSON dictionary.
 Handles all translation: mark types, encodings, statistical transforms, config merging,
-and auto-interactivity.
+and, by default, auto-interactivity. Set `interactive=false` to suppress only the
+parameters generated automatically by AoV; explicit `config(params=...)` and
+`config(select=...)` remain in the output.
 """
-function to_vegalite(layer::AlgebraOfGraphics.Layer)
+function to_vegalite(layer::AlgebraOfGraphics.Layer; interactive::Bool=true)
     spec = layer_to_vl(layer)
     _apply_no_zero_default!(spec)
     _apply_no_truncate_default!(spec)
@@ -15,7 +17,7 @@ function to_vegalite(layer::AlgebraOfGraphics.Layer)
     spec
 end
 
-function to_vegalite(layers::AlgebraOfGraphics.Layers)
+function to_vegalite(layers::AlgebraOfGraphics.Layers; interactive::Bool=true)
     spec = layers_to_vl(layers)
     _apply_no_zero_default!(spec)
     _apply_no_truncate_default!(spec)
@@ -409,8 +411,8 @@ _independent_axes(val) = [string(v) for v in val]
 _select_field_list(s::Symbol) = [s]
 _select_field_list(v) = v
 
-function to_vegalite(v::VegaSpec)
-    spec = to_vegalite(v.drawable)
+function to_vegalite(v::VegaSpec; interactive::Bool=true)
+    spec = to_vegalite(v.drawable; interactive)
     select_fields = nothing
     if !isnothing(v.config)
         props = v.config.properties
@@ -474,12 +476,12 @@ function to_vegalite(v::VegaSpec)
     if !isnothing(select_fields)
         add_select_filters!(spec, v.drawable, select_fields)
     end
-    add_auto_interactivity!(spec)
+    interactive && add_auto_interactivity!(spec)
     spec
 end
 
 """
-    to_vegalite(spec, scales) -> Dict{String,Any}
+    to_vegalite(spec, scales; interactive=true) -> Dict{String,Any}
 
 Mirror of `AlgebraOfGraphics.draw(spec, scales(...))`: lower `spec` (a `Layer`,
 `Layers`, or `VegaSpec`) to a Vega-Lite dict, then apply the AoG `Scales` override
@@ -494,8 +496,8 @@ only into colour encodings that carry a `field`, so a layer with a deliberate
 field-less colour (e.g. a `pointinterval()` median dot) is never given a bare,
 VL-dropped colour encoding.
 """
-function to_vegalite(v, sc::AlgebraOfGraphics.Scales)
-    spec = to_vegalite(v)
+function to_vegalite(v, sc::AlgebraOfGraphics.Scales; interactive::Bool=true)
+    spec = to_vegalite(v; interactive)
     _apply_scales_sugar!(spec, sc)
     spec
 end
@@ -745,4 +747,4 @@ function add_auto_interactivity!(spec::Dict{String,Any})
 end
 
 # Also accept raw Dicts (passthrough)
-to_vegalite(d::Dict) = d
+to_vegalite(d::Dict; interactive::Bool=true) = d

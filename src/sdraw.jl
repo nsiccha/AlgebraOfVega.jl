@@ -272,6 +272,31 @@ function sdraw(spec, path::AbstractString; kwargs...)
 end
 
 """
+    sdraw!(position, spec)
+
+Render an AoV spec into an existing Makie figure, layout position, or axis via
+`AlgebraOfGraphics.draw!`. This is the static composition counterpart to
+`sdraw_file`: create a `Figure`, place independently configured specs with
+`sdraw!(fig[row, col], spec)`, then save the complete figure with `Makie.save`.
+
+Each spec keeps its own `config(axis=...)`, `config(facet=...)`, and
+`config(scales=...)` settings. `config(width=...)` and `config(height=...)` are
+standalone-figure settings and are therefore ignored when drawing into an
+existing layout.
+
+Requires a Makie backend (e.g. CairoMakie) to be loaded. Returns the result of
+`AlgebraOfGraphics.draw!`.
+"""
+function sdraw!(position, spec)
+    drawable, cfg = _extract_drawable(spec)
+    drawable = _convert_drawable(drawable)
+    kw = _draw_kwargs(cfg; faceted=_is_faceted(drawable))
+    isnothing(kw.scales) ?
+        AlgebraOfGraphics.draw!(position, drawable; facet=kw.facet, axis=kw.axis) :
+        AlgebraOfGraphics.draw!(position, drawable, kw.scales; facet=kw.facet, axis=kw.axis)
+end
+
+"""
     sdraw_file(spec, path::AbstractString; kwargs...)
 
 Render an AoG spec to a file via AlgebraOfGraphics.draw → Makie.save.
