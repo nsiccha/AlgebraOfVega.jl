@@ -382,6 +382,50 @@ Vega-Lite.
 end
 
 """
+Scalar Scatter `markersize` lowers to a Vega area that preserves the static
+dot's screen extent (snag `aov-markersize-s-6a30216c`): Makie lengths vs
+Vega-Lite px². `markersize=8` → `mark.size=32` (Vega draws √32 ≈ 5.7px,
+matching the static ≈5.6px dot); a VL-spelled `size` passes through, mapped
+(data-driven) sizes are untouched, and the static remap inverts.
+"""
+@testitem "scatter markersize lowers to Vega area" setup=[AoVTestImports] tags=[:translation] begin
+    df = (; x=[1.0, 2.0, 3.0], y=[4.0, 5.0, 6.0])
+
+    # Scalar markersize converts length → area (8²/2).
+    vl = to_vegalite(data(df) * mapping(:x, :y) * visual(Scatter; markersize=8))
+    @test vl["mark"]["type"] == "point"
+    @test vl["mark"]["size"] ≈ 32.0
+    vl6 = to_vegalite(data(df) * mapping(:x, :y) * visual(Scatter; markersize=6))
+    @test vl6["mark"]["size"] ≈ 18.0
+    @test AlgebraOfVega._markersize_to_vl_size(8) ≈ 32.0
+
+    # VL-spelled `size` is already an area: untouched.
+    vl_vl = to_vegalite(data(df) * mapping(:x, :y) * visual(Scatter; size=30))
+    @test vl_vl["mark"]["size"] == 30
+
+    # Non-scatter marks keep the old passthrough (a line `size` is a width).
+    vl_line = to_vegalite(data(df) * mapping(:x, :y) * visual(ScatterLines; markersize=8))
+    @test vl_line["mark"]["size"] == 8
+
+    # Mapped (data-driven) sizes are data values, not lengths: untouched.
+    dfm = (; x=[1.0, 2.0], y=[3.0, 4.0], w=[1.0, 2.0])
+    vl_map = to_vegalite(data(dfm) * mapping(:x, :y; markersize=:w) *
+                         visual(Scatter; opacity=0.5))
+    @test vl_map["encoding"]["size"]["field"] == "w"
+    @test !haskey(vl_map["mark"], "size")
+
+    # Static remap inverts: Vega area → Makie length (√(2·32) = 8).
+    @test AlgebraOfVega._vl_size_to_markersize(32) ≈ 8.0
+    @test AlgebraOfVega._vl_size_to_markersize(0) == 0
+    spec = data(df) * mapping(:x, :y) * visual(Scatter; size=32)
+    lyr = spec isa AlgebraOfGraphics.Layer ? spec : only(spec.layers)
+    fixed = AlgebraOfVega._fix_visual_attrs(lyr)
+    attrs = Dict(pairs(AlgebraOfVega.extract_visual(fixed).attributes))
+    @test attrs[:markersize] ≈ 8.0
+    @test !haskey(attrs, :size)
+end
+
+"""
 `config(independent_scales=...)` lowers to a Vega-Lite `resolve.scale` block —
 `true` frees both axes, a `Symbol` or tuple frees the named ones.
 """
