@@ -113,20 +113,30 @@ function _rows_to_columntable(rows::Vector{Dict{String,Any}})
     NamedTuple{col_syms}(col_vals)
 end
 
+# Rebuild a bare field as an AoG selector, reattaching the display label the
+# Vega-Lite path threads via `_field_label`. A label equal to the field name
+# stays a bare `Symbol`, so unlabeled specs lower byte-identically to before.
+_labeled_aog_field(field::AbstractString, label::AbstractString) =
+    label != field ? (Symbol(field) => label) : Symbol(field)
+
 function _ribbon_to_aog(summary_nt::NamedTuple, x_sym::Symbol, median_sym::Symbol,
     band_syms::Vector{Tuple{Symbol,Symbol}};
-    show_line::Bool=true, color_kw=Dict{Symbol,Any}(), facet_kw=Dict{Symbol,Any}())
-    opacities = range(0.2, 0.6, length=length(band_syms))
+    show_line::Bool=true, color_kw=Dict{Symbol,Any}(), facet_kw=Dict{Symbol,Any}(),
+    x_label::AbstractString=string(x_sym), y_label::AbstractString=string(median_sym))
+    opacities = length(band_syms) == 1 ? [0.4] : range(0.2, 0.6, length=length(band_syms))
+    x_sel = _labeled_aog_field(string(x_sym), x_label)
+    median_sel = _labeled_aog_field(string(median_sym), y_label)
     result = nothing
     for (i, (lo_sym, hi_sym)) in enumerate(band_syms)
         band_layer = data(summary_nt) *
-            mapping(x_sym, lo_sym, hi_sym; color_kw..., facet_kw...) *
+            mapping(x_sel, _labeled_aog_field(string(lo_sym), y_label),
+                _labeled_aog_field(string(hi_sym), y_label); color_kw..., facet_kw...) *
             visual(Band; alpha=opacities[i])
         result = isnothing(result) ? band_layer : result + band_layer
     end
     if show_line
         line_layer = data(summary_nt) *
-            mapping(x_sym, median_sym; color_kw..., facet_kw...) *
+            mapping(x_sel, median_sel; color_kw..., facet_kw...) *
             visual(Lines)
         result = isnothing(result) ? line_layer : result + line_layer
     end
@@ -135,21 +145,21 @@ end
 
 function _extract_aog_facet_color_kw(layer)
     color_field = haskey(layer.named, :color) ? _field_name(layer.named[:color]) : nothing
+    color_label = haskey(layer.named, :color) ? _field_label(layer.named[:color]) : nothing
     _, facet_fields = _extract_facet_info(layer)
     facet_kw = Dict{Symbol,Any}()
     for ff in facet_fields
-        sf = Symbol(ff)
         if haskey(layer.named, :col) && _field_name(layer.named[:col]) == ff
-            facet_kw[:col] = sf
+            facet_kw[:col] = _labeled_aog_field(ff, _field_label(layer.named[:col]))
         elseif haskey(layer.named, :row) && _field_name(layer.named[:row]) == ff
-            facet_kw[:row] = sf
+            facet_kw[:row] = _labeled_aog_field(ff, _field_label(layer.named[:row]))
         elseif haskey(layer.named, :layout) && _field_name(layer.named[:layout]) == ff
-            facet_kw[:layout] = sf
+            facet_kw[:layout] = _labeled_aog_field(ff, _field_label(layer.named[:layout]))
         end
     end
     color_kw = isnothing(color_field) ? Dict{Symbol,Any}() :
-        Dict{Symbol,Any}(:color => Symbol(color_field))
-    (; color_field, facet_fields, facet_kw, color_kw)
+        Dict{Symbol,Any}(:color => _labeled_aog_field(color_field, color_label))
+    (; color_field, color_label, facet_fields, facet_kw, color_kw)
 end
 
 """
@@ -160,7 +170,9 @@ Convert a LineRibbonAnalysis layer to pure AoG Band + Lines layers.
 function _lineribbon_to_aog(a::LineRibbonAnalysis, layer::AlgebraOfGraphics.Layer)
     table = extract_data(layer)
     x_field = length(layer.positional) >= 1 ? _field_name(layer.positional[1]) : "x"
+    x_label = length(layer.positional) >= 1 ? _field_label(layer.positional[1]) : "x"
     y_field = length(layer.positional) >= 2 ? _field_name(layer.positional[2]) : "y"
+    y_label = length(layer.positional) >= 2 ? _field_label(layer.positional[2]) : "y"
     group_field = haskey(layer.named, :group) ? _field_name(layer.named[:group]) : "draw"
     (; color_field, facet_fields, facet_kw, color_kw) = _extract_aog_facet_color_kw(layer)
 
@@ -173,20 +185,22 @@ function _lineribbon_to_aog(a::LineRibbonAnalysis, layer::AlgebraOfGraphics.Laye
     band_syms = Tuple{Symbol,Symbol}[(Symbol(_vl_prob_field("lo", p)), Symbol(_vl_prob_field("hi", p))) for p in sorted_probs]
 
     _ribbon_to_aog(summary_nt, Symbol(x_field), Symbol("__median__"), band_syms;
-        show_line=a.show_line, color_kw, facet_kw)
+        show_line=a.show_line, color_kw, facet_kw, x_label, y_label)
 end
 
 function _precomputed_ribbon_to_aog(a::PrecomputedRibbonAnalysis, layer::AlgebraOfGraphics.Layer)
     table = extract_data(layer)
     x_field = length(layer.positional) >= 1 ? _field_name(layer.positional[1]) : "x"
+    x_label = length(layer.positional) >= 1 ? _field_label(layer.positional[1]) : "x"
     median_col = _field_name(layer.positional[2])
+    y_label = _field_label(layer.positional[2])
     (; facet_kw, color_kw) = _extract_aog_facet_color_kw(layer)
 
     summary_nt = Tables.columntable(table)
     band_syms = Tuple{Symbol,Symbol}[(first(b), last(b)) for b in a.bands]
 
     _ribbon_to_aog(summary_nt, Symbol(x_field), Symbol(median_col), band_syms;
-        show_line=a.show_line, color_kw, facet_kw)
+        show_line=a.show_line, color_kw, facet_kw, x_label, y_label)
 end
 
 """
@@ -282,7 +296,13 @@ Render an AoV spec into an existing Makie figure, layout position, or axis via
 Each spec keeps its own `config(axis=...)`, `config(facet=...)`, and
 `config(scales=...)` settings. `config(width=...)` and `config(height=...)` are
 standalone-figure settings and are therefore ignored when drawing into an
-existing layout.
+existing layout. `mapping` display labels (`:x => "Label"`), including
+`lineribbon`/`ribbon(bands=...)` x/y/colour/facet labels, are preserved on the
+rebuilt static layers.
+
+Like `AlgebraOfGraphics.draw!`, this does not add legends or colorbars — call
+`AlgebraOfGraphics.legend!(position, grid)` with the returned grid afterwards
+(see `aov-use` §1a for the composition pattern).
 
 Requires a Makie backend (e.g. CairoMakie) to be loaded. Returns the result of
 `AlgebraOfGraphics.draw!`.
