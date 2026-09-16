@@ -165,6 +165,27 @@ function _vl_size_to_markersize(s::Real)
     (isfinite(f) && f > 0) ? sqrt(2 * f) : s
 end
 
+# Makie `linestyle` symbols → Vega-Lite `strokeDash` arrays (pixel dash/gap
+# patterns). A Makie linestyle symbol is a first-class visual attribute, but
+# Vega-Lite's `mark.strokeDash` takes `number[]` — a bare symbol serializes to a
+# string ("dash") that Vega ignores, so the line renders solid. The static
+# (`sdraw`) path renders these symbols natively through Makie, so converting
+# here keeps the interactive (`vdraw`) path visually consistent with it. The
+# ratios mirror Makie's own `line_diff_pattern` (dash=gap=3, dot=1), scaled ×2
+# for on-screen visibility at a typical line width. A numeric array is already a
+# VL dash spec and passes through unchanged; `:solid` (or any `nothing`) ⇒ the
+# `strokeDash` property is omitted entirely (a solid line, VL's default).
+_LINESTYLE_DASH = Dict{Symbol,Any}(
+    :solid      => nothing,
+    :dash       => [6, 6],
+    :dot        => [2, 4],
+    :dashdot    => [6, 6, 2, 6],
+    :dashdotdot => [6, 6, 2, 4, 2, 6],
+)
+
+_linestyle_to_strokedash(v::Symbol) = get(_LINESTYLE_DASH, v, v)
+_linestyle_to_strokedash(v) = v
+
 function visual_attrs_to_mark_props(vis::AlgebraOfGraphics.Visual)
     props = Dict{String,Any}()
     # Only a true Scatter becomes a Vega point mark, where `size` is an area.
@@ -178,7 +199,8 @@ function visual_attrs_to_mark_props(vis::AlgebraOfGraphics.Visual)
         elseif k === :color
             props["color"] = string(v)
         elseif k === :strokeDash || k === :linestyle
-            props["strokeDash"] = v
+            dash = _linestyle_to_strokedash(v)
+            isnothing(dash) || (props["strokeDash"] = dash)
         elseif k === :markersize
             props["size"] = (scatter && v isa Real) ? _markersize_to_vl_size(v) : v
         elseif k === :size

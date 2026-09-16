@@ -426,6 +426,48 @@ matching the static ≈5.6px dot); a VL-spelled `size` passes through, mapped
 end
 
 """
+Makie `linestyle` symbols lower to Vega-Lite `strokeDash` arrays (snag
+`data-rows-mappin-28e436a3`): a bare symbol serialized to a string ("dash")
+that VL's `mark.strokeDash` (a `number[]`) ignores, so the line rendered solid
+on `vdraw` while `sdraw` (Makie native) drew it dashed. Symbols now map to
+dash/gap arrays whose proportions mirror Makie's `line_diff_pattern`; `:solid`
+omits the property, and numeric arrays (the old call-site workaround) plus the
+static path are untouched.
+"""
+@testitem "linestyle symbols lower to Vega strokeDash arrays" setup=[AoVTestImports] tags=[:translation, :regression] begin
+    df = (; x=[1.0, 2.0, 3.0], y=[4.0, 5.0, 6.0])
+    strokedash(ls) = begin
+        m = to_vegalite(data(df) * mapping(:x, :y) * visual(Lines; linestyle=ls))["mark"]
+        m isa AbstractDict ? get(m, "strokeDash", nothing) : nothing
+    end
+
+    # Makie linestyle symbols → VL dash arrays.
+    @test strokedash(:dash) == [6, 6]
+    @test strokedash(:dot) == [2, 4]
+    @test strokedash(:dashdot) == [6, 6, 2, 6]
+    @test strokedash(:dashdotdot) == [6, 6, 2, 4, 2, 6]
+
+    # :solid ⇒ no strokeDash property (solid is VL's default).
+    @test strokedash(:solid) === nothing
+
+    # A numeric array is already a VL dash spec: the old workaround still passes through.
+    @test strokedash([6, 4]) == [6, 4]
+
+    # Unit-level converter.
+    @test AlgebraOfVega._linestyle_to_strokedash(:dash) == [6, 6]
+    @test AlgebraOfVega._linestyle_to_strokedash(:solid) === nothing
+    @test AlgebraOfVega._linestyle_to_strokedash([6, 4]) == [6, 4]
+
+    # Static (sdraw) path renders the symbol natively via Makie: _fix_visual_attrs
+    # has no :strokeDash key to convert, so it leaves `linestyle=:dash` untouched
+    # and vdraw/sdraw agree.
+    spec = data(df) * mapping(:x, :y) * visual(Lines; linestyle=:dash)
+    lyr = spec isa AlgebraOfGraphics.Layer ? spec : only(spec.layers)
+    attrs = Dict(pairs(AlgebraOfVega.extract_visual(AlgebraOfVega._fix_visual_attrs(lyr)).attributes))
+    @test attrs[:linestyle] === :dash
+end
+
+"""
 `config(independent_scales=...)` lowers to a Vega-Lite `resolve.scale` block —
 `true` frees both axes, a `Symbol` or tuple frees the named ones.
 """
