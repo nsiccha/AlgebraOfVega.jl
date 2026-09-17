@@ -1883,3 +1883,40 @@ end
 @testitem "interval categorical median markers" setup=[AoVTestImports] tags=[:translation, :tidybayes, :regression] begin
     include(joinpath(@__DIR__, "interval_markers.jl"))
 end
+
+"""
+Faceted multi-source layers merge into one `__src`-tagged dataset with a
+per-layer source filter (snag `layered-area-y-y-4e8a879f`): Vega connects
+line/area paths only through consecutive defined tuples, so a path layer that
+inherited a merged dataset unfiltered would see foreign rows (null/absent
+path fields) interleaved between its own and paint zero pixels with zero
+warnings. The filter pairing is what keeps AoV-emitted specs immune to that
+silent blank.
+"""
+@testitem "faceted merge pairs every layer with a __src filter" setup=[AoVTestImports] tags=[:translation, :regression] begin
+    bands = (; x=[1.0, 2.0, 3.0, 1.0, 2.0, 3.0], y=[1.0, 2.0, 3.0, 1.5, 2.5, 3.5],
+               f=["a", "a", "a", "b", "b", "b"])
+    pts = (; x=[1.5, 2.5, 1.5, 2.5], y=[1.2, 2.2, 1.7, 2.7], f=["a", "a", "b", "b"])
+    spec = (data(bands) * mapping(:x, :y; col=:f) * visual(Lines) +
+            data(pts) * mapping(:x, :y; col=:f) * visual(Scatter))
+    vl = to_vegalite(spec; interactive=false)
+    # Facet lifted to the top; one merged dataset tagged per source table.
+    @test haskey(vl, "facet")
+    vals = vl["data"]["values"]
+    @test length(vals) == length(bands.x) + length(pts.x)
+    tags = Set(r["__src"] for r in vals)
+    @test length(tags) == 2
+    # Every inner layer routes to exactly one source tag — no layer inherits
+    # the merged dataset unfiltered (the silent-blank shape).
+    @test length(vl["spec"]["layer"]) == 2
+    seen = Set{String}()
+    for l in vl["spec"]["layer"]
+        flts = [t["filter"] for t in get(l, "transform", []) if haskey(t, "filter")]
+        srcflts = filter(f -> occursin("__src", f), flts)
+        @test length(srcflts) == 1
+        m = match(r"datum\.__src === '([^']+)'", only(srcflts))
+        @test !isnothing(m) && m.captures[1] in tags
+        push!(seen, m.captures[1])
+    end
+    @test seen == tags
+end
