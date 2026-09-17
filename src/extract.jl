@@ -186,6 +186,32 @@ _LINESTYLE_DASH = Dict{Symbol,Any}(
 _linestyle_to_strokedash(v::Symbol) = get(_LINESTYLE_DASH, v, v)
 _linestyle_to_strokedash(v) = v
 
+# Makie `marker` symbols → Vega-Lite `shape` names (point-mark property). A
+# fixed Makie marker is a first-class visual attribute, but Vega-Lite's
+# `mark.shape` takes its own vocabulary (`"circle"`, `"square"`, `"cross"`,
+# `"diamond"`, `"triangle-up"`, ...). Passing the AoG kwarg name through as
+# `mark.marker` emits a property Vega-Lite ignores, so every fixed-marker
+# layer rendered as a circle — while the static (`sdraw`) path renders the
+# symbol natively through Makie, a silent vdraw/sdraw divergence. Symbols
+# with a Vega counterpart are renamed; anything else passes through as its
+# string form (Vega ignores unknown shapes the same way). A data-driven
+# `mapping(...; marker=:field)` is untouched — it already becomes a `shape`
+# encoding via `_CHANNEL_MAP`.
+_MARKER_SHAPE = Dict{Symbol,String}(
+    :circle    => "circle",
+    :rect      => "square",
+    :diamond   => "diamond",
+    :cross     => "cross",
+    :+         => "cross",
+    :utriangle => "triangle-up",
+    :dtriangle => "triangle-down",
+    :ltriangle => "triangle-left",
+    :rtriangle => "triangle-right",
+)
+
+_marker_to_shape(v::Symbol) = get(_MARKER_SHAPE, v, string(v))
+_marker_to_shape(v) = v
+
 function visual_attrs_to_mark_props(vis::AlgebraOfGraphics.Visual)
     props = Dict{String,Any}()
     # Only a true Scatter becomes a Vega point mark, where `size` is an area.
@@ -201,6 +227,8 @@ function visual_attrs_to_mark_props(vis::AlgebraOfGraphics.Visual)
         elseif k === :strokeDash || k === :linestyle
             dash = _linestyle_to_strokedash(v)
             isnothing(dash) || (props["strokeDash"] = dash)
+        elseif k === :marker
+            props["shape"] = _marker_to_shape(v)
         elseif k === :markersize
             props["size"] = (scatter && v isa Real) ? _markersize_to_vl_size(v) : v
         elseif k === :size
