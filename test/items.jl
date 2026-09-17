@@ -468,6 +468,67 @@ static path are untouched.
 end
 
 """
+Fixed Makie `marker` symbols lower to the Vega-Lite `shape` mark property (snag
+`fixed-scatter-ma-9d262dde`): the AoG kwarg name passed through as
+`mark.marker`, which VL ignores, so every fixed-marker layer rendered as a
+circle on `vdraw` while `sdraw` (Makie native) drew the symbol — a silent
+vdraw/sdraw divergence. Makie names with a Vega counterpart are renamed;
+anything else passes through as its string form; the data-driven
+`mapping(...; marker=:field)` shape encoding is untouched.
+"""
+@testitem "fixed marker lowers to Vega shape" setup=[AoVTestImports] tags=[:translation, :regression] begin
+    df = (; x=[1.0, 2.0, 3.0], y=[4.0, 5.0, 6.0])
+    shape(m) = begin
+        mk = to_vegalite(data(df) * mapping(:x, :y) * visual(Scatter; marker=m))["mark"]
+        mk isa AbstractDict ? get(mk, "shape", nothing) : nothing
+    end
+
+    # Exact-name symbols.
+    @test shape(:circle) == "circle"
+    @test shape(:diamond) == "diamond"
+    @test shape(:cross) == "cross"
+
+    # Renamed Makie symbols → Vega shape names.
+    @test shape(:rect) == "square"
+    @test shape(:utriangle) == "triangle-up"
+    @test shape(:dtriangle) == "triangle-down"
+    @test shape(:ltriangle) == "triangle-left"
+    @test shape(:rtriangle) == "triangle-right"
+    @test shape(:+) == "cross"
+
+    # The reporter's exact spec: no `marker` key survives, `shape` carries it.
+    vl = to_vegalite(data((; x=[1.0, 2.0], y=[1.0, 2.0])) * mapping(:x, :y) *
+                     visual(Scatter; marker=:cross, color=:black, markersize=10);
+                     interactive=false)
+    @test vl["mark"]["shape"] == "cross"
+    @test !haskey(vl["mark"], "marker")
+    @test vl["mark"]["size"] ≈ 50.0
+
+    # Symbols with no Vega counterpart pass through as strings — still keyed
+    # `shape`, never `marker` (Vega ignores them, rendering a circle as before).
+    @test shape(:star5) == "star5"
+    @test shape(:xcross) == "xcross"
+
+    # Unit-level converter.
+    @test AlgebraOfVega._marker_to_shape(:utriangle) == "triangle-up"
+    @test AlgebraOfVega._marker_to_shape(:diamond) == "diamond"
+    @test AlgebraOfVega._marker_to_shape(:star5) == "star5"
+
+    # Data-driven marker mapping is untouched (a `shape` encoding, not a mark prop).
+    dfm = (; x=[1.0, 2.0], y=[3.0, 4.0], g=["a", "b"])
+    vl_map = to_vegalite(data(dfm) * mapping(:x, :y; marker=:g) * visual(Scatter))
+    @test vl_map["encoding"]["shape"]["field"] == "g"
+    @test !haskey(vl_map["mark"], "shape")
+
+    # Static (sdraw) path renders the symbol natively via Makie: _fix_visual_attrs
+    # leaves `marker=:cross` untouched and vdraw/sdraw agree.
+    spec = data(df) * mapping(:x, :y) * visual(Scatter; marker=:cross)
+    lyr = spec isa AlgebraOfGraphics.Layer ? spec : only(spec.layers)
+    attrs = Dict(pairs(AlgebraOfVega.extract_visual(AlgebraOfVega._fix_visual_attrs(lyr)).attributes))
+    @test attrs[:marker] === :cross
+end
+
+"""
 `config(independent_scales=...)` lowers to a Vega-Lite `resolve.scale` block —
 `true` frees both axes, a `Symbol` or tuple frees the named ones.
 """
