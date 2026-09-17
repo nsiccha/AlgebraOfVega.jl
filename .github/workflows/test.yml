@@ -53,7 +53,13 @@ jobs:
           # scanned.
           DEPS="$RUNNER_TEMP/aov-ci-deps"
           mkdir -p "$DEPS"
-          git clone -b kb-impl/DynamicObjects-sbpmx-reflect https://github.com/nsiccha/DynamicObjects.jl.git "$DEPS/DynamicObjects.jl"
+          # DynamicObjects on `pre-inference` (0.5.0): HTMXObjects@devibe
+          # bounds DynamicObjects to 0.4.4+ (`1076bd8`), while the old
+          # sbpmx-reflect line still stamps 0.4.3, so developing it is
+          # unsatisfiable (registry max is 0.4.3 too). pre-inference is the
+          # desktop's declared DO line and carries the fetchindex/PCE surface
+          # devibe imports.
+          git clone -b pre-inference https://github.com/nsiccha/DynamicObjects.jl.git "$DEPS/DynamicObjects.jl"
           git clone -b dev https://github.com/nsiccha/HTMX.jl.git "$DEPS/HTMX.jl"
           git clone -b devibe https://github.com/nsiccha/HTMXObjects.jl.git "$DEPS/HTMXObjects.jl"
           git clone https://github.com/nsiccha/Treebars.jl.git "$DEPS/Treebars.jl"
