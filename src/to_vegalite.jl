@@ -183,7 +183,24 @@ end
 _merge_into_child!(args...) = nothing
 _merge_into_child!(child::Dict, config_enc::Dict) = _merge_encoding_config!(child, config_enc)
 
+"""Merge raw `config(encoding=...)` overrides.
+
+A top-level Vega-Lite facet operator *is* the row/column encoding. Route its
+channel overrides to `facet.row` / `facet.column` before the normal layer
+recursion; otherwise a faceted spec has no top-level `encoding`, and the
+override recurses into sublayers where a field-less row/channel dict is inert.
+"""
 function _merge_encoding_config!(spec::Dict, config_enc::Dict)
+    if haskey(spec, "facet")
+        facet = spec["facet"]
+        for config_key in ("row", "column")
+            haskey(config_enc, config_key) && haskey(facet, config_key) || continue
+            target = _as_dict(facet[config_key])
+            override = _as_dict(config_enc[config_key])
+            !isnothing(target) && !isnothing(override) &&
+                _deep_merge_encoding!(target, override)
+        end
+    end
     if haskey(spec, "encoding")
         _deep_merge_encoding!(spec["encoding"], config_enc)
     end
@@ -390,6 +407,68 @@ function _apply_scales_sugar!(spec, s::AlgebraOfGraphics.Scales)
         end
         _merge_color_scale!(spec, shape_scale; channel="shape")
     end
+    _merge_facet_sorts!(spec, _scales_to_facet_sorts(s))
+    spec
+end
+
+# `categories` is AoG's categorical-scale order; `value => label` pairs contribute
+# their raw value, matching the Colour-scale translation.
+_scales_categories(props) = map(c -> c isa Pair ? first(c) : c, props[:categories])
+
+"""Extract facet-order arrays from AoG facet scale overrides.
+
+`scales(Row=(; categories=[...]))` and `scales(Col=(; categories=[...]))` map directly to
+the VL row/column facet channels. AoG's `Layout` scale is one wrap dimension; on a wrap
+facet it maps to `facet.field`, and on a single row/column facet it maps to that channel.
+When both grid channels exist, `Layout` is ambiguous and is ignored with a warning.
+"""
+function _scales_to_facet_sorts(s::AlgebraOfGraphics.Scales)
+    sorts = Dict{String,Any}()
+    for (key, channel) in ((:Row, "row"), (:Col, "column"), (:Column, "column"))
+        props = get(s.dict, key, nothing)
+        !isnothing(props) && haskey(props, :categories) && (sorts[channel] = _scales_categories(props))
+    end
+    props = get(s.dict, :Layout, nothing)
+    if !isnothing(props) && haskey(props, :categories)
+        sorts["layout"] = _scales_categories(props)
+    end
+    sorts
+end
+
+"""Merge explicit facet-order arrays into field-bearing facet channels."""
+function _merge_facet_sorts!(spec::Dict, sorts::Dict)
+    isempty(sorts) && return
+    for (channel, order) in sorts
+        _merge_facet_sort!(spec, channel, order)
+    end
+end
+
+function _merge_facet_sort!(spec::Dict, channel::String, order)
+    facet = _as_dict(get(spec, "facet", nothing))
+    encoding = _as_dict(get(spec, "encoding", nothing))
+    target = nothing
+    if !isnothing(facet)
+        if channel == "layout"
+            if haskey(facet, "field")
+                target = _as_dict(facet)
+            else
+                available = String[ch for ch in ("row", "column") if
+                    haskey(facet, ch) && haskey(_as_dict(facet[ch]), "field")]
+                if length(available) == 1
+                    target = _as_dict(facet[only(available)])
+                elseif length(available) > 1
+                    @warn "AlgebraOfVega: `scales(Layout=(; categories=...))` is ambiguous with both row= and col= facets; use scales(Row=...)/scales(Col=...)." maxlog=1
+                end
+            end
+        elseif haskey(facet, channel)
+            target = _as_dict(facet[channel])
+        end
+    elseif !isnothing(encoding) && haskey(encoding, channel)
+        target = _as_dict(encoding[channel])
+    end
+    isnothing(target) && return
+    haskey(target, "field") || return
+    target["sort"] = copy(order)
     spec
 end
 
