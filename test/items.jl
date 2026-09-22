@@ -838,6 +838,61 @@ Regression for snag `aov-color-catego-1130ae28`.
 end
 
 """
+Analyses rebuild facet encodings from field/label names, which dropped a facet
+selector's explicit `sorter` order even though the plain-mark path preserved it.
+AoG facet-scale `categories` (`Row`, `Col`, or the one-channel `Layout` case) is
+also translated now, so both documented APIs pin nominal row/column order.
+Regression for snag `facet-row-order-6e4f10d0`.
+"""
+@testitem "analysis facets preserve sorter and facet scale order" setup=[AoVTestImports] tags=[:translation, :tidybayes, :regression] begin
+    order = ["5 mg", "10 mg", "20 mg", "40 mg"]
+    tbl = (x = repeat([1.0, 2.0], 4), median = collect(1.0:8.0),
+           lo = collect(0.5:7.5), hi = collect(1.5:8.5),
+           dose = repeat(order; inner=2))
+    spec = data(tbl) * mapping(:x, :median => "Response";
+                               row=:dose => sorter(order) => "Dose") *
+           lineribbon(bands=[:lo => :hi])
+    vl = to_vegalite(spec)
+    @test vl["facet"]["row"]["field"] == "dose"
+    @test vl["facet"]["row"]["sort"] == order
+    @test vl["facet"]["row"]["title"] == "Dose"
+
+    # `scales(...)` is the AoG-mirror override for a mapping that has no sorter.
+    plain = data(tbl) * mapping(:x, :median => "Response"; row=:dose) *
+            lineribbon(bands=[:lo => :hi])
+    vl_row = to_vegalite(plain, scales(Row=(; categories=order)))
+    @test vl_row["facet"]["row"]["sort"] == order
+    vl_layout = to_vegalite(plain, scales(Layout=(; categories=order)))
+    @test vl_layout["facet"]["row"]["sort"] == order
+    # A raw facet-channel encoding override reaches the facet operator, not an inert sublayer.
+    vl_config = to_vegalite(plain * config(encoding=Dict("row" => Dict("sort" => order))))
+    @test vl_config["facet"]["row"]["sort"] == order
+
+    # AoG spells the column scale `Col`; an override replaces a mapping sorter.
+    coltbl = (x = tbl.x, median = tbl.median, lo = tbl.lo, hi = tbl.hi, dose = tbl.dose)
+    colspec = data(coltbl) * mapping(:x, :median => "Response";
+                                     col=:dose => sorter(reverse(order)) => "Dose") *
+              lineribbon(bands=[:lo => :hi])
+    vl_col = to_vegalite(colspec, scales(Col=(; categories=order)))
+    @test vl_col["facet"]["column"]["sort"] == order
+
+    # `Layout` is deliberately refused (with a warning) when it could mean either grid axis.
+    bothspec = data((x = tbl.x, median = tbl.median, lo = tbl.lo, hi = tbl.hi,
+                     dose = tbl.dose, group = repeat(["A", "B"]; outer=4))) *
+              mapping(:x, :median => "Response"; row=:dose, col=:group) *
+              lineribbon(bands=[:lo => :hi])
+    @test_logs (:warn, r"ambiguous with both row= and col=") begin
+        vl_both = to_vegalite(bothspec, scales(Layout=(; categories=order)))
+        @test !haskey(vl_both["facet"]["row"], "sort")
+        @test !haskey(vl_both["facet"]["column"], "sort")
+    end
+
+    # No explicit order leaves the emitted facet channel untouched.
+    vl_plain = to_vegalite(plain)
+    @test !haskey(vl_plain["facet"]["row"], "sort")
+end
+
+"""
 Interval colour is not synonymous with dodge intent. A one-to-one colour used as
 metadata stays centered even when other facets use other colours; multiple colour
 levels at the same categorical position still dodge automatically. The existing

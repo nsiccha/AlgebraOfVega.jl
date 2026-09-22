@@ -221,10 +221,12 @@ _vl_prob_field(prefix, prob) = "$(prefix)_$(replace(string(prob), "." => "_"))_"
 
 # --- Facet helpers for TidybayesAnalysis ---
 
-"""Build the VL facet-channel encoding for one facet field (`{field, type[, title]}`)."""
-function _facet_channel_enc(field, label)
+"""Build the VL facet-channel encoding for one facet field
+(`{field, type[, title][, sort]}`)."""
+function _facet_channel_enc(field, label, sort=nothing)
     enc = Dict{String,Any}("field" => field, "type" => "nominal")
     !isnothing(label) && label != field && (enc["title"] = label)
+    !isnothing(sort) && (enc["sort"] = sort)
     enc
 end
 
@@ -239,6 +241,10 @@ and the list of facet field names.
 with `:col`/`:row` (VL cannot mix the two operator forms) it takes the free grid channel,
 `column` first then `row`.
 
+An explicit `sorter`/`renamer` order on a facet selector is carried into the facet
+channel's `sort`, just as it is on plain-mark channels; analyses rebuild their facet
+encodings, so this thread must be explicit.
+
 The returned `facet_fields` are the analysis grouping key: without the layout field in
 here, preaggregation (`compute_ribbon_summary` / `compute_interval_summary`) pools across
 panels and drops the column entirely.
@@ -246,18 +252,21 @@ panels and drops the column entirely.
 function _extract_facet_info(layer)
     col_field = haskey(layer.named, :col) ? _field_name(layer.named[:col]) : nothing
     col_label = haskey(layer.named, :col) ? _field_label(layer.named[:col]) : nothing
+    col_sort = haskey(layer.named, :col) ? _selector_sort(layer.named[:col]) : nothing
     row_field = haskey(layer.named, :row) ? _field_name(layer.named[:row]) : nothing
     row_label = haskey(layer.named, :row) ? _field_label(layer.named[:row]) : nothing
+    row_sort = haskey(layer.named, :row) ? _selector_sort(layer.named[:row]) : nothing
     layout_field = haskey(layer.named, :layout) ? _field_name(layer.named[:layout]) : nothing
     layout_label = haskey(layer.named, :layout) ? _field_label(layer.named[:layout]) : nothing
+    layout_sort = haskey(layer.named, :layout) ? _selector_sort(layer.named[:layout]) : nothing
     facet = Dict{String,Any}()
-    !isnothing(col_field) && (facet["column"] = _facet_channel_enc(col_field, col_label))
-    !isnothing(row_field) && (facet["row"] = _facet_channel_enc(row_field, row_label))
+    !isnothing(col_field) && (facet["column"] = _facet_channel_enc(col_field, col_label, col_sort))
+    !isnothing(row_field) && (facet["row"] = _facet_channel_enc(row_field, row_label, row_sort))
     facet_fields = String[]
     !isnothing(col_field) && push!(facet_fields, col_field)
     !isnothing(row_field) && push!(facet_fields, row_field)
     if !isnothing(layout_field)
-        lay_enc = _facet_channel_enc(layout_field, layout_label)
+        lay_enc = _facet_channel_enc(layout_field, layout_label, layout_sort)
         if isempty(facet)
             merge!(facet, lay_enc)              # wrap form: facet: {field, type}
         elseif !haskey(facet, "column")
