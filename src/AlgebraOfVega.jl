@@ -37,6 +37,8 @@ export to_vegalite, to_json, to_html, to_node, vega_head, vega_controls, plot_si
 export plot_summary_md, PlotSummary
 export vega_runtime, update_data, vega_cdn_urls, mapping_controls, resolve_channels, refine_channels, auto_remap_node
 export with_plot_caption, draws_summary_table
+export clean_share_url, caption_share_button, caption_action_inject,
+    with_caption_share, with_caption_download, summary_share_button
 export symlog
 
 """
@@ -133,6 +135,7 @@ include("to_node.jl")
 include("plot_size.jl")
 include("auto_remap.jl")
 include("to_html.jl")
+include("caption_actions.jl")
 include("widgets.jl")
 include("sdraw.jl")
 include("show.jl")

@@ -510,6 +510,99 @@ function vega_runtime()
             });
         },
 
+        // Public: download THIS card as a standalone .html file — no server
+        // round-trip. Clones the card's live DOM (picker + plot + caption +
+        // lazy shells), resets live-only UI state on the clone, and prepends
+        // a <head> scraped from the live document (Vega CDN scripts + AoV
+        // runtime + caption CSS), mirroring `to_html(::HTMX.Node)`.
+        downloadPlotHtml: function(id, filenameBase) {
+            filenameBase = filenameBase || id;
+            var anchor = document.getElementById(id);
+            if (!anchor) { console.warn('AoV.downloadPlotHtml: no element for', id); return; }
+            var root = anchor.closest('[data-aov-fragment]') || anchor.closest('figure');
+            if (!root) { console.warn('AoV.downloadPlotHtml: no card root for', id); return; }
+            var clone = root.cloneNode(true);
+
+            // Live-rendered view output: the fresh page re-embeds from the spec.
+            var plotEl = clone.querySelector('#' + id);
+            if (plotEl) plotEl.innerHTML = '';
+            // Lazy data shells: drop rendered bodies; the fresh page re-renders lazily.
+            clone.querySelectorAll('.aov-data-raw-body[data-aov-plot-id], .aov-data-pretty-body[data-aov-plot-id]').forEach(function(b) {
+                b.innerHTML = '';
+            });
+            clone.querySelectorAll('[data-aov-rendered]').forEach(function(el) {
+                el.removeAttribute('data-aov-rendered');
+            });
+            // Pretty/Raw toggle: back to the initial Pretty mode.
+            clone.querySelectorAll('details.aov-data-preview[data-mode]').forEach(function(d) {
+                d.dataset.mode = 'pretty';
+                d.querySelectorAll('button[data-view]').forEach(function(btn) {
+                    if (btn.dataset.view === 'pretty') btn.setAttribute('aria-pressed', 'true');
+                    else btn.removeAttribute('aria-pressed');
+                });
+            });
+            // Picker: restore the INITIAL pin/disabled/checked state. Pin changes
+            // (and URL restore) flip select.disabled, a reflecting IDL attribute,
+            // so the clone's attributes may disagree with the authored initial
+            // state — read the initial pin from the picker's own inline script.
+            var pin0 = null;
+            clone.querySelectorAll('script').forEach(function(s) {
+                var m = /_aovPin_\w+_current = '([A-Za-z_]+)'/.exec(s.textContent || '');
+                if (m) pin0 = m[1];
+            });
+            if (pin0) {
+                clone.querySelectorAll('select[id^="aov-remap-"][id$="-' + id + '"]').forEach(function(sel) {
+                    var ch = sel.id.slice('aov-remap-'.length, sel.id.length - id.length - 1);
+                    var radio = clone.querySelector('input[name="aov-pin-' + id + '"][value="' + ch + '"]');
+                    // Fixed channels keep their authored disabled select (their radio
+                    // is disabled too and _aovPin never touches radios); x/y/off radios
+                    // are disabled without disabling their selects.
+                    var fixedCh = radio && radio.disabled && ch !== 'x' && ch !== 'y' && ch !== 'off';
+                    if (ch === pin0 || fixedCh) sel.setAttribute('disabled', 'disabled');
+                    else sel.removeAttribute('disabled');
+                });
+                clone.querySelectorAll('input[name="aov-pin-' + id + '"]').forEach(function(r) {
+                    if (r.value === pin0) r.setAttribute('checked', 'checked');
+                    else r.removeAttribute('checked');
+                });
+            }
+
+            // <head> pieces, scraped from the live document: the same Vega CDN
+            // scripts, runtime, and caption CSS the live page runs.
+            var headParts = [];
+            document.querySelectorAll('script[src]').forEach(function(s) {
+                var src = s.getAttribute('src') || '';
+                if (/\/vega(-lite|-embed)?@/.test(src)) headParts.push(s.outerHTML);
+            });
+            document.querySelectorAll('script:not([src])').forEach(function(s) {
+                var t = s.textContent || '';
+                if (t.indexOf('window.AoV = window.AoV ||') !== -1 ||
+                    t.indexOf('window.AoV = Object.assign(window.AoV') !== -1 ||
+                    t.indexOf('function sortTable(') !== -1) {
+                    headParts.push(s.outerHTML);
+                }
+            });
+            document.querySelectorAll('style').forEach(function(s) {
+                var t = s.textContent || '';
+                if (t.indexOf('aov-data-preview') !== -1 || t.indexOf('caption-actions') !== -1) {
+                    headParts.push(s.outerHTML);
+                }
+            });
+
+            var title = 'AoV plot';
+            var capTitle = clone.querySelector('figcaption .caption-header strong');
+            if (capTitle && capTitle.textContent) title = capTitle.textContent;
+            else if (document.title) title = document.title;
+            title = title.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+            var page = '<!DOCTYPE html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n' +
+                '<title>' + title + '</title>\n' +
+                '<style>body{font-family:system-ui,sans-serif;margin:1rem}</style>\n' +
+                headParts.join('\n') + '\n</head>\n<body>\n' +
+                clone.outerHTML + '\n</body>\n</html>\n';
+            this._triggerDownload(page, filenameBase + '.html', 'text/html');
+        },
+
         // Public: render the plot's data as sortable HTML table(s) into `container`.
         // Builds lazily — call from the <details> "toggle" event.
         showPlotData: function(id, container, labels) {
@@ -768,13 +861,16 @@ function vega_runtime()
             return {rows: built, cols: orderedCols, caption: caption};
         },
 
-        // Wire a signal to an HTMX GET request
+        // Wire a signal to an HTMX GET request.
+        // Standalone (no-server) pages load no HTMX: degrade silently instead
+        // of throwing a ReferenceError from the debounced callback.
         signalToHtmx: function(id, signal, url, target, swap, debounceMs) {
             debounceMs = debounceMs || 300;
             var timer = null;
             this.onSignal(id, signal, function(name, value) {
                 clearTimeout(timer);
                 timer = setTimeout(function() {
+                    if (typeof htmx === 'undefined' || !htmx.ajax) return;
                     var params = typeof value === 'object' ? value : {};
                     var qs = Object.keys(params).map(function(k) {
                         return encodeURIComponent(k) + '=' + encodeURIComponent(JSON.stringify(params[k]));

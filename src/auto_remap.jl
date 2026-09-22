@@ -902,7 +902,7 @@ function mapping_controls(id, resolved::NamedTuple; table=nothing, spec=nothing)
         });
         params.set('aov_pin_$(id)', pinned);
         var qs = params.toString();
-        history.replaceState(null, '', qs ? '?' + qs : window.location.pathname);
+        try { history.replaceState(null, '', qs ? '?' + qs : window.location.pathname); } catch (e) { /* standalone file:// or sandboxed iframe: URL persistence unavailable */ }
     }
 
     // Restore from URL params once the spec is embedded

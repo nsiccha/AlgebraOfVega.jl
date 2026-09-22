@@ -18,6 +18,55 @@ function to_html(spec; id=nothing, width=nothing, height=nothing)
     """
 end
 
+# Minimal HTML escaping for interpolated page metadata (titles). Fragment
+# bodies are trusted HTMX nodes, rendered by HTMX itself.
+_html_escape(s::AbstractString) =
+    replace(s, "&" => "&amp;", "<" => "&lt;", ">" => "&gt;", "\"" => "&quot;")
+
+"""
+    to_html(node::HTMX.Node; title="AoV plot", head_extra="") -> String
+
+Serialize a rendered plot node (e.g. `to_node`, `auto_remap_node`, or a
+`with_plot_caption` fragment) as ONE standalone `.html` document string:
+`<!DOCTYPE html>` + `<head>` + `<body>`.
+
+The `<head>` is the exact `vega_head()` set — Vega/Vega-Lite/Vega-Embed CDN
+scripts plus the inlined `window.AoV.*` runtime — rendered by construction
+from `vega_head()` itself, so versions can never drift. `head_extra` appends
+additional rendered head HTML (the `with_plot_caption` methods use it for
+caption CSS + table sorting). The node body carries picker controls, embed
+scripts, and inlined spec/data JSON, so the saved file keeps working with no
+server: picker re-facets, CSV/PNG/SVG download, caption/summary render. Only
+`signals=`-wired plots degrade (their `htmx.ajax` callback has no server),
+and they do so silently — see `signalToHtmx`.
+"""
+function to_html(node::HTMX.Node; title::AbstractString="AoV plot", head_extra::AbstractString="")
+    head_io = IOBuffer()
+    for n in vega_head()
+        show(head_io, MIME"text/html"(), n)
+    end
+    head_html = String(take!(head_io)) * head_extra
+    body_html = sprint(show, MIME"text/html"(), node)
+    _standalone_page(head_html, body_html; title=title)
+end
+
+function _standalone_page(head_html::AbstractString, body_html::AbstractString; title::AbstractString="AoV plot")
+    """
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+    <meta charset="utf-8">
+    <title>$(_html_escape(title))</title>
+    <style>body{font-family:system-ui,sans-serif;margin:1rem}</style>
+    $(head_html)
+    </head>
+    <body>
+    $(body_html)
+    </body>
+    </html>
+    """
+end
+
 """
     vdraw(spec; kwargs...)
 
