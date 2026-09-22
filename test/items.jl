@@ -1997,3 +1997,102 @@ silent blank.
     end
     @test seen == tags
 end
+
+"""
+`to_html(::HTMX.Node)` serializes a rendered picker + plot fragment as ONE
+standalone `.html` document: doctype/head/body, the exact `vega_head()` CDN +
+runtime set, picker controls, and inlined spec/data — with no
+server-relative action URLs, so the saved file works with no server.
+"""
+@testitem "standalone HTML fragment page" setup=[AoVTestImports] tags=[:standalone, :regression] begin
+    df = (; x=[11.5, 22.5, 33.5, 44.5], y=[1.0, 2.0, 3.0, 4.0],
+            g=["alpha", "beta", "alpha", "beta"], h=["up", "up", "down", "down"])
+    spec = data(df) * mapping(:x, :y; color=:g) * visual(Scatter)
+    node = auto_remap_node("frag-plot", spec;
+        dims=["g" => "Group", "h" => "Half"], pinned=:row)
+    page = to_html(node; title="Frag test")
+
+    @test startswith(page, "<!DOCTYPE html>")
+    @test occursin("<title>Frag test</title>", page)
+    @test occursin("</html>", page)
+    # The exact vega_head() CDN set, by construction.
+    for u in vega_cdn_urls()
+        @test occursin(u, page)
+    end
+    # The inlined window.AoV.* runtime, incl. the download helpers.
+    @test occursin("window.AoV = window.AoV ||", page)
+    @test occursin("remapEncoding", page)
+    @test occursin("downloadPlotData", page)
+    @test occursin("renderPrettySummary", page)
+    @test occursin("downloadPlotHtml", page)
+    # Picker controls for this card.
+    @test occursin("aov-remap-color-frag-plot", page)
+    @test occursin("_aovRemap_frag_plot", page)
+    @test occursin("aov-pin-frag-plot", page)
+    # Plot boots from inlined spec/data.
+    @test occursin("AoV.embed('frag-plot'", page)
+    @test occursin("alpha", page)
+    @test occursin("11.5", page)
+    @test occursin("Group", page)
+    # No server-relative action URLs: no HTMX attrs, no signal-wiring calls
+    # (the runtime DEFINES signalToHtmx — `signalToHtmx: function(` — which the
+    # call-shaped regex below deliberately does not match).
+    @test !occursin("hx-get", page)
+    @test !occursin("hx-post", page)
+    @test !occursin(r"signalToHtmx\('", page)
+end
+
+"""
+The upstreamed caption share/download actions: `force=`/`plot_height=` param
+stripping, the find-or-create `.caption-actions` scaffold, absolute-URL
+clipboard copy, and the no-toggle `🔗` summary button.
+"""
+@testitem "caption share/download actions" setup=[AoVTestImports] tags=[:caption, :regression] begin
+    html(x) = sprint(show, MIME"text/html"(), x)
+
+    @test clean_share_url("/p/Slug/analysis?force=1&plot_height=300") == "/p/Slug/analysis"
+    @test clean_share_url("/a?x=1&force=0") == "/a?x=1"
+    @test clean_share_url("/a?force=1&x=2") == "/a?x=2"
+    @test clean_share_url("/plain") == "/plain"
+
+    btn = html(caption_share_button("/r?force=1"))
+    @test occursin("Share", btn)
+    @test occursin("data-url=\"/r\"", btn)
+    @test occursin("new URL(", btn)
+    @test occursin("window.location.href", btn)
+    @test occursin("Copied!", btn)
+
+    inj = html(with_caption_share(h.div("card"), "/r?plot_height=9"))
+    @test occursin("figure.captioned", inj)
+    @test occursin("caption-actions", inj)
+    @test occursin("caption-header", inj)
+    @test occursin("sc.remove()", inj)
+    @test occursin("clipboard", inj)
+    @test occursin("dataset.url", inj)
+
+    dl = html(with_caption_download(h.div("card"), "/data.json", "⬇ JSON", "data.json"))
+    @test occursin("caption-actions", dl)
+    @test occursin("download", dl)
+    @test occursin("data.json", dl)
+    @test occursin("⬇ JSON", dl)
+
+    summ = html(summary_share_button("/r?force=1"))
+    @test occursin("🔗", summ)
+    @test occursin("stopPropagation", summ)
+    @test occursin("data-url=\"/r\"", summ)
+end
+
+"""
+Offline degradation is silent, never a throw: `signalToHtmx` no-ops without
+HTMX, and picker URL persistence survives a `file://` page where
+`history.replaceState` may be unavailable.
+"""
+@testitem "standalone runtime degrades silently" setup=[AoVTestImports] tags=[:standalone, :regression] begin
+    rt = sprint(show, MIME"text/html"(), vega_runtime())
+    @test occursin("typeof htmx === 'undefined'", rt)
+    @test occursin("downloadPlotHtml", rt)
+
+    picker = sprint(show, MIME"text/html"(),
+        mapping_controls("p1", ["g" => "G", "h" => "H"]; pinned=:row))
+    @test occursin("try { history.replaceState", picker)
+end

@@ -2,13 +2,15 @@ module AlgebraOfVegaHTMXObjectsExt
 
 using AlgebraOfVega
 using HTMXObjects
-using HTMXObjects: CaptionSpec, with_caption, render_caption, render_table
+using HTMXObjects: CaptionSpec, with_caption, render_caption, render_table,
+    caption_style, sortable_table_js
 using HTMX: h
 import JSON
 import Tables
 import Statistics
 import AlgebraOfVega: with_plot_caption, draws_summary_table, _sanitize_id,
-                      _auto_summary_args, _auto_remap_parts, to_node, VegaSpec
+                      _auto_summary_args, _auto_remap_parts, to_node, to_html,
+                      VegaSpec, caption_share_button
 
 # HTMX 1.0 escapes attribute values itself (`&`, `"`, `'`, `<`, `>`), and the
 # HTML parser decodes them back before JS/`dataset` ever sees them — so JSON
@@ -37,8 +39,13 @@ Buttons added to the caption actions (in order):
   specs (i.e. data with a `__src` discriminator column), triggers one CSV per source.
 - "⬇ PNG" / "⬇ SVG" image download per format in `images` (default `(:png, :svg)`).
   Pass `images=()` or `images=nothing` to disable, or e.g. `images=(:png,)` for one.
+- "⬇ HTML" standalone-page download (when `html_download=true`): the whole
+  card as one `.html` file via `AoV.downloadPlotHtml`, client-side, no server
+  round-trip.
 - A lazy "Show data" `<details>` rendered below the plot (when `data_preview=true`),
   populated on first expand via the Vega view.
+- "Share" clipboard button (when `share_url` is given): copies the absolute
+  card URL; appended after `extra_actions`.
 
 The plot's own Vega-Lite title (if set) is preserved so PNG/SVG exports retain
 it; the figcaption sits above the plot, which may visually duplicate. Callers
@@ -49,6 +56,8 @@ who don't want that should not set the VL title.
 - `data_download::Bool=true`: add the "⬇ CSV" button
 - `data_preview::Bool=true`: add the lazy preview details below the plot
 - `images=(:png, :svg)`: image format buttons; pass `()` / `nothing` to disable
+- `html_download::Bool=true`: add the "⬇ HTML" standalone-page button
+- `share_url=nothing`: when given, append a "Share" clipboard button for this URL
 - `filename_base`: base for downloaded filenames (defaults to `plot_id`)
 - `layer_labels::Union{Nothing,Dict}=nothing`: map from raw `__src` value → human label,
   used both in download filenames and preview headings
@@ -59,6 +68,8 @@ function with_plot_caption(plot_node, caption::CaptionSpec;
                             data_download::Bool=true,
                             data_preview::Bool=true,
                             images=(:png, :svg),
+                            html_download::Bool=true,
+                            share_url::Union{Nothing,AbstractString}=nothing,
                             filename_base::Union{Nothing,AbstractString}=nothing,
                             layer_labels::Union{Nothing,AbstractDict}=nothing,
                             extra_actions=(),
@@ -83,8 +94,17 @@ function with_plot_caption(plot_node, caption::CaptionSpec;
                     onclick="AoV.downloadPlotImage('$(plot_id)', '$(fmt_str)', '$(fname)')"))
         end
     end
+    if html_download
+        push!(actions,
+            h.button("⬇ HTML";
+                type="button", class="outline caption-action",
+                onclick="AoV.downloadPlotHtml('$(plot_id)', '$(fname)')"))
+    end
     for ea in extra_actions
         push!(actions, ea)
+    end
+    if !isnothing(share_url)
+        push!(actions, caption_share_button(share_url))
     end
 
     body = Any[render_caption(caption; actions=tuple(actions...)), plot_node]
@@ -216,7 +236,9 @@ function with_plot_caption(spec::VegaSpec, caption::CaptionSpec;
     figure = with_plot_caption(plot_node, caption;
         plot_id=plot_id_s, summary_table=resolved_summary, kwargs...)
 
-    isnothing(controls) ? figure : h.div()(controls, figure)
+    # `data-aov-fragment` marks the whole card (controls + figure) so the
+    # client-side "⬇ HTML" download can clone exactly this subtree.
+    isnothing(controls) ? figure : h.div(; data_aov_fragment=plot_id_s)(controls, figure)
 end
 
 with_plot_caption(spec::VegaSpec; title, short="", long=nothing, kwargs...) =
@@ -224,6 +246,59 @@ with_plot_caption(spec::VegaSpec; title, short="", long=nothing, kwargs...) =
 
 with_plot_caption(spec::VegaSpec, caption::AbstractString; kwargs...) =
     with_plot_caption(spec, CaptionSpec(; title=caption); kwargs...)
+
+# Head extras a captioned fragment needs beyond `vega_head()`: caption-row
+# CSS plus the global `sortTable` the lazy "Show data" tables call into.
+function _caption_head_extra(head_extra::AbstractString)
+    io = IOBuffer()
+    show(io, MIME"text/html"(), caption_style())
+    show(io, MIME"text/html"(), sortable_table_js())
+    String(take!(io)) * head_extra
+end
+
+"""
+    to_html(spec::VegaSpec, caption; plot_id, auto_remap=nothing, summary_table=:auto,
+            title=caption title, head_extra="", kwargs...) -> String
+
+Serialize a full captioned + auto-remap fragment — the `with_plot_caption`
+spec form (channel picker + plot + `CaptionSpec` + CSV/PNG/SVG/HTML download
+buttons + summary table + raw-data preview) — as ONE standalone `.html`
+document string. Opening the saved file with no server keeps working: picker
+re-facets, CSV/PNG/SVG download, caption/summary render. `kwargs` forward to
+`with_plot_caption` (e.g. `filename_base`, `share_url`, `html_download`).
+
+The node form `to_html(plot_node, caption; plot_id, ...)` wraps a
+pre-rendered node instead; use it for `signals=`-wired nodes, which degrade
+silently offline (their `htmx.ajax` callback has no server).
+"""
+function to_html(spec::VegaSpec, caption::CaptionSpec;
+                 plot_id::AbstractString,
+                 auto_remap=nothing,
+                 summary_table=:auto,
+                 title::Union{Nothing,AbstractString}=nothing,
+                 head_extra::AbstractString="",
+                 kwargs...)
+    frag = with_plot_caption(spec, caption;
+        plot_id=plot_id, auto_remap=auto_remap, summary_table=summary_table, kwargs...)
+    to_html(frag; title=something(title, caption.title),
+            head_extra=_caption_head_extra(head_extra))
+end
+
+to_html(spec::VegaSpec, caption::AbstractString; kwargs...) =
+    to_html(spec, CaptionSpec(; title=caption); kwargs...)
+
+function to_html(plot_node, caption::CaptionSpec;
+                 plot_id::AbstractString,
+                 title::Union{Nothing,AbstractString}=nothing,
+                 head_extra::AbstractString="",
+                 kwargs...)
+    figure = with_plot_caption(plot_node, caption; plot_id=plot_id, kwargs...)
+    to_html(figure; title=something(title, caption.title),
+            head_extra=_caption_head_extra(head_extra))
+end
+
+to_html(plot_node, caption::AbstractString; kwargs...) =
+    to_html(plot_node, CaptionSpec(; title=caption); kwargs...)
 
 """
     draws_summary_table(table; value, outcome, group_cols=Symbol[], ci_level=0.95,
