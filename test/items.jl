@@ -528,6 +528,28 @@ anything else passes through as its string form; the data-driven
     @test attrs[:marker] === :cross
 end
 
+@testitem "Band lowers to an unstacked absolute range" setup=[AoVTestImports] tags=[:translation, :regression] begin
+    rows = (; x=[1.0, 2.0, 3.0, 1.0, 2.0, 3.0],
+              lo=[0.1, 0.2, 0.3, 0.5, 0.6, 0.7],
+              hi=[0.4, 0.5, 0.6, 0.8, 0.9, 1.0],
+              category=["a", "a", "a", "b", "b", "b"])
+    band = data(rows) * mapping(:x, :lo, :hi; color=:category) * visual(Band)
+    vl = to_vegalite(band)
+
+    @test vl["mark"] == "area"
+    @test vl["encoding"]["y"]["field"] == "lo"
+    @test vl["encoding"]["y2"]["field"] == "hi"
+    @test isnothing(vl["encoding"]["y"]["stack"])
+    @test isnothing(vl["encoding"]["y2"]["stack"])
+
+    # Makie `Band` has absolute endpoints even without a colour grouping. Keep the
+    # explicit `stack: null` there too so the translation does not change meaning
+    # if a consumer adds a colour/detail grouping through a later layer operation.
+    plain = to_vegalite(data(rows) * mapping(:x, :lo, :hi) * visual(Band))
+    @test isnothing(plain["encoding"]["y"]["stack"])
+    @test isnothing(plain["encoding"]["y2"]["stack"])
+end
+
 """
 `config(independent_scales=...)` lowers to a Vega-Lite `resolve.scale` block —
 `true` frees both axes, a `Symbol` or tuple frees the named ones.

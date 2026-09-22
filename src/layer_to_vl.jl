@@ -68,7 +68,7 @@ function _plain_layer_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
         ["y"]
     elseif !isnothing(vis) && plot_type <: VLines
         ["x"]
-    elseif !isnothing(vis) && plot_type <: Union{Rangebars, Errorbars}
+    elseif !isnothing(vis) && plot_type <: Union{Band, Rangebars, Errorbars}
         ["x", "y", "y2"]
     else
         ["x", "y"]
@@ -85,6 +85,18 @@ function _plain_layer_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
     end
 
     !isnothing(table) && infer_types!(encoding, table)
+
+    # A Makie `Band` is an absolute `[lower, upper]` region. Vega-Lite's `area`
+    # mark stacks a colour/detail series by default, however, so the first band
+    # rests on zero and every later band rests on the one below it. Explicitly
+    # disable stacking on both range endpoints so coloured bands overlay exactly
+    # as they do in Makie/AlgebraOfGraphics. This is the same rule `_unstack_area!`
+    # applies to density areas (user decision `1ceow72`).
+    if !isnothing(vis) && plot_type <: Band
+        for channel in ("y", "y2")
+            haskey(encoding, channel) && (encoding[channel]["stack"] = nothing)
+        end
+    end
 
     # Auto-tooltip
     if !isempty(encoding) && !haskey(encoding, "tooltip")
