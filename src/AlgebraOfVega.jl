@@ -35,7 +35,7 @@ export Scatter, Lines, ScatterLines, BarPlot, Heatmap, BoxPlot,
 export config, vdraw, sdraw, sdraw!, sdraw_file, vlspec, vdata
 export to_vegalite, to_json, to_html, to_node, vega_head, vega_controls, plot_size
 export plot_summary_md, PlotSummary
-export vega_runtime, update_data, vega_cdn_urls, mapping_controls, resolve_channels, refine_channels, auto_remap_node
+export vega_runtime, update_data, append_data, update_spec, vega_cdn_urls, mapping_controls, resolve_channels, refine_channels, auto_remap_node
 export with_plot_caption, draws_summary_table
 export clean_share_url, caption_share_button, caption_action_inject,
     with_caption_share, with_caption_download, summary_share_button

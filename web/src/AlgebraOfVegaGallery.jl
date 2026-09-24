@@ -501,6 +501,87 @@ end""")),
             )
         end
 
+        @include stream = begin
+            label       = "Streaming Data (WebSocket)"
+            description = "Points arrive over a @ws route and are appended to the live plot"
+            n_chunks    = 40
+            slopes      = Dict("a" => 0.5, "b" => 1.0, "c" => 1.5)
+            # Five new x positions per group and chunk, noisy linear trends
+            chunk(i) = let xs = Float64.(5(i-1)+1:5i), groups = sort(collect(keys(slopes)))
+                (;
+                    x = repeat(xs, length(groups)),
+                    y = [slopes[g] * x + 4randn() for g in groups for x in xs],
+                    group = repeat(groups; inner=length(xs)),
+                )
+            end
+            # Starts empty: the typed columns give the encoding types
+            plot_spec = data((; x=Float64[], y=Float64[], group=String[])) *
+                mapping(:x, :y, color=:group) * (visual(Scatter) + linear()) *
+                config(height=350, title="Rows streamed from the server")
+
+            @get index() = h.div(; class="aov-demo-page")(
+                __parent__.__parent__.plot_nav("demo_stream"),
+                h.h2("Streaming Data over a WebSocket"),
+                h.p("The plot starts empty. The server pushes one chunk of rows at a time over a ",
+                    h.code("@ws"), " route; each message is an ", h.code("append_data"), " fragment that ",
+                    "htmx's ws extension swaps in. Axes grow and the regression lines refit as rows arrive."),
+                vdraw(plot_spec; id="stream-demo"),
+                h.div(; hx_ext="ws", ws_connect=string(__self__/"feed"))(h.div(; id="stream-sink")),
+                h.button("Restart"; hx_get=__self__, hx_target="#content", hx_swap="innerHTML", class="outline"),
+                h.h4("How it works"),
+                h.pre(h.code("""# The page connects with htmx's ws extension:
+h.div(; hx_ext="ws", ws_connect=string(__self__/"feed"))(h.div(; id="stream-sink"))
+
+# The server sends one fragment per chunk; htmx swaps it into #stream-sink by id:
+@ws feed() = for i in 1:n_chunks
+    fragment = h.div(; id="stream-sink")(append_data("stream-demo", chunk(i)))
+    HTTP.WebSockets.send(__ws__, repr(MIME"text/html"(), fragment))
+    sleep(0.25)
+end""")),
+            )
+
+            @ws feed() = for i in 1:n_chunks
+                fragment = h.div(; id="stream-sink")(append_data("stream-demo", chunk(i)))
+                HTTP.WebSockets.send(__ws__, repr(MIME"text/html"(), fragment))
+                sleep(0.25)
+            end
+        end
+
+        @include layers = begin
+            label       = "Layers One by One (WebSocket)"
+            description = "The server adds a layer per second; update_spec re-embeds the plot in place"
+            base  = data(cars()) * mapping(:horsepower, :mpg, color=:origin)
+            steps = [
+                ("Scatter", base * visual(Scatter)),
+                ("+ linear fit per origin", base * (visual(Scatter) + linear())),
+                ("+ overall loess", base * (visual(Scatter) + linear()) +
+                    data(cars()) * mapping(:horsepower, :mpg) * smooth()),
+            ]
+            step_spec(k) = steps[k][2] * config(height=350, title="Step $k/$(length(steps)): $(steps[k][1])")
+
+            @get index() = h.div(; class="aov-demo-page")(
+                __parent__.__parent__.plot_nav("demo_layers"),
+                h.h2("Layers One by One"),
+                h.p("The server pushes a new spec with one more layer every second over a ", h.code("@ws"),
+                    " route. ", h.code("update_spec"), " re-embeds the existing plot in place."),
+                vdraw(step_spec(1); id="layers-demo"),
+                h.div(; hx_ext="ws", ws_connect=string(__self__/"feed"))(h.div(; id="layers-sink")),
+                h.button("Restart"; hx_get=__self__, hx_target="#content", hx_swap="innerHTML", class="outline"),
+                h.h4("How it works"),
+                h.pre(h.code("""@ws feed() = for k in 2:length(steps)
+    sleep(1)
+    fragment = h.div(; id="layers-sink")(update_spec("layers-demo", step_spec(k)))
+    HTTP.WebSockets.send(__ws__, repr(MIME"text/html"(), fragment))
+end""")),
+            )
+
+            @ws feed() = for k in 2:length(steps)
+                sleep(1)
+                fragment = h.div(; id="layers-sink")(update_spec("layers-demo", step_spec(k)))
+                HTTP.WebSockets.send(__ws__, repr(MIME"text/html"(), fragment))
+            end
+        end
+
         card(name::Symbol) = let d = getproperty(__self__, name); href = __self__/string(name)
             h.article(
                 h.h4(h.a(d.label; href=href, hx_get=href,
@@ -519,7 +600,7 @@ end""")),
         [section(title, ids).normal for (title, ids) in __appdata__.plot_sections]...,
         h.section(
             h.h3("HTMX + Vega Demos"),
-            [demo.card(name) for name in (:brush, :update, :responsive)]...,
+            [demo.card(name) for name in (:brush, :update, :stream, :layers, :responsive)]...,
         ),
     )
 
@@ -541,7 +622,9 @@ end""")),
             h.div(content; id="content"),
         );
         pico_version="2",
-        extra_head=(vega_head()..., htmxo_gallery_styles(), htmxo_syntax_head()...),
+        extra_head=(vega_head()..., htmxo_gallery_styles(), htmxo_syntax_head()...,
+            # htmx's WebSocket extension, for the demos fed by `@ws` routes
+            h.script(src="https://cdn.jsdelivr.net/npm/htmx-ext-ws@2.0.4")),
     )
 
     # Serve the AoV vega-embed runtime JS as a plain script so external

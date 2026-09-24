@@ -401,6 +401,36 @@ Requires vega/vega-lite/vega-embed scripts to be loaded (use `vega_head()` in pa
   apply numeric responsive widths for layered/faceted specs.
 """
 function to_node(spec; id=nothing, width=nothing, height=nothing, actions=false, signals=nothing, fit_width=true)
+    vl = _embed_spec(spec; width, height, fit_width)
+    json = JSON.json(vl)
+    id = _sanitize_id(something(id, "vega-" * string(abs(hash(json)), base=16)))
+
+    # Queue embed for deferred execution (after layout is computed)
+    embed_opts = "{actions: $actions}"
+    signal_js = ""
+    if !isnothing(signals)
+        for sig in signals
+            sname = _sig_get(sig, :signal)
+            surl = _sig_get(sig, :url)
+            starget = _sig_get(sig, :target, "body")
+            sswap = _sig_get(sig, :swap, "innerHTML")
+            sdebounce = _sig_get(sig, :debounce, 300)
+            signal_js *= "AoV.signalToHtmx('$id', '$sname', '$surl', '$starget', '$sswap', $sdebounce);\n"
+        end
+    end
+
+    h.div(; class="aov-plot-area")(
+        h.div(; id=id, class="u-w-full"),
+        h.script(Raw("AoV.embed('$id', $json, $embed_opts).then(function(){$signal_js});")),
+        # Markdown-only; emits zero bytes of HTML. Without it a `?plain` read of
+        # a figure-only route is an empty body — see `PlotSummary`.
+        PlotSummary(plot_summary_md(vl; id=id)),
+    )
+end
+
+# The Vega-Lite dict `to_node`/`update_spec` embed: `spec` with the width/height
+# overrides and the responsive-sizing defaults applied.
+function _embed_spec(spec; width=nothing, height=nothing, fit_width=true)
     vl = _as_vl_dict(spec)
     !isnothing(width) && (vl["width"] = width)
     !isnothing(height) && (vl["height"] = height)
@@ -444,30 +474,7 @@ function to_node(spec; id=nothing, width=nothing, height=nothing, actions=false,
         end
     end
     _broadcast_cross_source_layers!(vl)
-    json = JSON.json(vl)
-    id = _sanitize_id(something(id, "vega-" * string(abs(hash(json)), base=16)))
-
-    # Queue embed for deferred execution (after layout is computed)
-    embed_opts = "{actions: $actions}"
-    signal_js = ""
-    if !isnothing(signals)
-        for sig in signals
-            sname = _sig_get(sig, :signal)
-            surl = _sig_get(sig, :url)
-            starget = _sig_get(sig, :target, "body")
-            sswap = _sig_get(sig, :swap, "innerHTML")
-            sdebounce = _sig_get(sig, :debounce, 300)
-            signal_js *= "AoV.signalToHtmx('$id', '$sname', '$surl', '$starget', '$sswap', $sdebounce);\n"
-        end
-    end
-
-    h.div(; class="aov-plot-area")(
-        h.div(; id=id, class="u-w-full"),
-        h.script(Raw("AoV.embed('$id', $json, $embed_opts).then(function(){$signal_js});")),
-        # Markdown-only; emits zero bytes of HTML. Without it a `?plain` read of
-        # a figure-only route is an empty body — see `PlotSummary`.
-        PlotSummary(plot_summary_md(vl; id=id)),
-    )
+    vl
 end
 
 """
@@ -478,10 +485,42 @@ Useful for HTMX responses that should update a plot without re-rendering.
 """
 function update_data(id, table; name="source_0")
     id = _sanitize_id(id)
-    rows = Tables.rowtable(table)
-    data = [Dict{String,Any}(string(k) => v for (k, v) in pairs(nt)) for nt in rows]
-    json = JSON.json(data)
+    json = JSON.json(_rows_json(table))
     h.script(Raw("AoV.updateData('$id', $json, '$name');"))
+end
+
+_rows_json(table) = [Dict{String,Any}(string(k) => v for (k, v) in pairs(nt)) for nt in Tables.rowtable(table)]
+
+"""
+    append_data(id, table; name="source_0", max_rows=nothing)
+
+Return an `h.script` node that inserts the rows of `table` into an existing Vega
+view's dataset, keeping the rows already there; scales and axes grow to fit.
+With `max_rows`, only the most recent `max_rows` rows are kept (a sliding window).
+
+For plots whose data arrives incrementally, e.g. one `append_data` fragment per
+chunk pushed over an HTMXObjects `@ws` route or returned by an HTMX poller.
+Calls that arrive before the view has finished embedding are applied once it
+is ready, and appended rows survive the view's responsive re-embeds.
+"""
+function append_data(id, table; name="source_0", max_rows=nothing)
+    id = _sanitize_id(id)
+    json = JSON.json(_rows_json(table))
+    h.script(Raw("AoV.appendData('$id', $json, '$name', $(something(max_rows, "null")));"))
+end
+
+"""
+    update_spec(id, spec; width, height, actions, fit_width)
+
+Return an `h.script` node that re-embeds the existing plot `id` (created by
+[`to_node`](@ref)) with a new `spec`, e.g. one with an additional layer. The
+plot element stays in place and signal listeners wired via `to_node(; signals)`
+carry over; the data is the new spec's.
+"""
+function update_spec(id, spec; width=nothing, height=nothing, actions=false, fit_width=true)
+    id = _sanitize_id(id)
+    json = JSON.json(_embed_spec(spec; width, height, fit_width))
+    h.script(Raw("AoV.embed('$id', $json, {actions: $actions});"))
 end
 
 _CHANNEL_LABELS = Dict("color" => "Color", "row" => "Row", "column" => "Column", "detail" => "Ungrouped", "off" => "Pooled")

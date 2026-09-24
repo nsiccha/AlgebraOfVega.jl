@@ -2161,6 +2161,37 @@ caller's nested Dict is never mutated (`_as_vl_dict` is a shallow copy).
 end
 
 """
+Incremental plots: `append_data` inserts rows into a live view (optionally as a
+sliding window) and `update_spec` re-embeds a plot in place with the same
+responsive sizing `to_node` applies. The runtime keeps the rows added after
+embedding across re-embeds and replaces, rather than leaks, a re-embedded view.
+"""
+@testitem "append_data and update_spec" setup=[AoVTestImports] tags=[:incremental] begin
+    html(x) = sprint(show, MIME"text/html"(), x)
+    df = (; x=[1.0, 2.0], y=[3.0, 4.0], g=["a", "b"])
+
+    a = html(append_data("my plot", df))
+    @test occursin("AoV.appendData('my-plot', [", a)
+    @test occursin("\"x\":1.0", a) && occursin("\"g\":\"b\"", a)
+    @test occursin("'source_0', null);", a)
+    @test occursin("'src', 100);", html(append_data("p", df; name="src", max_rows=100)))
+
+    spec = data(df) * mapping(:x, :y, color=:g) * visual(Scatter)
+    # Same embedded spec as the initial `to_node`, re-embedded under the same ID
+    embedded(h) = match(r"AoV\.embed\('p', (\{.*\}), \{actions", h).captures[1]
+    u = html(update_spec("p", spec))
+    @test embedded(u) == embedded(html(to_node(spec; id="p")))
+    layered = spec + data(df) * mapping(:x, :y) * linear()
+    @test embedded(html(update_spec("p", layered))) == embedded(html(to_node(layered; id="p")))
+
+    rt = html(vega_runtime())
+    @test occursin("appendData: function", rt)
+    @test occursin("whenReady: function", rt)
+    @test occursin("_withLiveRows(id, opts)", rt)
+    @test occursin(".finalize()", rt)
+end
+
+"""
 The responsive JS sizes faceted/layered cells from the container, corrects for
 rendered chrome, and contains floored plots in-frame.
 
