@@ -251,8 +251,12 @@ Manages Vega views by ID and provides helpers for HTMX integration.
 
 Client-side API:
 - `AoV.views[id]` — access Vega views by element ID
-- `AoV.embed(id, spec, opts)` — embed and register a view
+- `AoV.embed(id, spec, opts)` — embed and register a view; calling it again for the
+  same `id` (e.g. with a spec that has more layers) replaces the view
+- `AoV.whenReady(id, fn)` — call `fn(view)` now, or once the view has been embedded
 - `AoV.updateData(id, data)` — swap a view's data without re-creating it
+- `AoV.appendData(id, data, name, maxRows)` — insert rows into a view's data,
+  optionally keeping only the most recent `maxRows`
 - `AoV.onSignal(id, signal, callback)` — listen to a Vega signal
 - Signal→HTMX wiring is set up automatically by `to_node(; signals=...)`
 """
@@ -261,6 +265,9 @@ function vega_runtime()
     window.AoV = window.AoV || {
         views: {},
         _pending: {},
+        _signals: {},
+        _liveRows: {},
+        _specRows: {},
         _origSpecs: {},
 
         _applyResponsiveWidth: function(id, spec) {
@@ -418,11 +425,27 @@ function vega_runtime()
         },
 
         embed: function(id, spec, opts) {
+            return this._embed(id, spec, opts, false);
+        },
+
+        // `keepData`: carry rows added via updateData/appendData over to the new spec
+        // (for re-embeds of the same data, e.g. remapEncoding).
+        _embed: function(id, spec, opts, keepData) {
             opts = opts || {};
             if (window.AoV && window.AoV.defaultActions !== undefined) {
                 opts = Object.assign({}, opts, {actions: window.AoV.defaultActions});
             }
             var self = this;
+            // Live state (rows added via updateData/appendData, onSignal listeners) belongs
+            // to the plot element: a new element with this ID (e.g. after an HTMX swap)
+            // starts fresh, a new spec for the same element keeps the listeners.
+            var prev = self.views[id], el = document.getElementById(id);
+            if (!(prev && el && el.contains(prev.container()))) {
+                delete self._signals[id];
+                delete self._liveRows[id];
+            } else if (!keepData) {
+                delete self._liveRows[id];
+            }
             // Store original spec for re-embed on resize and remapEncoding
             var origSpec = JSON.parse(JSON.stringify(spec));
             self._broadcastCrossSource(origSpec);
@@ -440,19 +463,22 @@ function vega_runtime()
 
             var doEmbed = function() {
                 var s = self._applyResponsiveWidth(id, JSON.parse(JSON.stringify(origSpec)));
+                // Replace (not leak) the previous view
+                if (self.views[id]) { self.views[id].finalize(); delete self.views[id]; }
                 // Tag VL warnings/errors with the plot ID for easier debugging
                 var _warn = console.warn, _error = console.error;
                 console.warn = function() { var a = Array.from(arguments); a[0] = '[' + id + '] ' + a[0]; _warn.apply(console, a); };
                 console.error = function() { var a = Array.from(arguments); a[0] = '[' + id + '] ' + a[0]; _error.apply(console, a); };
-                return vegaEmbed('#' + id, s, opts).then(function(result) {
+                return vegaEmbed('#' + id, s, self._withLiveRows(id, opts)).then(function(result) {
                     console.warn = _warn; console.error = _error;
-                    self.views[id] = result.view;
-                    if (self._pending[id]) {
-                        self._pending[id].forEach(function(p) {
-                            self.onSignal(id, p.signal, p.callback);
-                        });
-                        delete self._pending[id];
-                    }
+                    var view = self.views[id] = result.view;
+                    (self._signals[id] || []).forEach(function(sig) {
+                        self._attachSignal(view, sig.signal, sig.callback);
+                    });
+                    // Run anything queued before the view was ready (e.g. appendData)
+                    var pending = self._pending[id] || [];
+                    delete self._pending[id];
+                    pending.forEach(function(fn) { fn(view); });
                     // One bounded correction pass for JS-sized specs whose
                     // rendered chrome overshoots the computed budget.
                     self._fitCorrection(id, function() { doEmbed(); });
@@ -484,25 +510,69 @@ function vega_runtime()
             return doEmbed();
         },
 
-        updateData: function(id, data, name) {
+        whenReady: function(id, fn) {
             var view = this.views[id];
-            if (!view) { console.warn('AoV: no view for', id); return; }
+            if (view) { fn(view); return; }
+            this._pending[id] = this._pending[id] || [];
+            this._pending[id].push(fn);
+        },
+
+        updateData: function(id, data, name) {
             name = name || 'source_0';
-            var changeset = vega.changeset().remove(function() { return true; }).insert(data);
-            view.change(name, changeset).run();
+            var self = this;
+            this.whenReady(id, function(view) {
+                self._liveRows[id] = self._liveRows[id] || {};
+                self._liveRows[id][name] = data;
+                var changeset = vega.changeset().remove(function() { return true; }).insert(data);
+                view.change(name, changeset).run();
+            });
+        },
+
+        appendData: function(id, data, name, maxRows) {
+            name = name || 'source_0';
+            var self = this;
+            this.whenReady(id, function(view) {
+                var live = self._liveRows[id] = self._liveRows[id] || {};
+                var rows = (live[name] || (self._specRows[id] || {})[name] || []).concat(data);
+                var trimmed = maxRows && rows.length > maxRows;
+                if (trimmed) rows = rows.slice(rows.length - maxRows);
+                live[name] = rows;
+                var changeset = trimmed ?
+                    vega.changeset().remove(function() { return true; }).insert(rows) :
+                    vega.changeset().insert(data);
+                view.change(name, changeset).run();
+            });
+        },
+
+        // The raw rows of datasets changed via updateData/appendData are kept per plot, and
+        // re-embeds (resize, remapEncoding) compile the spec with them in place of its own.
+        _withLiveRows: function(id, opts) {
+            var self = this, patch = opts.patch;
+            return Object.assign({}, opts, {patch: function(vg) {
+                if (typeof patch === 'function') vg = patch(vg);
+                var live = self._liveRows[id] || {}, specRows = self._specRows[id] = {};
+                (vg.data || []).forEach(function(d) {
+                    if (Array.isArray(d.values)) specRows[d.name] = d.values;
+                    if (live[d.name]) d.values = live[d.name];
+                });
+                return vg;
+            }});
         },
 
         onSignal: function(id, signal, callback) {
+            // Kept per plot so re-embeds (resize, new layers) re-attach it
+            this._signals[id] = this._signals[id] || [];
+            this._signals[id].push({signal: signal, callback: callback});
             var view = this.views[id];
-            if (!view) {
-                // View not ready yet — queue it
-                this._pending[id] = this._pending[id] || [];
-                this._pending[id].push({signal: signal, callback: callback});
-                return;
-            }
-            view.addSignalListener(signal, function(name, value) {
-                callback(name, value, view);
-            });
+            if (view) this._attachSignal(view, signal, callback);
+        },
+
+        _attachSignal: function(view, signal, callback) {
+            try {
+                view.addSignalListener(signal, function(name, value) {
+                    callback(name, value, view);
+                });
+            } catch (e) { console.warn('AoV: cannot listen to signal', signal, e); }
         },
 
         // --- Plot data download / inline preview ---
@@ -1301,7 +1371,7 @@ function vega_runtime()
 
             // Re-embed, but preserve the TRUE original spec
             var savedOrig = this._origSpecs[id];
-            this.embed(id, spec);
+            this._embed(id, spec, undefined, true);
             this._origSpecs[id] = savedOrig;
         }
     };
