@@ -2,6 +2,7 @@ module AlgebraOfVegaGallery
 
 using HTMXObjects
 using AlgebraOfVega
+import HTMX
 import CairoMakie
 using JSON
 using Random, Tables, Statistics
