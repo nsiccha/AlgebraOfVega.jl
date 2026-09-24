@@ -220,7 +220,8 @@
         } else {
           cellWidth = Math.max(250, availWidth - 60);
         }
-        spec = {data: {values: summaryData}, facet: facet, spec: {layer: layers, width: cellWidth, height: 200}};
+        var aovHint = facetCol ? {nFacetCols: nCols} : {};
+        spec = {data: {values: summaryData}, facet: facet, spec: {layer: layers, width: cellWidth, height: 200}, _aov: aovHint};
         if (indepX || indepY) {
           var resolve = {scale: {}, axis: {}};
           if (indepX) { resolve.scale.x = 'independent'; resolve.axis.x = 'independent'; }
@@ -245,7 +246,8 @@
       } else {
         cellWidth = Math.max(250, availWidth - 60);
       }
-      spec = {data: {values: data}, facet: facet, spec: {mark: mark, encoding: encoding, width: cellWidth, height: 200}};
+      var aovHint = facetCol ? {nFacetCols: nCols} : {};
+      spec = {data: {values: data}, facet: facet, spec: {mark: mark, encoding: encoding, width: cellWidth, height: 200}, _aov: aovHint};
       if (indepX || indepY) {
         var resolve = {scale: {}, axis: {}};
         if (indepX) { resolve.scale.x = 'independent'; resolve.axis.x = 'independent'; }
@@ -256,7 +258,8 @@
       spec = {data: {values: data}, mark: mark, encoding: encoding, width: 'container', height: 350};
     }
     function doEmbed() {
-      vegaEmbed('#explorer-plot', spec, {actions: false}).catch(console.error);
+      if (window.AoV && window.AoV.embed) { window.AoV.embed('explorer-plot', spec, {actions: false}).catch(console.error); }
+      else { vegaEmbed('#explorer-plot', spec, {actions: false}).catch(console.error); }
     }
     if (typeof vegaEmbed !== 'undefined') { doEmbed(); }
     else {
