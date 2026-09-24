@@ -148,6 +148,20 @@ _as_vl_dict(s) = to_vegalite(s)
 _as_number(n::Number) = n
 _as_number(_) = nothing
 
+# Build the `_aov` responsive-sizing hint for `to_node`, preserving keys the
+# spec already carries (e.g. `maxWidth` from `config(max_width=)`) and adding
+# the given pairs. Always returns a fresh Dict: the input `vl` may share its
+# nested `_aov` Dict with the caller (`_as_vl_dict` is a shallow copy).
+function _aov_hint_with(vl::Dict, pairs::Pair...)
+    prev = _as_dict(get(vl, "_aov", nothing))
+    aov = Dict{String,Any}()
+    !isnothing(prev) && merge!(aov, prev)
+    for (k, v) in pairs
+        aov[k] = v
+    end
+    aov
+end
+
 # --- The markdown (`?plain`) view of a plot node ----------------------------
 #
 # A plot node is an EMPTY `<div>` plus a `<script>` that embeds the spec at
@@ -406,16 +420,24 @@ function to_node(spec; id=nothing, width=nothing, height=nothing, actions=false,
             vl["width"] = "container"
             vl["autosize"] = Dict("type" => "fit", "contains" => "padding")
         elseif is_faceted && haskey(vl, "spec")
-            # Inject _aov hint for responsive JS resizing
+            # Inject _aov hint for responsive JS resizing, preserving any keys
+            # to_vegalite already stored (e.g. maxWidth from config(max_width=)).
+            # Copy first: _as_vl_dict is a shallow copy, so the nested Dict (when
+            # the caller passed a Dict) is still the caller's.
             n_facet_cols = _count_facet_cols(vl)
-            vl["_aov"] = Dict{String,Any}("nFacetCols" => n_facet_cols)
+            vl["_aov"] = _aov_hint_with(vl, "nFacetCols" => n_facet_cols)
             inner = vl["spec"]
             if !haskey(inner, "width")
                 inner["width"] = 400  # fallback, JS overrides
             end
         else
-            # Layered/composite: mark for responsive JS resizing
-            vl["_aov"] = Dict{String,Any}()
+            # Layered/composite: mark for responsive JS resizing (same _aov
+            # preservation as above). Encoding-level column facets additionally
+            # carry the column count: VL sizes top-level width PER CELL there,
+            # so the JS must divide (see _count_encoding_facet_cols).
+            n_enc_cols = _count_encoding_facet_cols(vl)
+            vl["_aov"] = isnothing(n_enc_cols) ? _aov_hint_with(vl) :
+                _aov_hint_with(vl, "nFacetCols" => n_enc_cols)
             if !haskey(vl, "width")
                 vl["width"] = 400  # fallback, JS overrides
             end

@@ -2096,3 +2096,102 @@ HTMX, and picker URL persistence survives a `file://` page where
         mapping_controls("p1", ["g" => "G", "h" => "H"]; pinned=:row))
     @test occursin("try { history.replaceState", picker)
 end
+
+"""
+`to_node` preserves `_aov` keys the spec already carries when it injects the
+responsive-sizing hint.
+
+Regression (snag `faceted-plot-fit-ca4efca3`): the fit-width block overwrote
+`vl["_aov"]` wholesale, silently dropping `maxWidth` from
+`config(max_width=...)` — a per-plot cap that then never reached the browser.
+The hint now merges: `nFacetCols` is added alongside the stored keys, and the
+caller's nested Dict is never mutated (`_as_vl_dict` is a shallow copy).
+"""
+@testitem "to_node preserves _aov responsive hints" setup=[AoVTestImports] tags=[:responsive, :regression] begin
+    html(x) = sprint(show, MIME"text/html"(), x)
+    D(ps...) = Dict{String,Any}(ps...)
+
+    df = (; x=[1.0, 2.0, 3.0, 4.0], y=[4.0, 5.0, 6.0, 7.0], g=["a", "b", "a", "b"])
+
+    # Operator-faceted (multi-layer) + per-plot cap: both keys reach the
+    # embedded spec.
+    f1 = data(df) * mapping(:x, :y; col=:g) * visual(Scatter)
+    f2 = data(df) * mapping(:x, :y; col=:g) * visual(Lines)
+    fspec = (f1 + f2) * config(max_width=600)
+    fh = html(to_node(fspec; id="m"))
+    @test occursin("\"maxWidth\":600", fh)
+    @test occursin("\"nFacetCols\":2", fh)
+
+    # Encoding-faceted (single-layer `col=`) + per-plot cap: VL sizes
+    # top-level width per cell here, so the column count rides along too.
+    espec = data(df) * mapping(:x, :y; col=:g) * visual(Scatter) * config(max_width=600)
+    eh = html(to_node(espec; id="m"))
+    @test occursin("\"maxWidth\":600", eh)
+    @test occursin("\"nFacetCols\":2", eh)
+
+    # Layered + per-plot cap: maxWidth survives without nFacetCols.
+    l1 = data(df) * mapping(:x, :y) * visual(Scatter)
+    l2 = data(df) * mapping(:x, :y) * visual(Lines)
+    lspec = (l1 + l2) * config(max_width=500)
+    lh = html(to_node(lspec; id="m"))
+    @test occursin("\"maxWidth\":500", lh)
+    @test !occursin("nFacetCols", lh)
+
+    # No cap: the faceted hint is just the column count.
+    plain = data(df) * mapping(:x, :y; col=:g) * visual(Scatter)
+    ph = html(to_node(plain; id="m"))
+    @test occursin("\"nFacetCols\":2", ph)
+    @test !occursin("maxWidth", ph)
+
+    # Dict input carrying _aov: merged, and the caller's Dict is untouched.
+    d = D("facet" => D("column" => D("field" => "g", "type" => "nominal")),
+          "spec" => D("mark" => "point"),
+          "data" => D("values" => [D("g" => "a"), D("g" => "b")]),
+          "_aov" => D("maxWidth" => 700))
+    dh = html(to_node(d; id="m"))
+    @test occursin("\"maxWidth\":700", dh)
+    @test occursin("\"nFacetCols\":2", dh)
+    @test d["_aov"] == D("maxWidth" => 700)
+
+    # hconcat/vconcat stay unmarked: VL ignores top-level width there, so AoV
+    # leaves them to raw-VL sizing (measured: 100/400/default render equal px).
+    u1 = D("mark" => "point", "encoding" => D("x" => D("field" => "x", "type" => "quantitative")))
+    @test !occursin("_aov", html(to_node(D("hconcat" => [u1, u1]); id="m")))
+    @test !occursin("_aov", html(to_node(D("vconcat" => [u1, u1]); id="m")))
+end
+
+"""
+The responsive JS sizes faceted/layered cells from the container, corrects for
+rendered chrome, and contains floored plots in-frame.
+
+Regression (snag `faceted-plot-fit-ca4efca3`): the cell-width formula reserved
+only a fixed 30px padding while real facet chrome (row headers, per-panel
+axes, spacing, legends) runs past 100px, so faceted canvases overshot their
+column by a constant at every viewport; the explorer's min-100px floor had no
+cap or containment, so high-cardinality facets rendered a fixed wide canvas
+that pushed the whole page sideways. The runtime now measures the rendered
+canvas and re-embeds once with chrome-corrected cells (`_fitCorrection`),
+floors panels at a readable 100px minimum, caps single-view specs at
+`max_width`, and the plot frame scrolls in-frame instead of pushing the page.
+The explorer routes faceted embeds through the same `AoV.embed` machinery.
+"""
+@testitem "responsive JS fits chrome-aware cells" setup=[AoVTestImports] tags=[:responsive, :regression] begin
+    rt = sprint(show, MIME"text/html"(), vega_runtime())
+    @test occursin("_fitCorrection", rt)
+    @test occursin("Math.max(minCell", rt)
+    @test occursin("style.maxWidth", rt)
+    @test occursin("_computedWidths", rt)
+    @test occursin("_correctedRegime", rt)
+
+    head = join(sprint(show, MIME"text/html"(), n) for n in vega_head())
+    @test occursin("overflow-x: auto", head)
+    @test occursin("max-width: 100%", head)
+
+    js = AlgebraOfVega.explorer_js()
+    @test occursin("window.AoV.embed('explorer-plot'", js)
+    @test occursin("_aov: aovHint", js)
+    # A non-#id selector cannot address AoV.embed: raw vegaEmbed fallback.
+    js_cls = AlgebraOfVega.explorer_js(; plot_selector="div.plot")
+    @test occursin("vegaEmbed('div.plot'", js_cls)
+    @test !occursin("AoV.embed(", js_cls)
+end

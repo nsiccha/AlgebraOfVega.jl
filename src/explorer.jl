@@ -144,14 +144,27 @@ The group dropdown maps to Vega-Lite's `detail` encoding channel, which groups d
 - `width`: plot width for non-faceted specs (integer or "container")
 - `height`: plot height for non-faceted specs
 
-Faceted specs use responsive cell widths: container `clientWidth` divided by the number
-of unique facet column values (min 100px). Row-only facets use full container width minus
-padding (min 250px). Falls back to 800px if the container element isn't found.
+Faceted specs are marked with the `_aov` responsive hint (column count, or an empty
+marker for row-only facets) and embedded through `AoV.embed` when the AoV runtime
+is present, so they get the same container-fit sizing, `max_width` cap, and
+resize handling as `to_node` plots. Without the runtime (or when `plot_selector`
+is not a plain `#id`), the spec embeds via raw `vegaEmbed` with the client-side
+fallback width below. Non-faceted specs use `width` (`"container"` by default).
+Fallback (no-runtime) faceted widths: container `clientWidth` divided by the
+number of unique facet column values (min 100px); row-only facets use full
+container width minus padding (min 250px); 800px if the container is not found.
 """
 function explorer_js(; namespace="", plot_selector="#explorer-plot", spec_selector=nothing, width="container", height=350)
     spec_line = isnothing(spec_selector) ? "" : """
                 document.querySelector('$spec_selector').textContent = JSON.stringify(spec, null, 2);"""
     js_width = _js_width(width)
+    # AoV.embed addresses plots by element id, so only a plain `#id` selector
+    # can route through it; anything else keeps the raw vegaEmbed call.
+    embed_id = let m = match(r"^#([\w-]+)$", plot_selector); isnothing(m) ? nothing : m.captures[1]; end
+    embed_call = isnothing(embed_id) ?
+        "vegaEmbed('$plot_selector', spec, {actions: false}).catch(console.error);" :
+        "if (window.AoV && window.AoV.embed) { window.AoV.embed('$embed_id', spec, {actions: false}).catch(console.error); } " *
+        "else { vegaEmbed('$plot_selector', spec, {actions: false}).catch(console.error); }"
     """
             $(namespace)_explorerFilterSelected = {};
 
@@ -369,7 +382,8 @@ function explorer_js(; namespace="", plot_selector="#explorer-plot", spec_select
                         } else {
                             cellWidth = Math.max(250, availWidth - 60);
                         }
-                        spec = {data: {values: summaryData}, facet: facet, spec: {layer: layers, width: cellWidth, height: 200}};
+                        var aovHint = facetCol ? {nFacetCols: nCols} : {};
+                        spec = {data: {values: summaryData}, facet: facet, spec: {layer: layers, width: cellWidth, height: 200}, _aov: aovHint};
                         if (indepX || indepY) {
                             var resolve = {scale: {}, axis: {}};
                             if (indepX) { resolve.scale.x = 'independent'; resolve.axis.x = 'independent'; }
@@ -394,10 +408,12 @@ function explorer_js(; namespace="", plot_selector="#explorer-plot", spec_select
                     } else {
                         cellWidth = Math.max(250, availWidth - 60);
                     }
+                    var aovHint = facetCol ? {nFacetCols: nCols} : {};
                     spec = {
                         data: {values: data},
                         facet: facet,
                         spec: {mark: mark, encoding: encoding, width: cellWidth, height: 200},
+                        _aov: aovHint,
                     };
                     if (indepX || indepY) {
                         var resolve = {scale: {}, axis: {}};
@@ -417,7 +433,7 @@ function explorer_js(; namespace="", plot_selector="#explorer-plot", spec_select
 $spec_line
 
                 function doEmbed() {
-                    vegaEmbed('$plot_selector', spec, {actions: false}).catch(console.error);
+                    $embed_call
                 }
                 if (typeof vegaEmbed !== 'undefined') { doEmbed(); }
                 else {
@@ -990,7 +1006,8 @@ function write_explorer_assets(dir, datasets_or_table; width="container", height
         } else {
           cellWidth = Math.max(250, availWidth - 60);
         }
-        spec = {data: {values: summaryData}, facet: facet, spec: {layer: layers, width: cellWidth, height: 200}};
+        var aovHint = facetCol ? {nFacetCols: nCols} : {};
+        spec = {data: {values: summaryData}, facet: facet, spec: {layer: layers, width: cellWidth, height: 200}, _aov: aovHint};
         if (indepX || indepY) {
           var resolve = {scale: {}, axis: {}};
           if (indepX) { resolve.scale.x = 'independent'; resolve.axis.x = 'independent'; }
@@ -1015,7 +1032,8 @@ function write_explorer_assets(dir, datasets_or_table; width="container", height
       } else {
         cellWidth = Math.max(250, availWidth - 60);
       }
-      spec = {data: {values: data}, facet: facet, spec: {mark: mark, encoding: encoding, width: cellWidth, height: 200}};
+      var aovHint = facetCol ? {nFacetCols: nCols} : {};
+      spec = {data: {values: data}, facet: facet, spec: {mark: mark, encoding: encoding, width: cellWidth, height: 200}, _aov: aovHint};
       if (indepX || indepY) {
         var resolve = {scale: {}, axis: {}};
         if (indepX) { resolve.scale.x = 'independent'; resolve.axis.x = 'independent'; }
@@ -1026,7 +1044,8 @@ function write_explorer_assets(dir, datasets_or_table; width="container", height
       spec = {data: {values: data}, mark: mark, encoding: encoding, width: $js_width, height: $height};
     }
     function doEmbed() {
-      vegaEmbed('#explorer-plot', spec, {actions: false}).catch(console.error);
+      if (window.AoV && window.AoV.embed) { window.AoV.embed('explorer-plot', spec, {actions: false}).catch(console.error); }
+      else { vegaEmbed('#explorer-plot', spec, {actions: false}).catch(console.error); }
     }
     if (typeof vegaEmbed !== 'undefined') { doEmbed(); }
     else {

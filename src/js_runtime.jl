@@ -12,12 +12,17 @@ VEGALITE_VERSION = "5"
 VEGA_EMBED_VERSION = "6"
 
 """
-    vega_head(; vega_version, vegalite_version, vega_embed_version, zoom)
+    vega_head(; vega_version, vegalite_version, vega_embed_version, zoom, max_width, actions)
 
 Return a vector of `h.script`/`h.style` nodes to include in `htmx(; extra_head=vega_head())`.
 
 `zoom` uniformly scales all plots (chart area, fonts, axes, legend). Responsive plots
 are sized to `containerWidth / zoom` so they don't overflow their container.
+
+`max_width` caps plot width at `max_width` px: a plot in a wider container is
+sized as if the container were `max_width` px (layered/faceted specs), or fills
+at most `max_width` px of its container (single-view specs). A per-plot
+`config(max_width=...)` overrides this page-level value for that plot.
 """
 function vega_head(;
     vega_version=VEGA_VERSION,
@@ -40,7 +45,7 @@ function vega_head(;
                grid, sortable table, status badges, …) live upstream in
                HTMXObjects; this block only carries roles peculiar to
                the AoV gallery shell. */
-            .aov-plot-area { width: 100%; min-width: 0; }
+            .aov-plot-area { width: 100%; min-width: 0; max-width: 100%; overflow-x: auto; }
             .aov-grid-page { width: 100vw; padding: 0.5rem; font-size: 0.5em; }
             /* Dense compact grid (16 cols) and gallery static grid (4 cols).
                Both compose with upstream `.htmxo-grid`, supplying only the
@@ -209,6 +214,36 @@ function _push_row_value!(vals, row::Dict, col_field)
 end
 
 """
+Count the number of facet columns for ENCODING-level facets.
+
+Covers the unit-spec form (`encoding.column`, emitted for single-layer `col=`):
+Vega-Lite sizes top-level `width` PER CELL there (measured: 2 columns render
+275px at width 100 and 875px at width 400), so the responsive JS must divide
+by this count just like for operator facets. Returns `nothing` for every
+other shape: operator facets (counted by `_count_facet_cols`), row-only
+encoding facets (full-width cells), non-faceted specs — and layered specs,
+whose shared top-level `encoding.column` Vega-Lite silently ignores
+(measured: 2-level column on a 2-layer spec renders one 100px cell).
+"""
+function _count_encoding_facet_cols(vl::Dict)
+    (haskey(vl, "facet") || haskey(vl, "spec") || haskey(vl, "layer")) && return nothing
+    enc = _as_dict(get(vl, "encoding", nothing))
+    isnothing(enc) && return nothing
+    col = _as_dict(get(enc, "column", nothing))
+    isnothing(col) && return nothing
+    col_field = get(col, "field", nothing)
+    (isnothing(col_field) || !(col_field isa AbstractString)) && return nothing
+    data_vals = _as_vec(get(get(vl, "data", Dict()), "values", nothing))
+    isnothing(data_vals) && return nothing
+    vals = Set()
+    for row in data_vals
+        _push_row_value!(vals, row, col_field)
+    end
+    n = length(vals)
+    n <= 0 ? nothing : n
+end
+
+"""
     vega_runtime()
 
 Return a `h.script` node with the AlgebraOfVega JS runtime.
@@ -238,30 +273,82 @@ function vega_runtime()
             var maxWidth = (spec._aov && spec._aov.maxWidth) || (window.AoV && window.AoV.maxWidth) || Infinity;
             containerWidth = Math.min(containerWidth, maxWidth);
             var padding = 30; // approximate VL padding
+            var minCell = 100; // readable-minimum panel width; narrower viewports scroll in-frame (see .aov-plot-area)
 
-            // Faceted specs: set per-cell width from container / nCols
+            // Classify the shape. Only _aov-marked composite specs are JS-sized
+            // (single views use VL-native width:"container").
+            var kind = null, nCols = 0, computed = 0;
             if (spec._aov && spec._aov.nFacetCols && spec.spec) {
-                var nCols = spec._aov.nFacetCols;
-                var cellWidth = Math.floor((containerWidth - padding) / nCols) - padding;
-                if (cellWidth > 50) {
-                    spec.spec = Object.assign({}, spec.spec, {width: cellWidth});
-                }
+                // Operator-faceted specs: per-cell width from container / nCols
+                kind = 'facet'; nCols = spec._aov.nFacetCols;
+                computed = Math.max(minCell, Math.floor((containerWidth - padding) / nCols) - padding);
+            } else if (spec._aov && spec._aov.nFacetCols && !spec.spec) {
+                // Encoding-faceted unit specs: VL sizes top-level width PER
+                // CELL here, so divide the same way but write it top-level.
+                kind = 'encfacet'; nCols = spec._aov.nFacetCols;
+                computed = Math.max(minCell, Math.floor((containerWidth - padding) / nCols) - padding);
+            } else if (spec._aov && !spec._aov.nFacetCols) {
+                // Row-only faceted (width lives on the inner spec) or layered
+                // specs: one panel spans the container.
+                computed = Math.max(minCell, containerWidth - padding);
+                kind = spec.spec ? 'inner' : 'top';
+            } else {
                 return spec;
             }
+            var colField = spec.facet && spec.facet.column && spec.facet.column.field;
+            var rowField = spec.facet && spec.facet.row && spec.facet.row.field;
+            var regime = [containerWidth, kind, nCols, colField, rowField].join('|');
 
-            // Faceted (row-only, no columns) or layered specs: set width responsively
-            if (spec._aov && !spec._aov.nFacetCols) {
-                var w = containerWidth - padding;
-                if (spec.spec) {
-                    // Row-only faceted: set width on inner spec
-                    spec.spec = Object.assign({}, spec.spec, {width: w});
-                } else {
-                    spec = Object.assign({}, spec, {width: w});
-                }
-                return spec;
+            // A post-embed correction (_fitCorrection) overrides the computed
+            // width while its regime still matches; a resize/remap starts a
+            // fresh regime and recomputes from the container.
+            var self = window.AoV || {};
+            var corr = (self._corrections || {})[id];
+            var width = (corr && corr.regime === regime) ? corr.width : computed;
+
+            if (kind === 'facet' || kind === 'inner') {
+                spec.spec = Object.assign({}, spec.spec, {width: width});
+            } else {
+                // 'top' and 'encfacet' both write top-level width: total span
+                // for plain/layered specs, per-cell width for encoding facets.
+                spec = Object.assign({}, spec, {width: width});
             }
-
+            self._computedWidths = self._computedWidths || {};
+            self._computedWidths[id] = {kind: kind, width: width, nCols: nCols, budget: containerWidth, regime: regime};
             return spec;
+        },
+
+        // Post-embed correction for JS-sized specs. The computed cell width
+        // reserves only approximate padding, while real facet chrome (row
+        // headers, per-panel axes, spacing, legends) varies per spec — so the
+        // first paint can overshoot the budget it was sized for. Measure the
+        // rendered canvas; if it overshoots, shrink the cells by the excess
+        // and re-embed once via reembed(). Bounded: at most one correction
+        // per regime (budget/kind/columns/fields); a resize/remap opens a new
+        // regime. When cells already sit at the readable minimum there is
+        // nothing to shrink — the frame's in-frame scroll takes over.
+        _fitCorrection: function(id, reembed) {
+            var self = window.AoV || {};
+            var info = (self._computedWidths || {})[id];
+            if (!info) return;
+            if (self._correctedRegime && self._correctedRegime[id] === info.regime) return;
+            var el = document.getElementById(id);
+            var canvas = el && el.querySelector('canvas.marks');
+            if (!canvas) return;
+            // Layout px (pre-zoom): CSS zoom scales the canvas and the budget's
+            // container alike, so the factor cancels in the difference.
+            var over = canvas.clientWidth - info.budget;
+            if (over <= 2) return;
+            var minCell = 100;
+            var perCell = (info.kind === 'facet' || info.kind === 'encfacet') && info.nCols > 0;
+            var shrink = perCell ? Math.ceil(over / info.nCols) : Math.ceil(over);
+            var newWidth = info.width - shrink;
+            if (newWidth >= info.width || newWidth < minCell) return;
+            self._correctedRegime = self._correctedRegime || {};
+            self._correctedRegime[id] = info.regime;
+            self._corrections = self._corrections || {};
+            self._corrections[id] = {regime: info.regime, width: newWidth};
+            reembed();
         },
 
         // ggplot-style "broadcast across all facet panels" pass.
@@ -340,7 +427,16 @@ function vega_runtime()
             var origSpec = JSON.parse(JSON.stringify(spec));
             self._broadcastCrossSource(origSpec);
             self._origSpecs[id] = origSpec;
-            var sized = self._applyResponsiveWidth(id, JSON.parse(JSON.stringify(origSpec)));
+
+            // Width cap for VL-native single-view specs: width:"container" has
+            // no max, so bound the embed element itself and the plot fills
+            // min(container, cap). (JS-sized layered/faceted specs are capped
+            // through the sizing budget in _applyResponsiveWidth instead.)
+            var _cap = (spec._aov && spec._aov.maxWidth) || (window.AoV && window.AoV.maxWidth);
+            if (_cap !== undefined && _cap !== null && isFinite(_cap) && spec.width === 'container') {
+                var _capEl = document.getElementById(id);
+                if (_capEl) _capEl.style.maxWidth = _cap + 'px';
+            }
 
             var doEmbed = function() {
                 var s = self._applyResponsiveWidth(id, JSON.parse(JSON.stringify(origSpec)));
@@ -357,6 +453,9 @@ function vega_runtime()
                         });
                         delete self._pending[id];
                     }
+                    // One bounded correction pass for JS-sized specs whose
+                    // rendered chrome overshoots the computed budget.
+                    self._fitCorrection(id, function() { doEmbed(); });
                     return result;
                 }).catch(function(err) { console.warn = _warn; console.error = _error; _error.call(console, '[' + id + ']', err); });
             };
@@ -1075,7 +1174,8 @@ function vega_runtime()
                     delete spec._aov;
                 } else {
                     // Layered: use _aov marker for JS responsive sizing
-                    spec._aov = {};
+                    // (preserve keys such as maxWidth).
+                    spec._aov = spec._aov || {};
                 }
                 isFaceted = false;
                 layers = spec.layer || [spec];
