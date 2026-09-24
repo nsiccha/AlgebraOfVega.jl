@@ -1,0 +1,256 @@
+{
+  "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+  "encoding": {
+    "tooltip": [
+      {
+        "field": "month",
+        "type": "nominal"
+      },
+      {
+        "field": "category",
+        "type": "nominal"
+      },
+      {
+        "field": "value",
+        "type": "quantitative"
+      }
+    ],
+    "x": {
+      "field": "month",
+      "type": "nominal"
+    },
+    "color": {
+      "field": "category",
+      "type": "nominal"
+    },
+    "opacity": {
+      "condition": {
+        "param": "legend_selection",
+        "value": 1,
+        "empty": true
+      },
+      "value": 0.15
+    },
+    "y": {
+      "stack": "zero",
+      "field": "value",
+      "type": "quantitative"
+    }
+  },
+  "data": {
+    "values": [
+      {
+        "month": "Jan",
+        "value": 45,
+        "category": "Web"
+      },
+      {
+        "month": "Feb",
+        "value": 52,
+        "category": "Web"
+      },
+      {
+        "month": "Mar",
+        "value": 58,
+        "category": "Web"
+      },
+      {
+        "month": "Apr",
+        "value": 55,
+        "category": "Web"
+      },
+      {
+        "month": "May",
+        "value": 62,
+        "category": "Web"
+      },
+      {
+        "month": "Jun",
+        "value": 68,
+        "category": "Web"
+      },
+      {
+        "month": "Jul",
+        "value": 72,
+        "category": "Web"
+      },
+      {
+        "month": "Aug",
+        "value": 70,
+        "category": "Web"
+      },
+      {
+        "month": "Sep",
+        "value": 65,
+        "category": "Web"
+      },
+      {
+        "month": "Oct",
+        "value": 58,
+        "category": "Web"
+      },
+      {
+        "month": "Nov",
+        "value": 50,
+        "category": "Web"
+      },
+      {
+        "month": "Dec",
+        "value": 48,
+        "category": "Web"
+      },
+      {
+        "month": "Jan",
+        "value": 30,
+        "category": "Mobile"
+      },
+      {
+        "month": "Feb",
+        "value": 35,
+        "category": "Mobile"
+      },
+      {
+        "month": "Mar",
+        "value": 42,
+        "category": "Mobile"
+      },
+      {
+        "month": "Apr",
+        "value": 48,
+        "category": "Mobile"
+      },
+      {
+        "month": "May",
+        "value": 55,
+        "category": "Mobile"
+      },
+      {
+        "month": "Jun",
+        "value": 60,
+        "category": "Mobile"
+      },
+      {
+        "month": "Jul",
+        "value": 65,
+        "category": "Mobile"
+      },
+      {
+        "month": "Aug",
+        "value": 62,
+        "category": "Mobile"
+      },
+      {
+        "month": "Sep",
+        "value": 55,
+        "category": "Mobile"
+      },
+      {
+        "month": "Oct",
+        "value": 45,
+        "category": "Mobile"
+      },
+      {
+        "month": "Nov",
+        "value": 38,
+        "category": "Mobile"
+      },
+      {
+        "month": "Dec",
+        "value": 35,
+        "category": "Mobile"
+      },
+      {
+        "month": "Jan",
+        "value": 25,
+        "category": "Desktop"
+      },
+      {
+        "month": "Feb",
+        "value": 22,
+        "category": "Desktop"
+      },
+      {
+        "month": "Mar",
+        "value": 20,
+        "category": "Desktop"
+      },
+      {
+        "month": "Apr",
+        "value": 18,
+        "category": "Desktop"
+      },
+      {
+        "month": "May",
+        "value": 15,
+        "category": "Desktop"
+      },
+      {
+        "month": "Jun",
+        "value": 12,
+        "category": "Desktop"
+      },
+      {
+        "month": "Jul",
+        "value": 10,
+        "category": "Desktop"
+      },
+      {
+        "month": "Aug",
+        "value": 12,
+        "category": "Desktop"
+      },
+      {
+        "month": "Sep",
+        "value": 15,
+        "category": "Desktop"
+      },
+      {
+        "month": "Oct",
+        "value": 18,
+        "category": "Desktop"
+      },
+      {
+        "month": "Nov",
+        "value": 22,
+        "category": "Desktop"
+      },
+      {
+        "month": "Dec",
+        "value": 24,
+        "category": "Desktop"
+      }
+    ]
+  },
+  "title": "Traffic by Channel",
+  "params": [
+    {
+      "name": "grid",
+      "bind": "scales",
+      "select": {
+        "encodings": [
+          "y"
+        ],
+        "type": "interval"
+      }
+    },
+    {
+      "name": "legend_selection",
+      "bind": "legend",
+      "select": {
+        "fields": [
+          "category"
+        ],
+        "type": "point"
+      }
+    },
+    {
+      "name": "hover_nearest",
+      "select": {
+        "nearest": true,
+        "on": "pointerover",
+        "type": "point"
+      }
+    }
+  ],
+  "mark": "area"
+}

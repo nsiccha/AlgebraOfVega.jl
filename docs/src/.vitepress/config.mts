@@ -34,12 +34,59 @@ export default defineConfig({
   description: 'REPLACE_ME_DOCUMENTER_VITEPRESS',
   lastUpdated: true,
   cleanUrls: true,
+  // Allow `http://localhost:…` references (gallery.md links to the
+  // local AoV web app) — vitepress build flags them as dead links
+  // otherwise.
+  ignoreDeadLinks: [/^https?:\/\/localhost(:\d+)?(\/|$)/],
   outDir: 'REPLACE_ME_DOCUMENTER_VITEPRESS', // This is required for MarkdownVitepress to work correctly...
   head: [
     ['link', { rel: 'icon', href: 'REPLACE_ME_DOCUMENTER_VITEPRESS_FAVICON' }],
     ['script', {src: `${getBaseRepository(baseTemp.base)}versions.js`}],
     // ['script', {src: '/versions.js'], for custom domains, I guess if deploy_url is available.
-    ['script', {src: `${baseTemp.base}siteinfo.js`}]
+    ['script', {src: `${baseTemp.base}siteinfo.js`}],
+    ['script', {src: 'https://cdn.jsdelivr.net/npm/vega@5'}],
+    ['script', {src: 'https://cdn.jsdelivr.net/npm/vega-lite@5'}],
+    ['script', {src: 'https://cdn.jsdelivr.net/npm/vega-embed@6'}],
+    // AoV's own vega-embed runtime — defines `window.AoV.embed(…)`
+    // which the per-card scripts call. Loaded via the dev proxy so
+    // `/aov_runtime_js` is the AoV server's own route.
+    ['script', {src: '/live-aov/aov_runtime_js'}],
+    // HTMX runtime — for inlining live AoV gallery fragments via
+    // `<div hx-get="…" hx-trigger="load">` placeholders. HTMX requests
+    // carry HX-Request: true automatically, so AoV's routes return the
+    // bare body fragment that drops directly into the docs page.
+    ['script', {src: 'https://cdn.jsdelivr.net/npm/htmx.org@2.0.8/dist/htmx.min.js'}],
+    // Map HTMXObjects' --htmxo-* theme variables to VitePress's
+    // brand/state tokens so embedded gallery components match the docs
+    // theme automatically. HTMXO defaults remain as fallback.
+    ['style', {}, `
+:root {
+    --htmxo-accent:  var(--vp-c-brand-1, #4a90d9);
+    --htmxo-success: var(--vp-c-success-1, #2a9d8f);
+    --htmxo-warning: var(--vp-c-warning-1, #e9a23b);
+    --htmxo-error:   var(--vp-c-danger-1, #e76f51);
+    --htmxo-border:  var(--vp-c-divider, currentColor);
+    --htmxo-muted:   var(--vp-c-text-3, color-mix(in srgb, currentColor 60%, transparent));
+}
+/* Pages with frontmatter \`htmxo-embed-fullwidth: true\` (or the
+ * equivalent class on a wrapper) escape VitePress's narrow content
+ * column. The gallery embed wants real width to lay out its 4-col card
+ * grid. The plain VPDoc.has-aside left-margin is preserved so the
+ * sidebar still has its space. */
+.htmxo-embed-fullwidth .htmxo-embed,
+.VPDoc:has(.htmxo-embed-fullwidth) .htmxo-embed {
+    width: calc(100vw - 2rem);
+    max-width: calc(100vw - 2rem);
+    margin-left: calc(-50vw + 50% + 1rem);
+}
+/* On wider screens with the sidebar visible, account for it. */
+@media (min-width: 960px) {
+    .VPDoc.has-sidebar .htmxo-embed-fullwidth .htmxo-embed {
+        width: calc(100vw - 272px - 2rem);
+        margin-left: calc(-50vw + 50% + 136px + 1rem);
+    }
+}
+    `]
   ],
   
   markdown: {
@@ -59,6 +106,25 @@ export default defineConfig({
     ],
     define: {
       __DEPLOY_ABSPATH__: JSON.stringify('REPLACE_ME_DOCUMENTER_VITEPRESS_DEPLOY_ABSPATH'),
+    },
+    server: {
+      // Bind to all interfaces so the dev server is reachable from
+      // other devices on the local network (phones, tablets, second
+      // laptop, etc.). Vite prints the LAN IP at startup. Override
+      // via the `--host` CLI flag if you want loopback-only.
+      host: true,
+      proxy: {
+        // Live AoV gallery embedding (dev only). `<div hx-get="/live-aov/…">`
+        // forwards to the running AoV web app on :8092 so the docs page
+        // shows live state. In production, point the same path at
+        // recordings produced by `record!` — same markdown source.
+        // Override the target via `AOV_DEV_TARGET=http://host:port` env.
+        '/live-aov': {
+          target: process.env.AOV_DEV_TARGET || 'http://localhost:8092',
+          changeOrigin: true,
+          rewrite: (path) => path.replace(/^\/live-aov/, ''),
+        }
+      }
     },
     resolve: {
       alias: {

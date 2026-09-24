@@ -1,0 +1,574 @@
+{
+  "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+  "height": 350,
+  "encoding": {
+    "tooltip": [
+      {
+        "field": "horsepower",
+        "type": "quantitative"
+      },
+      {
+        "field": "origin",
+        "type": "nominal"
+      },
+      {
+        "field": "mpg",
+        "type": "quantitative"
+      }
+    ],
+    "x": {
+      "field": "horsepower",
+      "type": "quantitative"
+    },
+    "color": {
+      "field": "origin",
+      "type": "nominal"
+    },
+    "opacity": {
+      "condition": {
+        "param": "legend_selection",
+        "value": 1,
+        "empty": true
+      },
+      "value": 0.15
+    },
+    "y": {
+      "field": "mpg",
+      "type": "quantitative"
+    }
+  },
+  "data": {
+    "values": [
+      {
+        "horsepower": 130,
+        "acceleration": 12.0,
+        "weight": 3504,
+        "mpg": 18,
+        "cylinders": 8,
+        "origin": "USA"
+      },
+      {
+        "horsepower": 165,
+        "acceleration": 11.5,
+        "weight": 3693,
+        "mpg": 15,
+        "cylinders": 8,
+        "origin": "USA"
+      },
+      {
+        "horsepower": 150,
+        "acceleration": 11.0,
+        "weight": 3436,
+        "mpg": 18,
+        "cylinders": 8,
+        "origin": "USA"
+      },
+      {
+        "horsepower": 150,
+        "acceleration": 12.0,
+        "weight": 3433,
+        "mpg": 16,
+        "cylinders": 8,
+        "origin": "USA"
+      },
+      {
+        "horsepower": 140,
+        "acceleration": 10.5,
+        "weight": 3449,
+        "mpg": 17,
+        "cylinders": 8,
+        "origin": "USA"
+      },
+      {
+        "horsepower": 198,
+        "acceleration": 10.0,
+        "weight": 4341,
+        "mpg": 15,
+        "cylinders": 8,
+        "origin": "USA"
+      },
+      {
+        "horsepower": 220,
+        "acceleration": 9.0,
+        "weight": 4354,
+        "mpg": 14,
+        "cylinders": 8,
+        "origin": "USA"
+      },
+      {
+        "horsepower": 215,
+        "acceleration": 8.5,
+        "weight": 4312,
+        "mpg": 14,
+        "cylinders": 8,
+        "origin": "USA"
+      },
+      {
+        "horsepower": 225,
+        "acceleration": 10.0,
+        "weight": 4425,
+        "mpg": 14,
+        "cylinders": 8,
+        "origin": "USA"
+      },
+      {
+        "horsepower": 190,
+        "acceleration": 8.5,
+        "weight": 3850,
+        "mpg": 15,
+        "cylinders": 8,
+        "origin": "USA"
+      },
+      {
+        "horsepower": 170,
+        "acceleration": 10.0,
+        "weight": 3563,
+        "mpg": 15,
+        "cylinders": 8,
+        "origin": "USA"
+      },
+      {
+        "horsepower": 160,
+        "acceleration": 8.0,
+        "weight": 3609,
+        "mpg": 14,
+        "cylinders": 8,
+        "origin": "USA"
+      },
+      {
+        "horsepower": 150,
+        "acceleration": 9.5,
+        "weight": 3761,
+        "mpg": 15,
+        "cylinders": 8,
+        "origin": "USA"
+      },
+      {
+        "horsepower": 225,
+        "acceleration": 10.0,
+        "weight": 3086,
+        "mpg": 14,
+        "cylinders": 8,
+        "origin": "USA"
+      },
+      {
+        "horsepower": 95,
+        "acceleration": 15.0,
+        "weight": 2372,
+        "mpg": 24,
+        "cylinders": 4,
+        "origin": "Japan"
+      },
+      {
+        "horsepower": 95,
+        "acceleration": 15.5,
+        "weight": 2833,
+        "mpg": 22,
+        "cylinders": 4,
+        "origin": "Japan"
+      },
+      {
+        "horsepower": 97,
+        "acceleration": 15.5,
+        "weight": 2774,
+        "mpg": 18,
+        "cylinders": 4,
+        "origin": "Japan"
+      },
+      {
+        "horsepower": 85,
+        "acceleration": 16.0,
+        "weight": 2587,
+        "mpg": 21,
+        "cylinders": 4,
+        "origin": "Japan"
+      },
+      {
+        "horsepower": 88,
+        "acceleration": 14.5,
+        "weight": 2130,
+        "mpg": 27,
+        "cylinders": 4,
+        "origin": "Japan"
+      },
+      {
+        "horsepower": 46,
+        "acceleration": 20.5,
+        "weight": 1835,
+        "mpg": 26,
+        "cylinders": 4,
+        "origin": "Europe"
+      },
+      {
+        "horsepower": 87,
+        "acceleration": 17.5,
+        "weight": 2672,
+        "mpg": 25,
+        "cylinders": 4,
+        "origin": "Europe"
+      },
+      {
+        "horsepower": 90,
+        "acceleration": 15.0,
+        "weight": 2430,
+        "mpg": 24,
+        "cylinders": 4,
+        "origin": "Europe"
+      },
+      {
+        "horsepower": 95,
+        "acceleration": 17.5,
+        "weight": 2375,
+        "mpg": 25,
+        "cylinders": 4,
+        "origin": "Europe"
+      },
+      {
+        "horsepower": 113,
+        "acceleration": 15.5,
+        "weight": 2234,
+        "mpg": 26,
+        "cylinders": 4,
+        "origin": "Europe"
+      },
+      {
+        "horsepower": 90,
+        "acceleration": 18.5,
+        "weight": 2648,
+        "mpg": 21,
+        "cylinders": 4,
+        "origin": "Europe"
+      },
+      {
+        "horsepower": 215,
+        "acceleration": 14.0,
+        "weight": 4615,
+        "mpg": 10,
+        "cylinders": 8,
+        "origin": "USA"
+      },
+      {
+        "horsepower": 200,
+        "acceleration": 13.0,
+        "weight": 4376,
+        "mpg": 10,
+        "cylinders": 8,
+        "origin": "USA"
+      },
+      {
+        "horsepower": 210,
+        "acceleration": 13.5,
+        "weight": 4382,
+        "mpg": 11,
+        "cylinders": 8,
+        "origin": "USA"
+      },
+      {
+        "horsepower": 193,
+        "acceleration": 18.0,
+        "weight": 4732,
+        "mpg": 9,
+        "cylinders": 8,
+        "origin": "USA"
+      },
+      {
+        "horsepower": 88,
+        "acceleration": 14.5,
+        "weight": 2130,
+        "mpg": 27,
+        "cylinders": 4,
+        "origin": "Japan"
+      },
+      {
+        "horsepower": 90,
+        "acceleration": 13.5,
+        "weight": 2264,
+        "mpg": 28,
+        "cylinders": 4,
+        "origin": "Japan"
+      },
+      {
+        "horsepower": 95,
+        "acceleration": 15.5,
+        "weight": 2228,
+        "mpg": 25,
+        "cylinders": 4,
+        "origin": "Japan"
+      },
+      {
+        "horsepower": 100,
+        "acceleration": 19.0,
+        "weight": 2046,
+        "mpg": 25,
+        "cylinders": 4,
+        "origin": "Japan"
+      },
+      {
+        "horsepower": 105,
+        "acceleration": 13.0,
+        "weight": 2634,
+        "mpg": 19,
+        "cylinders": 4,
+        "origin": "Europe"
+      },
+      {
+        "horsepower": 100,
+        "acceleration": 15.5,
+        "weight": 2702,
+        "mpg": 16,
+        "cylinders": 4,
+        "origin": "Europe"
+      },
+      {
+        "horsepower": 88,
+        "acceleration": 16.5,
+        "weight": 2875,
+        "mpg": 17,
+        "cylinders": 4,
+        "origin": "Europe"
+      },
+      {
+        "horsepower": 100,
+        "acceleration": 17.0,
+        "weight": 2901,
+        "mpg": 19,
+        "cylinders": 4,
+        "origin": "Europe"
+      },
+      {
+        "horsepower": 165,
+        "acceleration": 11.0,
+        "weight": 3353,
+        "mpg": 18,
+        "cylinders": 6,
+        "origin": "USA"
+      },
+      {
+        "horsepower": 175,
+        "acceleration": 11.5,
+        "weight": 3169,
+        "mpg": 14,
+        "cylinders": 6,
+        "origin": "USA"
+      },
+      {
+        "horsepower": 153,
+        "acceleration": 12.5,
+        "weight": 2906,
+        "mpg": 14,
+        "cylinders": 6,
+        "origin": "USA"
+      },
+      {
+        "horsepower": 150,
+        "acceleration": 13.5,
+        "weight": 3380,
+        "mpg": 15,
+        "cylinders": 6,
+        "origin": "USA"
+      },
+      {
+        "horsepower": 180,
+        "acceleration": 12.0,
+        "weight": 3740,
+        "mpg": 15,
+        "cylinders": 8,
+        "origin": "USA"
+      },
+      {
+        "horsepower": 170,
+        "acceleration": 11.0,
+        "weight": 4080,
+        "mpg": 14,
+        "cylinders": 8,
+        "origin": "USA"
+      },
+      {
+        "horsepower": 175,
+        "acceleration": 11.5,
+        "weight": 3645,
+        "mpg": 15,
+        "cylinders": 8,
+        "origin": "USA"
+      },
+      {
+        "horsepower": 110,
+        "acceleration": 14.0,
+        "weight": 2585,
+        "mpg": 24,
+        "cylinders": 4,
+        "origin": "Japan"
+      },
+      {
+        "horsepower": 72,
+        "acceleration": 19.0,
+        "weight": 2310,
+        "mpg": 20,
+        "cylinders": 4,
+        "origin": "Japan"
+      },
+      {
+        "horsepower": 100,
+        "acceleration": 15.0,
+        "weight": 2472,
+        "mpg": 25,
+        "cylinders": 4,
+        "origin": "Japan"
+      },
+      {
+        "horsepower": 88,
+        "acceleration": 16.0,
+        "weight": 2265,
+        "mpg": 21,
+        "cylinders": 4,
+        "origin": "Japan"
+      },
+      {
+        "horsepower": 86,
+        "acceleration": 19.5,
+        "weight": 2110,
+        "mpg": 27,
+        "cylinders": 4,
+        "origin": "Japan"
+      },
+      {
+        "horsepower": 90,
+        "acceleration": 14.5,
+        "weight": 2800,
+        "mpg": 26,
+        "cylinders": 4,
+        "origin": "Japan"
+      },
+      {
+        "horsepower": 70,
+        "acceleration": 19.5,
+        "weight": 2110,
+        "mpg": 26,
+        "cylinders": 4,
+        "origin": "Japan"
+      },
+      {
+        "horsepower": 76,
+        "acceleration": 17.0,
+        "weight": 2085,
+        "mpg": 28,
+        "cylinders": 4,
+        "origin": "Japan"
+      },
+      {
+        "horsepower": 65,
+        "acceleration": 17.0,
+        "weight": 2245,
+        "mpg": 25,
+        "cylinders": 4,
+        "origin": "Japan"
+      },
+      {
+        "horsepower": 69,
+        "acceleration": 15.0,
+        "weight": 1965,
+        "mpg": 26,
+        "cylinders": 4,
+        "origin": "Japan"
+      },
+      {
+        "horsepower": 60,
+        "acceleration": 17.0,
+        "weight": 1755,
+        "mpg": 30,
+        "cylinders": 4,
+        "origin": "Japan"
+      },
+      {
+        "horsepower": 70,
+        "acceleration": 14.0,
+        "weight": 2815,
+        "mpg": 22,
+        "cylinders": 6,
+        "origin": "USA"
+      },
+      {
+        "horsepower": 95,
+        "acceleration": 12.5,
+        "weight": 3210,
+        "mpg": 17,
+        "cylinders": 6,
+        "origin": "USA"
+      },
+      {
+        "horsepower": 80,
+        "acceleration": 13.5,
+        "weight": 3380,
+        "mpg": 23,
+        "cylinders": 6,
+        "origin": "USA"
+      },
+      {
+        "horsepower": 54,
+        "acceleration": 15.5,
+        "weight": 1760,
+        "mpg": 36,
+        "cylinders": 4,
+        "origin": "Japan"
+      },
+      {
+        "horsepower": 90,
+        "acceleration": 14.0,
+        "weight": 2130,
+        "mpg": 25,
+        "cylinders": 4,
+        "origin": "Europe"
+      },
+      {
+        "horsepower": 86,
+        "acceleration": 15.5,
+        "weight": 2205,
+        "mpg": 22,
+        "cylinders": 4,
+        "origin": "Europe"
+      },
+      {
+        "horsepower": 110,
+        "acceleration": 13.5,
+        "weight": 2245,
+        "mpg": 18,
+        "cylinders": 4,
+        "origin": "Europe"
+      }
+    ]
+  },
+  "title": "Cars: Horsepower vs MPG",
+  "width": 500,
+  "mark": "point",
+  "params": [
+    {
+      "name": "grid",
+      "bind": "scales",
+      "select": {
+        "encodings": [
+          "x",
+          "y"
+        ],
+        "type": "interval"
+      }
+    },
+    {
+      "name": "legend_selection",
+      "bind": "legend",
+      "select": {
+        "fields": [
+          "origin"
+        ],
+        "type": "point"
+      }
+    },
+    {
+      "name": "hover_nearest",
+      "select": {
+        "nearest": true,
+        "on": "pointerover",
+        "type": "point"
+      }
+    }
+  ]
+}

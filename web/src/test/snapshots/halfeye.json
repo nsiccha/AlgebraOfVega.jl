@@ -1,0 +1,7698 @@
+{
+  "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+  "spec": {
+    "height": 80,
+    "layer": [
+      {
+        "encoding": {
+          "x": {
+            "field": "val",
+            "title": "value",
+            "type": "quantitative"
+          },
+          "y": {
+            "axis": null,
+            "field": "dens",
+            "title": null,
+            "type": "quantitative"
+          }
+        },
+        "params": [
+          {
+            "name": "grid",
+            "bind": "scales",
+            "select": {
+              "encodings": [
+                "x",
+                "y"
+              ],
+              "type": "interval"
+            }
+          }
+        ],
+        "mark": {
+          "type": "area",
+          "orient": "vertical",
+          "opacity": 0.4
+        },
+        "transform": [
+          {
+            "density": "value",
+            "as": [
+              "val",
+              "dens"
+            ]
+          }
+        ]
+      },
+      {
+        "encoding": {
+          "x2": {
+            "field": "val",
+            "aggregate": "max"
+          },
+          "x": {
+            "field": "val",
+            "aggregate": "min",
+            "type": "quantitative"
+          }
+        },
+        "mark": {
+          "strokeWidth": 1.5,
+          "type": "rule"
+        },
+        "transform": [
+          {
+            "probs": [
+              0.025000000000000022,
+              0.975
+            ],
+            "quantile": "value",
+            "as": [
+              "prob",
+              "val"
+            ]
+          },
+          {
+            "fold": [
+              "val"
+            ]
+          }
+        ]
+      },
+      {
+        "encoding": {
+          "x2": {
+            "field": "val",
+            "aggregate": "max"
+          },
+          "x": {
+            "field": "val",
+            "aggregate": "min",
+            "type": "quantitative"
+          }
+        },
+        "mark": {
+          "strokeWidth": 4.75,
+          "type": "rule"
+        },
+        "transform": [
+          {
+            "probs": [
+              0.09999999999999998,
+              0.9
+            ],
+            "quantile": "value",
+            "as": [
+              "prob",
+              "val"
+            ]
+          },
+          {
+            "fold": [
+              "val"
+            ]
+          }
+        ]
+      },
+      {
+        "encoding": {
+          "x2": {
+            "field": "val",
+            "aggregate": "max"
+          },
+          "x": {
+            "field": "val",
+            "aggregate": "min",
+            "type": "quantitative"
+          }
+        },
+        "mark": {
+          "strokeWidth": 8.0,
+          "type": "rule"
+        },
+        "transform": [
+          {
+            "probs": [
+              0.25,
+              0.75
+            ],
+            "quantile": "value",
+            "as": [
+              "prob",
+              "val"
+            ]
+          },
+          {
+            "fold": [
+              "val"
+            ]
+          }
+        ]
+      },
+      {
+        "encoding": {
+          "x": {
+            "field": "val",
+            "type": "quantitative"
+          }
+        },
+        "mark": {
+          "filled": true,
+          "stroke": "#333",
+          "color": "white",
+          "strokeWidth": 1.5,
+          "size": 60,
+          "type": "point"
+        },
+        "transform": [
+          {
+            "probs": [
+              0.5
+            ],
+            "quantile": "value",
+            "as": [
+              "prob",
+              "val"
+            ]
+          }
+        ]
+      }
+    ],
+    "width": 500
+  },
+  "data": {
+    "values": [
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 1.9592063920856908
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 2.7040025555364293
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 3.269025374831026
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 0.8784501077419751
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 2.169225609541759
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 2.3793764532526414
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 1.6495167987331207
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 2.346732654752649
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 1.9428007879058304
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 1.729653482458978
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 2.2481301543672676
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 2.554369153249146
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 1.6790928097758306
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 2.4650470921063388
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 2.533342786374876
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 2.2176178439616905
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 1.6895801009838916
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 2.4669566896702495
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 2.3340114441137496
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 2.1898312039778287
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 2.455753656533341
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 1.8598636479280768
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 2.3714457577730803
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 1.618468938783611
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 1.7810921797106984
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 1.8456245425537887
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 2.0842458242673714
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 1.13149475996906
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 2.658166491689225
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 2.087110792420332
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 2.217641454410123
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 2.3244682488079533
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 2.333106881421733
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 2.000723838899506
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 2.401687487446388
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 1.8766744856377828
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 1.7799260617077968
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 1.6211708675531165
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 2.4507535608104054
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 2.5174340539749545
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 2.2502297859984854
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 1.9171074708329234
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 0.7687274199410594
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 2.015340402694634
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 1.8156204215172826
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 1.9634975762743954
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 1.9059309072449861
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 1.4659405209488432
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 2.154692119795818
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 1.703004254057313
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 1.9929804256387242
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 1.609960332292737
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 1.9330641582906585
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 2.3133819600775034
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 2.5228532764361633
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 2.2133405424684005
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 2.184693534490132
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 2.04632127666996
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 2.2384208892064064
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 3.3141566959876556
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 1.731803410767617
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 1.7960282264730467
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 2.116783223322582
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 1.8097478351063214
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 2.899245136415187
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 2.296517270909274
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 1.725051489507139
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 2.5113626353462473
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 1.3931438526670472
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 2.356485003991608
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 1.3909477409167987
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 1.4079448325622712
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 1.4951687066790267
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 0.7378523661606506
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 2.1956388558781637
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 2.653723932676099
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 1.6608669082233944
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 2.591341703678774
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 2.1452103792932102
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 1.6052422968277031
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 2.5794553678529044
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 2.559904795321827
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 3.1082708656093803
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 2.0965387228935004
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 2.002752492238755
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 1.4268264814189018
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 2.464805525000508
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 2.6233384228695966
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 1.639204217648453
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 1.8266674109331555
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 1.5159856592071006
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 1.8537670302002567
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 1.1971665967976053
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 1.6569067727380395
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 2.1748126849549316
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 1.9006235253894253
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 2.659520599329599
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 2.878263280674049
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 2.263023968709149
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 2.2382884198624238
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 2.558403757479927
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 2.5670765173688266
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 2.484477056455125
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 2.953949376241213
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 2.941853120247242
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 1.9681893081802526
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 2.2673862332604195
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 2.7231491292983305
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 2.9400937991587197
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 1.3298717883575917
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 2.0367155957490626
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 2.315992149060193
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 1.3546018535976072
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 1.615636524364549
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 1.6543288578788187
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 2.475101094314373
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 2.7632016286599352
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 1.2941649610719048
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 2.656031489163348
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 2.287157923820028
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 1.8224028092730837
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 1.5937236592026898
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 2.16230349803334
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 2.3335676734797683
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 2.479477370898981
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 1.8838572307671269
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 2.574097870125806
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 2.3216984565019096
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 2.4464689152363652
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 1.8920284502047529
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 2.0861901450431506
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 2.405059513819013
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 1.9118442858267415
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 1.1190167786648817
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 2.4626216636987817
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 1.8661569001015859
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 1.6867237556953003
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 1.338129565487403
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 1.882043862543174
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 2.4872923246063294
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 1.75177684687056
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 2.0722099643327883
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 2.9742567010585512
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 2.10841128165987
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 2.4275275969571664
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 1.5041625115263688
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 2.2961907332702722
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 1.8561483491869946
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 1.5838328238954023
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 2.0262162146245752
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 1.6165745224539654
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 1.9004326188165883
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 1.130243606495534
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 1.8737472095845615
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 1.995537198618926
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 1.4125127111026337
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 2.2985524616719095
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 2.882200612695393
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 3.084466561357418
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 2.3315754406865024
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 2.482238315771992
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 2.873652274390203
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 2.303685890849534
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 1.983862037959771
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 1.920766627891519
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 1.4625030279082931
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 1.5260587905446337
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 1.4319144380112738
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 2.3470205219181564
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 2.296399062425879
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 2.246864821465306
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 1.9183240835035544
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 2.677488890100936
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 1.9766152024669128
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 2.569182019222462
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 1.8737759472683124
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 2.8179710455188705
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 1.8238035892739355
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 2.785819360874509
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 1.3545269560290145
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 2.6260688666662464
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 2.485293101920714
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 3.3478756851736993
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 2.26662786921457
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 2.08807593562645
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 2.162270057048811
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 2.321180973628265
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 2.2581293243538947
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 2.224300093224693
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 1.9069715158667675
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 1.878709303284681
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 1.7561541763724708
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 2.5983678045763323
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 1.2902930149325718
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 2.428457105120272
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 2.0540113206390056
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 2.014445324552182
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 2.285445877107719
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 2.0746929641861134
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 1.8068559243844593
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 1.9877217575659873
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 2.3611332055088265
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 2.464048376603642
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 2.2450990477028316
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 2.2898643426441176
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 1.7831055071233544
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 2.4798898587408904
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 1.9328184896732261
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 2.0279094073405255
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 1.4804101424089788
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 1.9228276095713357
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 2.2097658275519074
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 2.0208430833888222
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 2.6010838001624172
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 2.097141648957074
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 2.102679658793113
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 1.8149016572551866
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 2.160569931400703
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 1.846882529705176
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 1.913248282303225
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 0.8159243684288646
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 1.9048851489275047
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 1.7697211441177774
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 1.3222497637047808
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 2.0017949865009124
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 2.28481083008382
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 2.8070106180109504
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 1.8512757059892606
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 1.7678447139078899
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 2.35290015521122
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 1.8328961000623583
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 1.685151618487128
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 2.9360206791771484
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 2.641466780913039
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 2.5234669648241277
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 2.5500572896766176
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 2.8290858643505974
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 1.9011964335365694
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 1.3193002872584876
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 2.669599211606245
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 2.733903461542741
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 1.433707251671541
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 1.3788554060584617
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 2.0732339502335266
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 1.8893862077911185
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 2.2839803661218103
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 1.7369707808216628
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 1.172209224300508
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 2.010296487229926
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 1.4632348480976665
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 2.730605280836927
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 2.0402735386342736
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 1.7368139688171003
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 2.2995112304093634
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 1.7046861086560567
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 2.863566065872989
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 1.6067820716247505
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 1.1846674304719564
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 3.317260263303046
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 2.088743564017088
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 1.7095975943104886
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 1.499957737975465
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 1.608820066244163
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 1.390167598290578
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 2.4501989231888848
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 1.886647681146527
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 2.028944088349785
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 1.1303987102270687
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 1.6343471812313737
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 1.9820404094375
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 2.196708659219071
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 2.145702671845775
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 2.2007572449942856
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 2.3910722313586232
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 2.103354096735722
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 2.1019469350237165
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 1.9044036466052234
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 1.5878109625898105
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 1.9340617800559576
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 2.498271829682168
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 1.45127542756844
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 1.3241295282795336
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 1.2859401486052693
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 2.484868375107233
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 2.096056324265637
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 2.4671627293132015
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 2.35366366179362
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 1.2700361046856492
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 2.345121885008949
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 2.1215200327706456
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 1.9275397237342364
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 2.157247875879676
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 2.939865707265388
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 1.969454281396741
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 2.591153662611321
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 1.612523554227737
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 1.7213888735345162
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 1.1809967444555909
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 2.601210235932758
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 1.9741592994000143
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 1.0329334746654155
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 2.530286590422575
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 1.8567527580815162
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 2.1831145937788095
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 1.6872471072795516
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 2.34305446055403
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 1.9883222987082336
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 2.2363271078095144
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 1.8998497259457827
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 1.949412682803587
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 1.9880847301764457
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 1.7021449024882274
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 2.4912072389874234
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 2.6676172304029206
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 2.5186938885505423
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 1.9197116190342645
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 2.2251306017060672
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 2.0586305190345406
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 1.9529673714052855
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 1.470201591064559
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 1.5354875822096272
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 2.093459111638922
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 1.7700889196682035
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 2.7942335288488245
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 1.582595973107379
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 2.1475171195737355
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 2.7230321374374524
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 1.7191359653389608
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 2.093064242640935
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 1.6167252692715717
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 1.4866309725164026
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 1.9918958638314452
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 1.9849673628668354
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 1.8627022526090409
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 1.7139869159054217
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 2.3091063139192
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 2.1019641428243587
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 2.101797603183291
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 2.770907869532834
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 1.8750458817564037
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 1.9917153353016432
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 2.818724921293884
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 2.7693453750080748
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 1.734581311732969
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 2.6602823370969895
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 1.751605061627558
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 2.284727600021192
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 1.998384809729976
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 2.1630379934794997
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 2.4718918779606627
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 1.8558237965728133
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 2.569015872561307
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 2.12439025191042
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 1.3395754917267872
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 1.498208671846375
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 1.9280438326580311
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 1.556877617878297
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 1.0955119882245468
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 2.369695317647407
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 2.1674518602326285
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 1.5158294781791342
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 2.4134283571056945
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 1.8960597969327302
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 1.6241598385036742
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 1.7593543924444424
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 1.9396452375416637
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 2.7099492811068515
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 1.4056215059044606
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 1.6124103805059993
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 2.693340522871633
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 1.371148341117417
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 1.5058751986106929
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 2.269445904158371
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 1.368500716621788
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 1.6199329320424527
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 1.4244450644081526
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 1.8187758231609206
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 2.0343062560436405
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 2.5937715496516827
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 1.881257680472194
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 1.742084831565688
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 1.332754930868384
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 2.712832370013624
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 1.9055262125406471
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 1.4886466553460553
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 1.9835838671460049
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 2.261373696826648
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 1.657859337012424
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 2.4981061379477385
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 1.0767603728114603
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 1.4723699520507827
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 0.7619130341670566
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 2.382079138766744
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 1.7937988290677218
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 2.7230608502087423
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 2.4105929422946297
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 2.2139476148391117
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 0.7728756343273242
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 3.228946540241263
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 1.6795860513630576
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 1.4360091616410915
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 2.2863690233272136
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 2.759628554612444
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 0.6420622536430622
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 1.616587182571555
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 1.516500381589928
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 1.7521944819956627
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 2.3642569621727194
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 2.022314714120624
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 1.5467122751577063
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 1.630334595033176
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 1.201576401221927
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 1.9382722035088868
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 1.6118262553090865
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 1.9744170681050763
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 2.0445698220843322
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 1.0639193819120845
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 1.8053953199683028
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 2.258830316230395
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 2.1029231576796277
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 2.5726814191537315
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 1.3493300028245854
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 1.696501894298668
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 2.2060118794038446
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 1.3746502712377833
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 1.0718514214160964
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 1.4139449838909468
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 2.1806043106226003
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 1.9567947039030018
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 2.638123176067179
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 2.650214401721665
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 1.2738141343478815
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 0.9435213973314569
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 1.3556614909256073
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 2.100845740546763
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 1.4623884845699435
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 2.0686707444890127
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 2.3778565951072554
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 2.2117613002495773
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 1.9781393889560472
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 2.5255184716871177
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 2.178775610540673
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 1.447698664279495
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 1.8193574030016422
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 2.0154931349686898
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 2.1177867759946616
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 1.9224754663786965
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 3.234192224049779
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 1.5516031345143824
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 1.6017343654339256
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 2.07091970874652
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 1.539441199749553
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 1.7148526291097668
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 2.3819484775995092
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 2.357349898543199
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 1.9114816145854496
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 2.438360880718461
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 2.204825157093128
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 0.6195696024732675
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 2.5341663106377066
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 1.7620291760479605
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 3.133288363870797
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 1.2921192156723356
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 2.22643758665458
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 1.676502068753666
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 2.224983326597808
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 1.3727397486234534
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 2.1104804266721495
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 2.115353786330082
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 1.9414536740199098
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 2.8526809333715497
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 2.260772259864875
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 2.0611813574822007
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 1.2880303408001712
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 1.909053611378128
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 2.3783401285677717
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 2.161610621531222
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 2.471944378775957
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 1.988792997303716
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 2.687410740673763
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 2.001325829321062
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 2.0659889319909492
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 0.9962889224001423
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 1.9070934103282415
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 1.7108903752641043
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 1.852639769161979
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 2.2504540919454477
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 1.3341822019235754
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 2.3927554691916066
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 1.8135524442867699
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 2.204973973185623
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 1.796509278580794
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 1.0980498635167315
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 1.234900521848341
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 1.7077342044466275
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 2.2896667882282733
+      },
+      {
+        "parameter": "α",
+        "chain": 1,
+        "value": 1.8236489644963547
+      },
+      {
+        "parameter": "α",
+        "chain": 2,
+        "value": 1.7155169648182658
+      },
+      {
+        "parameter": "α",
+        "chain": 3,
+        "value": 2.9324722607907643
+      },
+      {
+        "parameter": "α",
+        "chain": 4,
+        "value": 2.1285043296885977
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.9557969493578151
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.6369347014339215
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.03711820727192461
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.6057642922097671
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.8229169127240397
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.8415811959889065
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.5633807500399155
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.8827073958092867
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.7781085580140044
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 1.327993451826016
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.688593675324327
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.6140126586500863
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.884830478703736
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.6899547128949522
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 1.1286743364169571
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.2983343359090117
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.25819396005739637
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.9391437477683794
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.7476391241409543
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.5554490763474895
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.5770181996822874
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 1.0845577075870365
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.7666058068942483
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.016256944543200036
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.9563230875655284
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 1.121997016779965
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.7355438656940723
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.49871846207134884
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.767028096267419
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.4064178124017367
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.918300234744933
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.8892516736148893
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.7046793920041412
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.0855661203233834
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 1.0359929056090615
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 1.1081245582527846
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.5371334212489731
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.6287228074265421
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.32955888730953314
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.6205285336417474
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.8953848635231303
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 1.4226376272988368
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.853382220849818
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.9475476733354586
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.8058986474486984
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.7727523622365635
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.2014662290931435
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 1.0375286994015682
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 1.1040460728275932
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 1.1373072809578928
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.2659463160928973
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.5595149662650187
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.6062625306806513
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.8151582244765645
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.7104576605633501
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.4984153152608348
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.7558922159408963
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.2966097557197537
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.9252976384856302
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 1.0237505641682048
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.04101535818179436
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.6186940346594474
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.7051320012703599
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.6658356907075997
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 1.22150982787614
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.7619799712081484
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 1.0679900148847372
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 1.0497678393844543
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.7560965423537658
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.5488355584190594
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.9437816782694224
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.6669618164508534
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.9057216928969192
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.9734697350649317
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.83734125610347
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 1.0532947539286022
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.3845207343623562
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.7247587366285162
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.3157139616080729
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.5209082415722845
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.6427577854750733
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.09106660186399507
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.8892897040053769
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.9862500441864762
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.6136831960095461
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 1.0024440958753433
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.7451254745070948
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.9250751276720609
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.629481618869462
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 1.0377319564032181
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.8027332482724022
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 1.0839774281437256
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.497361392099314
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.6040338719789203
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.6914955928751861
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.43800340425181566
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.7174943716674688
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 1.2382111469143178
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.8388875680808415
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.9155668408490075
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 1.1318000436281621
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.6480437664527023
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.9363851382621114
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.5014476738851782
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.6903166228349528
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.8600815227102274
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.9837680079838799
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.59479241465163
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.9602920444424166
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.6240562595605809
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.9412391433472098
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.5643776392832192
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.7542494136472709
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 1.186013246656256
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.9357188480188978
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.5023326043374694
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.9625997349575295
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.09984553238084726
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.8526631175998494
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 1.2234658354594776
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.7891891023429395
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 1.5253138396161314
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.4611516428177651
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 1.0242468470455994
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.6111861584742897
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.8136464712875142
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 1.241134044721059
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 1.2399271047278297
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.9113516903710944
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.7977583789507449
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.8031342933318273
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.6725422837034406
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 1.2281450301131422
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.7196756158424099
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.433462505450701
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 1.047881219172517
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.9788307814320216
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.23771581704218747
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.8058966912784197
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.9837889018014858
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 1.1338122487134308
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.7538288245154564
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.40054518089229957
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.8446463497222408
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.7893720999672997
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.5351863366687818
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.9356168105759033
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.9511708629275162
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.9718655451859549
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.6912423478557712
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.8567853221595396
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.9024474217258602
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.5929511765263178
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.3616464677272489
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.9151583147517584
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.7900921829882827
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 1.039256618202172
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 1.665769615368521
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.9691796992878297
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.9230514370677043
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 1.1454941955607405
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.6202513179816513
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.47680453273282747
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 1.0436060438078028
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.6498901066033025
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 1.1604710696514104
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.9602290802438506
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.8459977142262106
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.6413484068362898
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.5329435481263194
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 1.1074338097234213
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.6534604625993158
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.9605492370496735
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.8069191208269021
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.6821526040909534
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 1.0392606040922887
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.9860125051830261
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.6395588655825926
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 1.0443691957919017
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 1.2021244331289087
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 1.0607284894205633
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.8415608900425923
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.9807552142393832
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.6635948514993911
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.8287465238100535
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.8988551026184786
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 1.1334570876650774
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 1.211041621437985
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.5243771465453557
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 1.1055691726660566
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.9625465467502702
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.5263089271917619
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.7089633759607524
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 1.0579710357103882
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 1.0097592199682892
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 1.2561566554482813
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.6037560360396799
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 1.1146320026541434
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 1.0300856351774852
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.881281738340847
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.7482890093467869
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 1.1861515677433576
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 1.4649154977918624
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 1.026407901161552
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.6870960546541687
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.5467414195248824
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.8422408443886248
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.6010059888457204
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": -0.05359575427304286
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.8156605435849671
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 1.2285277831942165
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.12916136823771884
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.42614653112468315
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.6488606817115476
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 1.3960632686772034
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.46881671213310483
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 1.5535583975040428
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.5608450859259195
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.615448371612832
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 1.3421202382148611
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.6721837026594174
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 1.243437579179083
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.5572076810165494
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.8124408412768347
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 1.2115611172405225
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 1.034909625258222
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.8147896516323135
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.5269131349331357
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.8734714747164991
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.7399646806382645
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.6807460560625378
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.7480402389520139
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.4038420568617839
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.7127287545181277
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 1.1349760499739068
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.7612929558942265
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 1.1463179362834044
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.3745820308609196
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.965779799951519
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.14059394851833773
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.8184232202613501
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.8016456388146109
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.7020780432769247
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.8840110243475603
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.8611910952772606
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.4820228304303593
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.6811493920591292
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.8612292518154717
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.704927448593114
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.7913001044315565
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.3847493848481464
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.4807514857274693
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 1.279264084103491
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 1.0111391102252048
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.2724124949622717
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.9351373282628116
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.5930964933904388
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.6298343426133729
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.8497298009849944
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.5886668079860427
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.28728989965621965
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.8287785173110623
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.5806202653236718
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.2716785874593898
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.7620617508016395
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.9106868966895606
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.48323300018159787
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.18487611556427697
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.9319711900973662
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.29318703429183934
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 1.24704385044968
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.9943344582864887
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.5271777710878816
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.7427234191611591
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 1.0202010530523857
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.5986936968219853
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 1.125318284334487
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.605552089384564
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.3187318122902171
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.8036819819482985
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.5502644286093372
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.9527990290120335
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.528850315027762
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 1.0449083719687087
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.5767069932600885
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.7635730819042291
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.8694504244391342
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 1.0488485099006901
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.2317893456973107
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.2942352427484599
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 1.1485718380687207
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.8583808333113755
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.9075670984691011
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.7297130713198294
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 1.0059805954837457
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.905066126253431
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.6268578622146428
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.3680285184587665
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.5946165904194675
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.6791335369658249
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.7955551829999706
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.8665965155692061
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.8992194985647817
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.9450092476400249
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.9839840790916461
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 1.214060240079988
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.8610874704172977
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.06638989861030231
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 1.1012811583453441
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 1.1872831935687518
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.7470052580110832
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.5471101451591054
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.9281110174977366
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.507232011046834
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.6334102276737601
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.7557374491355957
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.6431406291919841
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.7255918520948912
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.9032825944125867
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 1.3040693380747357
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.667828905358544
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.9002695452788544
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.5500340707379303
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.7577113856590451
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 1.201629230862526
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.38359692225583014
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 1.1546404156446837
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.8136841241581785
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.7871741162269902
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.8805790887604862
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.591838033471792
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 1.160304912665785
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.6546652502032945
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 1.0776065252246552
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.15527058185175147
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.640019727181196
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.606690504119882
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.39933483148129295
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.847210747564478
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.6792652612306452
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.5174812120833143
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.3557101641349916
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.5788390671252449
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.7318152204256855
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.6783403559916548
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.5775134504876818
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.8756499653330174
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.4667251688260898
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.2096600264114743
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 1.0860293474149336
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.767002927244249
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 1.0156306816906207
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 1.132496711096033
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.668329141706376
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.9339616971341891
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.600740111877753
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.21713312771905868
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.8495000674504518
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.5387556493102927
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 1.5853203435121692
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.7309287044428365
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 1.0215522930582062
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.2923693287604361
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.7176203763292324
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.6155188519713086
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.09669666980178149
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.6003377954706324
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.46379731004027036
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.5161984864428444
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.7092718960103911
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.9582058135257607
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.6738900709383242
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.9969141570148731
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.41153437604093174
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 1.1763251450286496
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.7843345243061076
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.9316371028072327
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 1.0181263348709282
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.7224211417892663
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 1.1220748334841477
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.3045227560770212
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.4369361764592789
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.3367683259264416
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.5983186744623679
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.8287759535803401
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.5437335460233251
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.6188197330656413
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.7584543458157585
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.2528250568289344
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.7440604704958728
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.7655682647513348
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 1.6220065123947687
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.5806217196166925
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.8684910746694956
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.8417961377742569
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.4614621485414754
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.9292526724330812
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.5546918100918351
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.6604943280859314
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.6568586730883821
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.7275178110730327
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.7655829219734753
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.8666544497689928
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.6169028269457325
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 1.2873350280423665
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 1.149736746642737
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.7879725150583718
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.7695514895402356
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.753601252650429
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 1.1563401274148812
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.2792073538723262
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": -0.22351312986543603
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 1.2666526988719782
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.7811078972060307
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.7406924592601462
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.9249549043379058
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 1.067946170784765
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.6075023577741248
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.5937000011133949
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.45564688556806066
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.9387120343466683
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.7482772714414769
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.7251591897158354
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 1.3432996407516848
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.9538483014889055
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 1.1952653331968128
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.7518986829778769
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.7776848607136951
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.41069669041146306
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.8770756739813846
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.8636370249909279
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 1.2757371066415195
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 1.0309792614268551
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.8339444012696059
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 1.1303972113480152
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.7954274723345071
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 1.4137186275150038
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.7669602052602013
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.7178833575692162
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 1.0072368420116942
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 1.0754597049219006
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.4592244747479416
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.5181028410450058
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.8183200303432756
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.5924135003495461
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.5631425000142245
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.507062928940514
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.5220841324048181
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.8214350836334191
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.9632063106194761
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 1.5220796837476738
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.8808489042354649
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.9935154101158888
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.5872785298780936
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 1.4211237596070097
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.6725723391642033
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.8441255789417538
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 1.3364478035292877
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.8669086770621789
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 1.3546949718289394
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.8294314082565803
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.48802106285045677
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.6089389467471326
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.7415652298998608
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 1.0389656481039604
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.9534851134131634
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.8502869588819022
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.9892504911046782
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 1.0303627916491989
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 1.2053242508842212
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 1.1411018134202433
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.3330093407591616
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.5320762813876978
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.31886104502205914
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.884236773984531
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 1.0858098748392588
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.958345333300908
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 1.211614066181179
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.8967242253751421
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.8241905377413107
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.6868456690747572
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.5262995722688582
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.8276238244006021
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 1.2108027236039507
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.9666385316957248
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.8895300493360219
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 1.254535092194843
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.6996833286871131
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.2993223467818833
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.6087099284733328
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.3886050382601765
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.9795794169520688
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.9487387447025291
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.7186770623734362
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 0.6941809716534082
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 1.0125402988937173
+      },
+      {
+        "parameter": "β",
+        "chain": 1,
+        "value": 0.8715014911511363
+      },
+      {
+        "parameter": "β",
+        "chain": 2,
+        "value": 0.859267781939718
+      },
+      {
+        "parameter": "β",
+        "chain": 3,
+        "value": 1.5967625003426615
+      },
+      {
+        "parameter": "β",
+        "chain": 4,
+        "value": 0.5740008351714865
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.5510617655086691
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.386927804182487
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.2841149036398078
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.2575726260966913
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.4366969100656257
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.2751127312243145
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.2346116231378412
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.368539521995219
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.2917461587694443
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.2310569521464378
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.5140815920076272
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.2611105820923205
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.2136736611456942
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.2837995836341771
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.4003294239204862
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.3428256966773675
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.2749976041481696
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.5295066416619945
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.2006184514111686
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.3928106324978917
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.3206863232396555
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.2761722756690976
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.4722651041907457
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.2589662322831214
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.2328142506187358
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.3199718185846347
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.5083612959252743
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.2485116124047073
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.732760403674824
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.4149942544327452
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.2428984385684765
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.2482558442848763
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.2716212211974134
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.4653845195018897
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.417253727490547
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.221920891314557
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.4272320666677853
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.2451203257043335
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.2033969618114506
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.3385367880208563
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.3499317822207526
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.3042944175271312
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.3094915486651604
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.2798479814974864
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.3003068491867484
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.6524797712062445
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.4127274083507064
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.2592066980384287
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.2038335754596685
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.4395875416491901
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.4291894952734197
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.508482687485988
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.4608407768115503
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.3375036615452778
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.4038823937930016
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.3583554025211702
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.684258491469965
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.4040913273383664
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.2377380669838542
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.5228892992143337
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.2879535874326773
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.5137649525582662
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.2021587560497566
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.2582799587230313
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.3923793923040475
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.283689902567424
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.4665961894241328
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.3039250806764109
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.3093198129128398
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.4588145087313111
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.2265392245563658
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.5203620816901322
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.2845603387019082
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.4080872269288494
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.24281160249906
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.3280195174391936
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.235949826426751
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.2199823464286008
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.3014799436934663
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.3526929581768177
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.2405906387243002
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.4527035798383587
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.2972660889594498
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.6977495577171262
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.3132648631448218
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.3059542192915377
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.5452960058611838
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.3190827382241308
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.2150288416578456
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.3054728535346705
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.4314946566699915
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.2741974136943905
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.386414194924438
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.3406137077060085
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.3534528214422339
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.3428190307355863
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.3601075740381705
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.2675531853560624
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.6762708787868674
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.532462551635475
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.2754722580890407
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.4524436897099542
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.2341775302477629
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.3002637428532595
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.2065678576549002
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.3734413688585305
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.4986437890110949
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.2066752035872714
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.2107927224755035
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.2177711764225356
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.324129845671855
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.282229829782167
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.2679704693569807
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.3584788499134457
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.2973088441128022
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.3145253676683564
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.3274033486885959
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.3885573186003946
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.6232691593022663
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.2897936301836541
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.405430597676802
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.3551583102582185
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.2908420757361707
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.213373238531113
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.2423001486643166
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.4049244517681743
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.3171685197058751
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.4446669354140758
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.3166414728421607
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.305362442318579
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.4020158613152165
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.3459207979225192
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.4128711440054773
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.5532907783171186
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.4519867413496326
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.3943823298319693
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.3801752004371974
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.2308430276622369
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.2072212506349957
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.2589178350990817
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.2617361498385926
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.2343964140651476
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.5494260004948806
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.2639609895854687
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.3948837201676816
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.299258023094362
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.2219453545560026
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.4150936045728855
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.346594276602317
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.2729317951596026
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.5054249687154806
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.3238900973910457
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.4125666276839093
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.318613136809102
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.4701669504601083
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.3447422418564707
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.5182440251114957
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.2208473231009518
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.300844783522396
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.270689100917378
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.2029448506742206
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.4397530653213442
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.2718843756077096
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.5214847657456336
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.2097015418202182
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.7842985606618775
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.4744949242319887
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.2508650235468186
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.6335702744788665
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.5176496282672116
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.407572009330877
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.3608343858433307
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.353179801485183
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.2994405696415996
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.303760438543409
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.6877216113884406
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.4005008473708702
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.237513989272271
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.2357917257122086
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.529914105324655
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.3895521515291092
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.2837230057141966
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.3891470853317878
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.2703519320827192
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.4816069651843193
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.4181688381155324
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.3819510855911838
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.2770639431265096
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.414136500881936
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.3137171219883572
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.5632184967546745
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.490857800106447
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.4675581306710288
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.299520727805625
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.4943798082401698
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.4893280915336973
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.3623695530665532
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.2192194654464066
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.3657369106888357
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.5184283644233134
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.3864533415321045
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.230116773914174
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.397362927255712
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.2516673414012924
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.4580393703334884
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.4163807597044031
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.3996079844357787
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.4300948607075872
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.307890856072934
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.2926953284337153
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.2351100966248951
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.3837529186160096
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.3181171975421129
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.2800184474047376
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.3069049223695537
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.3444824859324616
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.2729420402120375
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.337431560652029
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.389114879081234
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.2367775287792167
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.409802555734315
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.264915135472102
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.2230465981235106
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.205418083654969
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.5543631498912904
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.2861076848608006
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.4184882856971854
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.4739277011284462
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.462675220412459
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.4879131104915477
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.2719866110656164
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.273466045234153
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.3611121900041385
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.339385467232967
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.261601142521584
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.594242816666462
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.5571347467040668
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.252791687112989
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.337144069815551
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.264685612938706
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.355823153891079
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.427030379990487
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.3187833137173555
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.2023104975887604
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.2107590791519403
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.4142709673872398
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.2317743241966
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.3596931165841277
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.2831033430321908
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.347990719364919
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.2125295483867056
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.2545189802423373
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.4184704174313068
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.3931264166448232
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.5538165402433737
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.2621601943334444
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.4619093543041144
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.555480955282651
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.4168850425512987
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.2550494197500863
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.340517318230146
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.3235459741257387
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.2039195521978365
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.2636644380627025
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.2887828430152666
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.2783888962022998
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.3077921732761753
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.274972504626536
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.3143101548852534
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.322071251749479
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.5996443504677489
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.5934992802321808
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.2078599869860338
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.2009226898254703
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.2372643262582013
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.523162086093936
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.3484716058907216
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.3234447257568314
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.272060795096761
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.3319040097651866
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.3938033312246612
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.2715410646502752
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.2854412504262254
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.2238071557158314
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.2924034357076681
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.4147406609516155
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.397779931913863
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.2095452422596005
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.27111033653229
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.5100363295794854
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.3035616664123784
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.439111835008854
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.4762909198881462
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.3912342993629339
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.4381370520298677
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.2892991596293086
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.315612745828049
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.3481755968213425
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.2508777750320665
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.3186511275599773
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.228839019393913
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.315114506214913
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.3044829970076885
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.2460375301927955
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.475675901040338
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.6371139262589351
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.5044098747296764
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.2837477156890602
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.2692227696749572
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.383144005557859
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.4545441392840843
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.6318367100193671
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.2705418629167078
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.3305924212451081
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.4290501421300663
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.2503753520038208
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.272712147237283
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.2060488695749938
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.2386471177017202
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.415044043963065
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.499339787315985
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.397914217847803
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.3408795166957856
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.2274681236322404
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.206545873853328
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.345246270967849
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.4156442286495032
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.2403732790440583
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.2910481129513867
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.2200906589471556
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.3077368850744588
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.4207949054823865
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.3624888331439888
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.2146027108607071
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.271316678278029
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.529909906167052
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.384121006226017
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.337271506727572
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.4148663443523959
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.4380268528296196
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.2867582044484225
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.4198570420131922
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.228359325047833
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.269255045779072
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.3245868933200617
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.3769803952767483
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.2269779424041025
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.378151191814223
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.3204156232578843
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.642883600191108
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.3068974030191025
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.2773128609302076
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.3034471714380198
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.2078604331823435
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.2833925680014011
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.2763610231770544
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.38038052201131
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.3342117019290658
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.2456267878738325
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.2107803091339124
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.2195595824796497
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.3607946882293556
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.4670248233725882
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.4557084722311862
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.381799832927769
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.2222791438450988
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.3993175970451373
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.2186275708011807
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.3602045963279434
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.3481446342034817
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.3886059222894767
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.4023420104316617
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.2180903414080433
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.2775145217359665
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.3036561095062722
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.305408640289128
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.4392476491594306
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.4250928250316401
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.2946870438063518
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.4458730107023798
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.30380210295153
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.2728623265970216
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.3224483780980636
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.626405270824335
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.2684380499154497
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.3499520819496644
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.385943436751634
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.355216359265998
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.359539121178607
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.4378349284295942
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.208417774319777
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.2588381068022454
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.255803545910476
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.4329457976207864
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.2918384312593871
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.5850603520275472
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.3894589947675533
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.4175334951884144
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.2097331763219363
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.524427017473836
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.4163387065231579
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.2191630425982896
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.3880495835529765
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.2508771822013955
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.3805016154296392
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.238255636855103
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.3078437307100645
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.2574686236882644
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.4850400340779149
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.5021629516957384
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.2825027584036788
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.5975035099216148
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.4476511192918828
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.210133618838644
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.4015544996714906
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.5148348411690573
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.2010606514465711
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.4552939308272033
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.4138626307168722
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.2012227084680631
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.4201950534182233
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.5256077168267423
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.5655831976279104
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.2882383898966006
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.3203830015303115
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.5659801575822554
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.2554529865787345
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.2442372494890912
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.3188915388067275
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.5456815998950744
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.3579395615072467
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.424280902206566
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.2534238957900024
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.2549217862505102
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.3925612568678778
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.208299301015624
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.5169047061630165
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.5294502563183805
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.5467450963294562
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.2194183608278635
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.4361712641275644
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.436487708289825
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.4387170140569336
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.5630042240545294
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.2107868545256102
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.3988900950973575
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.4347168917812765
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.3049901337203256
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.2110517032281825
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.229580967947787
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.255964708221416
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.2242215813646042
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.216257626923005
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.3167722430266924
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.2985836118214584
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.4408627944052441
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.3195011431675367
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.2760787397924591
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.5771984164539408
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.3114009871768852
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.72270003372781
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.240539697427567
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.304297083839168
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.5045778383291089
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.357690164571029
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.2406788684715595
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.218644961181571
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.3014879299256727
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.2785816348232975
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.4322102750232182
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.3920476773982258
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.3047534114345685
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.4903606030172085
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.3358612078064915
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.3521965210012206
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.5507497741309861
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.5685435311454694
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.2363093093160058
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.5199007823325215
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.2101183104149826
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.3076711131619088
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.3157782587962732
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.2646906611421957
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.4185687664274944
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.2215357988371331
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.2767240897230332
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.218449344731329
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.2439842713142448
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.3255572061840126
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.6336161676472114
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.4765620676798275
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.4642120401581304
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.2842608195257559
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.3394327856180084
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.261309313946462
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.6559043802053242
+      },
+      {
+        "parameter": "σ",
+        "chain": 1,
+        "value": 1.263686124536642
+      },
+      {
+        "parameter": "σ",
+        "chain": 2,
+        "value": 1.3117199748572086
+      },
+      {
+        "parameter": "σ",
+        "chain": 3,
+        "value": 1.2768669063967464
+      },
+      {
+        "parameter": "σ",
+        "chain": 4,
+        "value": 1.465439839731943
+      }
+    ]
+  },
+  "facet": {
+    "header": {
+      "labelFontSize": 14,
+      "title": null
+    },
+    "field": "parameter",
+    "type": "nominal"
+  },
+  "title": "Half-Eye Plot (tidybayes-style)",
+  "columns": 1
+}

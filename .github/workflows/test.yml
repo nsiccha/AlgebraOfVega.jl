@@ -1,0 +1,96 @@
+name: Run tests
+
+on:
+  push:
+    branches: [master, main, dev]
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  actions: write
+  contents: read
+
+defaults:
+  run:
+    # Windows runners default to PowerShell, but the "Configure git" and
+    # "Install unregistered dependencies" steps below are bash (`$RUNNER_TEMP`,
+    # `mkdir -p`, `DEPS=`). Force bash (Git Bash on Windows) on every platform
+    # so those steps behave identically across the whole matrix.
+    shell: bash
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # A transient "Set up job" provisioning failure on the scarce Windows /
+      # macOS hosted runners must not cancel the other cells: without this, one
+      # flaky runner reds the whole matrix and discards the (passing) Linux +
+      # other-OS results. Each cell now runs and reports independently.
+      fail-fast: false
+      matrix:
+        julia-version: ['lts', '1', 'pre']
+        julia-arch: [x64]
+        os: [ubuntu-latest, windows-latest, macOS-latest]
+        exclude:
+          - os: macOS-latest
+            julia-arch: x86
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure git for private repos
+        run: git config --global url."https://x-access-token:${{ secrets.PAT_TOKEN }}@github.com/".insteadOf "https://github.com/"
+      - uses: julia-actions/setup-julia@v2
+        with:
+          version: ${{ matrix.julia-version }}
+          arch: ${{ matrix.julia-arch }}
+      - uses: julia-actions/cache@v2
+      - name: Install unregistered dependencies
+        run: |
+          # Clone the unregistered deps OUTSIDE the checkout. TestItemRunner's
+          # `@run_package_tests` scans the project root recursively, so deps
+          # cloned as subdirs of the checkout would drag their OWN test suites
+          # into this run (204 spurious errors from tests whose deps we don't
+          # have). $RUNNER_TEMP is outside $GITHUB_WORKSPACE, so it is not
+          # scanned.
+          DEPS="$RUNNER_TEMP/aov-ci-deps"
+          mkdir -p "$DEPS"
+          # DynamicObjects on `pre-inference` (0.5.0): HTMXObjects@devibe
+          # bounds DynamicObjects to 0.4.4+ (`1076bd8`), while the old
+          # sbpmx-reflect line still stamps 0.4.3, so developing it is
+          # unsatisfiable (registry max is 0.4.3 too). pre-inference is the
+          # desktop's declared DO line and carries the fetchindex/PCE surface
+          # devibe imports.
+          git clone -b pre-inference https://github.com/nsiccha/DynamicObjects.jl.git "$DEPS/DynamicObjects.jl"
+          git clone -b dev https://github.com/nsiccha/HTMX.jl.git "$DEPS/HTMX.jl"
+          git clone -b devibe https://github.com/nsiccha/HTMXObjects.jl.git "$DEPS/HTMXObjects.jl"
+          git clone https://github.com/nsiccha/Treebars.jl.git "$DEPS/Treebars.jl"
+          julia --project -e '
+            # Julia 1.11+ (setup-julia "1"/"pre") rejects `Pkg.develop(path=...)`
+            # for a package the active project already sources by url/rev
+            # ("`path` and `url` are conflicting specifications"). Strip the
+            # committed [sources] table from this throwaway CI checkout so the
+            # path-develops below are the sole source. No-op on 1.10 ("lts"),
+            # which ignores [sources] anyway.
+            import TOML
+            proj = Base.active_project()
+            d = TOML.parsefile(proj)
+            haskey(d, "sources") && delete!(d, "sources")
+            open(proj, "w") do io; TOML.print(io, d); end
+            using Pkg
+            deps = ENV["RUNNER_TEMP"] * "/aov-ci-deps"
+            Pkg.develop([
+              PackageSpec(path=joinpath(deps, "DynamicObjects.jl")),
+              PackageSpec(path=joinpath(deps, "HTMX.jl")),
+              PackageSpec(path=joinpath(deps, "HTMXObjects.jl")),
+              PackageSpec(path=joinpath(deps, "Treebars.jl")),
+            ])
+            Pkg.resolve()
+          '
+      - uses: julia-actions/julia-buildpkg@v1
+      - name: Run tests
+        run: julia --project=. -e 'using Pkg; Pkg.test(; coverage=true)'
+      - uses: julia-actions/julia-processcoverage@v1
+        if: matrix.os == 'ubuntu-latest' && matrix.julia-version == '1'
+      - uses: codecov/codecov-action@v4
+        if: matrix.os == 'ubuntu-latest' && matrix.julia-version == '1'
+        with:
+          fail_ci_if_error: false

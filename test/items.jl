@@ -1,0 +1,2228 @@
+using TestItemRunner
+
+# Shared imports — re-evaluated independently inside every test item that lists
+# `AoVTestImports` in its `setup`. Test bodies stay isolated; each item module
+# gets its own copy of these `using`s. `Test` is injected automatically.
+@testsnippet AoVTestImports begin
+    using AlgebraOfVega
+    using AlgebraOfGraphics
+    using Tables
+    using HTMX
+    import Statistics
+end
+
+# --- Tests ---
+
+"""
+`classify_columns` buckets a Tables.jl source's columns into numeric vs
+categorical, and the result is invariant to `Tables.columntable` normalization.
+"""
+@testitem "classify_columns" setup=[AoVTestImports] tags=[:columns] begin
+    nt = AlgebraOfVega.sample_cars()
+    cols = AlgebraOfVega.classify_columns(nt)
+    @test "horsepower" in cols.numeric
+    @test "mpg" in cols.numeric
+    @test "origin" in cols.categorical
+    @test "origin" ∉ cols.numeric
+    @test Set(cols.all) == Set(vcat(cols.numeric, cols.categorical))
+
+    ct = Tables.columntable(nt)
+    cols2 = AlgebraOfVega.classify_columns(ct)
+    @test cols2.numeric == cols.numeric
+    @test cols2.categorical == cols.categorical
+end
+
+"""
+`table_to_rows` transposes a column table into a `Vector{Dict{String,Any}}`,
+one dict per row, preserving values by column name.
+"""
+@testitem "table_to_rows" setup=[AoVTestImports] tags=[:columns] begin
+    nt = AlgebraOfVega.sample_tips()
+    rows = AlgebraOfVega.table_to_rows(nt)
+    @test length(rows) == length(nt.total_bill)
+    @test rows[1] isa Dict{String,Any}
+    @test rows[1]["total_bill"] == nt.total_bill[1]
+    @test rows[1]["sex"] == nt.sex[1]
+
+    # Regression: the element type must be concretely Dict{String,Any} even for
+    # an EMPTY table or a column whose eltype is `Any` (e.g. preaggregate()'s
+    # group-key columns). An untyped comprehension infers `Any` there and
+    # returns a `Vector{Any}`, which misses `_ribbon_to_vl(::Vector{<:Dict{String}})`
+    # and 500s a pre-aggregated lineribbon over an empty study.
+    empty_rows = AlgebraOfVega.table_to_rows((x=Float64[], median=Float64[], lo=Float64[]))
+    @test empty_rows isa Vector{Dict{String,Any}}
+    @test isempty(empty_rows)
+    anycol_rows = AlgebraOfVega.table_to_rows((study=Any[], x=Any[], median=Float64[]))
+    @test anycol_rows isa Vector{Dict{String,Any}}
+end
+
+"""
+`explorer_js` emits the client-side data-explorer runtime: channel selectors,
+container sizing, independent-axis resolve, and default cell dimensions.
+"""
+@testitem "explorer_js" setup=[AoVTestImports] tags=[:explorer] begin
+    js = AlgebraOfVega.explorer_js()
+    @test occursin("ex-group", js)
+    @test occursin("encoding.detail", js)
+    @test occursin("ex-color", js)
+    @test occursin("ex-x", js)
+    @test occursin("'container'", js)
+    @test occursin("height: 350", js)
+
+    js2 = AlgebraOfVega.explorer_js(; namespace="Foo.", plot_selector="#myplot", spec_selector="#myspec")
+    @test occursin("Foo.", js2)
+    @test occursin("#myplot", js2)
+    @test occursin("#myspec", js2)
+
+    js3 = AlgebraOfVega.explorer_js(; width=800, height=500)
+    @test occursin("width: 800", js3)
+    @test occursin("height: 500", js3)
+    @test !occursin("'container'", js3)
+
+    @test occursin("var cellWidth = 250", js)
+    @test occursin("Math.max(100, Math.floor((availWidth - 60) / nCols))", js)
+    @test occursin("clientWidth", js)
+
+    @test occursin("ex-indep-x", js)
+    @test occursin("ex-indep-y", js)
+    @test occursin("resolve", js)
+    @test occursin("independent", js)
+end
+
+"""
+`explorer_controls_html` renders the explorer's control panel — channel/mark
+pickers, per-dataset defaults, and independent-axis toggles.
+"""
+@testitem "explorer_controls_html" setup=[AoVTestImports] tags=[:explorer] begin
+    datasets = AlgebraOfVega.default_explorer_datasets()
+    html = AlgebraOfVega.explorer_controls_html(datasets)
+    @test occursin("ex-group", html)
+    @test occursin("ex-color", html)
+    @test occursin("ex-col", html)
+    @test occursin("ex-row", html)
+    @test occursin("ex-mark", html)
+    @test occursin("Group:", html)
+
+    # default dataset gets selected attribute
+    @test occursin("<option value=\"penguins\" selected>", html)
+
+    html2 = AlgebraOfVega.explorer_controls_html(datasets; default_ds="cars", default_x="mpg", default_y="horsepower", default_color="origin")
+    @test occursin("<option value=\"cars\" selected>", html2)
+    @test occursin("<option value=\"mpg\" selected>", html2)
+    @test occursin("<option value=\"horsepower\" selected>", html2)
+    @test occursin("<option value=\"origin\" selected>", html2)
+
+    html3 = AlgebraOfVega.explorer_controls_html(datasets; marks=["point" => "scatter", "line" => "line"])
+    @test occursin("scatter", html3)
+    @test !occursin("boxplot", html3)
+
+    html4 = AlgebraOfVega.explorer_controls_html(datasets; default_mark="line")
+    @test occursin("<option value=\"line\" selected>", html4)
+
+    @test occursin("ex-indep-x", html)
+    @test occursin("ex-indep-y", html)
+    @test occursin("Independent X", html)
+    @test occursin("Independent Y", html)
+end
+
+"""
+`explorer_widget` assembles the full explorer node; it returns a renderable for
+a range of options (titles, spec visibility, defaults, custom marks).
+"""
+@testitem "explorer_widget" setup=[AoVTestImports] tags=[:explorer] begin
+    datasets = AlgebraOfVega.default_explorer_datasets()
+
+    w = AlgebraOfVega.explorer_widget(datasets)
+    @test w !== nothing
+
+    w2 = AlgebraOfVega.explorer_widget(datasets; title="My Explorer", subtitle="Custom subtitle")
+    @test w2 !== nothing
+
+    w3 = AlgebraOfVega.explorer_widget(datasets; title=nothing, subtitle=nothing)
+    @test w3 !== nothing
+
+    w4 = AlgebraOfVega.explorer_widget(datasets; show_spec=false)
+    @test w4 !== nothing
+
+    w5 = AlgebraOfVega.explorer_widget(datasets;
+        default_x="mpg", default_y="horsepower", default_color="origin",
+        default_mark="line", width=800, height=400)
+    @test w5 !== nothing
+
+    w6 = AlgebraOfVega.explorer_widget(datasets; marks=["point" => "scatter"])
+    @test w6 !== nothing
+
+    ws = string(w)
+    @test occursin("ex-indep-x", ws)
+    @test occursin("ex-indep-y", ws)
+    @test occursin("Independent X", ws)
+    @test occursin("Independent Y", ws)
+end
+
+"""
+`explorer_data_init_js` serializes the explorer datasets + column metadata into
+the client-side bootstrap globals `_explorerDatasets` / `_explorerColumns`.
+"""
+@testitem "explorer_data_init_js" setup=[AoVTestImports] tags=[:explorer] begin
+    datasets = AlgebraOfVega.default_explorer_datasets()
+    js = AlgebraOfVega.explorer_data_init_js(datasets)
+    @test occursin("_explorerDatasets", js)
+    @test occursin("_explorerColumns", js)
+end
+
+"""
+The bundled sample datasets are well-formed Tables.jl sources: non-empty, with
+every column the same length.
+"""
+@testitem "sample datasets" setup=[AoVTestImports] tags=[:datasets] begin
+    for f in [AlgebraOfVega.sample_cars, AlgebraOfVega.sample_tips,
+              AlgebraOfVega.sample_stocks, AlgebraOfVega.sample_temperatures]
+        tbl = f()
+        cols = Tables.columnnames(tbl)
+        @test length(cols) > 0
+        n = length(Tables.getcolumn(tbl, first(cols)))
+        @test n > 0
+        for c in cols
+            @test length(Tables.getcolumn(tbl, c)) == n
+        end
+    end
+end
+
+"""
+`_resolve_filter_include` normalizes the explorer's `filter_include` spec
+(list, unary predicate, or `(col, val)` predicate) to `Dict{String,Vector{String}}`,
+and `_filter_init_js` emits the matching client bootstrap.
+"""
+@testitem "filter_include" setup=[AoVTestImports] tags=[:explorer] begin
+    datasets = AlgebraOfVega.default_explorer_datasets()
+    tbl = datasets["cars"]
+
+    @test AlgebraOfVega._resolve_filter_include(nothing, tbl) === nothing
+
+    resolved = AlgebraOfVega._resolve_filter_include(Dict("origin" => ["USA", "Japan"]), tbl)
+    @test resolved isa Dict{String, Vector{String}}
+    @test Set(resolved["origin"]) == Set(["USA", "Japan"])
+
+    resolved2 = AlgebraOfVega._resolve_filter_include(Dict("origin" => v -> v != "Europe"), tbl)
+    @test resolved2 isa Dict{String, Vector{String}}
+    @test "Europe" ∉ resolved2["origin"]
+    @test length(resolved2["origin"]) > 0
+
+    resolved3 = AlgebraOfVega._resolve_filter_include((col, val) -> col != "origin" || val != "Europe", tbl)
+    @test resolved3 isa Dict{String, Vector{String}}
+    @test "Europe" ∉ resolved3["origin"]
+
+    @test AlgebraOfVega._filter_init_js(nothing, "AoV.") == ""
+
+    js = AlgebraOfVega._filter_init_js(Dict("origin" => ["USA"]), "AoV.")
+    @test occursin("_explorerFilterSelected", js)
+    @test occursin("new Set", js)
+
+    w = AlgebraOfVega.explorer_widget(datasets; default_filter_include=Dict("species" => ["Adelie"]))
+    @test w !== nothing
+end
+
+"""
+`_default_marks` is the explorer's canonical mark menu — seven entries, `point`
+first, including the `line+ribbon` uncertainty mark.
+"""
+@testitem "_default_marks" setup=[AoVTestImports] tags=[:explorer] begin
+    marks = AlgebraOfVega._default_marks()
+    @test marks isa Vector{Pair{String,String}}
+    @test length(marks) == 7
+    @test first(first(marks)) == "point"
+    @test any(p -> first(p) == "line+ribbon", marks)
+end
+
+"""
+The explorer runtime supports per-axis log scales via the `ex-log-x` / `ex-log-y`
+toggles.
+"""
+@testitem "explorer_js log scale" setup=[AoVTestImports] tags=[:explorer] begin
+    js = AlgebraOfVega.explorer_js()
+    @test occursin("ex-log-x", js)
+    @test occursin("ex-log-y", js)
+    @test occursin("type: 'log'", js)
+end
+
+"""
+The explorer runtime implements the client-side line+ribbon summary (per-x
+median + quantile bands) driven by the `ex-ribbon-levels` control.
+"""
+@testitem "explorer_js line+ribbon" setup=[AoVTestImports] tags=[:explorer] begin
+    js = AlgebraOfVega.explorer_js()
+    @test occursin("line+ribbon", js)
+    @test occursin("_quantile", js)
+    @test occursin("_median", js)
+    @test occursin("ex-ribbon-levels", js)
+    @test occursin("summaryData", js)
+end
+
+"""
+The explorer control panel exposes the log-scale toggles and the (initially
+hidden) ribbon-levels control, revealed for the `line+ribbon` mark.
+"""
+@testitem "explorer_controls_html log and ribbon" setup=[AoVTestImports] tags=[:explorer] begin
+    datasets = AlgebraOfVega.default_explorer_datasets()
+    html = AlgebraOfVega.explorer_controls_html(datasets)
+    @test occursin("ex-log-x", html)
+    @test occursin("ex-log-y", html)
+    @test occursin("Log X", html)
+    @test occursin("Log Y", html)
+    @test occursin("ex-ribbon-levels", html)
+    @test occursin("Ribbon levels:", html)
+    @test occursin("id=\"ex-ribbon-levels-label\" class=\"u-hidden\"", html)
+
+    html2 = AlgebraOfVega.explorer_controls_html(datasets; default_mark="line+ribbon")
+    @test occursin("line + ribbon", html2)
+end
+
+"""
+The dataset dropdown is hidden when only one dataset is present and shown
+(labelled `Dataset:`) when several are.
+"""
+@testitem "explorer_controls_html dataset hiding" setup=[AoVTestImports] tags=[:explorer] begin
+    single = Dict("mydata" => AlgebraOfVega.sample_cars())
+    html = AlgebraOfVega.explorer_controls_html(single)
+    @test occursin("<label class=\"u-hidden\">Dataset:", html)
+    @test occursin("ex-dataset", html)
+
+    multi = AlgebraOfVega.default_explorer_datasets()
+    html2 = AlgebraOfVega.explorer_controls_html(multi)
+    @test occursin("Dataset:", html2)
+end
+
+"""
+The explorer accepts a bare (single) Tables.jl source in addition to a
+`Dict` of datasets; `_wrap_datasets` normalizes a bare table under a `"data"` key.
+"""
+@testitem "bare table support" setup=[AoVTestImports] tags=[:explorer] begin
+    tbl = AlgebraOfVega.sample_penguins()
+
+    html = AlgebraOfVega.explorer_controls_html(tbl)
+    @test occursin("ex-x", html)
+    @test occursin("<label class=\"u-hidden\">Dataset:", html)
+
+    w = AlgebraOfVega.explorer_widget(tbl;
+        default_x="bill_length", default_y="bill_depth")
+    @test w !== nothing
+
+    d = Dict("a" => tbl)
+    @test AlgebraOfVega._wrap_datasets(d) === d
+
+    wrapped = AlgebraOfVega._wrap_datasets(tbl)
+    @test wrapped isa Dict
+    @test haskey(wrapped, "data")
+end
+
+"""
+The assembled `explorer_widget` string carries the log-scale and ribbon-levels
+controls end-to-end.
+"""
+@testitem "explorer_widget log and ribbon" setup=[AoVTestImports] tags=[:explorer] begin
+    datasets = AlgebraOfVega.default_explorer_datasets()
+    ws = string(AlgebraOfVega.explorer_widget(datasets))
+    @test occursin("ex-log-x", ws)
+    @test occursin("ex-log-y", ws)
+    @test occursin("Log X", ws)
+    @test occursin("Log Y", ws)
+    @test occursin("ex-ribbon-levels", ws)
+    @test occursin("Ribbon levels", ws)
+end
+
+"""
+`pregrouped` builds a boxplot layer from parallel group/value vectors. Renamer
+labels feed the nominal-x `sort` order; without a renamer, group keys stringify.
+`is_pregrouped` detects the resulting layer.
+"""
+@testitem "pregrouped boxplot" setup=[AoVTestImports] tags=[:translation] begin
+    # Basic pregrouped with renamer
+    spec_obj = pregrouped(
+        fill.(1:3, 10) => renamer(["A", "B", "C"]),
+        [randn(10) for _ in 1:3]
+    ) * visual(BoxPlot)
+    vl = to_vegalite(spec_obj)
+    @test vl["mark"] == "boxplot"
+    @test haskey(vl, "data")
+    @test length(vl["data"]["values"]) == 30  # 3 groups x 10 obs
+    @test vl["encoding"]["x"]["type"] == "nominal"
+    @test vl["encoding"]["y"]["type"] == "quantitative"
+    @test vl["encoding"]["x"]["sort"] == ["A", "B", "C"]
+    # Check that renamer labels are applied
+    labels = Set(r["x"] for r in vl["data"]["values"])
+    @test labels == Set(["A", "B", "C"])
+
+    # Pregrouped without renamer
+    spec_obj2 = pregrouped(
+        fill.(1:2, 5),
+        [randn(5) for _ in 1:2]
+    ) * visual(BoxPlot)
+    vl2 = to_vegalite(spec_obj2)
+    @test vl2["mark"] == "boxplot"
+    @test length(vl2["data"]["values"]) == 10
+    labels2 = Set(r["x"] for r in vl2["data"]["values"])
+    @test labels2 == Set(["1", "2"])
+
+    # is_pregrouped detection
+    layer = pregrouped(fill.(1:2, 5), [randn(5) for _ in 1:2])
+    # pregrouped() returns a single Layer (data * mapping)
+    @test AlgebraOfVega.is_pregrouped(layer)
+end
+
+"""
+`vdata` is an alias for `data`; specs built with either lower to identical
+Vega-Lite.
+"""
+@testitem "vdata alias" setup=[AoVTestImports] tags=[:translation] begin
+    df = (; x=[1, 2, 3], y=[4, 5, 6])
+    # vdata should work identically to data
+    spec1 = data(df) * mapping(:x, :y) * visual(Scatter)
+    spec2 = vdata(df) * mapping(:x, :y) * visual(Scatter)
+    @test to_vegalite(spec1) == to_vegalite(spec2)
+end
+
+"""
+Scalar Scatter `markersize` lowers to a Vega area that preserves the static
+dot's screen extent (snag `aov-markersize-s-6a30216c`): Makie lengths vs
+Vega-Lite px². `markersize=8` → `mark.size=32` (Vega draws √32 ≈ 5.7px,
+matching the static ≈5.6px dot); a VL-spelled `size` passes through, mapped
+(data-driven) sizes are untouched, and the static remap inverts.
+"""
+@testitem "scatter markersize lowers to Vega area" setup=[AoVTestImports] tags=[:translation] begin
+    df = (; x=[1.0, 2.0, 3.0], y=[4.0, 5.0, 6.0])
+
+    # Scalar markersize converts length → area (8²/2).
+    vl = to_vegalite(data(df) * mapping(:x, :y) * visual(Scatter; markersize=8))
+    @test vl["mark"]["type"] == "point"
+    @test vl["mark"]["size"] ≈ 32.0
+    vl6 = to_vegalite(data(df) * mapping(:x, :y) * visual(Scatter; markersize=6))
+    @test vl6["mark"]["size"] ≈ 18.0
+    @test AlgebraOfVega._markersize_to_vl_size(8) ≈ 32.0
+
+    # VL-spelled `size` is already an area: untouched.
+    vl_vl = to_vegalite(data(df) * mapping(:x, :y) * visual(Scatter; size=30))
+    @test vl_vl["mark"]["size"] == 30
+
+    # Non-scatter marks keep the old passthrough (a line `size` is a width).
+    vl_line = to_vegalite(data(df) * mapping(:x, :y) * visual(ScatterLines; markersize=8))
+    @test vl_line["mark"]["size"] == 8
+
+    # Mapped (data-driven) sizes are data values, not lengths: untouched.
+    dfm = (; x=[1.0, 2.0], y=[3.0, 4.0], w=[1.0, 2.0])
+    vl_map = to_vegalite(data(dfm) * mapping(:x, :y; markersize=:w) *
+                         visual(Scatter; opacity=0.5))
+    @test vl_map["encoding"]["size"]["field"] == "w"
+    @test !haskey(vl_map["mark"], "size")
+
+    # Static remap inverts: Vega area → Makie length (√(2·32) = 8).
+    @test AlgebraOfVega._vl_size_to_markersize(32) ≈ 8.0
+    @test AlgebraOfVega._vl_size_to_markersize(0) == 0
+    spec = data(df) * mapping(:x, :y) * visual(Scatter; size=32)
+    lyr = spec isa AlgebraOfGraphics.Layer ? spec : only(spec.layers)
+    fixed = AlgebraOfVega._fix_visual_attrs(lyr)
+    attrs = Dict(pairs(AlgebraOfVega.extract_visual(fixed).attributes))
+    @test attrs[:markersize] ≈ 8.0
+    @test !haskey(attrs, :size)
+end
+
+"""
+Makie `linestyle` symbols lower to Vega-Lite `strokeDash` arrays (snag
+`data-rows-mappin-28e436a3`): a bare symbol serialized to a string ("dash")
+that VL's `mark.strokeDash` (a `number[]`) ignores, so the line rendered solid
+on `vdraw` while `sdraw` (Makie native) drew it dashed. Symbols now map to
+dash/gap arrays whose proportions mirror Makie's `line_diff_pattern`; `:solid`
+omits the property, and numeric arrays (the old call-site workaround) plus the
+static path are untouched.
+"""
+@testitem "linestyle symbols lower to Vega strokeDash arrays" setup=[AoVTestImports] tags=[:translation, :regression] begin
+    df = (; x=[1.0, 2.0, 3.0], y=[4.0, 5.0, 6.0])
+    strokedash(ls) = begin
+        m = to_vegalite(data(df) * mapping(:x, :y) * visual(Lines; linestyle=ls))["mark"]
+        m isa AbstractDict ? get(m, "strokeDash", nothing) : nothing
+    end
+
+    # Makie linestyle symbols → VL dash arrays.
+    @test strokedash(:dash) == [6, 6]
+    @test strokedash(:dot) == [2, 4]
+    @test strokedash(:dashdot) == [6, 6, 2, 6]
+    @test strokedash(:dashdotdot) == [6, 6, 2, 4, 2, 6]
+
+    # :solid ⇒ no strokeDash property (solid is VL's default).
+    @test strokedash(:solid) === nothing
+
+    # A numeric array is already a VL dash spec: the old workaround still passes through.
+    @test strokedash([6, 4]) == [6, 4]
+
+    # Unit-level converter.
+    @test AlgebraOfVega._linestyle_to_strokedash(:dash) == [6, 6]
+    @test AlgebraOfVega._linestyle_to_strokedash(:solid) === nothing
+    @test AlgebraOfVega._linestyle_to_strokedash([6, 4]) == [6, 4]
+
+    # Static (sdraw) path renders the symbol natively via Makie: _fix_visual_attrs
+    # has no :strokeDash key to convert, so it leaves `linestyle=:dash` untouched
+    # and vdraw/sdraw agree.
+    spec = data(df) * mapping(:x, :y) * visual(Lines; linestyle=:dash)
+    lyr = spec isa AlgebraOfGraphics.Layer ? spec : only(spec.layers)
+    attrs = Dict(pairs(AlgebraOfVega.extract_visual(AlgebraOfVega._fix_visual_attrs(lyr)).attributes))
+    @test attrs[:linestyle] === :dash
+end
+
+"""
+Fixed Makie `marker` symbols lower to the Vega-Lite `shape` mark property (snag
+`fixed-scatter-ma-9d262dde`): the AoG kwarg name passed through as
+`mark.marker`, which VL ignores, so every fixed-marker layer rendered as a
+circle on `vdraw` while `sdraw` (Makie native) drew the symbol — a silent
+vdraw/sdraw divergence. Makie names with a Vega counterpart are renamed;
+anything else passes through as its string form; the data-driven
+`mapping(...; marker=:field)` shape encoding is untouched.
+"""
+@testitem "fixed marker lowers to Vega shape" setup=[AoVTestImports] tags=[:translation, :regression] begin
+    df = (; x=[1.0, 2.0, 3.0], y=[4.0, 5.0, 6.0])
+    shape(m) = begin
+        mk = to_vegalite(data(df) * mapping(:x, :y) * visual(Scatter; marker=m))["mark"]
+        mk isa AbstractDict ? get(mk, "shape", nothing) : nothing
+    end
+
+    # Exact-name symbols.
+    @test shape(:circle) == "circle"
+    @test shape(:diamond) == "diamond"
+    @test shape(:cross) == "cross"
+
+    # Renamed Makie symbols → Vega shape names.
+    @test shape(:rect) == "square"
+    @test shape(:utriangle) == "triangle-up"
+    @test shape(:dtriangle) == "triangle-down"
+    @test shape(:ltriangle) == "triangle-left"
+    @test shape(:rtriangle) == "triangle-right"
+    @test shape(:+) == "cross"
+
+    # The reporter's exact spec: no `marker` key survives, `shape` carries it.
+    vl = to_vegalite(data((; x=[1.0, 2.0], y=[1.0, 2.0])) * mapping(:x, :y) *
+                     visual(Scatter; marker=:cross, color=:black, markersize=10);
+                     interactive=false)
+    @test vl["mark"]["shape"] == "cross"
+    @test !haskey(vl["mark"], "marker")
+    @test vl["mark"]["size"] ≈ 50.0
+
+    # Symbols with no Vega counterpart pass through as strings — still keyed
+    # `shape`, never `marker` (Vega ignores them, rendering a circle as before).
+    @test shape(:star5) == "star5"
+    @test shape(:xcross) == "xcross"
+
+    # Unit-level converter.
+    @test AlgebraOfVega._marker_to_shape(:utriangle) == "triangle-up"
+    @test AlgebraOfVega._marker_to_shape(:diamond) == "diamond"
+    @test AlgebraOfVega._marker_to_shape(:star5) == "star5"
+
+    # Data-driven marker mapping is untouched (a `shape` encoding, not a mark prop).
+    dfm = (; x=[1.0, 2.0], y=[3.0, 4.0], g=["a", "b"])
+    vl_map = to_vegalite(data(dfm) * mapping(:x, :y; marker=:g) * visual(Scatter))
+    @test vl_map["encoding"]["shape"]["field"] == "g"
+    @test !haskey(vl_map["mark"], "shape")
+
+    # Static (sdraw) path renders the symbol natively via Makie: _fix_visual_attrs
+    # leaves `marker=:cross` untouched and vdraw/sdraw agree.
+    spec = data(df) * mapping(:x, :y) * visual(Scatter; marker=:cross)
+    lyr = spec isa AlgebraOfGraphics.Layer ? spec : only(spec.layers)
+    attrs = Dict(pairs(AlgebraOfVega.extract_visual(AlgebraOfVega._fix_visual_attrs(lyr)).attributes))
+    @test attrs[:marker] === :cross
+end
+
+@testitem "Band lowers to an unstacked absolute range" setup=[AoVTestImports] tags=[:translation, :regression] begin
+    rows = (; x=[1.0, 2.0, 3.0, 1.0, 2.0, 3.0],
+              lo=[0.1, 0.2, 0.3, 0.5, 0.6, 0.7],
+              hi=[0.4, 0.5, 0.6, 0.8, 0.9, 1.0],
+              category=["a", "a", "a", "b", "b", "b"])
+    band = data(rows) * mapping(:x, :lo, :hi; color=:category) * visual(Band)
+    vl = to_vegalite(band)
+
+    @test vl["mark"] == "area"
+    @test vl["encoding"]["y"]["field"] == "lo"
+    @test vl["encoding"]["y2"]["field"] == "hi"
+    @test isnothing(vl["encoding"]["y"]["stack"])
+    @test isnothing(vl["encoding"]["y2"]["stack"])
+
+    # Makie `Band` has absolute endpoints even without a colour grouping. Keep the
+    # explicit `stack: null` there too so the translation does not change meaning
+    # if a consumer adds a colour/detail grouping through a later layer operation.
+    plain = to_vegalite(data(rows) * mapping(:x, :lo, :hi) * visual(Band))
+    @test isnothing(plain["encoding"]["y"]["stack"])
+    @test isnothing(plain["encoding"]["y2"]["stack"])
+end
+
+"""
+`config(independent_scales=...)` lowers to a Vega-Lite `resolve.scale` block —
+`true` frees both axes, a `Symbol` or tuple frees the named ones.
+"""
+@testitem "independent_scales config" setup=[AoVTestImports] tags=[:translation, :config] begin
+    df = (; x=[1, 2], y=[3, 4], g=["a", "b"])
+
+    # independent_scales=true → resolve both axes
+    spec = data(df) * mapping(:x, :y, col=:g) * visual(Scatter) *
+        config(independent_scales=true)
+    vl = to_vegalite(spec)
+    @test haskey(vl, "resolve")
+    @test vl["resolve"]["scale"]["x"] == "independent"
+    @test vl["resolve"]["scale"]["y"] == "independent"
+
+    # independent_scales=:x → only x
+    spec2 = data(df) * mapping(:x, :y) * visual(Scatter) *
+        config(independent_scales=:x)
+    vl2 = to_vegalite(spec2)
+    @test vl2["resolve"]["scale"]["x"] == "independent"
+    @test !haskey(vl2["resolve"]["scale"], "y")
+
+    # independent_scales=(:x, :y) → explicit tuple
+    spec3 = data(df) * mapping(:x, :y) * visual(Scatter) *
+        config(independent_scales=(:x, :y))
+    vl3 = to_vegalite(spec3)
+    @test vl3["resolve"]["scale"]["x"] == "independent"
+    @test vl3["resolve"]["scale"]["y"] == "independent"
+end
+
+"""
+A second `* config(...)` on an existing `VegaSpec` MERGES into the config already
+there instead of replacing it. Replacing silently dropped every earlier prop — an
+app helper appending `config(width=…, height=…)` after a caller's
+`config(facet=…, title=…)` emitted no `resolve` and no `title`, with no warning
+(and no `independent_scales` deprecation, since the props never reached
+`to_vegalite`). Later-wins on conflict, matching `+`.
+"""
+@testitem "config accumulates under repeated `*`" setup=[AoVTestImports] tags=[:translation, :config] begin
+    df = (; x=[1.0, 2.0], y=[3.0, 4.0], g=["a", "b"])
+    base = data(df) * mapping(:x, :y, col=:g) * visual(Scatter)
+
+    # Earlier props survive a later `* config(...)`.
+    vl = to_vegalite(base * config(title="T", facet=(; linkyaxes=:none)) *
+                     config(width=620, height=150))
+    @test vl["resolve"]["scale"]["y"] == "independent"
+    @test vl["title"] == "T"
+    # width/height land inner on facet-operator specs, top-level otherwise.
+    sized = get(vl, "spec", vl)
+    @test sized["width"] == 620
+    @test sized["height"] == 150
+
+    # The deprecated spelling still reaches to_vegalite (and still warns).
+    vl2 = (@test_logs (:warn, r"deprecated") match_mode=:any to_vegalite(
+        base * config(independent_scales=true) * config(width=620)))
+    @test vl2["resolve"]["scale"]["x"] == "independent"
+    @test vl2["resolve"]["scale"]["y"] == "independent"
+
+    # Later wins on conflict.
+    vl3 = to_vegalite(base * config(title="first") * config(title="second"))
+    @test vl3["title"] == "second"
+
+    # Config on the left: the spec's own config comes later, so it wins.
+    vl4 = to_vegalite(config(title="outer") * (base * config(title="inner")))
+    @test vl4["title"] == "inner"
+end
+
+"""
+The AoG-mirror `scales(...)` / `facet=(; linkxaxes/linkyaxes)` / `axis=(; limits, clamp)`
+config sugar lowers to Vega-Lite encoding scale (`type`/`base`/`domain`/`clamp`)
+and `resolve.scale`. Explicit user `encoding` always wins on conflict, and the
+legacy `independent_scales=true` path still works (with a deprecation warning).
+"""
+@testitem "scales / facet config (AoG mirror)" setup=[AoVTestImports] tags=[:translation, :config] begin
+    df = (; x=[1.0, 2.0], y=[3.0, 4.0], g=["a", "b"])
+
+    # scales(Y=(; scale=log10)) → VL encoding y.scale.type == "log"
+    spec = data(df) * mapping(:x, :y) * visual(Scatter) *
+        config(scales=scales(Y=(; scale=log10)))
+    vl = to_vegalite(spec)
+    @test vl["encoding"]["y"]["scale"]["type"] == "log"
+    @test !haskey(vl["encoding"]["y"]["scale"], "base")
+
+    # scales(X=(; scale=log2)) → base=2
+    spec2 = data(df) * mapping(:x, :y) * visual(Scatter) *
+        config(scales=scales(X=(; scale=log2)))
+    vl2 = to_vegalite(spec2)
+    @test vl2["encoding"]["x"]["scale"]["type"] == "log"
+    @test vl2["encoding"]["x"]["scale"]["base"] == 2
+
+    # scales + independent X+Y on both axes via facet= NamedTuple
+    spec3 = data(df) * mapping(:x, :y, col=:g) * visual(Scatter) *
+        config(scales=scales(Y=(; scale=log10)),
+               facet=(; linkxaxes=:none, linkyaxes=:none))
+    vl3 = to_vegalite(spec3)
+    @test vl3["resolve"]["scale"]["x"] == "independent"
+    @test vl3["resolve"]["scale"]["y"] == "independent"
+
+    # facet=(; linkxaxes=:none) only → only x is independent
+    spec4 = data(df) * mapping(:x, :y, col=:g) * visual(Scatter) *
+        config(facet=(; linkxaxes=:none))
+    vl4 = to_vegalite(spec4)
+    @test vl4["resolve"]["scale"]["x"] == "independent"
+    @test !haskey(vl4["resolve"]["scale"], "y")
+
+    # Explicit user `encoding` overrides `scales` sugar on conflict
+    spec5 = data(df) * mapping(:x, :y) * visual(Scatter) *
+        config(scales=scales(Y=(; scale=log10)),
+               encoding=Dict(:y => Dict("scale" => Dict("type" => "sqrt"))))
+    vl5 = to_vegalite(spec5)
+    @test vl5["encoding"]["y"]["scale"]["type"] == "sqrt"
+
+    # Backwards compat: independent_scales=true still works (emits deprecation)
+    spec6 = data(df) * mapping(:x, :y, col=:g) * visual(Scatter) *
+        config(independent_scales=true)
+    vl6 = (@test_logs (:warn, r"deprecated") match_mode=:any to_vegalite(spec6))
+    @test vl6["resolve"]["scale"]["x"] == "independent"
+    @test vl6["resolve"]["scale"]["y"] == "independent"
+
+    # axis=(; limits=((xlo, xhi), nothing)) → encoding.x.scale.domain
+    spec7 = data(df) * mapping(:x, :y) * visual(Scatter) *
+        config(axis=(; limits=((0.0, 10.0), nothing)))
+    vl7 = to_vegalite(spec7)
+    @test vl7["encoding"]["x"]["scale"]["domain"] == [0.0, 10.0]
+    @test !haskey(vl7["encoding"]["y"], "scale") ||
+        !haskey(vl7["encoding"]["y"]["scale"], "domain")
+
+    # axis=(; limits=(nothing, (ylo, yhi)), clamp=true) → y domain + clamp only on y
+    spec8 = data(df) * mapping(:x, :y) * visual(Scatter) *
+        config(axis=(; limits=(nothing, (1.0, 5.0)), clamp=true))
+    vl8 = to_vegalite(spec8)
+    @test vl8["encoding"]["y"]["scale"]["domain"] == [1.0, 5.0]
+    @test vl8["encoding"]["y"]["scale"]["clamp"] == true
+    @test !haskey(get(vl8["encoding"]["x"], "scale", Dict()), "domain")
+
+    # axis=(; limits=((x...), (y...))) both axes
+    spec9 = data(df) * mapping(:x, :y) * visual(Scatter) *
+        config(axis=(; limits=((0.0, 10.0), (1.0, 5.0))))
+    vl9 = to_vegalite(spec9)
+    @test vl9["encoding"]["x"]["scale"]["domain"] == [0.0, 10.0]
+    @test vl9["encoding"]["y"]["scale"]["domain"] == [1.0, 5.0]
+
+    # axis + scales compose: log y-scale with limits on x
+    spec10 = data(df) * mapping(:x, :y) * visual(Scatter) *
+        config(scales=scales(Y=(; scale=log10)),
+               axis=(; limits=((0.0, 10.0), nothing)))
+    vl10 = to_vegalite(spec10)
+    @test vl10["encoding"]["y"]["scale"]["type"] == "log"
+    @test vl10["encoding"]["x"]["scale"]["domain"] == [0.0, 10.0]
+
+    # Explicit user `encoding` overrides `axis` sugar on conflict
+    spec11 = data(df) * mapping(:x, :y) * visual(Scatter) *
+        config(axis=(; limits=((0.0, 10.0), nothing)),
+               encoding=Dict(:x => Dict("scale" => Dict("domain" => [-1.0, 1.0]))))
+    vl11 = to_vegalite(spec11)
+    @test vl11["encoding"]["x"]["scale"]["domain"] == [-1.0, 1.0]
+
+    # scales(X=(; scale=symlog)) → VL encoding x.scale.type == "symlog".
+    # symlog is linear near 0, log beyond — it renders genuine x=0 observations
+    # that a plain `log` axis cannot (log(0) = -Inf collapses the whole axis).
+    spec12 = data(df) * mapping(:x, :y) * visual(Scatter) *
+        config(scales=scales(X=(; scale=symlog)))
+    vl12 = to_vegalite(spec12)
+    @test vl12["encoding"]["x"]["scale"]["type"] == "symlog"
+    @test !haskey(vl12["encoding"]["x"]["scale"], "base")
+
+    # scales(X=(; scale=symlog, constant=2)) → symlog + linear-region constant
+    spec13 = data(df) * mapping(:x, :y) * visual(Scatter) *
+        config(scales=scales(X=(; scale=symlog, constant=2)))
+    vl13 = to_vegalite(spec13)
+    @test vl13["encoding"]["x"]["scale"]["type"] == "symlog"
+    @test vl13["encoding"]["x"]["scale"]["constant"] == 2
+
+    # symlog keeps genuine zeros (linear region around 0) and is portable to the
+    # sdraw/Makie path — it is Makie.pseudolog10, a native reversible axis scale.
+    @test symlog(0.0) == 0.0
+    @test symlog(100.0) > symlog(1.0) > 0.0
+end
+
+"""
+Categorical `Color` scale override — `scales(Color=(palette=…, categories=…))` pins
+the group order (domain) and palette (range) on a layered analysis. It is applied
+ONLY to colour encodings that carry a `field`, so a `pointinterval()` median dot
+(fixed white fill, NO colour field) is left untouched instead of being broadcast a
+bare, VL-dropped colour encoding. Both the second-positional form
+`to_vegalite(spec, scales(…))` (mirroring `AoG.draw(spec, scales(…))`) and the inline
+`config(scales=scales(…))` form apply the same override.
+Regression for snag `apply-the-aov-us-45aac295`.
+"""
+@testitem "categorical Color scale override (scoped to field-bearing layers)" setup=[AoVTestImports] tags=[:translation, :config, :tidybayes, :regression] begin
+    pops = ["reference", "Female", "Male"]
+    draws = (; param = repeat(["a", "b"], inner=300),
+               population = repeat(repeat(pops, inner=100), outer=2),
+               value = Float64.(1:600) ./ 100)
+    spec = data(draws) * mapping(:value => "Effect", y=:param; color=:population) *
+        pointinterval()
+    palette = ["#bbbbbb", "#e41a1c", "#377eb8"]
+    sc = scales(Color=(palette=palette, categories=pops))
+
+    # --- Second-positional form: to_vegalite(spec, scales(Color=...)) ---
+    vl = to_vegalite(spec, sc)
+    layers = vl["layer"]
+    # The last layer is the median-point layer: fixed white fill, NO colour field.
+    median = layers[end]
+    rule_layers = layers[1:end-1]
+    @test !isempty(rule_layers)
+
+    for lyr in rule_layers
+        col = lyr["encoding"]["color"]
+        @test col["field"] == "population"          # data-bearing colour encoding
+        @test col["scale"]["domain"] == pops        # group ORDER pinned
+        @test col["scale"]["range"] == palette      # palette pinned
+    end
+    # The field-less median layer must NOT gain a colour encoding (no dropped colour).
+    @test !haskey(median["encoding"], "color")
+
+    # --- Inline config form is identical ---
+    vl_cfg = to_vegalite(spec * config(scales=sc))
+    @test vl_cfg["layer"][1]["encoding"]["color"]["scale"] ==
+          vl["layer"][1]["encoding"]["color"]["scale"]
+    @test !haskey(vl_cfg["layer"][end]["encoding"], "color")
+
+    # --- vdraw(spec, scales(...)) does not error ---
+    @test vdraw(spec, sc) isa HTMX.Node
+
+    # --- Named-scheme palette → scale.scheme; relabel-pair categories → domain values ---
+    sc2 = scales(Color=(palette=:tableau10,
+                        categories=["reference"=>"Ref", "Female"=>"F", "Male"=>"M"]))
+    vl2 = to_vegalite(spec, sc2)
+    c2 = vl2["layer"][1]["encoding"]["color"]["scale"]
+    @test c2["scheme"] == "tableau10"
+    @test c2["domain"] == pops
+
+    # --- X axis + Color compose in one scales() call ---
+    vl3 = to_vegalite(spec, scales(X=(; scale=log10), Color=(palette=palette, categories=pops)))
+    @test vl3["layer"][1]["encoding"]["x"]["scale"]["type"] == "log"
+    @test vl3["layer"][1]["encoding"]["color"]["scale"]["range"] == palette
+    @test !haskey(vl3["layer"][end]["encoding"], "color")
+
+    # --- Continuous colour: colormap → scheme, colorrange → domain ---
+    vl4 = to_vegalite(spec, scales(Color=(colormap=:viridis, colorrange=(0.0, 2.0))))
+    c4 = vl4["layer"][1]["encoding"]["color"]["scale"]
+    @test c4["scheme"] == "viridis"
+    @test c4["domain"] == [0.0, 2.0]
+end
+
+"""
+Interval analyses (`pointinterval`, `pointinterval(bands=…)`, `gradient_interval`,
+`dotinterval`) rebuild their colour/group encodings from field names, so a
+`sorter`/`renamer` modifier on the `color=`/`y=` selector was silently discarded —
+Vega then ordered the legend lexicographically ("45 mg" before "5 mg"). A plain
+`Lines` layer preserves the order (it goes through `_apply_selector_modifier!`).
+The fix threads the selector's `Renamer.uniquevalues` into the colour encoding, its
+collision-driven group offset, and (for a `y=` sorter) the group axis as a VL `sort` array, and
+`_field_label` now follows the `:x => fn => "L"` chain so the relabel survives too.
+The field-less white median dot stays uncoloured; its offset still gets the sort.
+Regression for snag `aov-color-catego-1130ae28`.
+"""
+@testitem "interval analyses preserve color/group sorter order" setup=[AoVTestImports] tags=[:translation, :tidybayes, :regression] begin
+    # Dose groups whose lexicographic order ("45 mg" < "5 mg") differs from intent.
+    order = ["5 mg", "45 mg"]
+    preagg = (parameter = fill("theta", 2), dose_group = ["5 mg", "45 mg"], median = [1.0, 2.0],
+              q025 = [0.5, 1.5], q975 = [1.5, 2.5])
+    draws = (value = [1.0, 1.1, 0.9, 2.0, 2.1, 1.9],
+             parameter = fill("theta", 6),
+             dose_group = ["5 mg", "5 mg", "5 mg", "45 mg", "45 mg", "45 mg"])
+
+    colorsel = :dose_group => sorter(order) => "Dominant dose"
+
+    # --- Pre-aggregated pointinterval: sort + relabel reach every field-bearing layer ---
+    vlp = to_vegalite(data(preagg) * mapping(:median, y=:parameter; color=colorsel) *
+                      pointinterval(bands=[:q025 => :q975]))
+    rule = vlp["layer"][1]
+    @test rule["encoding"]["color"]["sort"] == order        # legend ORDER pinned
+    @test rule["encoding"]["color"]["title"] == "Dominant dose"  # relabel survives
+    @test rule["encoding"]["yOffset"]["sort"] == order      # offset follows the order
+    # The median dot is a fixed-white, field-less colour layer — no colour encoding,
+    # but its offset must still align with the colour order.
+    median = vlp["layer"][end]
+    @test !haskey(median["encoding"], "color")
+    @test median["encoding"]["yOffset"]["sort"] == order
+
+    # --- Computed pointinterval (probs) preserves it too ---
+    vlc = to_vegalite(data(draws) * mapping(:value, y=:parameter; color=colorsel) *
+                      pointinterval())
+    @test vlc["layer"][1]["encoding"]["color"]["sort"] == order
+    @test vlc["layer"][1]["encoding"]["color"]["title"] == "Dominant dose"
+
+    # --- A `y=` (group) sorter drives the group axis, independently of colour ---
+    vlg = to_vegalite(data(preagg) *
+                      mapping(:median, y=(:dose_group => sorter(order)); color=colorsel) *
+                      pointinterval(bands=[:q025 => :q975]))
+    @test vlg["layer"][1]["encoding"]["y"]["sort"] == order
+
+    # --- Matches the plain `Lines` reference behaviour ---
+    linetbl = (x = [1.0, 2.0, 1.0, 2.0], y = [1.0, 1.5, 2.0, 2.5],
+               dose_group = ["5 mg", "5 mg", "45 mg", "45 mg"])
+    vll = to_vegalite(data(linetbl) * mapping(:x, :y; color=colorsel) * visual(Lines))
+    @test vll["encoding"]["color"]["sort"] == order
+    @test vll["encoding"]["color"]["title"] == "Dominant dose"
+
+    # --- No sorter → no `sort` keys anywhere ---
+    vln = to_vegalite(data(preagg) * mapping(:median, y=:dose_group; color=:dose_group) *
+                      pointinterval(bands=[:q025 => :q975]))
+    for lyr in vln["layer"], (_, e) in lyr["encoding"]
+        e isa Dict && @test !haskey(e, "sort")
+    end
+end
+
+"""
+Analyses rebuild facet encodings from field/label names, which dropped a facet
+selector's explicit `sorter` order even though the plain-mark path preserved it.
+AoG facet-scale `categories` (`Row`, `Col`, or the one-channel `Layout` case) is
+also translated now, so both documented APIs pin nominal row/column order.
+Regression for snag `facet-row-order-6e4f10d0`.
+"""
+@testitem "analysis facets preserve sorter and facet scale order" setup=[AoVTestImports] tags=[:translation, :tidybayes, :regression] begin
+    order = ["5 mg", "10 mg", "20 mg", "40 mg"]
+    tbl = (x = repeat([1.0, 2.0], 4), median = collect(1.0:8.0),
+           lo = collect(0.5:7.5), hi = collect(1.5:8.5),
+           dose = repeat(order; inner=2))
+    spec = data(tbl) * mapping(:x, :median => "Response";
+                               row=:dose => sorter(order) => "Dose") *
+           lineribbon(bands=[:lo => :hi])
+    vl = to_vegalite(spec)
+    @test vl["facet"]["row"]["field"] == "dose"
+    @test vl["facet"]["row"]["sort"] == order
+    @test vl["facet"]["row"]["title"] == "Dose"
+
+    # `scales(...)` is the AoG-mirror override for a mapping that has no sorter.
+    plain = data(tbl) * mapping(:x, :median => "Response"; row=:dose) *
+            lineribbon(bands=[:lo => :hi])
+    vl_row = to_vegalite(plain, scales(Row=(; categories=order)))
+    @test vl_row["facet"]["row"]["sort"] == order
+    vl_layout = to_vegalite(plain, scales(Layout=(; categories=order)))
+    @test vl_layout["facet"]["row"]["sort"] == order
+    # A raw facet-channel encoding override reaches the facet operator, not an inert sublayer.
+    vl_config = to_vegalite(plain * config(encoding=Dict("row" => Dict("sort" => order))))
+    @test vl_config["facet"]["row"]["sort"] == order
+
+    # AoG spells the column scale `Col`; an override replaces a mapping sorter.
+    coltbl = (x = tbl.x, median = tbl.median, lo = tbl.lo, hi = tbl.hi, dose = tbl.dose)
+    colspec = data(coltbl) * mapping(:x, :median => "Response";
+                                     col=:dose => sorter(reverse(order)) => "Dose") *
+              lineribbon(bands=[:lo => :hi])
+    vl_col = to_vegalite(colspec, scales(Col=(; categories=order)))
+    @test vl_col["facet"]["column"]["sort"] == order
+
+    # `Layout` is deliberately refused (with a warning) when it could mean either grid axis.
+    bothspec = data((x = tbl.x, median = tbl.median, lo = tbl.lo, hi = tbl.hi,
+                     dose = tbl.dose, group = repeat(["A", "B"]; outer=4))) *
+              mapping(:x, :median => "Response"; row=:dose, col=:group) *
+              lineribbon(bands=[:lo => :hi])
+    @test_logs (:warn, r"ambiguous with both row= and col=") begin
+        vl_both = to_vegalite(bothspec, scales(Layout=(; categories=order)))
+        @test !haskey(vl_both["facet"]["row"], "sort")
+        @test !haskey(vl_both["facet"]["column"], "sort")
+    end
+
+    # No explicit order leaves the emitted facet channel untouched.
+    vl_plain = to_vegalite(plain)
+    @test !haskey(vl_plain["facet"]["row"], "sort")
+end
+
+"""
+Interval colour is not synonymous with dodge intent. A one-to-one colour used as
+metadata stays centered even when other facets use other colours; multiple colour
+levels at the same categorical position still dodge automatically. The existing
+`dodge_y`/`dodge_x` mappings provide an explicit, independently sortable dodge
+field and are retained through draw summarization.
+Regression for the subject-interval offset reported in brief `1emioaj`.
+"""
+@testitem "interval color only dodges colliding estimates" setup=[AoVTestImports] tags=[:translation, :tidybayes, :regression] begin
+    function channel_encodings(node, channel)
+        found = Any[]
+        if node isa AbstractDict
+            enc = get(node, "encoding", nothing)
+            enc isa AbstractDict && haskey(enc, channel) && push!(found, enc[channel])
+            for child in values(node)
+                append!(found, channel_encodings(child, channel))
+            end
+        elseif node isa AbstractVector
+            for child in node
+                append!(found, channel_encodings(child, channel))
+            end
+        end
+        found
+    end
+
+    # The same subject has a different metadata colour in each facet, but only
+    # one interval occupies each subject/facet position. A global offset scale
+    # must not shift either interval away from the row center.
+    metadata_draws = (
+        value = [0.8, 1.0, 1.1, 1.2, 1.8, 2.0, 2.1, 2.2],
+        subject = fill("S1", 8),
+        dose = vcat(fill("5 mg", 4), fill("45 mg", 4)),
+        panel = vcat(fill("A", 4), fill("B", 4)),
+    )
+    for vertical in (false, true)
+        analyses = vertical ?
+            (pointinterval(orientation=:vertical), gradient_interval(orientation=:vertical), dotinterval(orientation=:vertical)) :
+            (pointinterval(), gradient_interval(), dotinterval())
+        m = vertical ? mapping(:subject, :value; color=:dose, col=:panel) :
+                       mapping(:value; y=:subject, color=:dose, col=:panel)
+        offset_key = vertical ? "xOffset" : "yOffset"
+        for analysis in analyses
+            vl = to_vegalite(data(metadata_draws) * m * analysis)
+            @test isempty(channel_encodings(vl, offset_key))
+            @test !isempty(channel_encodings(vl, "color"))
+        end
+    end
+
+    metadata_summary = (
+        median = [1.0, 2.0], lo = [0.8, 1.8], hi = [1.2, 2.2],
+        subject = fill("S1", 2), dose = ["5 mg", "45 mg"], panel = ["A", "B"],
+    )
+    for vertical in (false, true)
+        m = vertical ? mapping(:subject, :median; color=:dose, col=:panel) :
+                       mapping(:median; y=:subject, color=:dose, col=:panel)
+        vl = to_vegalite(data(metadata_summary) * m *
+            pointinterval(bands=[:lo => :hi], orientation=vertical ? :vertical : :horizontal))
+        @test isempty(channel_encodings(vl, vertical ? "xOffset" : "yOffset"))
+    end
+
+    # Several colour groups at the same categorical position still need the
+    # convenient automatic dodge used by shared-effect interval plots.
+    regimes = ["Prior", "PK only", "Joint"]
+    collision_draws = (
+        value = repeat([-0.1, 0.0, 0.1, 0.2], 3) .+ repeat([-0.3, 0.0, 0.3], inner=4),
+        margin = fill("Random-effect SD", 12),
+        regime = repeat(regimes, inner=4),
+    )
+    for analysis in (pointinterval(), gradient_interval(), dotinterval())
+        vl = to_vegalite(data(collision_draws) *
+            mapping(:value; y=:margin, color=:regime) * analysis)
+        offsets = channel_encodings(vl, "yOffset")
+        @test !isempty(offsets)
+        @test all(e -> e["field"] == "regime", offsets)
+    end
+
+    # Explicit dodge remains independent of colour and its field survives the
+    # Julia-side summary grouping.
+    dodge_sel = :regime => sorter(regimes)
+    explicit_draws = merge(collision_draws, (source=fill("Estimate", 12),))
+    for vertical in (false, true)
+        m = vertical ? mapping(:margin, :value; color=:source, dodge_x=dodge_sel) :
+                       mapping(:value; y=:margin, color=:source, dodge_y=dodge_sel)
+        analysis = pointinterval(orientation=vertical ? :vertical : :horizontal)
+        vl = to_vegalite(data(explicit_draws) * m * analysis)
+        offsets = channel_encodings(vl, vertical ? "xOffset" : "yOffset")
+        @test !isempty(offsets)
+        @test all(e -> e["field"] == "regime" && e["sort"] == regimes, offsets)
+        @test length(vl["data"]["values"]) == 3
+    end
+end
+
+"""
+The low-level Vega-Lite helpers: `vl_enc` builds an encoding dict (dropping
+`nothing` fields), `vl_mark` returns a bare string or a props dict, and
+`vl_tooltips` collects the field-bearing channels.
+"""
+@testitem "VL helpers" setup=[AoVTestImports] tags=[:translation] begin
+    # vl_enc
+    enc = AlgebraOfVega.vl_enc(:x; type="quantitative", title="X axis")
+    @test enc["field"] == "x"
+    @test enc["type"] == "quantitative"
+    @test enc["title"] == "X axis"
+
+    # vl_enc filters nothing
+    enc2 = AlgebraOfVega.vl_enc(:y; type=nothing)
+    @test enc2["field"] == "y"
+    @test !haskey(enc2, "type")
+
+    # vl_mark — string when no kwargs
+    @test AlgebraOfVega.vl_mark("point") == "point"
+
+    # vl_mark — dict with kwargs
+    m = AlgebraOfVega.vl_mark("line"; strokeWidth=2, color="red")
+    @test m["type"] == "line"
+    @test m["strokeWidth"] == 2
+    @test m["color"] == "red"
+
+    # vl_tooltips
+    encoding = Dict{String,Any}(
+        "x" => Dict{String,Any}("field" => "hp", "type" => "quantitative"),
+        "y" => Dict{String,Any}("field" => "mpg", "type" => "quantitative"),
+        "color" => Dict{String,Any}("field" => "origin", "type" => "nominal"),
+        "opacity" => Dict{String,Any}("value" => 0.5),  # no field → skipped
+    )
+    tt = AlgebraOfVega.vl_tooltips(encoding)
+    @test length(tt) == 3
+    fields = Set(d["field"] for d in tt)
+    @test fields == Set(["hp", "mpg", "origin"])
+end
+
+"""
+`extract_transformation` pulls a layer's analysis of a requested type (tidybayes
+`LineRibbonAnalysis`, AoG `DensityAnalysis`, …) and returns `nothing` for a
+mismatched type or a plain visual layer.
+"""
+@testitem "extract_transformation generic" setup=[AoVTestImports] tags=[:translation] begin
+    # TidybayesAnalysis
+    layer = data((; x=[1.0], y=[1.0])) * mapping(:x, :y, group=:x) * lineribbon()
+    a = AlgebraOfVega.extract_transformation(layer, AlgebraOfVega.TidybayesAnalysis)
+    @test a isa AlgebraOfVega.LineRibbonAnalysis
+
+    # DensityAnalysis
+    layer2 = data((; x=[1.0])) * mapping(:x) * density()
+    a2 = AlgebraOfVega.extract_transformation(layer2, AlgebraOfGraphics.DensityAnalysis)
+    @test !isnothing(a2)
+
+    # Returns nothing for wrong type
+    a3 = AlgebraOfVega.extract_transformation(layer, AlgebraOfGraphics.DensityAnalysis)
+    @test isnothing(a3)
+
+    # Plain visual layer → no analysis
+    layer3 = data((; x=[1.0])) * mapping(:x) * visual(Scatter)
+    a4 = AlgebraOfVega.extract_transformation(layer3, AlgebraOfVega.TidybayesAnalysis)
+    @test isnothing(a4)
+end
+
+"""
+`to_vegalite` dispatches each layer kind to its handler — plain marks, density
+(`transform`), histogram (`bin`), lineribbon (`layer`), ECDF (`step-after`) —
+and emits `\$schema` only at the top level, never in sublayers.
+"""
+@testitem "layer_to_vl dispatch" setup=[AoVTestImports] tags=[:translation] begin
+    # Plain layer
+    df = (; x=[1, 2], y=[3, 4])
+    vl = to_vegalite(data(df) * mapping(:x, :y) * visual(Scatter))
+    @test vl["mark"] == Dict{String,Any}("type" => "point", "filled" => true)
+    @test haskey(vl, "\$schema")
+
+    # Density → dispatched correctly
+    vl2 = to_vegalite(data(df) * mapping(:x) * density())
+    @test haskey(vl2, "transform")
+
+    # Histogram → dispatched correctly
+    vl3 = to_vegalite(data(df) * mapping(:x) * histogram())
+    @test vl3["mark"] == "bar"
+    @test vl3["encoding"]["x"]["bin"] == true
+
+    # Lineribbon → dispatched correctly
+    pred = (; x=[1.0, 1.0, 2.0, 2.0], y=[3.0, 4.0, 5.0, 6.0], d=[1, 2, 1, 2])
+    vl4 = to_vegalite(data(pred) * mapping(:x, :y, group=:d) * lineribbon())
+    @test haskey(vl4, "layer")
+
+    # ECDF → dispatched correctly
+    vl5 = to_vegalite(data(df) * mapping(:x) * visual(ECDFPlot))
+    @test vl5["mark"]["interpolate"] == "step-after"
+
+    # Schema only at top level, not in sublayers
+    layers = data(df) * mapping(:x, :y) * (visual(Scatter) + visual(Lines))
+    vl6 = to_vegalite(layers)
+    @test haskey(vl6, "\$schema")
+    for sl in vl6["layer"]
+        @test !haskey(sl, "\$schema")
+    end
+end
+
+"""
+`ecdf_grid` renders a grid of ECDF panels (one per parameter) as an `HTMX.Node`,
+optionally grouped by a color column.
+"""
+@testitem "ecdf_grid" setup=[AoVTestImports] tags=[:analysis] begin
+    tbl = (; alpha=collect(1.0:10.0), beta=collect(11.0:20.0), chain=repeat(1:2, 5))
+    grid = ecdf_grid(tbl, [:alpha, :beta]; group=:chain)
+    @test grid isa HTMX.Node
+    s = string(grid)
+    @test occursin("alpha", s)
+    @test occursin("beta", s)
+
+    # Without group
+    grid2 = ecdf_grid(tbl, [:alpha])
+    @test grid2 isa HTMX.Node
+end
+
+"""
+`ppc_overlay` builds a posterior-predictive-check layer stack (`Layers`) over
+observed + predicted data, optionally adding a truth layer and a model-comparison
+color channel; it composes with `config`.
+"""
+@testitem "ppc_overlay" setup=[AoVTestImports] tags=[:tidybayes] begin
+    obs = (; x=[1.0, 2.0, 3.0], y=[4.0, 5.0, 6.0])
+    pred = (; x=[1.0, 1.0, 2.0, 2.0, 3.0, 3.0], y=[3.5, 4.5, 4.5, 5.5, 5.5, 6.5], draw=[1, 2, 1, 2, 1, 2])
+
+    # Basic overlay returns Layers
+    layers = ppc_overlay(obs, pred; x=:x, y=:y, group=:draw)
+    @test layers isa AlgebraOfGraphics.Layers
+
+    # Composable with config
+    spec = layers * config(width=300, height=200, facet=(; linkxaxes=:none, linkyaxes=:none))
+    vl = to_vegalite(spec)
+    @test haskey(vl, "resolve")
+
+    # With truth data
+    truth = (; x=[1.0, 2.0, 3.0], y=[4.1, 5.1, 6.1])
+    layers2 = ppc_overlay(obs, pred; x=:x, y=:y, group=:draw, truth=truth)
+    @test layers2 isa AlgebraOfGraphics.Layers
+    # truth adds a third layer
+    @test length(layers2.layers) == length(layers.layers) + 1
+
+    # With color (model comparison)
+    pred2 = (; x=pred.x, y=pred.y, draw=pred.draw, model=repeat(["A"], 6))
+    layers3 = ppc_overlay(obs, pred2; x=:x, y=:y, group=:draw, color=:model)
+    @test layers3 isa AlgebraOfGraphics.Layers
+end
+
+"""
+`VL_SCHEMA` is the pinned Vega-Lite v5 schema URL, stamped as `\$schema` on every
+top-level spec.
+"""
+@testitem "VL_SCHEMA constant" setup=[AoVTestImports] tags=[:translation] begin
+    @test AlgebraOfVega.VL_SCHEMA == "https://vega.github.io/schema/vega-lite/v5.json"
+
+    # All top-level specs should have schema
+    df = (; x=[1], y=[2])
+    vl = to_vegalite(data(df) * mapping(:x, :y) * visual(Scatter))
+    @test vl["\$schema"] == AlgebraOfVega.VL_SCHEMA
+end
+
+"""
+`interactive=false` removes only AoV-generated Vega-Lite parameters, including
+the nested zoom parameter of a faceted spec. Explicit user parameters remain,
+and the second-positional `scales(...)` form accepts the same keyword.
+"""
+@testitem "noninteractive Vega-Lite lowering" setup=[AoVTestImports] tags=[:translation, :config] begin
+    has_params(x) = x isa AbstractDict ?
+        (haskey(x, "params") || any(has_params, values(x))) :
+        (x isa AbstractVector && any(has_params, x))
+
+    tbl = (; x=1:4, y=[1.0, 2.0, 4.0, 8.0], group=["a", "a", "b", "b"])
+    spec = data(tbl) * mapping(:x, :y; color=:group) * visual(Scatter) *
+        config(title="Interactive by default")
+    @test has_params(to_vegalite(spec))
+    @test !has_params(to_vegalite(spec; interactive=false))
+
+    faceted = data(tbl) * mapping(:x, :y; col=:group) * visual(Scatter) *
+        config(width=180)
+    @test has_params(to_vegalite(faceted))
+    @test !has_params(to_vegalite(faceted; interactive=false))
+
+    explicit = data(tbl) * mapping(:x, :y) * visual(Scatter) * config(
+        params=[Dict("name" => "chosen", "value" => 1)],
+    )
+    quiet_explicit = to_vegalite(explicit; interactive=false)
+    @test quiet_explicit["params"] == [Dict("name" => "chosen", "value" => 1)]
+
+    selected = data(tbl) * mapping(:x, :y) * visual(Scatter) * config(select=:group)
+    quiet_selected = to_vegalite(selected; interactive=false)
+    @test any(p -> p["name"] == "select_group", quiet_selected["params"])
+    @test haskey(quiet_selected, "transform")
+
+    sc = scales(Y=(; scale=log10))
+    @test !has_params(to_vegalite(spec, sc; interactive=false))
+    @test to_vegalite(Dict("mark" => "point"); interactive=false) == Dict("mark" => "point")
+end
+
+"""
+`sdraw!` composes independently configured static AoV panels in one Makie
+figure. Per-spec axis settings, including a log-y scale, reach separate axes.
+"""
+@testitem "sdraw! static panel composition" setup=[AoVTestImports] tags=[:static, :config] begin
+    import Makie
+
+    tbl = (; x=1:4, y=[1.0, 2.0, 4.0, 8.0])
+    linear = data(tbl) * mapping(:x, :y) * visual(Scatter) *
+        config(axis=(; title="Linear y"))
+    logged = data(tbl) * mapping(:x, :y) * visual(Scatter) *
+        config(axis=(; title="Log y"), scales=scales(Y=(; scale=log10)))
+
+    fig = Makie.Figure(size=(600, 300))
+    left = sdraw!(fig[1, 1], linear)
+    right = sdraw!(fig[1, 2], logged)
+
+    @test length(left) == 1
+    @test length(right) == 1
+    @test left[1].axis.title[] == "Linear y"
+    @test right[1].axis.title[] == "Log y"
+    @test right[1].axis.yscale[] === log10
+end
+
+"""
+Static `lineribbon` lowering preserves `mapping` display labels: the
+precomputed `bands=` x/median labels reach every rebuilt Band + Lines layer,
+and colour/facet labels survive alongside the fields.
+"""
+@testitem "sdraw ribbon label preservation" setup=[AoVTestImports] tags=[:static] begin
+    rows = [(; t=i, m=sin(i / 5), lo=sin(i / 5) - 0.5, hi=sin(i / 5) + 0.5,
+              g=(i % 2 == 0 ? "a" : "b")) for i in 1:10]
+    spec = data(rows) *
+        mapping(:t => "Time (ms)", :m => "Response"; color=:g => "Group") *
+        lineribbon(bands=[:lo => :hi])
+    converted = AlgebraOfVega._convert_drawable(first(AlgebraOfVega._extract_drawable(spec)))
+    @test converted isa AlgebraOfGraphics.Layers
+    @test length(converted.layers) == 2  # one band + median line
+    band, line = converted.layers
+    @test band.positional[1] == (:t => "Time (ms)")
+    @test band.positional[2] == (:lo => "Response")
+    @test band.positional[3] == (:hi => "Response")
+    @test line.positional == Any[:t => "Time (ms)", :m => "Response"]
+    @test band.named[:color] == (:g => "Group")
+    @test line.named[:color] == (:g => "Group")
+
+    # Unlabeled specs keep bare symbols; a single band still lowers.
+    plain = data(rows) * mapping(:t, :m) * lineribbon(bands=[:lo => :hi])
+    converted_plain = AlgebraOfVega._convert_drawable(first(AlgebraOfVega._extract_drawable(plain)))
+    @test converted_plain.layers[1].positional[1] == :t
+    @test isempty(converted_plain.layers[1].named)
+end
+
+"""
+The dispatch tables: `plottype_to_mark` (`_MARK_MAP`), `plottype_to_mark_props`
+(`_MARK_PROPS`), `aog_named_to_vl_channel` (`_CHANNEL_MAP`, with passthrough),
+and `selector_to_field`. Unsupported plot types throw.
+"""
+@testitem "lookup tables" setup=[AoVTestImports] tags=[:translation] begin
+    # _MARK_MAP coverage
+    @test AlgebraOfVega.plottype_to_mark(Scatter) == "point"
+    @test AlgebraOfVega.plottype_to_mark(Lines) == "line"
+    @test AlgebraOfVega.plottype_to_mark(BarPlot) == "bar"
+    @test AlgebraOfVega.plottype_to_mark(BoxPlot) == "boxplot"
+    @test AlgebraOfVega.plottype_to_mark(ECDFPlot) == "line"
+    @test_throws ErrorException AlgebraOfVega.plottype_to_mark(Int)  # unsupported
+
+    # _MARK_PROPS
+    @test AlgebraOfVega.plottype_to_mark_props(ScatterLines) == Dict{String,Any}("point" => true)
+    @test AlgebraOfVega.plottype_to_mark_props(Stairs) == Dict{String,Any}("interpolate" => "step-after")
+    @test AlgebraOfVega.plottype_to_mark_props(Scatter) == Dict{String,Any}("filled" => true)
+
+    # _CHANNEL_MAP
+    @test AlgebraOfVega.aog_named_to_vl_channel(:color) == "color"
+    @test AlgebraOfVega.aog_named_to_vl_channel(:col) == "column"
+    @test AlgebraOfVega.aog_named_to_vl_channel(:row) == "row"
+    @test AlgebraOfVega.aog_named_to_vl_channel(:group) == "detail"
+    @test AlgebraOfVega.aog_named_to_vl_channel(:stack) === nothing
+    @test AlgebraOfVega.aog_named_to_vl_channel(:unknown_thing) == "unknown_thing"  # passthrough
+
+    # selector_to_field dispatch
+    @test AlgebraOfVega.selector_to_field(:foo)["field"] == "foo"
+    @test AlgebraOfVega.selector_to_field(3)["field"] == "column_3"
+    p = AlgebraOfVega.selector_to_field(:col => "Label")
+    @test p["field"] == "col"
+    @test p["title"] == "Label"
+end
+
+"""
+`ScatterLines` lowers to a line with point markers but never sets Vega-Lite's
+`filled` mark property, which would close each colored line into a polygon.
+"""
+@testitem "ScatterLines stays unfilled" setup=[AoVTestImports] tags=[:translation, :regression] begin
+    tbl = (;
+        x=[1, 2, 3, 1, 2, 3],
+        y=[1.0, 2.0, 1.5, 3.0, 2.5, 4.0],
+        subject=["a", "a", "a", "b", "b", "b"],
+    )
+    vl = to_vegalite(
+        data(tbl) * mapping(:x, :y; color=:subject) * visual(ScatterLines),
+    )
+
+    @test vl["mark"] == Dict{String,Any}("type" => "line", "point" => true)
+    @test !haskey(vl["mark"], "filled")
+end
+
+"""
+The `ECDFPlot` mark lowers to a stepped line with three `transform`s (two window
++ one calculate) over the synthesized `__ecdf__` field; a color channel adds the
+matching window `groupby`.
+"""
+@testitem "ECDFPlot" setup=[AoVTestImports] tags=[:translation] begin
+    # Basic ECDF
+    df = (; x=collect(1.0:10.0))
+    spec_obj = data(df) * mapping(:x) * visual(ECDFPlot)
+    vl = to_vegalite(spec_obj)
+    @test vl["mark"]["type"] == "line"
+    @test vl["mark"]["interpolate"] == "step-after"
+    @test haskey(vl, "transform")
+    @test length(vl["transform"]) == 3  # window, window, calculate
+    @test vl["encoding"]["x"]["field"] == "x"
+    @test vl["encoding"]["y"]["field"] == "__ecdf__"
+    @test vl["encoding"]["y"]["type"] == "quantitative"
+
+    # Grouped ECDF with color
+    df2 = (; x=[1.0, 2.0, 3.0, 4.0], c=["a", "a", "b", "b"])
+    spec_obj2 = data(df2) * mapping(:x, color=:c) * visual(ECDFPlot)
+    vl2 = to_vegalite(spec_obj2)
+    @test haskey(vl2["encoding"], "color")
+    @test vl2["encoding"]["color"]["field"] == "c"
+    # Check that groupby is set on window transforms
+    @test vl2["transform"][1]["groupby"] == ["c"]
+    @test vl2["transform"][2]["groupby"] == ["c"]
+end
+
+"""
+The pipeline accepts a bare, non-DataFrame Tables.jl source — a `NamedTuple` of
+vectors carrying a lazy `TiledCol` coordinate column and a `FillArrays.Fill`
+constant — through both a plain mark and a grouped tidybayes lineribbon.
+It also pins the empirical `Tables.columntable` question: `Fill` and `TiledCol`
+survive the round-trip without densifying. Stand-in for TreeArrays' `TreeData`.
+"""
+@testitem "non-DataFrame Tables source (NamedTuple + Fill + tiled lazy column)" setup=[AoVTestImports] tags=[:tables, :tidybayes] begin
+    using FillArrays
+
+    # Lazy ND->1D tiled column (mirrors `repeat(vals; inner, outer)` without
+    # materializing) — a stand-in for TreeArrays' `TreeData` axis-coordinate
+    # columns, which flatten combinatorially and must stay lazy until the JSON
+    # `values` boundary.
+    struct TiledCol{T} <: AbstractVector{T}
+        vals::Vector{T}
+        inner::Int
+        outer::Int
+    end
+    Base.size(t::TiledCol) = (length(t.vals) * t.inner * t.outer,)
+    function Base.getindex(t::TiledCol, i::Int)
+        @boundscheck checkbounds(t, i)
+        blocklen = length(t.vals) * t.inner
+        p = mod1(i, blocklen)
+        j = fld(p - 1, t.inner) + 1
+        @inbounds t.vals[j]
+    end
+
+    # Bare, non-DataFrame Tables.jl source: a plain `NamedTuple` of vectors,
+    # with a constant `FillArrays.Fill` column and a lazy `TiledCol` coordinate
+    # column — no DataFrames anywhere in this file. Factored out so TreeArrays'
+    # real `TreeData` can later be dropped in as a second case (swap the body
+    # for `src = tree_data`) exercising the identical asserts below.
+    function _nondf_source(; n_x=5, n_draws=8, cats=["a", "b"])
+        n = n_x * n_draws * length(cats)
+        xs = TiledCol(collect(1:n_x), n_draws, length(cats))
+        draw = repeat(1:n_draws, outer=n_x * length(cats))
+        cat = repeat(cats, inner=n_x * n_draws)
+        ys = Float64.(collect(xs)) .+ Float64.(mod1.(1:n, 7))
+        (; x=xs, y=ys, draw=draw, cat=cat, model=FillArrays.Fill("m1", n)), n
+    end
+
+    function _assert_nondf_pipeline(src, n)
+        # 1. Plain mark over the bare source.
+        vl1 = to_vegalite(data(src) * mapping(:x, :y) * visual(Scatter))
+        @test vl1["mark"]["type"] == "point"
+        @test haskey(vl1, "encoding")
+        @test length(vl1["data"]["values"]) == n
+
+        # 2. Tidybayes lineribbon, grouped: `draw` (8 samples per (x, cat) cell)
+        # is the AoG tidybayes sample dimension `compute_ribbon_summary`
+        # aggregates over; `cat` is the varying group/color column that must
+        # actually partition the data — this exercises `_group_indices` for real
+        # (multi-row groups), including grouping BY the lazy `TiledCol` `x`.
+        vl2 = to_vegalite(data(src) * mapping(:x, :y, group=:draw, color=:cat) * lineribbon())
+        @test haskey(vl2, "layer")
+        @test length(vl2["layer"]) >= 2
+    end
+
+    src, n = _nondf_source()
+    @test src isa NamedTuple
+    _assert_nondf_pipeline(src, n)
+
+    ct = Tables.columntable(src)
+
+    # 3. THE EMPIRICAL QUESTION: does Tables.columntable preserve `Fill`
+    # (O(1) storage) or densify it into a plain Vector?
+    fill_type = typeof(ct.model)
+    println("Tables.columntable(src).model :: ", fill_type)
+    @test ct.model isa FillArrays.Fill
+    @test collect(ct.model) == collect(src.model)
+
+    # 4. Same empirical question for the lazy tiled coordinate column.
+    tiled_type = typeof(ct.x)
+    println("Tables.columntable(src).x :: ", tiled_type)
+    @test ct.x isa TiledCol
+    @test collect(ct.x) == collect(src.x)
+end
+
+"""
+Ungrouped point/gradient/dot interval analyses emit summary data instead of an
+empty plot, while explicitly grouped data still yields one row per group.
+"""
+@testitem "ungrouped interval analyses emit a summary row" setup=[AoVTestImports] tags=[:tidybayes, :regression] begin
+    # Regression: with NO group/color/facet/detail field, `_group_indices` used
+    # to return an empty Dict, so the interval summaries produced zero rows and
+    # the spec serialized as `data.values: []` — a blank plot, no error.
+    v = collect(range(-2.0, 2.0; length=64))
+    tbl = (; value=v)
+
+    for an in (pointinterval(), gradient_interval())
+        vl = to_vegalite(data(tbl) * mapping(:value) * an)
+        rows = vl["data"]["values"]
+        @test length(rows) == 1
+        @test rows[1]["__point__"] ≈ Statistics.quantile(v, 0.5)
+        @test rows[1][AlgebraOfVega._vl_prob_field("lo", 0.95)] ≈ Statistics.quantile(v, 0.025)
+        @test rows[1][AlgebraOfVega._vl_prob_field("hi", 0.95)] ≈ Statistics.quantile(v, 0.975)
+    end
+
+    # dotinterval carries its rows on per-layer data instead of a top-level one.
+    dvl = to_vegalite(data(tbl) * mapping(:value) * dotinterval())
+    layer_rows = [length(l["data"]["values"]) for l in dvl["layer"] if haskey(l, "data")]
+    @test !isempty(layer_rows)
+    @test all(>(0), layer_rows)
+
+    # Grouping still works and is unaffected.
+    g = (; value=vcat(v, v), grp=vcat(fill("a", 64), fill("b", 64)))
+    gvl = to_vegalite(data(g) * mapping(:value; color=:grp) * pointinterval())
+    @test length(gvl["data"]["values"]) == 2
+end
+
+"""
+A pre-aggregated `lineribbon(bands=...)` over an EMPTY table serializes to an
+empty ribbon (`data.values: []`) rather than 500-ing — e.g. a single-study
+facet page whose study has no rows after dropping NaNs.
+"""
+@testitem "pre-aggregated lineribbon over an empty table" setup=[AoVTestImports] tags=[:tidybayes, :regression] begin
+    # Regression: preaggregate() emits `Any`-eltype group-key columns, so an
+    # empty result made `table_to_rows` infer `Vector{Any}`, which missed
+    # `_ribbon_to_vl(::Vector{<:Dict{String}})` — MethodError, a 500 on valid
+    # (empty) input.
+    agg = AlgebraOfVega.preaggregate((study=String[], x=Float64[], y=Float64[]);
+                                     y=:y, group_keys=[:study, :x], probs=[0.025, 0.5, 0.975])
+    med = Symbol(AlgebraOfVega._quantile_colname(0.5))
+    lo = Symbol(AlgebraOfVega._quantile_colname(0.025))
+    hi = Symbol(AlgebraOfVega._quantile_colname(0.975))
+
+    # no colour and colour-grouped both used to throw; both must now serialize.
+    vl = to_vegalite(data(agg) * mapping(:x, med => "Response") * lineribbon(bands=[lo => hi]))
+    @test isempty(vl["data"]["values"])
+    vlc = to_vegalite(data(agg) * mapping(:x, med => "Response", color=:study) * lineribbon(bands=[lo => hi]))
+    @test isempty(vlc["data"]["values"])
+
+    # Non-empty is unaffected: one row per (study, x) cell.
+    ne = AlgebraOfVega.preaggregate((study=["A", "A", "B", "B"], x=[1.0, 2.0, 1.0, 2.0], y=[0.1, 0.2, 0.3, 0.4]);
+                                    y=:y, group_keys=[:study, :x], probs=[0.025, 0.5, 0.975])
+    nvl = to_vegalite(data(ne) * mapping(:x, med => "Response", color=:study) * lineribbon(bands=[lo => hi]))
+    @test length(nvl["data"]["values"]) == 4
+end
+
+"""
+Interval analyses reject a non-numeric default value channel with a useful
+orientation hint; both documented vertical spellings remain valid.
+"""
+@testitem "interval analyses reject a non-numeric value column" setup=[AoVTestImports] tags=[:tidybayes, :regression] begin
+    # Regression: `mapping(category, value)` is the :vertical form. Under the
+    # default :horizontal it summarized the CATEGORY column, which used to blow
+    # up as `MethodError: isfinite(::String)` from inside Statistics.
+    tbl = (; parameter=repeat(["a", "b"], inner=8), value=randn(16))
+
+    err = try
+        to_vegalite(data(tbl) * mapping(:parameter, :value; color=:parameter) * pointinterval())
+        nothing
+    catch e
+        e
+    end
+    @test err isa ErrorException
+    @test occursin("parameter", err.msg)
+    @test occursin("orientation=:vertical", err.msg)
+
+    # Both documented spellings keep working.
+    @test length(to_vegalite(data(tbl) * mapping(:value; y=:parameter) * pointinterval())["data"]["values"]) == 2
+    @test length(to_vegalite(data(tbl) * mapping(:parameter, :value) * pointinterval(orientation=:vertical))["data"]["values"]) == 2
+end
+
+"""
+The structural `plot_size` estimator computes `(width, height)` from a Vega-Lite
+spec Dict — continuous vs discrete axes, title/axis chrome, facet operator and
+row/column shorthand, `config.view.step` / `config.facet.spacing` overrides,
+`width:"container"` fallback, and explicit numeric sizes. The `Layer`/`VegaSpec`
+convenience method lowers through `to_vegalite` into the same estimator.
+"""
+@testitem "plot_size structural estimator" setup=[AoVTestImports] tags=[:plotsize] begin
+    # Unit tests over hand-built VL spec Dicts — the four geometries plot_size
+    # claims to handle, plus the config overrides and the width:"container"
+    # guard. Exact px follow deterministically from the named VL-default +
+    # chrome-overhead constants (continuous 200, discrete step 20, facet spacing
+    # 20, axis 40, title 30, facet-header 20). See plot_size.jl.
+    D(kv...) = Dict{String,Any}(kv...)
+    vals(v) = D("values" => v)
+    q(f) = D("field" => f, "type" => "quantitative")
+    nom(f) = D("field" => f, "type" => "nominal")
+
+    # 1. plain continuous scatter → 200 + 40 (axis) each way.
+    @test plot_size(D("mark" => "point", "encoding" => D("x" => q("a"), "y" => q("b")),
+                      "data" => vals([D("a" => 1, "b" => 2)]))) == (; width = 240.0, height = 240.0)
+
+    # 2. title band adds 30 to height only.
+    @test plot_size(D("mark" => "point", "title" => "T", "encoding" => D("x" => q("a"), "y" => q("b")),
+                      "data" => vals([D("a" => 1, "b" => 2)]))) == (; width = 240.0, height = 270.0)
+
+    # 3. categorical-y (4 nominal bands) → 4*20 tall panel; +30 title.
+    @test plot_size(D("mark" => "bar", "title" => "T", "encoding" => D("x" => q("v"), "y" => nom("g")),
+                      "data" => vals([D("g" => "a", "v" => 1), D("g" => "b", "v" => 2),
+                                      D("g" => "c", "v" => 3), D("g" => "d", "v" => 4)]))) ==
+        (; width = 240.0, height = 150.0)
+
+    # 4. facet operator, single field, columns:1, N=3, inner explicit 500x60; +title.
+    @test plot_size(D("title" => "T", "facet" => nom("grp"), "columns" => 1,
+                      "spec" => D("width" => 500, "height" => 60,
+                                  "layer" => [D("mark" => "area", "encoding" => D("x" => q("v")))]),
+                      "data" => vals([D("grp" => "a"), D("grp" => "b"), D("grp" => "c")]))) ==
+        (; width = 540.0, height = 310.0)
+
+    # 5. facet operator, single field, columns:3, N=6 → wraps to 2 rows x 3 cols.
+    @test plot_size(D("facet" => nom("grp"), "columns" => 3,
+                      "spec" => D("encoding" => D("x" => q("v"), "y" => q("w"))),
+                      "data" => vals([D("grp" => string(i)) for i in 1:6]))) ==
+        (; width = 700.0, height = 480.0)
+
+    # 6. encoding-shorthand row(2) x column(3) facet; +title.
+    @test plot_size(D("mark" => "point", "title" => "T",
+                      "encoding" => D("x" => q("a"), "y" => q("b"), "row" => nom("r"), "column" => nom("c")),
+                      "data" => vals([D("r" => ri, "c" => ci, "a" => 1, "b" => 2)
+                                      for ri in ["x", "y"] for ci in ["p", "q", "s"]]))) ==
+        (; width = 700.0, height = 510.0)
+
+    # 7. config.view.step override honoured on a discrete axis (5 bands * 30).
+    @test plot_size(D("encoding" => D("y" => D("field" => "g", "type" => "ordinal"), "x" => q("v")),
+                      "config" => D("view" => D("step" => 30)),
+                      "data" => vals([D("g" => string(i), "v" => i) for i in 1:5]))) ==
+        (; width = 240.0, height = 190.0)
+
+    # 8. explicit numeric top-level width/height win over the structural model.
+    @test plot_size(D("width" => 400, "height" => 300, "encoding" => D("x" => q("a")),
+                      "data" => vals(Any[]))) == (; width = 440.0, height = 340.0)
+
+    # 9. width:"container" is non-numeric → continuous fallback, no crash.
+    @test plot_size(D("width" => "container", "encoding" => D("x" => q("a"), "y" => q("b")),
+                      "data" => vals([D("a" => 1, "b" => 2)]))) == (; width = 240.0, height = 240.0)
+
+    # 10. config.facet.spacing override changes the inter-panel gap (3 panels → 2 gaps).
+    @test plot_size(D("facet" => nom("grp"), "columns" => 1,
+                      "spec" => D("width" => 500, "height" => 60,
+                                  "layer" => [D("mark" => "area", "encoding" => D("x" => q("v")))]),
+                      "config" => D("facet" => D("spacing" => 40)),
+                      "data" => vals([D("grp" => "a"), D("grp" => "b"), D("grp" => "c")]))) ==
+        (; width = 540.0, height = 320.0)
+
+    # 11. cardinality scan dedupes: repeated facet-field values count once.
+    @test plot_size(D("facet" => nom("grp"), "columns" => 1,
+                      "spec" => D("width" => 500, "height" => 60,
+                                  "layer" => [D("mark" => "area", "encoding" => D("x" => q("v")))]),
+                      "data" => vals([D("grp" => "a"), D("grp" => "a"), D("grp" => "b")]))).height ==
+        plot_size(D("facet" => nom("grp"), "columns" => 1,
+                    "spec" => D("width" => 500, "height" => 60,
+                                "layer" => [D("mark" => "area", "encoding" => D("x" => q("v")))]),
+                    "data" => vals([D("grp" => "a"), D("grp" => "b")]))).height  # 2 distinct panels either way
+
+    # 12. destructuring + field-access contract.
+    let s = D("mark" => "point", "encoding" => D("x" => q("a"), "y" => q("b")),
+              "data" => vals([D("a" => 1, "b" => 2)]))
+        w, h = plot_size(s)
+        @test w == 240.0 && h == 240.0
+        @test plot_size(s).width == 240.0
+        @test plot_size(s).height == 240.0
+    end
+
+    # Integration: the Layer/Layers/VegaSpec convenience method lowers via
+    # to_vegalite, so real emission flows through the same estimator.
+    # Invariants only here (not exact px): the exact structural model is pinned
+    # by the Dict-method cases above; this just proves the convenience method
+    # lowers a real spec through to_vegalite and out the same estimator.
+    df = (; x = [1.0, 2.0, 3.0], y = [4.0, 5.0, 6.0], g = ["a", "b", "c"])
+    plain = plot_size(data(df) * mapping(:x, :y) * visual(Scatter))
+    @test plain isa NamedTuple && plain.width > 0 && plain.height > 0
+
+    # A col-faceted spec is wider than the same single-panel spec (more columns).
+    faceted = plot_size(data(df) * mapping(:x, :y, col=:g) * visual(Scatter))
+    @test faceted.width > plain.width
+end
+
+"""
+A plot node's `text/markdown` rendering (the `?plain` channel) is non-empty and
+structurally faithful, while its HTML rendering is unchanged.
+
+Regression: `to_node` emits an empty `<div>` plus a `<script>`; HTMX's markdown
+renderer recurses transparently through `<div>` and skips `<script>`, so a
+figure-only route served a 0-byte `?plain` body — making "renders a correct
+figure" byte-indistinguishable from "renders nothing" for every non-browser
+consumer.
+"""
+@testitem "plot nodes render a bounded markdown summary" setup=[AoVTestImports] tags=[:markdown, :regression] begin
+    md(x) = sprint(show, MIME"text/markdown"(), x)
+    html(x) = sprint(show, MIME"text/html"(), x)
+
+    D(ps...) = Dict{String,Any}(ps...)
+    q(f) = D("field" => f, "type" => "quantitative")
+    nom(f) = D("field" => f, "type" => "nominal")
+
+    # --- Dict-level: the summary content is pinned exactly. ---
+    spec = D("mark" => "bar",
+             "encoding" => D("y" => q("count"), "x" => nom("species"), "color" => nom("island")),
+             "width" => 400, "height" => 300,
+             "data" => D("values" => [D("species" => "a", "count" => 1, "island" => "x")]))
+    s = plot_summary_md(spec; id="vega-abc")
+    @test occursin("**Vega-Lite figure** `vega-abc`", s)
+    @test occursin("- mark: `bar`", s)
+    @test occursin("- data: 1 rows × 3 columns (inline)", s)
+    @test occursin("- size: 400 × 300", s)
+    # Canonical channel order (x before y before color), not Dict iteration order.
+    let ix = first(findfirst("| x |", s)),
+        iy = first(findfirst("| y |", s)),
+        ic = first(findfirst("| color |", s))
+        @test ix < iy < ic
+    end
+    @test occursin("| color | island | nominal |", s)
+    # Data VALUES are never emitted — only counts.
+    @test !occursin("\"a\"", s)
+
+    # Faceted specs: the partition channel is reported, and the nested
+    # `spec.width` is found.
+    fac = D("facet" => D("column" => nom("island")),
+            "spec" => D("width" => 200, "mark" => "point", "encoding" => D("x" => q("v"))),
+            "data" => D("values" => [D("island" => "x", "v" => 1)]))
+    @test occursin("- facet: `island`", plot_summary_md(fac))
+    @test occursin("- size: 200 × auto", plot_summary_md(fac))
+
+    # Layered specs list every distinct mark and the layer count.
+    lay = D("layer" => [D("mark" => "line", "encoding" => D("x" => q("a"))),
+                        D("mark" => "point", "encoding" => D("y" => q("b")))])
+    @test occursin("- mark: `line` + `point` (2 layers)", plot_summary_md(lay))
+
+    # Multi-field channels (tooltip) list field names, not the raw container.
+    tip = D("mark" => "bar",
+            "encoding" => D("tooltip" => [nom("g"), q("v")]))
+    @test occursin("| tooltip | g, v |", plot_summary_md(tip))
+    @test !occursin("Dict", plot_summary_md(tip))
+
+    # Bounded: a wide encoding elides, and says so.
+    wide = D("mark" => "point",
+             "encoding" => D(string("c", i) => q("f$i") for i in 1:30))
+    ws = plot_summary_md(wide)
+    @test occursin("more channels elided", ws)
+    @test count("\n| ", ws) <= 16  # header + separator + 12 rows + elision row
+
+    # A spec with no encoding at all still names its mark (never empty).
+    bare = plot_summary_md(D("mark" => "rect"))
+    @test occursin("- mark: `rect`", bare)
+    @test occursin("no encoding channels", bare)
+
+    # --- Integration: through the real node. ---
+    df = (; x = [1.0, 2.0, 3.0], y = [4.0, 5.0, 6.0], g = ["a", "b", "c"])
+    node = vdraw(data(df) * mapping(:x, :y, color=:g) * visual(Scatter))
+    @test !isempty(md(node))
+    @test occursin("**Vega-Lite figure**", md(node))
+    @test occursin("`point`", md(node))
+
+    # The summary is markdown-ONLY: it must contribute ZERO bytes of HTML, so
+    # the rendered page is byte-identical to the same node without it.
+    @test !occursin("Vega-Lite figure", html(node))
+    @test !occursin("| channel |", html(node))
+    let kids = HTMX.children(node)
+        @test last(kids) isa PlotSummary
+        @test html(node) == html(HTMX.Node(HTMX.tag(node), HTMX.attrs(node), kids[1:end-1]))
+    end
+
+    # The property that actually matters: a route rendering a real figure is not
+    # byte-identical to one rendering nothing, nor to a different figure.
+    @test md(node) != ""
+    @test md(node) != md(h.div())
+    @test md(node) != md(vdraw(data(df) * mapping(:x, :y) * visual(BarPlot)))
+
+    # A spec returned directly (no `vdraw`) gets the same summary rather than
+    # falling to HTMX's `string(val)` catch-all.
+    vs = data(df) * mapping(:x, :y) * visual(Scatter) * config(width=300)
+    @test occursin("**Vega-Lite figure**", md(vs))
+    @test occursin("- mark: `point`", md(vs))
+end
+
+"""
+`density()` honours the `col=` / `row=` / `layout=` facet channels, like every
+other analysis. It used to read only `y=` and `color=`, so a faceted density
+emitted a FLAT spec with no facet operator at all — one KDE pooled over every
+panel's rows, rendered as a single plausible-looking curve.
+
+A faceted density is now PREAGGREGATED in Julia (`compute_density_summary`), so
+the emitted spec carries `data.values` of `{val, dens, <group fields>}` rows and
+no `density` transform. The grouping key is asserted here through those rows;
+the per-panel extents that motivated the preaggregation are the next item.
+"""
+@testitem "density honours col=/row=/layout= faceting" setup=[AoVTestImports] tags=[:translation, :regression] begin
+    # Every group must have enough rows for a KDE, so the grid case (col= × row=)
+    # needs a real cell population — hence chains × draws, not one row per cell.
+    params = ["a", "b", "c"]
+    ndraw = 40
+    tbl = (; parameter = repeat(params, inner=2ndraw),
+             chain     = repeat(repeat([1, 2], inner=ndraw), outer=3),
+             value     = vcat((randn(2ndraw) .+ 10i for i in 1:3)...))
+
+    # group field → sorted distinct levels present in the emitted KDE rows
+    levels(vl, field) = sort(unique(r[field] for r in vl["data"]["values"]))
+    rowkeys(vl) = sort(collect(keys(first(vl["data"]["values"]))))
+
+    # --- The reported case: col= produced a flat, pooled, single-curve spec. ---
+    vl = to_vegalite(vdata(tbl) * mapping(:value; col=:parameter) * density())
+    @test vl["facet"]["column"]["field"] == "parameter"
+    @test haskey(vl, "spec")                      # the facet OPERATOR, not encoding.column
+    @test !haskey(vl, "mark")                     # mark moved inside `spec`
+    @test !haskey(vl["spec"], "transform")        # preaggregated: no VL density transform
+    @test vl["spec"]["mark"]["type"] == "area"
+    @test vl["data"]["values"] isa AbstractVector  # data stays OUTSIDE the facet
+    @test rowkeys(vl) == ["dens", "parameter", "val"]
+    @test levels(vl, "parameter") == params
+
+    # --- row= takes the other grid channel. ---
+    rvl = to_vegalite(vdata(tbl) * mapping(:value; row=:parameter) * density())
+    @test rvl["facet"]["row"]["field"] == "parameter"
+    @test levels(rvl, "parameter") == params
+
+    # --- layout= is the WRAP form, so a sibling `columns` actually governs. ---
+    lvl = to_vegalite(vdata(tbl) * mapping(:value; layout=:parameter) * density() * config(columns=3))
+    @test lvl["facet"]["field"] == "parameter"    # wrap form: facet:{field,type}
+    @test !haskey(lvl["facet"], "column")
+    @test lvl["columns"] == 3
+    @test levels(lvl, "parameter") == params
+
+    # --- col= AND row= together: both grid channels, both in the grouping key. ---
+    gvl = to_vegalite(vdata(tbl) * mapping(:value; col=:parameter, row=:chain) * density())
+    @test gvl["facet"]["column"]["field"] == "parameter"
+    @test gvl["facet"]["row"]["field"] == "chain"
+    @test rowkeys(gvl) == ["chain", "dens", "parameter", "val"]
+    @test levels(gvl, "chain") == [1, 2]
+    @test levels(gvl, "parameter") == params
+
+    # --- col= plus color=: both are grouping fields, and NOT duplicated when
+    #     they name the same field (a repeated key would double every curve).
+    cvl = to_vegalite(vdata(tbl) * mapping(:value; col=:parameter, color=:chain) * density())
+    @test rowkeys(cvl) == ["chain", "dens", "parameter", "val"]
+    @test cvl["spec"]["encoding"]["color"]["field"] == "chain"
+    same = to_vegalite(vdata(tbl) * mapping(:value; col=:parameter, color=:parameter) * density())
+    @test rowkeys(same) == ["dens", "parameter", "val"]
+    @test length(same["data"]["values"]) == 3 * 200   # 3 groups, not 3 groups twice over
+
+    # --- `config(facet=(; linkxaxes=:none))` now lands on a spec that HAS a
+    #     facet to resolve against — the reported spec carried it over nothing.
+    fvl = to_vegalite(vdata(tbl) * mapping(:value; col=:parameter) * density() *
+                      config(width=160, height=180, facet=(; linkxaxes=:none)))
+    @test fvl["resolve"]["scale"]["x"] == "independent"
+    @test haskey(fvl, "facet")
+    @test fvl["spec"]["width"] == 160             # size routes INTO the inner spec
+    @test fvl["spec"]["height"] == 180
+
+    # --- Unfaceted output is untouched: it KEEPS the VL density transform (one
+    #     shared axis wants one shared extent, and the curve stays live under a
+    #     brush selection). Bare density has no groupby at all; colour-only keeps
+    #     exactly the single-field groupby it always had.
+    bare = to_vegalite(vdata(tbl) * mapping(:value) * density())
+    @test !haskey(bare["transform"][1], "groupby")
+    @test bare["transform"][1]["density"] == "value"
+    @test !haskey(bare, "facet")
+    conly = to_vegalite(vdata(tbl) * mapping(:value; color=:parameter) * density())
+    @test conly["transform"][1]["groupby"] == ["parameter"]
+    @test !haskey(conly, "facet")
+
+    # --- The `y=` ridgeline already owns the facet operator and VL cannot nest
+    #     two, so a sibling col= is named in a warning rather than dropped mute.
+    ridge = @test_logs (:warn,) match_mode=:any to_vegalite(
+        vdata(tbl) * mapping(:value; y=:parameter, col=:chain) * density())
+    @test ridge["facet"]["field"] == "parameter"   # ridgeline preserved
+    @test ridge["columns"] == 1
+
+    # --- Multi-layer (`+`): the density sublayer's precomputed rows are merged
+    #     into the shared faceted dataset behind a `__src` filter, and they carry
+    #     the facet field so the lifted facet has something to partition on.
+    mvl = to_vegalite((vdata(tbl) * mapping(:value; col=:parameter) * density()) +
+                      (vdata(tbl) * mapping(:value; col=:parameter) * visual(Scatter)))
+    @test mvl["facet"]["column"]["field"] == "parameter"
+    dens_sub = only(l for l in mvl["spec"]["layer"] if l["mark"]["type"] == "area")
+    @test !any(haskey(t, "density") for t in dens_sub["transform"])
+    dens_tag = match(r"'(\w+)'", only(t for t in dens_sub["transform"])["filter"])[1]
+    dens_rows = [r for r in mvl["data"]["values"] if r["__src"] == dens_tag]
+    @test length(dens_rows) == 3 * 200
+    @test sort(unique(r["parameter"] for r in dens_rows)) == params
+end
+
+"""
+A faceted `density()` samples each panel over its OWN `[min, max]`.
+
+Vega-Lite's `density` transform computes ONE extent for the whole dataset even
+when it carries a `groupby`. Measured against a headless Vega render, two groups
+drawn from `N(0,1)` and `N(1000,50)` both came back spanning the pooled
+`[-2.62, 1136.16]`, so the tight group occupied a fraction of a percent of its
+own panel — and `resolve.scale.x = independent` cannot repair it, because the
+shared quantity is the DATA extent, not the scale.
+
+`compute_density_summary` replaces the transform for faceted specs. It matches
+vega-statistics exactly where it can (`bandwidthNRD`; verified to ~2e-15 relative
+against `vega.randomKDE`) and differs only in the one place that is the point:
+the grid is per group.
+"""
+@testitem "density computes per-panel KDE extents" setup=[AoVTestImports] tags=[:translation, :regression] begin
+    n = 200
+    # Three parameters on wildly different scales — the shape that made the
+    # shared extent visible in the first place.
+    tbl = (; parameter = repeat(["tight", "mid", "wide"], inner=n),
+             value     = vcat(0.5 .+ 0.1 .* randn(n),
+                              3.0 .+ 0.4 .* randn(n),
+                              1000.0 .+ 50.0 .* randn(n)))
+    raw = Dict(p => [tbl.value[i] for i in eachindex(tbl.value) if tbl.parameter[i] == p]
+               for p in unique(tbl.parameter))
+
+    vl = to_vegalite(vdata(tbl) * mapping(:value; col=:parameter) * density())
+    rows = vl["data"]["values"]
+    @test length(rows) == 3 * 200          # npoints=200 per group (AoG's default, Vega's maxsteps)
+
+    # `stack: null` is part of the fix, not tidiness: a stacked VL `area` imputes
+    # every series out to the UNION of all series' x values, and it does so before
+    # the facet split — which put the pooled extent straight back into every panel.
+    @test haskey(vl["spec"]["encoding"]["y"], "stack")
+    @test isnothing(vl["spec"]["encoding"]["y"]["stack"])
+    # The unfaceted path keeps the VL transform but is unstacked too — densities
+    # overlay, they do not stack (user decision `1ceow72`). Both spellings, since
+    # only the colour-grouped one had anything to stack in the first place.
+    unf = to_vegalite(vdata(tbl) * mapping(:value) * density())
+    @test haskey(unf["encoding"]["y"], "stack") && isnothing(unf["encoding"]["y"]["stack"])
+    @test haskey(unf, "transform")   # …and it is still the transform, not preaggregated rows
+    unf_c = to_vegalite(vdata(tbl) * mapping(:value; color=:parameter) * density())
+    @test haskey(unf_c["encoding"]["y"], "stack") && isnothing(unf_c["encoding"]["y"]["stack"])
+    @test haskey(unf_c, "transform")
+
+    for (p, vals) in raw
+        grid = [r["val"] for r in rows if r["parameter"] == p]
+        dens = [r["dens"] for r in rows if r["parameter"] == p]
+        @test length(grid) == 200
+        # The panel's grid is EXACTLY its own group's observed range — the same
+        # convention the VL transform's default extent uses, applied per group.
+        @test minimum(grid) == minimum(vals)
+        @test maximum(grid) == maximum(vals)
+        @test issorted(grid)
+        @test all(>=(0), dens)
+        # A pdf on its own support: the truncated trapezoid area is just under 1.
+        area = sum((grid[i+1] - grid[i]) * (dens[i+1] + dens[i]) / 2 for i in 1:199)
+        @test 0.9 < area <= 1.0
+    end
+
+    # The three extents are disjoint — under the old shared extent all three
+    # spanned the pooled range and this test could not tell them apart.
+    ext(p) = extrema(r["val"] for r in rows if r["parameter"] == p)
+    @test ext("tight")[2] < ext("mid")[1]
+    @test ext("mid")[2] < ext("wide")[1]
+
+    # A group with no computable KDE (every value identical, or a single row) is
+    # dropped with a warning rather than emitting a spike or a NaN curve.
+    degen = (; parameter = ["a", "a", "a", "b", "b", "b"],
+               value     = [1.0, 1.0, 1.0, 2.0, 3.0, 4.0])
+    dvl = @test_logs (:warn, r"no computable KDE") match_mode=:any to_vegalite(
+        vdata(degen) * mapping(:value; col=:parameter) * density())
+    @test sort(unique(r["parameter"] for r in dvl["data"]["values"])) == ["b"]
+
+    # The `y=` ridgeline is preaggregated too. With the VL transform this
+    # single-sublayer spec was hoisted above the facet split: one pooled curve,
+    # and — the transform having dropped the level field — a single panel.
+    rvl = to_vegalite(vdata(tbl) * mapping(:value; y=:parameter) * density())
+    @test rvl["facet"]["field"] == "parameter"
+    @test rvl["columns"] == 1
+    rrows = rvl["data"]["values"]
+    @test length(rrows) == 3 * 200
+    @test sort(collect(keys(first(rrows)))) == ["dens", "parameter", "val"]
+    @test !haskey(only(rvl["spec"]["layer"]), "transform")
+    @test isnothing(only(rvl["spec"]["layer"])["encoding"]["y"]["stack"])
+    for (p, vals) in raw
+        grid = [r["val"] for r in rrows if r["parameter"] == p]
+        @test minimum(grid) == minimum(vals)
+        @test maximum(grid) == maximum(vals)
+    end
+end
+
+"""
+`auto_remap` must not silently mis-facet when a `fixed=` facet field collides
+with a DIFFERENT field the base `mapping(...)` already assigns to that channel.
+Both a default channel kw and a fixed channel kw would then target the same AoG
+key; the base default wins the `_rebuild_layer` merge, dropping the pinned field
+and mis-faceting the plot with no signal. `refine_channels` now raises a clear
+error for that case (only for fixed fields that actually vary), while leaving
+the legitimate `fixed=` uses — a field absent from the base mapping, or the same
+field the base already assigns — untouched.
+"""
+@testitem "auto_remap fixed-channel conflict" setup=[AoVTestImports] tags=[:auto_remap, :regression] begin
+    # Two-value facet fields so nothing is refined out.
+    band = (dose = repeat([1.0, 10.0]; outer=8),
+            median = collect(1.0:16.0),
+            study = repeat(["S1", "S2"]; inner=8),
+            assay = repeat(["A1", "A2"]; inner=4, outer=2),
+            outcome = repeat(["Full", "Linear"]; inner=2, outer=4),
+            source = repeat(["p1", "p2"]; outer=8))
+    obs = (dose = [1.0, 10.0, 1.0, 10.0],
+           qoi = [1.0, 2.0, 3.0, 4.0],
+           study = ["S1", "S1", "S2", "S2"],
+           assay = ["A1", "A2", "A1", "A2"])
+    dims = ["source" => "Source", "outcome" => "Outcome",
+            "assay" => "Assay", "study" => "Study"]
+
+    # CONFLICT: base puts col=:assay, fixed puts :outcome on the same column
+    # channel → clear error naming both fields and the channel.
+    bands = data(band) * mapping(:dose, :median; row=:study, col=:assay, color=:source) * visual(Band)
+    observed = data(obs) * mapping(:dose, :qoi; row=:study, col=:assay) * visual(Scatter; color="black")
+    conflict = (bands + observed) * config(height=200)
+    @test_throws "already assigns" AlgebraOfVega._auto_remap_parts(
+        "c", conflict; dims=dims, fixed=Dict(:column => "outcome"), pinned=:row)
+    @test_throws ":column" AlgebraOfVega._auto_remap_parts(
+        "c", conflict; dims=dims, fixed=Dict(:column => "outcome"), pinned=:row)
+
+    # LEGIT (absent from base): base has no col=, fixed pins :assay to column.
+    legit = (data(band) * mapping(:dose, :median; row=:study, color=:source) * visual(Band) +
+             data(obs) * mapping(:dose, :qoi; row=:study) * visual(Scatter; color="black")) * config(height=200)
+    @test AlgebraOfVega._auto_remap_parts(
+        "l", legit; dims=dims, fixed=Dict(:column => "assay"), pinned=:row) isa Tuple
+
+    # LEGIT (same field): base col=:assay AND fixed column=assay agree — no error.
+    @test AlgebraOfVega._auto_remap_parts(
+        "a", conflict; dims=dims, fixed=Dict(:column => "assay"), pinned=:row) isa Tuple
+end
+
+@testitem "interval categorical median markers" setup=[AoVTestImports] tags=[:translation, :tidybayes, :regression] begin
+    include(joinpath(@__DIR__, "interval_markers.jl"))
+end
+
+"""
+Faceted multi-source layers merge into one `__src`-tagged dataset with a
+per-layer source filter (snag `layered-area-y-y-4e8a879f`): Vega connects
+line/area paths only through consecutive defined tuples, so a path layer that
+inherited a merged dataset unfiltered would see foreign rows (null/absent
+path fields) interleaved between its own and paint zero pixels with zero
+warnings. The filter pairing is what keeps AoV-emitted specs immune to that
+silent blank.
+"""
+@testitem "faceted merge pairs every layer with a __src filter" setup=[AoVTestImports] tags=[:translation, :regression] begin
+    bands = (; x=[1.0, 2.0, 3.0, 1.0, 2.0, 3.0], y=[1.0, 2.0, 3.0, 1.5, 2.5, 3.5],
+               f=["a", "a", "a", "b", "b", "b"])
+    pts = (; x=[1.5, 2.5, 1.5, 2.5], y=[1.2, 2.2, 1.7, 2.7], f=["a", "a", "b", "b"])
+    spec = (data(bands) * mapping(:x, :y; col=:f) * visual(Lines) +
+            data(pts) * mapping(:x, :y; col=:f) * visual(Scatter))
+    vl = to_vegalite(spec; interactive=false)
+    # Facet lifted to the top; one merged dataset tagged per source table.
+    @test haskey(vl, "facet")
+    vals = vl["data"]["values"]
+    @test length(vals) == length(bands.x) + length(pts.x)
+    tags = Set(r["__src"] for r in vals)
+    @test length(tags) == 2
+    # Every inner layer routes to exactly one source tag — no layer inherits
+    # the merged dataset unfiltered (the silent-blank shape).
+    @test length(vl["spec"]["layer"]) == 2
+    seen = Set{String}()
+    for l in vl["spec"]["layer"]
+        flts = [t["filter"] for t in get(l, "transform", []) if haskey(t, "filter")]
+        srcflts = filter(f -> occursin("__src", f), flts)
+        @test length(srcflts) == 1
+        m = match(r"datum\.__src === '([^']+)'", only(srcflts))
+        @test !isnothing(m) && m.captures[1] in tags
+        push!(seen, m.captures[1])
+    end
+    @test seen == tags
+end
+
+"""
+`to_html(::HTMX.Node)` serializes a rendered picker + plot fragment as ONE
+standalone `.html` document: doctype/head/body, the exact `vega_head()` CDN +
+runtime set, picker controls, and inlined spec/data — with no
+server-relative action URLs, so the saved file works with no server.
+"""
+@testitem "standalone HTML fragment page" setup=[AoVTestImports] tags=[:standalone, :regression] begin
+    df = (; x=[11.5, 22.5, 33.5, 44.5], y=[1.0, 2.0, 3.0, 4.0],
+            g=["alpha", "beta", "alpha", "beta"], h=["up", "up", "down", "down"])
+    spec = data(df) * mapping(:x, :y; color=:g) * visual(Scatter)
+    node = auto_remap_node("frag-plot", spec;
+        dims=["g" => "Group", "h" => "Half"], pinned=:row)
+    page = to_html(node; title="Frag test")
+
+    @test startswith(page, "<!DOCTYPE html>")
+    @test occursin("<title>Frag test</title>", page)
+    @test occursin("</html>", page)
+    # The exact vega_head() CDN set, by construction.
+    for u in vega_cdn_urls()
+        @test occursin(u, page)
+    end
+    # The inlined window.AoV.* runtime, incl. the download helpers.
+    @test occursin("window.AoV = window.AoV ||", page)
+    @test occursin("remapEncoding", page)
+    @test occursin("downloadPlotData", page)
+    @test occursin("renderPrettySummary", page)
+    @test occursin("downloadPlotHtml", page)
+    # Picker controls for this card.
+    @test occursin("aov-remap-color-frag-plot", page)
+    @test occursin("_aovRemap_frag_plot", page)
+    @test occursin("aov-pin-frag-plot", page)
+    # Plot boots from inlined spec/data.
+    @test occursin("AoV.embed('frag-plot'", page)
+    @test occursin("alpha", page)
+    @test occursin("11.5", page)
+    @test occursin("Group", page)
+    # No server-relative action URLs: no HTMX attrs, no signal-wiring calls
+    # (the runtime DEFINES signalToHtmx — `signalToHtmx: function(` — which the
+    # call-shaped regex below deliberately does not match).
+    @test !occursin("hx-get", page)
+    @test !occursin("hx-post", page)
+    @test !occursin(r"signalToHtmx\('", page)
+end
+
+"""
+The upstreamed caption share/download actions: `force=`/`plot_height=` param
+stripping, the find-or-create `.caption-actions` scaffold, absolute-URL
+clipboard copy, and the no-toggle `🔗` summary button.
+"""
+@testitem "caption share/download actions" setup=[AoVTestImports] tags=[:caption, :regression] begin
+    html(x) = sprint(show, MIME"text/html"(), x)
+
+    @test clean_share_url("/p/Slug/analysis?force=1&plot_height=300") == "/p/Slug/analysis"
+    @test clean_share_url("/a?x=1&force=0") == "/a?x=1"
+    @test clean_share_url("/a?force=1&x=2") == "/a?x=2"
+    @test clean_share_url("/plain") == "/plain"
+
+    btn = html(caption_share_button("/r?force=1"))
+    @test occursin("Share", btn)
+    @test occursin("data-url=\"/r\"", btn)
+    @test occursin("new URL(", btn)
+    @test occursin("window.location.href", btn)
+    @test occursin("Copied!", btn)
+
+    inj = html(with_caption_share(h.div("card"), "/r?plot_height=9"))
+    @test occursin("figure.captioned", inj)
+    @test occursin("caption-actions", inj)
+    @test occursin("caption-header", inj)
+    @test occursin("sc.remove()", inj)
+    @test occursin("clipboard", inj)
+    @test occursin("dataset.url", inj)
+
+    dl = html(with_caption_download(h.div("card"), "/data.json", "⬇ JSON", "data.json"))
+    @test occursin("caption-actions", dl)
+    @test occursin("download", dl)
+    @test occursin("data.json", dl)
+    @test occursin("⬇ JSON", dl)
+
+    summ = html(summary_share_button("/r?force=1"))
+    @test occursin("🔗", summ)
+    @test occursin("stopPropagation", summ)
+    @test occursin("data-url=\"/r\"", summ)
+end
+
+"""
+Offline degradation is silent, never a throw: `signalToHtmx` no-ops without
+HTMX, and picker URL persistence survives a `file://` page where
+`history.replaceState` may be unavailable.
+"""
+@testitem "standalone runtime degrades silently" setup=[AoVTestImports] tags=[:standalone, :regression] begin
+    rt = sprint(show, MIME"text/html"(), vega_runtime())
+    @test occursin("typeof htmx === 'undefined'", rt)
+    @test occursin("downloadPlotHtml", rt)
+
+    picker = sprint(show, MIME"text/html"(),
+        mapping_controls("p1", ["g" => "G", "h" => "H"]; pinned=:row))
+    @test occursin("try { history.replaceState", picker)
+end
+
+"""
+`to_node` preserves `_aov` keys the spec already carries when it injects the
+responsive-sizing hint.
+
+Regression (snag `faceted-plot-fit-ca4efca3`): the fit-width block overwrote
+`vl["_aov"]` wholesale, silently dropping `maxWidth` from
+`config(max_width=...)` — a per-plot cap that then never reached the browser.
+The hint now merges: `nFacetCols` is added alongside the stored keys, and the
+caller's nested Dict is never mutated (`_as_vl_dict` is a shallow copy).
+"""
+@testitem "to_node preserves _aov responsive hints" setup=[AoVTestImports] tags=[:responsive, :regression] begin
+    html(x) = sprint(show, MIME"text/html"(), x)
+    D(ps...) = Dict{String,Any}(ps...)
+
+    df = (; x=[1.0, 2.0, 3.0, 4.0], y=[4.0, 5.0, 6.0, 7.0], g=["a", "b", "a", "b"])
+
+    # Operator-faceted (multi-layer) + per-plot cap: both keys reach the
+    # embedded spec.
+    f1 = data(df) * mapping(:x, :y; col=:g) * visual(Scatter)
+    f2 = data(df) * mapping(:x, :y; col=:g) * visual(Lines)
+    fspec = (f1 + f2) * config(max_width=600)
+    fh = html(to_node(fspec; id="m"))
+    @test occursin("\"maxWidth\":600", fh)
+    @test occursin("\"nFacetCols\":2", fh)
+
+    # Encoding-faceted (single-layer `col=`) + per-plot cap: VL sizes
+    # top-level width per cell here, so the column count rides along too.
+    espec = data(df) * mapping(:x, :y; col=:g) * visual(Scatter) * config(max_width=600)
+    eh = html(to_node(espec; id="m"))
+    @test occursin("\"maxWidth\":600", eh)
+    @test occursin("\"nFacetCols\":2", eh)
+
+    # Layered + per-plot cap: maxWidth survives without nFacetCols.
+    l1 = data(df) * mapping(:x, :y) * visual(Scatter)
+    l2 = data(df) * mapping(:x, :y) * visual(Lines)
+    lspec = (l1 + l2) * config(max_width=500)
+    lh = html(to_node(lspec; id="m"))
+    @test occursin("\"maxWidth\":500", lh)
+    @test !occursin("nFacetCols", lh)
+
+    # No cap: the faceted hint is just the column count.
+    plain = data(df) * mapping(:x, :y; col=:g) * visual(Scatter)
+    ph = html(to_node(plain; id="m"))
+    @test occursin("\"nFacetCols\":2", ph)
+    @test !occursin("maxWidth", ph)
+
+    # Dict input carrying _aov: merged, and the caller's Dict is untouched.
+    d = D("facet" => D("column" => D("field" => "g", "type" => "nominal")),
+          "spec" => D("mark" => "point"),
+          "data" => D("values" => [D("g" => "a"), D("g" => "b")]),
+          "_aov" => D("maxWidth" => 700))
+    dh = html(to_node(d; id="m"))
+    @test occursin("\"maxWidth\":700", dh)
+    @test occursin("\"nFacetCols\":2", dh)
+    @test d["_aov"] == D("maxWidth" => 700)
+
+    # hconcat/vconcat stay unmarked: VL ignores top-level width there, so AoV
+    # leaves them to raw-VL sizing (measured: 100/400/default render equal px).
+    u1 = D("mark" => "point", "encoding" => D("x" => D("field" => "x", "type" => "quantitative")))
+    @test !occursin("_aov", html(to_node(D("hconcat" => [u1, u1]); id="m")))
+    @test !occursin("_aov", html(to_node(D("vconcat" => [u1, u1]); id="m")))
+end
+
+"""
+Incremental plots: `append_data` inserts rows into a live view (optionally as a
+sliding window) and `update_spec` re-embeds a plot in place with the same
+responsive sizing `to_node` applies. The runtime keeps the rows added after
+embedding across re-embeds and replaces, rather than leaks, a re-embedded view.
+"""
+@testitem "append_data and update_spec" setup=[AoVTestImports] tags=[:incremental] begin
+    html(x) = sprint(show, MIME"text/html"(), x)
+    df = (; x=[1.0, 2.0], y=[3.0, 4.0], g=["a", "b"])
+
+    a = html(append_data("my plot", df))
+    @test occursin("AoV.appendData('my-plot', [", a)
+    @test occursin("\"x\":1.0", a) && occursin("\"g\":\"b\"", a)
+    @test occursin("'source_0', null);", a)
+    @test occursin("'src', 100);", html(append_data("p", df; name="src", max_rows=100)))
+
+    spec = data(df) * mapping(:x, :y, color=:g) * visual(Scatter)
+    # Same embedded spec as the initial `to_node`, re-embedded under the same ID
+    embedded(h) = match(r"AoV\.embed\('p', (\{.*\}), \{actions", h).captures[1]
+    u = html(update_spec("p", spec))
+    @test embedded(u) == embedded(html(to_node(spec; id="p")))
+    layered = spec + data(df) * mapping(:x, :y) * linear()
+    @test embedded(html(update_spec("p", layered))) == embedded(html(to_node(layered; id="p")))
+
+    rt = html(vega_runtime())
+    @test occursin("appendData: function", rt)
+    @test occursin("whenReady: function", rt)
+    @test occursin("_withLiveRows(id, opts)", rt)
+    @test occursin(".finalize()", rt)
+end
+
+"""
+The responsive JS sizes faceted/layered cells from the container, corrects for
+rendered chrome, and contains floored plots in-frame.
+
+Regression (snag `faceted-plot-fit-ca4efca3`): the cell-width formula reserved
+only a fixed 30px padding while real facet chrome (row headers, per-panel
+axes, spacing, legends) runs past 100px, so faceted canvases overshot their
+column by a constant at every viewport; the explorer's min-100px floor had no
+cap or containment, so high-cardinality facets rendered a fixed wide canvas
+that pushed the whole page sideways. The runtime now measures the rendered
+canvas and re-embeds once with chrome-corrected cells (`_fitCorrection`),
+floors panels at a readable 100px minimum, caps single-view specs at
+`max_width`, and the plot frame scrolls in-frame instead of pushing the page.
+The explorer routes faceted embeds through the same `AoV.embed` machinery.
+"""
+@testitem "responsive JS fits chrome-aware cells" setup=[AoVTestImports] tags=[:responsive, :regression] begin
+    rt = sprint(show, MIME"text/html"(), vega_runtime())
+    @test occursin("_fitCorrection", rt)
+    @test occursin("Math.max(minCell", rt)
+    @test occursin("style.maxWidth", rt)
+    @test occursin("_computedWidths", rt)
+    @test occursin("_correctedRegime", rt)
+
+    head = join(sprint(show, MIME"text/html"(), n) for n in vega_head())
+    @test occursin("overflow-x: auto", head)
+    @test occursin("max-width: 100%", head)
+
+    js = AlgebraOfVega.explorer_js()
+    @test occursin("window.AoV.embed('explorer-plot'", js)
+    @test occursin("_aov: aovHint", js)
+    # A non-#id selector cannot address AoV.embed: raw vegaEmbed fallback.
+    js_cls = AlgebraOfVega.explorer_js(; plot_selector="div.plot")
+    @test occursin("vegaEmbed('div.plot'", js_cls)
+    @test !occursin("AoV.embed(", js_cls)
+end

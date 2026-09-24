@@ -12,8 +12,16 @@ import {
 import VersionPicker from "@/VersionPicker.vue"
 import AuthorBadge from '@/AuthorBadge.vue'
 import Authors from '@/Authors.vue'
+import Banner from '@/Banner.vue'
+import VegaPlot from '@/VegaPlot.vue'
+import ExplorerLoader from '@/ExplorerLoader.vue'
 
 import { enhanceAppWithTabs } from 'vitepress-plugin-tabs/client'
+
+// Synced from HTMXObjects/assets/vitepress/htmxo-embed.ts by
+// `HTMXObjects.vitepress_theme_install` in make.jl. Don't edit in place
+// — edit the upstream and re-run make.jl.
+import { setupHtmxoEmbed } from './htmxo-embed'
 
 import '@nolebase/vitepress-plugin-enhanced-readabilities/client/style.css'
 import './style.css' // You could setup your own, or else a default will be copied.
@@ -23,6 +31,7 @@ export const Theme: ThemeConfig = {
   extends: DefaultTheme,
   Layout() {
     return h(DefaultTheme.Layout, null, {
+      'layout-bottom': () => h(Banner),
       'nav-bar-content-after': () => [
         h(NolebaseEnhancedReadabilitiesMenu), // Enhanced Readabilities menu
       ],
@@ -35,6 +44,13 @@ export const Theme: ThemeConfig = {
     app.component('VersionPicker', VersionPicker);
     app.component('AuthorBadge', AuthorBadge)
     app.component('Authors', Authors)
+    app.component('VegaPlot', VegaPlot)
+    app.component('ExplorerLoader', ExplorerLoader)
+    // HTMXObjects embed wiring: data-hx-base resolution + SPA route
+    // re-process + .htmxo-embed link rewriting. AoV defaults the proxy
+    // prefix to `/live-aov` (matches the Vite proxy in config.mts and
+    // the committed recordings under public/live-aov/).
+    setupHtmxoEmbed(router, { proxyPrefix: '/live-aov' });
   }
 }
 export default Theme

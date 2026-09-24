@@ -1,0 +1,174 @@
+{
+  "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+  "layer": [
+    {
+      "encoding": {
+        "tooltip": [
+          {
+            "field": "month",
+            "type": "nominal"
+          },
+          {
+            "field": "sales",
+            "type": "quantitative"
+          }
+        ],
+        "x": {
+          "field": "month",
+          "type": "nominal"
+        },
+        "y": {
+          "field": "sales",
+          "type": "quantitative"
+        }
+      },
+      "params": [
+        {
+          "name": "grid",
+          "bind": "scales",
+          "select": {
+            "encodings": [
+              "y"
+            ],
+            "type": "interval"
+          }
+        }
+      ],
+      "mark": {
+        "type": "bar",
+        "opacity": 0.6
+      }
+    },
+    {
+      "encoding": {
+        "tooltip": [
+          {
+            "field": "month",
+            "type": "nominal"
+          },
+          {
+            "field": "trend",
+            "type": "quantitative"
+          }
+        ],
+        "x": {
+          "field": "month",
+          "type": "nominal"
+        },
+        "y": {
+          "field": "trend",
+          "type": "quantitative"
+        }
+      },
+      "data": {
+        "values": [
+          {
+            "month": "Jan",
+            "trend": 125
+          },
+          {
+            "month": "Feb",
+            "trend": 130
+          },
+          {
+            "month": "Mar",
+            "trend": 138
+          },
+          {
+            "month": "Apr",
+            "trend": 145
+          },
+          {
+            "month": "May",
+            "trend": 152
+          },
+          {
+            "month": "Jun",
+            "trend": 160
+          },
+          {
+            "month": "Jul",
+            "trend": 168
+          },
+          {
+            "month": "Aug",
+            "trend": 175
+          },
+          {
+            "month": "Sep",
+            "trend": 170
+          },
+          {
+            "month": "Oct",
+            "trend": 163
+          },
+          {
+            "month": "Nov",
+            "trend": 155
+          },
+          {
+            "month": "Dec",
+            "trend": 158
+          }
+        ]
+      },
+      "mark": {
+        "color": "red",
+        "type": "line"
+      }
+    }
+  ],
+  "data": {
+    "values": [
+      {
+        "month": "Jan",
+        "sales": 120
+      },
+      {
+        "month": "Feb",
+        "sales": 135
+      },
+      {
+        "month": "Mar",
+        "sales": 148
+      },
+      {
+        "month": "Apr",
+        "sales": 142
+      },
+      {
+        "month": "May",
+        "sales": 165
+      },
+      {
+        "month": "Jun",
+        "sales": 178
+      },
+      {
+        "month": "Jul",
+        "sales": 195
+      },
+      {
+        "month": "Aug",
+        "sales": 188
+      },
+      {
+        "month": "Sep",
+        "sales": 172
+      },
+      {
+        "month": "Oct",
+        "sales": 158
+      },
+      {
+        "month": "Nov",
+        "sales": 145
+      },
+      {
+        "month": "Dec",
+        "sales": 162
+      }
+    ]
+  },
+  "title": "Monthly Sales with Trend"
+}

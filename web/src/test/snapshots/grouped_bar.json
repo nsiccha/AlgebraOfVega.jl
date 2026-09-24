@@ -1,0 +1,197 @@
+{
+  "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+  "height": 300,
+  "encoding": {
+    "xOffset": {
+      "field": "channel",
+      "type": "nominal"
+    },
+    "tooltip": [
+      {
+        "field": "channel",
+        "type": "nominal"
+      },
+      {
+        "field": "month",
+        "type": "nominal"
+      },
+      {
+        "field": "channel",
+        "type": "nominal"
+      },
+      {
+        "field": "sales",
+        "type": "quantitative"
+      }
+    ],
+    "x": {
+      "field": "month",
+      "type": "nominal"
+    },
+    "color": {
+      "field": "channel",
+      "type": "nominal"
+    },
+    "opacity": {
+      "condition": {
+        "param": "legend_selection",
+        "value": 1,
+        "empty": true
+      },
+      "value": 0.15
+    },
+    "y": {
+      "field": "sales",
+      "type": "quantitative"
+    }
+  },
+  "data": {
+    "values": [
+      {
+        "channel": "Online",
+        "month": "Jan",
+        "sales": 120
+      },
+      {
+        "channel": "Online",
+        "month": "Feb",
+        "sales": 135
+      },
+      {
+        "channel": "Online",
+        "month": "Mar",
+        "sales": 140
+      },
+      {
+        "channel": "Online",
+        "month": "Apr",
+        "sales": 160
+      },
+      {
+        "channel": "Online",
+        "month": "May",
+        "sales": 180
+      },
+      {
+        "channel": "Online",
+        "month": "Jun",
+        "sales": 200
+      },
+      {
+        "channel": "Online",
+        "month": "Jul",
+        "sales": 220
+      },
+      {
+        "channel": "Online",
+        "month": "Aug",
+        "sales": 210
+      },
+      {
+        "channel": "Online",
+        "month": "Sep",
+        "sales": 190
+      },
+      {
+        "channel": "Online",
+        "month": "Oct",
+        "sales": 175
+      },
+      {
+        "channel": "Online",
+        "month": "Nov",
+        "sales": 160
+      },
+      {
+        "channel": "Online",
+        "month": "Dec",
+        "sales": 250
+      },
+      {
+        "channel": "Store",
+        "month": "Jan",
+        "sales": 200
+      },
+      {
+        "channel": "Store",
+        "month": "Feb",
+        "sales": 180
+      },
+      {
+        "channel": "Store",
+        "month": "Mar",
+        "sales": 190
+      },
+      {
+        "channel": "Store",
+        "month": "Apr",
+        "sales": 170
+      },
+      {
+        "channel": "Store",
+        "month": "May",
+        "sales": 160
+      },
+      {
+        "channel": "Store",
+        "month": "Jun",
+        "sales": 150
+      },
+      {
+        "channel": "Store",
+        "month": "Jul",
+        "sales": 140
+      },
+      {
+        "channel": "Store",
+        "month": "Aug",
+        "sales": 145
+      },
+      {
+        "channel": "Store",
+        "month": "Sep",
+        "sales": 155
+      },
+      {
+        "channel": "Store",
+        "month": "Oct",
+        "sales": 170
+      },
+      {
+        "channel": "Store",
+        "month": "Nov",
+        "sales": 180
+      },
+      {
+        "channel": "Store",
+        "month": "Dec",
+        "sales": 300
+      }
+    ]
+  },
+  "title": "Monthly Sales by Channel",
+  "width": 600,
+  "mark": "bar",
+  "params": [
+    {
+      "name": "grid",
+      "bind": "scales",
+      "select": {
+        "encodings": [
+          "y"
+        ],
+        "type": "interval"
+      }
+    },
+    {
+      "name": "legend_selection",
+      "bind": "legend",
+      "select": {
+        "fields": [
+          "channel"
+        ],
+        "type": "point"
+      }
+    }
+  ]
+}

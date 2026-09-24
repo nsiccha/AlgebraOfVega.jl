@@ -1,0 +1,83 @@
+{
+  "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+  "spec": {
+    "layer": [
+      {
+        "encoding": {
+          "tooltip": [
+            {
+              "field": "origin",
+              "type": "nominal"
+            },
+            {
+              "field": "horsepower",
+              "type": "quantitative"
+            },
+            {
+              "field": "mpg",
+              "type": "quantitative"
+            }
+          ],
+          "x": {
+            "field": "horsepower",
+            "type": "quantitative"
+          },
+          "y": {
+            "field": "mpg",
+            "type": "quantitative"
+          }
+        },
+        "params": [
+          {
+            "name": "grid",
+            "bind": "scales",
+            "select": {
+              "encodings": [
+                "x",
+                "y"
+              ],
+              "type": "interval"
+            }
+          }
+        ],
+        "mark": {
+          "type": "point",
+          "opacity": 0.5
+        }
+      },
+      {
+        "encoding": {
+          "x": {
+            "field": "horsepower",
+            "type": "quantitative"
+          },
+          "y": {
+            "field": "mpg",
+            "type": "quantitative"
+          }
+        },
+        "mark": {
+          "color": "firebrick",
+          "type": "line"
+        },
+        "transform": [
+          {
+            "method": "linear",
+            "regression": "mpg",
+            "on": "horsepower"
+          }
+        ]
+      }
+    ]
+  },
+  "data": {
+    "values": []
+  },
+  "facet": {
+    "column": {
+      "field": "origin",
+      "type": "nominal"
+    }
+  },
+  "title": "MPG vs HP by Origin"
+}

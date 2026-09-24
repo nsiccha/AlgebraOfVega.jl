@@ -1,0 +1,812 @@
+{
+  "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+  "height": 200,
+  "layer": [
+    {
+      "encoding": {
+        "x": {
+          "bin": {
+            "maxbins": 40
+          },
+          "field": "quantile",
+          "title": "value",
+          "type": "quantitative"
+        },
+        "color": {
+          "field": "parameter",
+          "type": "nominal",
+          "legend": null
+        },
+        "size": {
+          "aggregate": "count",
+          "legend": null
+        },
+        "y": {
+          "axis": {
+            "title": null
+          },
+          "field": "parameter",
+          "type": "nominal"
+        }
+      },
+      "data": {
+        "values": [
+          {
+            "parameter": "α",
+            "quantile": 0.7509121926616724
+          },
+          {
+            "parameter": "α",
+            "quantile": 0.9838779329261731
+          },
+          {
+            "parameter": "α",
+            "quantile": 1.1469344147158052
+          },
+          {
+            "parameter": "α",
+            "quantile": 1.2237102625492349
+          },
+          {
+            "parameter": "α",
+            "quantile": 1.315979000194139
+          },
+          {
+            "parameter": "α",
+            "quantile": 1.3755178116977929
+          },
+          {
+            "parameter": "α",
+            "quantile": 1.4275407357251506
+          },
+          {
+            "parameter": "α",
+            "quantile": 1.4596595132694983
+          },
+          {
+            "parameter": "α",
+            "quantile": 1.5056926204983587
+          },
+          {
+            "parameter": "α",
+            "quantile": 1.5565305666597966
+          },
+          {
+            "parameter": "α",
+            "quantile": 1.5841096605320142
+          },
+          {
+            "parameter": "α",
+            "quantile": 1.629441888640299
+          },
+          {
+            "parameter": "α",
+            "quantile": 1.662716483853726
+          },
+          {
+            "parameter": "α",
+            "quantile": 1.7072113176284807
+          },
+          {
+            "parameter": "α",
+            "quantile": 1.7544877704219917
+          },
+          {
+            "parameter": "α",
+            "quantile": 1.7938650560618015
+          },
+          {
+            "parameter": "α",
+            "quantile": 1.8199749757646937
+          },
+          {
+            "parameter": "α",
+            "quantile": 1.8318136977168016
+          },
+          {
+            "parameter": "α",
+            "quantile": 1.8535295101130476
+          },
+          {
+            "parameter": "α",
+            "quantile": 1.899105435840782
+          },
+          {
+            "parameter": "α",
+            "quantile": 1.9166759044855914
+          },
+          {
+            "parameter": "α",
+            "quantile": 1.939980543554565
+          },
+          {
+            "parameter": "α",
+            "quantile": 1.9544216915177335
+          },
+          {
+            "parameter": "α",
+            "quantile": 1.9784905578983483
+          },
+          {
+            "parameter": "α",
+            "quantile": 2.0028407706456743
+          },
+          {
+            "parameter": "α",
+            "quantile": 2.02754888461282
+          },
+          {
+            "parameter": "α",
+            "quantile": 2.0585625152759564
+          },
+          {
+            "parameter": "α",
+            "quantile": 2.072625740385693
+          },
+          {
+            "parameter": "α",
+            "quantile": 2.113420214266913
+          },
+          {
+            "parameter": "α",
+            "quantile": 2.1381822205233947
+          },
+          {
+            "parameter": "α",
+            "quantile": 2.1819301726897056
+          },
+          {
+            "parameter": "α",
+            "quantile": 2.2134992604691917
+          },
+          {
+            "parameter": "α",
+            "quantile": 2.237232161816217
+          },
+          {
+            "parameter": "α",
+            "quantile": 2.249804746123987
+          },
+          {
+            "parameter": "α",
+            "quantile": 2.282625329777341
+          },
+          {
+            "parameter": "α",
+            "quantile": 2.3167399004578293
+          },
+          {
+            "parameter": "α",
+            "quantile": 2.358236169628359
+          },
+          {
+            "parameter": "α",
+            "quantile": 2.3823164774712056
+          },
+          {
+            "parameter": "α",
+            "quantile": 2.4167564179892205
+          },
+          {
+            "parameter": "α",
+            "quantile": 2.454057041070598
+          },
+          {
+            "parameter": "α",
+            "quantile": 2.489376213160381
+          },
+          {
+            "parameter": "α",
+            "quantile": 2.531758297580067
+          },
+          {
+            "parameter": "α",
+            "quantile": 2.5680717668297053
+          },
+          {
+            "parameter": "α",
+            "quantile": 2.6345480749223427
+          },
+          {
+            "parameter": "α",
+            "quantile": 2.66555886321943
+          },
+          {
+            "parameter": "α",
+            "quantile": 2.7214136105361075
+          },
+          {
+            "parameter": "α",
+            "quantile": 2.7564392617269657
+          },
+          {
+            "parameter": "α",
+            "quantile": 2.841684380268437
+          },
+          {
+            "parameter": "α",
+            "quantile": 2.8913776701415275
+          },
+          {
+            "parameter": "α",
+            "quantile": 3.0944805257927106
+          },
+          {
+            "parameter": "β",
+            "quantile": 0.1865333706635891
+          },
+          {
+            "parameter": "β",
+            "quantile": 0.2673613013401325
+          },
+          {
+            "parameter": "β",
+            "quantile": 0.3319974253659057
+          },
+          {
+            "parameter": "β",
+            "quantile": 0.3657576922796421
+          },
+          {
+            "parameter": "β",
+            "quantile": 0.4098943914350379
+          },
+          {
+            "parameter": "β",
+            "quantile": 0.44356846225277363
+          },
+          {
+            "parameter": "β",
+            "quantile": 0.4687426342618094
+          },
+          {
+            "parameter": "β",
+            "quantile": 0.4884391894417784
+          },
+          {
+            "parameter": "β",
+            "quantile": 0.5131547046036945
+          },
+          {
+            "parameter": "β",
+            "quantile": 0.5429781607557778
+          },
+          {
+            "parameter": "β",
+            "quantile": 0.5679565992801172
+          },
+          {
+            "parameter": "β",
+            "quantile": 0.5864713208943221
+          },
+          {
+            "parameter": "β",
+            "quantile": 0.6107660784106237
+          },
+          {
+            "parameter": "β",
+            "quantile": 0.6340890551787256
+          },
+          {
+            "parameter": "β",
+            "quantile": 0.6508004527276632
+          },
+          {
+            "parameter": "β",
+            "quantile": 0.6690218949596465
+          },
+          {
+            "parameter": "β",
+            "quantile": 0.6964524224325089
+          },
+          {
+            "parameter": "β",
+            "quantile": 0.7113544300443387
+          },
+          {
+            "parameter": "β",
+            "quantile": 0.7197931940676475
+          },
+          {
+            "parameter": "β",
+            "quantile": 0.7395338005551407
+          },
+          {
+            "parameter": "β",
+            "quantile": 0.755484628800468
+          },
+          {
+            "parameter": "β",
+            "quantile": 0.773596048602249
+          },
+          {
+            "parameter": "β",
+            "quantile": 0.7912050009606869
+          },
+          {
+            "parameter": "β",
+            "quantile": 0.807328308751015
+          },
+          {
+            "parameter": "β",
+            "quantile": 0.8284283068384914
+          },
+          {
+            "parameter": "β",
+            "quantile": 0.8428521974660288
+          },
+          {
+            "parameter": "β",
+            "quantile": 0.8558579416405813
+          },
+          {
+            "parameter": "β",
+            "quantile": 0.8723902678153331
+          },
+          {
+            "parameter": "β",
+            "quantile": 0.8833767374888581
+          },
+          {
+            "parameter": "β",
+            "quantile": 0.8931544993053998
+          },
+          {
+            "parameter": "β",
+            "quantile": 0.9295767302009912
+          },
+          {
+            "parameter": "β",
+            "quantile": 0.9432686746614006
+          },
+          {
+            "parameter": "β",
+            "quantile": 0.9596102707706844
+          },
+          {
+            "parameter": "β",
+            "quantile": 0.9732525327626125
+          },
+          {
+            "parameter": "β",
+            "quantile": 0.9876559638584596
+          },
+          {
+            "parameter": "β",
+            "quantile": 1.0137332499907576
+          },
+          {
+            "parameter": "β",
+            "quantile": 1.0229844584040448
+          },
+          {
+            "parameter": "β",
+            "quantile": 1.040754838397266
+          },
+          {
+            "parameter": "β",
+            "quantile": 1.0696776494960991
+          },
+          {
+            "parameter": "β",
+            "quantile": 1.083497365165344
+          },
+          {
+            "parameter": "β",
+            "quantile": 1.114920580700121
+          },
+          {
+            "parameter": "β",
+            "quantile": 1.1365390172448988
+          },
+          {
+            "parameter": "β",
+            "quantile": 1.1578955993229127
+          },
+          {
+            "parameter": "β",
+            "quantile": 1.1906928008760118
+          },
+          {
+            "parameter": "β",
+            "quantile": 1.2204130571434701
+          },
+          {
+            "parameter": "β",
+            "quantile": 1.2474417222056644
+          },
+          {
+            "parameter": "β",
+            "quantile": 1.2726623134810975
+          },
+          {
+            "parameter": "β",
+            "quantile": 1.3088620228339782
+          },
+          {
+            "parameter": "β",
+            "quantile": 1.344563034818639
+          },
+          {
+            "parameter": "β",
+            "quantile": 1.5133372977238162
+          },
+          {
+            "parameter": "σ",
+            "quantile": 1.203429561980058
+          },
+          {
+            "parameter": "σ",
+            "quantile": 1.2109785492815965
+          },
+          {
+            "parameter": "σ",
+            "quantile": 1.2175736723821151
+          },
+          {
+            "parameter": "σ",
+            "quantile": 1.224132022900944
+          },
+          {
+            "parameter": "σ",
+            "quantile": 1.2283423222561582
+          },
+          {
+            "parameter": "σ",
+            "quantile": 1.2323511094804445
+          },
+          {
+            "parameter": "σ",
+            "quantile": 1.236112234457249
+          },
+          {
+            "parameter": "σ",
+            "quantile": 1.242328120501533
+          },
+          {
+            "parameter": "σ",
+            "quantile": 1.2473107086584487
+          },
+          {
+            "parameter": "σ",
+            "quantile": 1.253621846586077
+          },
+          {
+            "parameter": "σ",
+            "quantile": 1.2577510221720931
+          },
+          {
+            "parameter": "σ",
+            "quantile": 1.2622147971629623
+          },
+          {
+            "parameter": "σ",
+            "quantile": 1.2641000040314807
+          },
+          {
+            "parameter": "σ",
+            "quantile": 1.2722260206902456
+          },
+          {
+            "parameter": "σ",
+            "quantile": 1.2794375274454513
+          },
+          {
+            "parameter": "σ",
+            "quantile": 1.286569646707406
+          },
+          {
+            "parameter": "σ",
+            "quantile": 1.2907818744497253
+          },
+          {
+            "parameter": "σ",
+            "quantile": 1.2944533183508395
+          },
+          {
+            "parameter": "σ",
+            "quantile": 1.3002571439623258
+          },
+          {
+            "parameter": "σ",
+            "quantile": 1.3055108094917065
+          },
+          {
+            "parameter": "σ",
+            "quantile": 1.311806031279595
+          },
+          {
+            "parameter": "σ",
+            "quantile": 1.3161296975077703
+          },
+          {
+            "parameter": "σ",
+            "quantile": 1.321104040153398
+          },
+          {
+            "parameter": "σ",
+            "quantile": 1.3264215680923144
+          },
+          {
+            "parameter": "σ",
+            "quantile": 1.3323475171825538
+          },
+          {
+            "parameter": "σ",
+            "quantile": 1.3367981337903534
+          },
+          {
+            "parameter": "σ",
+            "quantile": 1.3431664908208751
+          },
+          {
+            "parameter": "σ",
+            "quantile": 1.3497157358378753
+          },
+          {
+            "parameter": "σ",
+            "quantile": 1.3552016586850553
+          },
+          {
+            "parameter": "σ",
+            "quantile": 1.3608482094479046
+          },
+          {
+            "parameter": "σ",
+            "quantile": 1.3662264515850038
+          },
+          {
+            "parameter": "σ",
+            "quantile": 1.3708652824202496
+          },
+          {
+            "parameter": "σ",
+            "quantile": 1.3802751141954626
+          },
+          {
+            "parameter": "σ",
+            "quantile": 1.3903267924932399
+          },
+          {
+            "parameter": "σ",
+            "quantile": 1.3949482661258117
+          },
+          {
+            "parameter": "σ",
+            "quantile": 1.3996101369356277
+          },
+          {
+            "parameter": "σ",
+            "quantile": 1.4078156970717381
+          },
+          {
+            "parameter": "σ",
+            "quantile": 1.4220745052692103
+          },
+          {
+            "parameter": "σ",
+            "quantile": 1.436244290493516
+          },
+          {
+            "parameter": "σ",
+            "quantile": 1.4457966516263283
+          },
+          {
+            "parameter": "σ",
+            "quantile": 1.4543888345837903
+          },
+          {
+            "parameter": "σ",
+            "quantile": 1.468014881397119
+          },
+          {
+            "parameter": "σ",
+            "quantile": 1.4821055690793723
+          },
+          {
+            "parameter": "σ",
+            "quantile": 1.497670897073224
+          },
+          {
+            "parameter": "σ",
+            "quantile": 1.5064744925488305
+          },
+          {
+            "parameter": "σ",
+            "quantile": 1.5293659344990576
+          },
+          {
+            "parameter": "σ",
+            "quantile": 1.564740551455087
+          },
+          {
+            "parameter": "σ",
+            "quantile": 1.605492551898612
+          },
+          {
+            "parameter": "σ",
+            "quantile": 1.6341438716212562
+          },
+          {
+            "parameter": "σ",
+            "quantile": 1.7109902246177053
+          }
+        ]
+      },
+      "params": [
+        {
+          "name": "grid",
+          "bind": "scales",
+          "select": {
+            "encodings": [
+              "x"
+            ],
+            "type": "interval"
+          }
+        }
+      ],
+      "mark": {
+        "size": 30,
+        "type": "circle",
+        "opacity": 0.6
+      }
+    },
+    {
+      "layer": [
+        {
+          "encoding": {
+            "x2": {
+              "field": "hi_0_95_"
+            },
+            "x": {
+              "field": "lo_0_95_",
+              "type": "quantitative"
+            },
+            "tooltip": [
+              {
+                "field": "__point__",
+                "title": "value (estimate)",
+                "type": "quantitative"
+              },
+              {
+                "field": "parameter",
+                "type": "nominal"
+              },
+              {
+                "field": "lo_0_95_",
+                "title": "95% lo",
+                "type": "quantitative"
+              },
+              {
+                "field": "hi_0_95_",
+                "title": "95% hi",
+                "type": "quantitative"
+              }
+            ],
+            "y": {
+              "field": "parameter",
+              "type": "nominal"
+            }
+          },
+          "mark": {
+            "color": "#333",
+            "strokeWidth": 1.5,
+            "type": "rule"
+          }
+        },
+        {
+          "encoding": {
+            "x2": {
+              "field": "hi_0_5_"
+            },
+            "x": {
+              "field": "lo_0_5_",
+              "type": "quantitative"
+            },
+            "tooltip": [
+              {
+                "field": "__point__",
+                "title": "value (estimate)",
+                "type": "quantitative"
+              },
+              {
+                "field": "parameter",
+                "type": "nominal"
+              },
+              {
+                "field": "lo_0_95_",
+                "title": "95% lo",
+                "type": "quantitative"
+              },
+              {
+                "field": "hi_0_95_",
+                "title": "95% hi",
+                "type": "quantitative"
+              }
+            ],
+            "y": {
+              "field": "parameter",
+              "type": "nominal"
+            }
+          },
+          "mark": {
+            "color": "#333",
+            "strokeWidth": 5.0,
+            "type": "rule"
+          }
+        },
+        {
+          "encoding": {
+            "tooltip": [
+              {
+                "field": "__point__",
+                "title": "value (estimate)",
+                "type": "quantitative"
+              },
+              {
+                "field": "parameter",
+                "type": "nominal"
+              },
+              {
+                "field": "lo_0_95_",
+                "title": "95% lo",
+                "type": "quantitative"
+              },
+              {
+                "field": "hi_0_95_",
+                "title": "95% hi",
+                "type": "quantitative"
+              }
+            ],
+            "x": {
+              "field": "__point__",
+              "type": "quantitative"
+            },
+            "y": {
+              "field": "parameter",
+              "type": "nominal"
+            }
+          },
+          "mark": {
+            "filled": true,
+            "stroke": "#333",
+            "color": "white",
+            "strokeWidth": 1.5,
+            "size": 50,
+            "type": "point"
+          }
+        }
+      ],
+      "data": {
+        "values": [
+          {
+            "parameter": "α",
+            "lo_0_95_": 0.922918999857874,
+            "hi_0_5_": 2.3823164774712056,
+            "__point__": 2.020410727586583,
+            "hi_0_95_": 2.942973769932346,
+            "lo_0_5_": 1.662716483853726
+          },
+          {
+            "parameter": "β",
+            "lo_0_95_": 0.2549803754045892,
+            "hi_0_5_": 1.040754838397266,
+            "__point__": 0.8351605447493711,
+            "hi_0_95_": 1.4054132211883186,
+            "lo_0_5_": 0.6107660784106237
+          },
+          {
+            "parameter": "σ",
+            "lo_0_95_": 1.2097027069471717,
+            "hi_0_5_": 1.4220745052692103,
+            "__point__": 1.3351060265735541,
+            "hi_0_95_": 1.6478066536625613,
+            "lo_0_5_": 1.2641000040314807
+          }
+        ]
+      }
+    }
+  ],
+  "title": "Quantile Dotplot + Interval (tidybayes-style)",
+  "width": 500
+}

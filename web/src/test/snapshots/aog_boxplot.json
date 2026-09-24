@@ -1,0 +1,1075 @@
+{
+  "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+  "encoding": {
+    "xOffset": {
+      "field": "sex",
+      "type": "nominal"
+    },
+    "tooltip": [
+      {
+        "field": "sex",
+        "type": "nominal"
+      },
+      {
+        "field": "species",
+        "type": "nominal"
+      },
+      {
+        "field": "sex",
+        "type": "nominal"
+      },
+      {
+        "field": "bill_depth",
+        "type": "quantitative"
+      }
+    ],
+    "x": {
+      "field": "species",
+      "type": "nominal"
+    },
+    "color": {
+      "field": "sex",
+      "type": "nominal"
+    },
+    "opacity": {
+      "condition": {
+        "param": "legend_selection",
+        "value": 1,
+        "empty": true
+      },
+      "value": 0.15
+    },
+    "y": {
+      "field": "bill_depth",
+      "type": "quantitative"
+    }
+  },
+  "data": {
+    "values": [
+      {
+        "sex": "male",
+        "bill_depth": 17.58976773820047,
+        "species": "Adelie"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 18.63247811036486,
+        "species": "Chinstrap"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 13.39216822444616,
+        "species": "Gentoo"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 17.167639595538052,
+        "species": "Adelie"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 17.62025899508693,
+        "species": "Chinstrap"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 15.152642436206651,
+        "species": "Gentoo"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 20.77627601075586,
+        "species": "Adelie"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 17.78230608357935,
+        "species": "Chinstrap"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 13.600202485951941,
+        "species": "Gentoo"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 16.850374248348594,
+        "species": "Adelie"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 19.42185759062723,
+        "species": "Chinstrap"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 15.43389059503793,
+        "species": "Gentoo"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 18.30910312354921,
+        "species": "Adelie"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 18.06969187533932,
+        "species": "Chinstrap"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 14.66353894414342,
+        "species": "Gentoo"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 18.870619897290208,
+        "species": "Adelie"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 18.26813413756329,
+        "species": "Chinstrap"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 14.75393387827753,
+        "species": "Gentoo"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 17.113921207929224,
+        "species": "Adelie"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 18.511414968096606,
+        "species": "Chinstrap"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 16.051118079035025,
+        "species": "Gentoo"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 19.406158817082904,
+        "species": "Adelie"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 17.92545338674679,
+        "species": "Chinstrap"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 14.113807010002946,
+        "species": "Gentoo"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 17.57259448256258,
+        "species": "Adelie"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 17.925156028839655,
+        "species": "Chinstrap"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 14.449811683353113,
+        "species": "Gentoo"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 16.768952587132503,
+        "species": "Adelie"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 19.557452932539327,
+        "species": "Chinstrap"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 14.814699976426294,
+        "species": "Gentoo"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 17.42364364403982,
+        "species": "Adelie"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 18.12443398173572,
+        "species": "Chinstrap"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 16.15252228041852,
+        "species": "Gentoo"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 16.48438733624659,
+        "species": "Adelie"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 18.146204159439698,
+        "species": "Chinstrap"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 15.763460882439777,
+        "species": "Gentoo"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 15.834389531853056,
+        "species": "Adelie"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 19.010032266033733,
+        "species": "Chinstrap"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 16.469386969201242,
+        "species": "Gentoo"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 17.42806542057746,
+        "species": "Adelie"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 20.27115071048888,
+        "species": "Chinstrap"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 15.512231555427633,
+        "species": "Gentoo"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 17.78864496345422,
+        "species": "Adelie"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 17.61080837547099,
+        "species": "Chinstrap"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 13.839000973639218,
+        "species": "Gentoo"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 18.58604590174474,
+        "species": "Adelie"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 18.267844867699626,
+        "species": "Chinstrap"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 13.437091128975366,
+        "species": "Gentoo"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 17.989546113846647,
+        "species": "Adelie"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 18.0297499512431,
+        "species": "Chinstrap"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 13.903925087537054,
+        "species": "Gentoo"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 17.37166016050689,
+        "species": "Adelie"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 16.915636611148535,
+        "species": "Chinstrap"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 15.100111441069174,
+        "species": "Gentoo"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 17.82549792900566,
+        "species": "Adelie"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 20.30959449366527,
+        "species": "Chinstrap"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 16.258947647854157,
+        "species": "Gentoo"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 18.762661160448754,
+        "species": "Adelie"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 17.939648305513206,
+        "species": "Chinstrap"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 13.012600812463912,
+        "species": "Gentoo"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 17.461241939682605,
+        "species": "Adelie"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 19.20105409134077,
+        "species": "Chinstrap"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 14.739918807603194,
+        "species": "Gentoo"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 19.208749491634382,
+        "species": "Adelie"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 18.090216931253103,
+        "species": "Chinstrap"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 15.432860107730944,
+        "species": "Gentoo"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 18.840604144265463,
+        "species": "Adelie"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 19.319240401162567,
+        "species": "Chinstrap"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 16.124208543321412,
+        "species": "Gentoo"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 15.73459016523129,
+        "species": "Adelie"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 17.329702142749664,
+        "species": "Chinstrap"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 14.15596360199669,
+        "species": "Gentoo"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 19.418189277313914,
+        "species": "Adelie"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 17.9727646695787,
+        "species": "Chinstrap"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 15.605496480816086,
+        "species": "Gentoo"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 18.027788933596206,
+        "species": "Adelie"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 17.137104719158007,
+        "species": "Chinstrap"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 14.520131778483318,
+        "species": "Gentoo"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 17.835699948010014,
+        "species": "Adelie"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 18.834081126456123,
+        "species": "Chinstrap"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 14.567327132002298,
+        "species": "Gentoo"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 17.559950029193985,
+        "species": "Adelie"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 18.86918249006171,
+        "species": "Chinstrap"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 15.925111929152152,
+        "species": "Gentoo"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 17.860808582515244,
+        "species": "Adelie"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 18.644816058995175,
+        "species": "Chinstrap"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 14.763804765330615,
+        "species": "Gentoo"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 18.193823295393752,
+        "species": "Adelie"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 19.11741599487364,
+        "species": "Chinstrap"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 14.561141799022574,
+        "species": "Gentoo"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 18.674642498505506,
+        "species": "Adelie"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 18.060237031594582,
+        "species": "Chinstrap"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 14.951603302542576,
+        "species": "Gentoo"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 17.75077279794527,
+        "species": "Adelie"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 17.67152886668719,
+        "species": "Chinstrap"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 13.970946057630865,
+        "species": "Gentoo"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 17.44035688585579,
+        "species": "Adelie"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 18.824289196679576,
+        "species": "Chinstrap"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 14.37836245360427,
+        "species": "Gentoo"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 18.66335422158601,
+        "species": "Adelie"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 17.61397289333103,
+        "species": "Chinstrap"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 15.65748886022883,
+        "species": "Gentoo"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 17.905169838044483,
+        "species": "Adelie"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 18.583701486766124,
+        "species": "Chinstrap"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 16.065258185538905,
+        "species": "Gentoo"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 19.063586895607123,
+        "species": "Adelie"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 19.957383071245737,
+        "species": "Chinstrap"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 15.933633339352323,
+        "species": "Gentoo"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 19.15640574715851,
+        "species": "Adelie"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 19.201527190791953,
+        "species": "Chinstrap"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 14.504643049661322,
+        "species": "Gentoo"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 16.749204196837713,
+        "species": "Adelie"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 17.42093730786755,
+        "species": "Chinstrap"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 16.21799478956524,
+        "species": "Gentoo"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 17.999841021372152,
+        "species": "Adelie"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 17.632759862194927,
+        "species": "Chinstrap"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 14.167234186074204,
+        "species": "Gentoo"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 19.621289694626025,
+        "species": "Adelie"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 18.83898937911816,
+        "species": "Chinstrap"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 16.530528989115776,
+        "species": "Gentoo"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 18.366486863943248,
+        "species": "Adelie"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 19.491201593653997,
+        "species": "Chinstrap"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 16.296411665045397,
+        "species": "Gentoo"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 18.32083776396935,
+        "species": "Adelie"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 18.299568190730824,
+        "species": "Chinstrap"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 14.422235256399395,
+        "species": "Gentoo"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 18.710630544057356,
+        "species": "Adelie"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 20.95673671024452,
+        "species": "Chinstrap"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 15.749255436494106,
+        "species": "Gentoo"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 19.163820084244627,
+        "species": "Adelie"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 19.802010504196822,
+        "species": "Chinstrap"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 16.148401039973766,
+        "species": "Gentoo"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 16.958813521687382,
+        "species": "Adelie"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 16.905689780017788,
+        "species": "Chinstrap"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 15.297175908806757,
+        "species": "Gentoo"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 19.442049692055644,
+        "species": "Adelie"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 19.048687996903748,
+        "species": "Chinstrap"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 14.472026624876033,
+        "species": "Gentoo"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 17.484677864308654,
+        "species": "Adelie"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 19.156935407214995,
+        "species": "Chinstrap"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 14.155695502070634,
+        "species": "Gentoo"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 18.8436838432958,
+        "species": "Adelie"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 19.7366388935151,
+        "species": "Chinstrap"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 12.879393605328392,
+        "species": "Gentoo"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 18.517376143577692,
+        "species": "Adelie"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 19.806631459514122,
+        "species": "Chinstrap"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 15.094935745145936,
+        "species": "Gentoo"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 17.791953777825682,
+        "species": "Adelie"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 17.588657334102553,
+        "species": "Chinstrap"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 13.45222026057207,
+        "species": "Gentoo"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 16.73279211453541,
+        "species": "Adelie"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 19.238241656113022,
+        "species": "Chinstrap"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 14.572639564076628,
+        "species": "Gentoo"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 18.420320216440455,
+        "species": "Adelie"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 18.52144543028671,
+        "species": "Chinstrap"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 14.407653199307429,
+        "species": "Gentoo"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 16.91780296473262,
+        "species": "Adelie"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 18.2490081094395,
+        "species": "Chinstrap"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 13.285671073797,
+        "species": "Gentoo"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 20.23869909860903,
+        "species": "Adelie"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 19.585201343782614,
+        "species": "Chinstrap"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 14.364604716203448,
+        "species": "Gentoo"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 16.742451440452143,
+        "species": "Adelie"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 19.23869710601512,
+        "species": "Chinstrap"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 14.177208951329085,
+        "species": "Gentoo"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 17.079391794590347,
+        "species": "Adelie"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 18.44202825055158,
+        "species": "Chinstrap"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 15.461538655066393,
+        "species": "Gentoo"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 19.336874157642487,
+        "species": "Adelie"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 19.59976228577658,
+        "species": "Chinstrap"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 14.380870185619191,
+        "species": "Gentoo"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 18.84877934121383,
+        "species": "Adelie"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 17.8294946555939,
+        "species": "Chinstrap"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 14.494732407138288,
+        "species": "Gentoo"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 17.685482815183317,
+        "species": "Adelie"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 18.075820704774504,
+        "species": "Chinstrap"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 15.05114842341832,
+        "species": "Gentoo"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 16.366014164225017,
+        "species": "Adelie"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 19.582241832190594,
+        "species": "Chinstrap"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 15.273161438491362,
+        "species": "Gentoo"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 17.353730035566866,
+        "species": "Adelie"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 20.544389877978617,
+        "species": "Chinstrap"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 12.971378533815104,
+        "species": "Gentoo"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 17.882355247361616,
+        "species": "Adelie"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 17.340976009360013,
+        "species": "Chinstrap"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 15.386309258753899,
+        "species": "Gentoo"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 18.514856488723325,
+        "species": "Adelie"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 19.76917097202759,
+        "species": "Chinstrap"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 15.715021413106578,
+        "species": "Gentoo"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 16.74204995569155,
+        "species": "Adelie"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 19.435601594786945,
+        "species": "Chinstrap"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 14.993677667611854,
+        "species": "Gentoo"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 17.293936008477296,
+        "species": "Adelie"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 18.880032925938266,
+        "species": "Chinstrap"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 14.14547323939743,
+        "species": "Gentoo"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 19.902127266633542,
+        "species": "Adelie"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 18.04702173040714,
+        "species": "Chinstrap"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 13.944219585473249,
+        "species": "Gentoo"
+      },
+      {
+        "sex": "male",
+        "bill_depth": 17.820665531937063,
+        "species": "Adelie"
+      },
+      {
+        "sex": "female",
+        "bill_depth": 18.924200490988056,
+        "species": "Chinstrap"
+      }
+    ]
+  },
+  "title": "Box Plot by Species & Sex",
+  "params": [
+    {
+      "name": "grid",
+      "bind": "scales",
+      "select": {
+        "encodings": [
+          "y"
+        ],
+        "type": "interval"
+      }
+    },
+    {
+      "name": "legend_selection",
+      "bind": "legend",
+      "select": {
+        "fields": [
+          "sex"
+        ],
+        "type": "point"
+      }
+    }
+  ],
+  "mark": "boxplot"
+}

@@ -1,0 +1,1692 @@
+{
+  "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+  "layer": [
+    {
+      "encoding": {
+        "tooltip": [
+          {
+            "field": "horsepower",
+            "type": "quantitative"
+          },
+          {
+            "field": "mpg",
+            "type": "quantitative"
+          }
+        ],
+        "x": {
+          "field": "horsepower",
+          "type": "quantitative"
+        },
+        "y": {
+          "field": "mpg",
+          "type": "quantitative"
+        }
+      },
+      "params": [
+        {
+          "name": "grid",
+          "bind": "scales",
+          "select": {
+            "encodings": [
+              "x",
+              "y"
+            ],
+            "type": "interval"
+          }
+        }
+      ],
+      "mark": {
+        "type": "point",
+        "opacity": 0.5
+      }
+    },
+    {
+      "encoding": {
+        "x": {
+          "field": "x",
+          "type": "quantitative"
+        },
+        "y2": {
+          "field": "y_hi"
+        },
+        "y": {
+          "field": "y_lo",
+          "type": "quantitative"
+        }
+      },
+      "data": {
+        "values": [
+          {
+            "x": 46.0,
+            "y_hat": 25.030957821479507,
+            "y_lo": 23.88749051057056,
+            "y_hi": 26.174425132388453
+          },
+          {
+            "x": 47.80808080808081,
+            "y_hat": 24.885069807765905,
+            "y_lo": 23.74865596372539,
+            "y_hi": 26.02148365180642
+          },
+          {
+            "x": 49.61616161616162,
+            "y_hat": 24.75091416213544,
+            "y_lo": 23.620757086993862,
+            "y_hi": 25.88107123727702
+          },
+          {
+            "x": 51.42424242424242,
+            "y_hat": 24.62811941535207,
+            "y_lo": 23.50350176234235,
+            "y_hi": 25.752737068361792
+          },
+          {
+            "x": 53.23232323232323,
+            "y_hat": 24.516233328277924,
+            "y_lo": 23.39648986603752,
+            "y_hi": 25.635976790518328
+          },
+          {
+            "x": 55.04040404040404,
+            "y_hat": 24.414713849237472,
+            "y_lo": 23.299215845942935,
+            "y_hi": 25.53021185253201
+          },
+          {
+            "x": 56.84848484848485,
+            "y_hat": 24.322794167559813,
+            "y_lo": 23.21099519464939,
+            "y_hi": 25.434593140470238
+          },
+          {
+            "x": 58.656565656565654,
+            "y_hat": 24.23958279397236,
+            "y_lo": 23.13104957373223,
+            "y_hi": 25.34811601421249
+          },
+          {
+            "x": 60.464646464646464,
+            "y_hat": 24.164237253934306,
+            "y_lo": 23.058634185601626,
+            "y_hi": 25.269840322266987
+          },
+          {
+            "x": 62.27272727272727,
+            "y_hat": 24.095928318530884,
+            "y_lo": 22.993010116099878,
+            "y_hi": 25.19884652096189
+          },
+          {
+            "x": 64.08080808080808,
+            "y_hat": 24.033777389912892,
+            "y_lo": 22.947961849496654,
+            "y_hi": 25.11959293032913
+          },
+          {
+            "x": 65.88888888888889,
+            "y_hat": 23.97667229880567,
+            "y_lo": 22.893245324254945,
+            "y_hi": 25.060099273356396
+          },
+          {
+            "x": 67.6969696969697,
+            "y_hat": 23.92353332062234,
+            "y_lo": 22.842430157886476,
+            "y_hi": 25.004636483358205
+          },
+          {
+            "x": 69.5050505050505,
+            "y_hat": 23.87350944001263,
+            "y_lo": 22.794718661345005,
+            "y_hi": 24.952300218680254
+          },
+          {
+            "x": 71.31313131313131,
+            "y_hat": 23.825910288842667,
+            "y_lo": 22.749481461196037,
+            "y_hi": 24.902339116489298
+          },
+          {
+            "x": 73.12121212121212,
+            "y_hat": 23.78014567718415,
+            "y_lo": 22.720039789640154,
+            "y_hi": 24.84025156472815
+          },
+          {
+            "x": 74.92929292929293,
+            "y_hat": 23.735617248329895,
+            "y_lo": 22.678077167780742,
+            "y_hi": 24.793157328879047
+          },
+          {
+            "x": 76.73737373737374,
+            "y_hat": 23.69154158200908,
+            "y_lo": 22.636694375140664,
+            "y_hi": 24.746388788877496
+          },
+          {
+            "x": 78.54545454545455,
+            "y_hat": 23.647269187981355,
+            "y_lo": 22.59525555322025,
+            "y_hi": 24.699282822742457
+          },
+          {
+            "x": 80.35353535353535,
+            "y_hat": 23.602290617279188,
+            "y_lo": 22.55328580569094,
+            "y_hi": 24.651295428867435
+          },
+          {
+            "x": 82.16161616161617,
+            "y_hat": 23.556241354547524,
+            "y_lo": 22.510464994576026,
+            "y_hi": 24.60201771451902
+          },
+          {
+            "x": 83.96969696969697,
+            "y_hat": 23.50878352980889,
+            "y_lo": 22.51614447890818,
+            "y_hi": 24.5014225807096
+          },
+          {
+            "x": 85.77777777777777,
+            "y_hat": 23.458445037429364,
+            "y_lo": 22.46915919655924,
+            "y_hi": 24.447730878299488
+          },
+          {
+            "x": 87.58585858585859,
+            "y_hat": 23.40333171530467,
+            "y_lo": 22.428422392987954,
+            "y_hi": 24.378241037621386
+          },
+          {
+            "x": 89.39393939393939,
+            "y_hat": 23.341822781315592,
+            "y_lo": 22.369449092757243,
+            "y_hi": 24.31419646987394
+          },
+          {
+            "x": 91.20202020202021,
+            "y_hat": 23.272931408809292,
+            "y_lo": 22.30237684526562,
+            "y_hi": 24.243485972352964
+          },
+          {
+            "x": 93.01010101010101,
+            "y_hat": 23.19623528082239,
+            "y_lo": 22.237542822783603,
+            "y_hi": 24.154927738861176
+          },
+          {
+            "x": 94.81818181818181,
+            "y_hat": 23.111584547493774,
+            "y_lo": 22.153099787423955,
+            "y_hi": 24.070069307563593
+          },
+          {
+            "x": 96.62626262626263,
+            "y_hat": 23.018791990875652,
+            "y_lo": 22.05964465190378,
+            "y_hi": 23.977939329847523
+          },
+          {
+            "x": 98.43434343434343,
+            "y_hat": 22.918059075909003,
+            "y_lo": 21.978036665323174,
+            "y_hi": 23.858081486494832
+          },
+          {
+            "x": 100.24242424242425,
+            "y_hat": 22.80961791889729,
+            "y_lo": 21.867242839667995,
+            "y_hi": 23.751992998126582
+          },
+          {
+            "x": 102.05050505050505,
+            "y_hat": 22.6935450124839,
+            "y_lo": 21.747964988756447,
+            "y_hi": 23.63912503621135
+          },
+          {
+            "x": 103.85858585858585,
+            "y_hat": 22.570301826579087,
+            "y_lo": 21.64029128438628,
+            "y_hi": 23.500312368771894
+          },
+          {
+            "x": 105.66666666666667,
+            "y_hat": 22.439973925163123,
+            "y_lo": 21.505206805079347,
+            "y_hi": 23.3747410452469
+          },
+          {
+            "x": 107.47474747474747,
+            "y_hat": 22.302496589903466,
+            "y_lo": 21.36208259757373,
+            "y_hi": 23.242910582233204
+          },
+          {
+            "x": 109.28282828282828,
+            "y_hat": 22.15808791438517,
+            "y_lo": 21.229887874247094,
+            "y_hi": 23.086287954523247
+          },
+          {
+            "x": 111.0909090909091,
+            "y_hat": 22.006431230526445,
+            "y_lo": 21.070891156022906,
+            "y_hi": 22.941971305029984
+          },
+          {
+            "x": 112.8989898989899,
+            "y_hat": 21.847205736552922,
+            "y_lo": 20.912515948100886,
+            "y_hi": 22.78189552500496
+          },
+          {
+            "x": 114.70707070707071,
+            "y_hat": 21.680215376316095,
+            "y_lo": 20.727308371410587,
+            "y_hi": 22.633122381221604
+          },
+          {
+            "x": 116.51515151515152,
+            "y_hat": 21.505151878727517,
+            "y_lo": 20.542484800302745,
+            "y_hi": 22.46781895715229
+          },
+          {
+            "x": 118.32323232323232,
+            "y_hat": 21.321770860286634,
+            "y_lo": 20.348970998797736,
+            "y_hi": 22.294570721775532
+          },
+          {
+            "x": 120.13131313131314,
+            "y_hat": 21.129715574466207,
+            "y_lo": 20.14684734395338,
+            "y_hi": 22.112583804979035
+          },
+          {
+            "x": 121.93939393939394,
+            "y_hat": 20.92830251325088,
+            "y_lo": 19.926169114833332,
+            "y_hi": 21.93043591166843
+          },
+          {
+            "x": 123.74747474747475,
+            "y_hat": 20.717040060635526,
+            "y_lo": 19.716621910207127,
+            "y_hi": 21.717458211063924
+          },
+          {
+            "x": 125.55555555555556,
+            "y_hat": 20.495706906465596,
+            "y_lo": 19.48871052061518,
+            "y_hi": 21.502703292316014
+          },
+          {
+            "x": 127.36363636363636,
+            "y_hat": 20.26362661639143,
+            "y_lo": 19.252002909472896,
+            "y_hi": 21.275250323309965
+          },
+          {
+            "x": 129.17171717171718,
+            "y_hat": 20.01950818949939,
+            "y_lo": 19.005484218354898,
+            "y_hi": 21.033532160643883
+          },
+          {
+            "x": 130.97979797979798,
+            "y_hat": 19.762633591688807,
+            "y_lo": 18.75845751616139,
+            "y_hi": 20.766809667216226
+          },
+          {
+            "x": 132.78787878787878,
+            "y_hat": 19.492594698217697,
+            "y_lo": 18.481437330504793,
+            "y_hi": 20.503752065930602
+          },
+          {
+            "x": 134.59595959595958,
+            "y_hat": 19.208954155001447,
+            "y_lo": 18.21346972759847,
+            "y_hi": 20.204438582404425
+          },
+          {
+            "x": 136.40404040404042,
+            "y_hat": 18.911234430124736,
+            "y_lo": 17.915501080644525,
+            "y_hi": 19.906967779604948
+          },
+          {
+            "x": 138.21212121212122,
+            "y_hat": 18.59947014615289,
+            "y_lo": 17.597314699108193,
+            "y_hi": 19.601625593197586
+          },
+          {
+            "x": 140.02020202020202,
+            "y_hat": 18.27560493437835,
+            "y_lo": 17.281431995657947,
+            "y_hi": 19.269777873098754
+          },
+          {
+            "x": 141.82828282828282,
+            "y_hat": 17.943454709456613,
+            "y_lo": 16.972518869441462,
+            "y_hi": 18.914390549471765
+          },
+          {
+            "x": 143.63636363636363,
+            "y_hat": 17.60809221726111,
+            "y_lo": 16.66543250466661,
+            "y_hi": 18.550751929855608
+          },
+          {
+            "x": 145.44444444444446,
+            "y_hat": 17.27550940085446,
+            "y_lo": 16.36588686762591,
+            "y_hi": 18.18513193408301
+          },
+          {
+            "x": 147.25252525252526,
+            "y_hat": 16.95285324178562,
+            "y_lo": 16.070761965858363,
+            "y_hi": 17.834944517712874
+          },
+          {
+            "x": 149.06060606060606,
+            "y_hat": 16.647480614849517,
+            "y_lo": 15.822063993084054,
+            "y_hi": 17.47289723661498
+          },
+          {
+            "x": 150.86868686868686,
+            "y_hat": 16.365478560186613,
+            "y_lo": 15.578522800030283,
+            "y_hi": 17.152434320342945
+          },
+          {
+            "x": 152.67676767676767,
+            "y_hat": 16.110229971643214,
+            "y_lo": 15.35185806546157,
+            "y_hi": 16.868601877824858
+          },
+          {
+            "x": 154.4848484848485,
+            "y_hat": 15.881299022447134,
+            "y_lo": 15.140788257645598,
+            "y_hi": 16.62180978724867
+          },
+          {
+            "x": 156.2929292929293,
+            "y_hat": 15.675500612722617,
+            "y_lo": 14.932734772050683,
+            "y_hi": 16.41826645339455
+          },
+          {
+            "x": 158.1010101010101,
+            "y_hat": 15.489343423304671,
+            "y_lo": 14.74878460342374,
+            "y_hi": 16.229902243185602
+          },
+          {
+            "x": 159.9090909090909,
+            "y_hat": 15.321214686141975,
+            "y_lo": 14.607723031215658,
+            "y_hi": 16.034706341068294
+          },
+          {
+            "x": 161.7171717171717,
+            "y_hat": 15.170234885530288,
+            "y_lo": 14.480246325018909,
+            "y_hi": 15.860223446041667
+          },
+          {
+            "x": 163.5252525252525,
+            "y_hat": 15.033445160761818,
+            "y_lo": 14.316405355361479,
+            "y_hi": 15.750484966162158
+          },
+          {
+            "x": 165.33333333333334,
+            "y_hat": 14.909331423296617,
+            "y_lo": 14.200664692869669,
+            "y_hi": 15.617998153723565
+          },
+          {
+            "x": 167.14141414141415,
+            "y_hat": 14.796850000001903,
+            "y_lo": 14.058072767909811,
+            "y_hi": 15.535627232093995
+          },
+          {
+            "x": 168.94949494949495,
+            "y_hat": 14.694130997761711,
+            "y_lo": 13.969857923873224,
+            "y_hi": 15.418404071650198
+          },
+          {
+            "x": 170.75757575757575,
+            "y_hat": 14.60094166733479,
+            "y_lo": 13.888247374799253,
+            "y_hi": 15.313635959870329
+          },
+          {
+            "x": 172.56565656565655,
+            "y_hat": 14.517003103411874,
+            "y_lo": 13.800205152641682,
+            "y_hi": 15.233801054182065
+          },
+          {
+            "x": 174.37373737373738,
+            "y_hat": 14.4414335472081,
+            "y_lo": 13.729931716893587,
+            "y_hi": 15.152935377522612
+          },
+          {
+            "x": 176.1818181818182,
+            "y_hat": 14.37296543567743,
+            "y_lo": 13.663995239286487,
+            "y_hi": 15.081935632068374
+          },
+          {
+            "x": 177.989898989899,
+            "y_hat": 14.309509541420734,
+            "y_lo": 13.574558630426267,
+            "y_hi": 15.044460452415201
+          },
+          {
+            "x": 179.7979797979798,
+            "y_hat": 14.24902664326437,
+            "y_lo": 13.514151924310351,
+            "y_hi": 14.98390136221839
+          },
+          {
+            "x": 181.6060606060606,
+            "y_hat": 14.190056227087892,
+            "y_lo": 13.440950490466957,
+            "y_hi": 14.939161963708827
+          },
+          {
+            "x": 183.41414141414143,
+            "y_hat": 14.132007970212317,
+            "y_lo": 13.383716361652283,
+            "y_hi": 14.880299578772352
+          },
+          {
+            "x": 185.22222222222223,
+            "y_hat": 14.074734600152498,
+            "y_lo": 13.327620042850771,
+            "y_hi": 14.821849157454224
+          },
+          {
+            "x": 187.03030303030303,
+            "y_hat": 14.018077325183528,
+            "y_lo": 13.272381154752381,
+            "y_hi": 14.763773495614675
+          },
+          {
+            "x": 188.83838383838383,
+            "y_hat": 13.961865870483651,
+            "y_lo": 13.217718045865386,
+            "y_hi": 14.706013695101916
+          },
+          {
+            "x": 190.64646464646464,
+            "y_hat": 13.905913706830898,
+            "y_lo": 13.163345639067867,
+            "y_hi": 14.648481774593929
+          },
+          {
+            "x": 192.45454545454547,
+            "y_hat": 13.849988383145886,
+            "y_lo": 13.108946566807246,
+            "y_hi": 14.591030199484527
+          },
+          {
+            "x": 194.26262626262627,
+            "y_hat": 13.793784205000888,
+            "y_lo": 13.05415332307723,
+            "y_hi": 14.533415086924546
+          },
+          {
+            "x": 196.07070707070707,
+            "y_hat": 13.737001603558731,
+            "y_lo": 12.998673212364727,
+            "y_hi": 14.475329994752736
+          },
+          {
+            "x": 197.87878787878788,
+            "y_hat": 13.679257612081935,
+            "y_lo": 12.92700431459411,
+            "y_hi": 14.431510909569761
+          },
+          {
+            "x": 199.68686868686868,
+            "y_hat": 13.620320421762798,
+            "y_lo": 12.869406749192958,
+            "y_hi": 14.371234094332639
+          },
+          {
+            "x": 201.4949494949495,
+            "y_hat": 13.560330390525813,
+            "y_lo": 12.810787208293457,
+            "y_hi": 14.30987357275817
+          },
+          {
+            "x": 203.3030303030303,
+            "y_hat": 13.499574800115024,
+            "y_lo": 12.751437020193704,
+            "y_hi": 14.247712580036344
+          },
+          {
+            "x": 205.11111111111111,
+            "y_hat": 13.438381454333816,
+            "y_lo": 12.691705039977855,
+            "y_hi": 14.185057868689778
+          },
+          {
+            "x": 206.91919191919192,
+            "y_hat": 13.377008749755769,
+            "y_lo": 12.631894253672355,
+            "y_hi": 14.122123245839182
+          },
+          {
+            "x": 208.72727272727272,
+            "y_hat": 13.315633790014504,
+            "y_lo": 12.556266000344557,
+            "y_hi": 14.07500157968445
+          },
+          {
+            "x": 210.53535353535352,
+            "y_hat": 13.254794900169227,
+            "y_lo": 12.497396183671807,
+            "y_hi": 14.012193616666647
+          },
+          {
+            "x": 212.34343434343435,
+            "y_hat": 13.195175823791041,
+            "y_lo": 12.439938155522272,
+            "y_hi": 13.95041349205981
+          },
+          {
+            "x": 214.15151515151516,
+            "y_hat": 13.137320972279541,
+            "y_lo": 12.384454462696166,
+            "y_hi": 13.890187481862917
+          },
+          {
+            "x": 215.95959595959596,
+            "y_hat": 13.08133852654397,
+            "y_lo": 12.33113162535123,
+            "y_hi": 13.83154542773671
+          },
+          {
+            "x": 217.76767676767676,
+            "y_hat": 13.026638380944677,
+            "y_lo": 12.204692046516062,
+            "y_hi": 13.848584715373292
+          },
+          {
+            "x": 219.57575757575756,
+            "y_hat": 12.972907647205174,
+            "y_lo": 12.155155936269574,
+            "y_hi": 13.790659358140774
+          },
+          {
+            "x": 221.3838383838384,
+            "y_hat": 12.921287648832054,
+            "y_lo": 12.086129673839864,
+            "y_hi": 13.756445623824245
+          },
+          {
+            "x": 223.1919191919192,
+            "y_hat": 12.873232207862797,
+            "y_lo": 12.043658824115719,
+            "y_hi": 13.702805591609875
+          },
+          {
+            "x": 225.0,
+            "y_hat": 12.83030897612179,
+            "y_lo": 12.006774368467177,
+            "y_hi": 13.653843583776403
+          }
+        ]
+      },
+      "mark": {
+        "line": false,
+        "type": "area",
+        "opacity": 0.2
+      }
+    },
+    {
+      "encoding": {
+        "x": {
+          "field": "horsepower",
+          "type": "quantitative"
+        },
+        "y": {
+          "field": "mpg",
+          "type": "quantitative"
+        }
+      },
+      "data": {
+        "values": [
+          {
+            "horsepower": 130,
+            "acceleration": 12.0,
+            "weight": 3504,
+            "mpg": 18,
+            "cylinders": 8,
+            "origin": "USA"
+          },
+          {
+            "horsepower": 165,
+            "acceleration": 11.5,
+            "weight": 3693,
+            "mpg": 15,
+            "cylinders": 8,
+            "origin": "USA"
+          },
+          {
+            "horsepower": 150,
+            "acceleration": 11.0,
+            "weight": 3436,
+            "mpg": 18,
+            "cylinders": 8,
+            "origin": "USA"
+          },
+          {
+            "horsepower": 150,
+            "acceleration": 12.0,
+            "weight": 3433,
+            "mpg": 16,
+            "cylinders": 8,
+            "origin": "USA"
+          },
+          {
+            "horsepower": 140,
+            "acceleration": 10.5,
+            "weight": 3449,
+            "mpg": 17,
+            "cylinders": 8,
+            "origin": "USA"
+          },
+          {
+            "horsepower": 198,
+            "acceleration": 10.0,
+            "weight": 4341,
+            "mpg": 15,
+            "cylinders": 8,
+            "origin": "USA"
+          },
+          {
+            "horsepower": 220,
+            "acceleration": 9.0,
+            "weight": 4354,
+            "mpg": 14,
+            "cylinders": 8,
+            "origin": "USA"
+          },
+          {
+            "horsepower": 215,
+            "acceleration": 8.5,
+            "weight": 4312,
+            "mpg": 14,
+            "cylinders": 8,
+            "origin": "USA"
+          },
+          {
+            "horsepower": 225,
+            "acceleration": 10.0,
+            "weight": 4425,
+            "mpg": 14,
+            "cylinders": 8,
+            "origin": "USA"
+          },
+          {
+            "horsepower": 190,
+            "acceleration": 8.5,
+            "weight": 3850,
+            "mpg": 15,
+            "cylinders": 8,
+            "origin": "USA"
+          },
+          {
+            "horsepower": 170,
+            "acceleration": 10.0,
+            "weight": 3563,
+            "mpg": 15,
+            "cylinders": 8,
+            "origin": "USA"
+          },
+          {
+            "horsepower": 160,
+            "acceleration": 8.0,
+            "weight": 3609,
+            "mpg": 14,
+            "cylinders": 8,
+            "origin": "USA"
+          },
+          {
+            "horsepower": 150,
+            "acceleration": 9.5,
+            "weight": 3761,
+            "mpg": 15,
+            "cylinders": 8,
+            "origin": "USA"
+          },
+          {
+            "horsepower": 225,
+            "acceleration": 10.0,
+            "weight": 3086,
+            "mpg": 14,
+            "cylinders": 8,
+            "origin": "USA"
+          },
+          {
+            "horsepower": 95,
+            "acceleration": 15.0,
+            "weight": 2372,
+            "mpg": 24,
+            "cylinders": 4,
+            "origin": "Japan"
+          },
+          {
+            "horsepower": 95,
+            "acceleration": 15.5,
+            "weight": 2833,
+            "mpg": 22,
+            "cylinders": 4,
+            "origin": "Japan"
+          },
+          {
+            "horsepower": 97,
+            "acceleration": 15.5,
+            "weight": 2774,
+            "mpg": 18,
+            "cylinders": 4,
+            "origin": "Japan"
+          },
+          {
+            "horsepower": 85,
+            "acceleration": 16.0,
+            "weight": 2587,
+            "mpg": 21,
+            "cylinders": 4,
+            "origin": "Japan"
+          },
+          {
+            "horsepower": 88,
+            "acceleration": 14.5,
+            "weight": 2130,
+            "mpg": 27,
+            "cylinders": 4,
+            "origin": "Japan"
+          },
+          {
+            "horsepower": 46,
+            "acceleration": 20.5,
+            "weight": 1835,
+            "mpg": 26,
+            "cylinders": 4,
+            "origin": "Europe"
+          },
+          {
+            "horsepower": 87,
+            "acceleration": 17.5,
+            "weight": 2672,
+            "mpg": 25,
+            "cylinders": 4,
+            "origin": "Europe"
+          },
+          {
+            "horsepower": 90,
+            "acceleration": 15.0,
+            "weight": 2430,
+            "mpg": 24,
+            "cylinders": 4,
+            "origin": "Europe"
+          },
+          {
+            "horsepower": 95,
+            "acceleration": 17.5,
+            "weight": 2375,
+            "mpg": 25,
+            "cylinders": 4,
+            "origin": "Europe"
+          },
+          {
+            "horsepower": 113,
+            "acceleration": 15.5,
+            "weight": 2234,
+            "mpg": 26,
+            "cylinders": 4,
+            "origin": "Europe"
+          },
+          {
+            "horsepower": 90,
+            "acceleration": 18.5,
+            "weight": 2648,
+            "mpg": 21,
+            "cylinders": 4,
+            "origin": "Europe"
+          },
+          {
+            "horsepower": 215,
+            "acceleration": 14.0,
+            "weight": 4615,
+            "mpg": 10,
+            "cylinders": 8,
+            "origin": "USA"
+          },
+          {
+            "horsepower": 200,
+            "acceleration": 13.0,
+            "weight": 4376,
+            "mpg": 10,
+            "cylinders": 8,
+            "origin": "USA"
+          },
+          {
+            "horsepower": 210,
+            "acceleration": 13.5,
+            "weight": 4382,
+            "mpg": 11,
+            "cylinders": 8,
+            "origin": "USA"
+          },
+          {
+            "horsepower": 193,
+            "acceleration": 18.0,
+            "weight": 4732,
+            "mpg": 9,
+            "cylinders": 8,
+            "origin": "USA"
+          },
+          {
+            "horsepower": 88,
+            "acceleration": 14.5,
+            "weight": 2130,
+            "mpg": 27,
+            "cylinders": 4,
+            "origin": "Japan"
+          },
+          {
+            "horsepower": 90,
+            "acceleration": 13.5,
+            "weight": 2264,
+            "mpg": 28,
+            "cylinders": 4,
+            "origin": "Japan"
+          },
+          {
+            "horsepower": 95,
+            "acceleration": 15.5,
+            "weight": 2228,
+            "mpg": 25,
+            "cylinders": 4,
+            "origin": "Japan"
+          },
+          {
+            "horsepower": 100,
+            "acceleration": 19.0,
+            "weight": 2046,
+            "mpg": 25,
+            "cylinders": 4,
+            "origin": "Japan"
+          },
+          {
+            "horsepower": 105,
+            "acceleration": 13.0,
+            "weight": 2634,
+            "mpg": 19,
+            "cylinders": 4,
+            "origin": "Europe"
+          },
+          {
+            "horsepower": 100,
+            "acceleration": 15.5,
+            "weight": 2702,
+            "mpg": 16,
+            "cylinders": 4,
+            "origin": "Europe"
+          },
+          {
+            "horsepower": 88,
+            "acceleration": 16.5,
+            "weight": 2875,
+            "mpg": 17,
+            "cylinders": 4,
+            "origin": "Europe"
+          },
+          {
+            "horsepower": 100,
+            "acceleration": 17.0,
+            "weight": 2901,
+            "mpg": 19,
+            "cylinders": 4,
+            "origin": "Europe"
+          },
+          {
+            "horsepower": 165,
+            "acceleration": 11.0,
+            "weight": 3353,
+            "mpg": 18,
+            "cylinders": 6,
+            "origin": "USA"
+          },
+          {
+            "horsepower": 175,
+            "acceleration": 11.5,
+            "weight": 3169,
+            "mpg": 14,
+            "cylinders": 6,
+            "origin": "USA"
+          },
+          {
+            "horsepower": 153,
+            "acceleration": 12.5,
+            "weight": 2906,
+            "mpg": 14,
+            "cylinders": 6,
+            "origin": "USA"
+          },
+          {
+            "horsepower": 150,
+            "acceleration": 13.5,
+            "weight": 3380,
+            "mpg": 15,
+            "cylinders": 6,
+            "origin": "USA"
+          },
+          {
+            "horsepower": 180,
+            "acceleration": 12.0,
+            "weight": 3740,
+            "mpg": 15,
+            "cylinders": 8,
+            "origin": "USA"
+          },
+          {
+            "horsepower": 170,
+            "acceleration": 11.0,
+            "weight": 4080,
+            "mpg": 14,
+            "cylinders": 8,
+            "origin": "USA"
+          },
+          {
+            "horsepower": 175,
+            "acceleration": 11.5,
+            "weight": 3645,
+            "mpg": 15,
+            "cylinders": 8,
+            "origin": "USA"
+          },
+          {
+            "horsepower": 110,
+            "acceleration": 14.0,
+            "weight": 2585,
+            "mpg": 24,
+            "cylinders": 4,
+            "origin": "Japan"
+          },
+          {
+            "horsepower": 72,
+            "acceleration": 19.0,
+            "weight": 2310,
+            "mpg": 20,
+            "cylinders": 4,
+            "origin": "Japan"
+          },
+          {
+            "horsepower": 100,
+            "acceleration": 15.0,
+            "weight": 2472,
+            "mpg": 25,
+            "cylinders": 4,
+            "origin": "Japan"
+          },
+          {
+            "horsepower": 88,
+            "acceleration": 16.0,
+            "weight": 2265,
+            "mpg": 21,
+            "cylinders": 4,
+            "origin": "Japan"
+          },
+          {
+            "horsepower": 86,
+            "acceleration": 19.5,
+            "weight": 2110,
+            "mpg": 27,
+            "cylinders": 4,
+            "origin": "Japan"
+          },
+          {
+            "horsepower": 90,
+            "acceleration": 14.5,
+            "weight": 2800,
+            "mpg": 26,
+            "cylinders": 4,
+            "origin": "Japan"
+          },
+          {
+            "horsepower": 70,
+            "acceleration": 19.5,
+            "weight": 2110,
+            "mpg": 26,
+            "cylinders": 4,
+            "origin": "Japan"
+          },
+          {
+            "horsepower": 76,
+            "acceleration": 17.0,
+            "weight": 2085,
+            "mpg": 28,
+            "cylinders": 4,
+            "origin": "Japan"
+          },
+          {
+            "horsepower": 65,
+            "acceleration": 17.0,
+            "weight": 2245,
+            "mpg": 25,
+            "cylinders": 4,
+            "origin": "Japan"
+          },
+          {
+            "horsepower": 69,
+            "acceleration": 15.0,
+            "weight": 1965,
+            "mpg": 26,
+            "cylinders": 4,
+            "origin": "Japan"
+          },
+          {
+            "horsepower": 60,
+            "acceleration": 17.0,
+            "weight": 1755,
+            "mpg": 30,
+            "cylinders": 4,
+            "origin": "Japan"
+          },
+          {
+            "horsepower": 70,
+            "acceleration": 14.0,
+            "weight": 2815,
+            "mpg": 22,
+            "cylinders": 6,
+            "origin": "USA"
+          },
+          {
+            "horsepower": 95,
+            "acceleration": 12.5,
+            "weight": 3210,
+            "mpg": 17,
+            "cylinders": 6,
+            "origin": "USA"
+          },
+          {
+            "horsepower": 80,
+            "acceleration": 13.5,
+            "weight": 3380,
+            "mpg": 23,
+            "cylinders": 6,
+            "origin": "USA"
+          },
+          {
+            "horsepower": 54,
+            "acceleration": 15.5,
+            "weight": 1760,
+            "mpg": 36,
+            "cylinders": 4,
+            "origin": "Japan"
+          },
+          {
+            "horsepower": 90,
+            "acceleration": 14.0,
+            "weight": 2130,
+            "mpg": 25,
+            "cylinders": 4,
+            "origin": "Europe"
+          },
+          {
+            "horsepower": 86,
+            "acceleration": 15.5,
+            "weight": 2205,
+            "mpg": 22,
+            "cylinders": 4,
+            "origin": "Europe"
+          },
+          {
+            "horsepower": 110,
+            "acceleration": 13.5,
+            "weight": 2245,
+            "mpg": 18,
+            "cylinders": 4,
+            "origin": "Europe"
+          }
+        ]
+      },
+      "mark": {
+        "color": "firebrick",
+        "type": "line"
+      },
+      "transform": [
+        {
+          "loess": "mpg",
+          "on": "horsepower",
+          "bandwidth": 0.75
+        }
+      ]
+    }
+  ],
+  "data": {
+    "values": [
+      {
+        "horsepower": 130,
+        "acceleration": 12.0,
+        "weight": 3504,
+        "mpg": 18,
+        "cylinders": 8,
+        "origin": "USA"
+      },
+      {
+        "horsepower": 165,
+        "acceleration": 11.5,
+        "weight": 3693,
+        "mpg": 15,
+        "cylinders": 8,
+        "origin": "USA"
+      },
+      {
+        "horsepower": 150,
+        "acceleration": 11.0,
+        "weight": 3436,
+        "mpg": 18,
+        "cylinders": 8,
+        "origin": "USA"
+      },
+      {
+        "horsepower": 150,
+        "acceleration": 12.0,
+        "weight": 3433,
+        "mpg": 16,
+        "cylinders": 8,
+        "origin": "USA"
+      },
+      {
+        "horsepower": 140,
+        "acceleration": 10.5,
+        "weight": 3449,
+        "mpg": 17,
+        "cylinders": 8,
+        "origin": "USA"
+      },
+      {
+        "horsepower": 198,
+        "acceleration": 10.0,
+        "weight": 4341,
+        "mpg": 15,
+        "cylinders": 8,
+        "origin": "USA"
+      },
+      {
+        "horsepower": 220,
+        "acceleration": 9.0,
+        "weight": 4354,
+        "mpg": 14,
+        "cylinders": 8,
+        "origin": "USA"
+      },
+      {
+        "horsepower": 215,
+        "acceleration": 8.5,
+        "weight": 4312,
+        "mpg": 14,
+        "cylinders": 8,
+        "origin": "USA"
+      },
+      {
+        "horsepower": 225,
+        "acceleration": 10.0,
+        "weight": 4425,
+        "mpg": 14,
+        "cylinders": 8,
+        "origin": "USA"
+      },
+      {
+        "horsepower": 190,
+        "acceleration": 8.5,
+        "weight": 3850,
+        "mpg": 15,
+        "cylinders": 8,
+        "origin": "USA"
+      },
+      {
+        "horsepower": 170,
+        "acceleration": 10.0,
+        "weight": 3563,
+        "mpg": 15,
+        "cylinders": 8,
+        "origin": "USA"
+      },
+      {
+        "horsepower": 160,
+        "acceleration": 8.0,
+        "weight": 3609,
+        "mpg": 14,
+        "cylinders": 8,
+        "origin": "USA"
+      },
+      {
+        "horsepower": 150,
+        "acceleration": 9.5,
+        "weight": 3761,
+        "mpg": 15,
+        "cylinders": 8,
+        "origin": "USA"
+      },
+      {
+        "horsepower": 225,
+        "acceleration": 10.0,
+        "weight": 3086,
+        "mpg": 14,
+        "cylinders": 8,
+        "origin": "USA"
+      },
+      {
+        "horsepower": 95,
+        "acceleration": 15.0,
+        "weight": 2372,
+        "mpg": 24,
+        "cylinders": 4,
+        "origin": "Japan"
+      },
+      {
+        "horsepower": 95,
+        "acceleration": 15.5,
+        "weight": 2833,
+        "mpg": 22,
+        "cylinders": 4,
+        "origin": "Japan"
+      },
+      {
+        "horsepower": 97,
+        "acceleration": 15.5,
+        "weight": 2774,
+        "mpg": 18,
+        "cylinders": 4,
+        "origin": "Japan"
+      },
+      {
+        "horsepower": 85,
+        "acceleration": 16.0,
+        "weight": 2587,
+        "mpg": 21,
+        "cylinders": 4,
+        "origin": "Japan"
+      },
+      {
+        "horsepower": 88,
+        "acceleration": 14.5,
+        "weight": 2130,
+        "mpg": 27,
+        "cylinders": 4,
+        "origin": "Japan"
+      },
+      {
+        "horsepower": 46,
+        "acceleration": 20.5,
+        "weight": 1835,
+        "mpg": 26,
+        "cylinders": 4,
+        "origin": "Europe"
+      },
+      {
+        "horsepower": 87,
+        "acceleration": 17.5,
+        "weight": 2672,
+        "mpg": 25,
+        "cylinders": 4,
+        "origin": "Europe"
+      },
+      {
+        "horsepower": 90,
+        "acceleration": 15.0,
+        "weight": 2430,
+        "mpg": 24,
+        "cylinders": 4,
+        "origin": "Europe"
+      },
+      {
+        "horsepower": 95,
+        "acceleration": 17.5,
+        "weight": 2375,
+        "mpg": 25,
+        "cylinders": 4,
+        "origin": "Europe"
+      },
+      {
+        "horsepower": 113,
+        "acceleration": 15.5,
+        "weight": 2234,
+        "mpg": 26,
+        "cylinders": 4,
+        "origin": "Europe"
+      },
+      {
+        "horsepower": 90,
+        "acceleration": 18.5,
+        "weight": 2648,
+        "mpg": 21,
+        "cylinders": 4,
+        "origin": "Europe"
+      },
+      {
+        "horsepower": 215,
+        "acceleration": 14.0,
+        "weight": 4615,
+        "mpg": 10,
+        "cylinders": 8,
+        "origin": "USA"
+      },
+      {
+        "horsepower": 200,
+        "acceleration": 13.0,
+        "weight": 4376,
+        "mpg": 10,
+        "cylinders": 8,
+        "origin": "USA"
+      },
+      {
+        "horsepower": 210,
+        "acceleration": 13.5,
+        "weight": 4382,
+        "mpg": 11,
+        "cylinders": 8,
+        "origin": "USA"
+      },
+      {
+        "horsepower": 193,
+        "acceleration": 18.0,
+        "weight": 4732,
+        "mpg": 9,
+        "cylinders": 8,
+        "origin": "USA"
+      },
+      {
+        "horsepower": 88,
+        "acceleration": 14.5,
+        "weight": 2130,
+        "mpg": 27,
+        "cylinders": 4,
+        "origin": "Japan"
+      },
+      {
+        "horsepower": 90,
+        "acceleration": 13.5,
+        "weight": 2264,
+        "mpg": 28,
+        "cylinders": 4,
+        "origin": "Japan"
+      },
+      {
+        "horsepower": 95,
+        "acceleration": 15.5,
+        "weight": 2228,
+        "mpg": 25,
+        "cylinders": 4,
+        "origin": "Japan"
+      },
+      {
+        "horsepower": 100,
+        "acceleration": 19.0,
+        "weight": 2046,
+        "mpg": 25,
+        "cylinders": 4,
+        "origin": "Japan"
+      },
+      {
+        "horsepower": 105,
+        "acceleration": 13.0,
+        "weight": 2634,
+        "mpg": 19,
+        "cylinders": 4,
+        "origin": "Europe"
+      },
+      {
+        "horsepower": 100,
+        "acceleration": 15.5,
+        "weight": 2702,
+        "mpg": 16,
+        "cylinders": 4,
+        "origin": "Europe"
+      },
+      {
+        "horsepower": 88,
+        "acceleration": 16.5,
+        "weight": 2875,
+        "mpg": 17,
+        "cylinders": 4,
+        "origin": "Europe"
+      },
+      {
+        "horsepower": 100,
+        "acceleration": 17.0,
+        "weight": 2901,
+        "mpg": 19,
+        "cylinders": 4,
+        "origin": "Europe"
+      },
+      {
+        "horsepower": 165,
+        "acceleration": 11.0,
+        "weight": 3353,
+        "mpg": 18,
+        "cylinders": 6,
+        "origin": "USA"
+      },
+      {
+        "horsepower": 175,
+        "acceleration": 11.5,
+        "weight": 3169,
+        "mpg": 14,
+        "cylinders": 6,
+        "origin": "USA"
+      },
+      {
+        "horsepower": 153,
+        "acceleration": 12.5,
+        "weight": 2906,
+        "mpg": 14,
+        "cylinders": 6,
+        "origin": "USA"
+      },
+      {
+        "horsepower": 150,
+        "acceleration": 13.5,
+        "weight": 3380,
+        "mpg": 15,
+        "cylinders": 6,
+        "origin": "USA"
+      },
+      {
+        "horsepower": 180,
+        "acceleration": 12.0,
+        "weight": 3740,
+        "mpg": 15,
+        "cylinders": 8,
+        "origin": "USA"
+      },
+      {
+        "horsepower": 170,
+        "acceleration": 11.0,
+        "weight": 4080,
+        "mpg": 14,
+        "cylinders": 8,
+        "origin": "USA"
+      },
+      {
+        "horsepower": 175,
+        "acceleration": 11.5,
+        "weight": 3645,
+        "mpg": 15,
+        "cylinders": 8,
+        "origin": "USA"
+      },
+      {
+        "horsepower": 110,
+        "acceleration": 14.0,
+        "weight": 2585,
+        "mpg": 24,
+        "cylinders": 4,
+        "origin": "Japan"
+      },
+      {
+        "horsepower": 72,
+        "acceleration": 19.0,
+        "weight": 2310,
+        "mpg": 20,
+        "cylinders": 4,
+        "origin": "Japan"
+      },
+      {
+        "horsepower": 100,
+        "acceleration": 15.0,
+        "weight": 2472,
+        "mpg": 25,
+        "cylinders": 4,
+        "origin": "Japan"
+      },
+      {
+        "horsepower": 88,
+        "acceleration": 16.0,
+        "weight": 2265,
+        "mpg": 21,
+        "cylinders": 4,
+        "origin": "Japan"
+      },
+      {
+        "horsepower": 86,
+        "acceleration": 19.5,
+        "weight": 2110,
+        "mpg": 27,
+        "cylinders": 4,
+        "origin": "Japan"
+      },
+      {
+        "horsepower": 90,
+        "acceleration": 14.5,
+        "weight": 2800,
+        "mpg": 26,
+        "cylinders": 4,
+        "origin": "Japan"
+      },
+      {
+        "horsepower": 70,
+        "acceleration": 19.5,
+        "weight": 2110,
+        "mpg": 26,
+        "cylinders": 4,
+        "origin": "Japan"
+      },
+      {
+        "horsepower": 76,
+        "acceleration": 17.0,
+        "weight": 2085,
+        "mpg": 28,
+        "cylinders": 4,
+        "origin": "Japan"
+      },
+      {
+        "horsepower": 65,
+        "acceleration": 17.0,
+        "weight": 2245,
+        "mpg": 25,
+        "cylinders": 4,
+        "origin": "Japan"
+      },
+      {
+        "horsepower": 69,
+        "acceleration": 15.0,
+        "weight": 1965,
+        "mpg": 26,
+        "cylinders": 4,
+        "origin": "Japan"
+      },
+      {
+        "horsepower": 60,
+        "acceleration": 17.0,
+        "weight": 1755,
+        "mpg": 30,
+        "cylinders": 4,
+        "origin": "Japan"
+      },
+      {
+        "horsepower": 70,
+        "acceleration": 14.0,
+        "weight": 2815,
+        "mpg": 22,
+        "cylinders": 6,
+        "origin": "USA"
+      },
+      {
+        "horsepower": 95,
+        "acceleration": 12.5,
+        "weight": 3210,
+        "mpg": 17,
+        "cylinders": 6,
+        "origin": "USA"
+      },
+      {
+        "horsepower": 80,
+        "acceleration": 13.5,
+        "weight": 3380,
+        "mpg": 23,
+        "cylinders": 6,
+        "origin": "USA"
+      },
+      {
+        "horsepower": 54,
+        "acceleration": 15.5,
+        "weight": 1760,
+        "mpg": 36,
+        "cylinders": 4,
+        "origin": "Japan"
+      },
+      {
+        "horsepower": 90,
+        "acceleration": 14.0,
+        "weight": 2130,
+        "mpg": 25,
+        "cylinders": 4,
+        "origin": "Europe"
+      },
+      {
+        "horsepower": 86,
+        "acceleration": 15.5,
+        "weight": 2205,
+        "mpg": 22,
+        "cylinders": 4,
+        "origin": "Europe"
+      },
+      {
+        "horsepower": 110,
+        "acceleration": 13.5,
+        "weight": 2245,
+        "mpg": 18,
+        "cylinders": 4,
+        "origin": "Europe"
+      }
+    ]
+  },
+  "title": "MPG vs Horsepower with Smooth"
+}

@@ -1,0 +1,76 @@
+name: Docs
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - dev
+    tags: '*'
+  pull_request:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+  statuses: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ startsWith(github.ref, 'refs/pull/') }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure git for private repos
+        run: git config --global url."https://x-access-token:${{ secrets.PAT_TOKEN }}@github.com/".insteadOf "https://github.com/"
+      - uses: julia-actions/setup-julia@v2
+        with:
+          version: '1'
+      - uses: julia-actions/cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install npm dependencies
+        run: cd docs && npm install
+      - name: Install dependencies
+        run: |
+          # Clone deps OUTSIDE the checkout (see test.yml). The pinned refs are
+          # the combination that actually resolves together: HTMXObjects on
+          # `devibe` + DynamicObjects on `pre-inference` (0.5.0). devibe bounds
+          # DynamicObjects to 0.4.4+, which the old `sbpmx-reflect` line (still
+          # stamped 0.4.3) cannot satisfy; the registry max is 0.4.3 too, so
+          # DynamicObjects must be developed here rather than pulled from the
+          # registry.
+          DEPS="$RUNNER_TEMP/aov-ci-deps"
+          mkdir -p "$DEPS"
+          git clone -b pre-inference https://github.com/nsiccha/DynamicObjects.jl.git "$DEPS/DynamicObjects.jl"
+          git clone -b dev https://github.com/nsiccha/HTMX.jl.git "$DEPS/HTMX.jl"
+          git clone -b devibe https://github.com/nsiccha/HTMXObjects.jl.git "$DEPS/HTMXObjects.jl"
+          git clone https://github.com/nsiccha/Treebars.jl.git "$DEPS/Treebars.jl"
+          julia --project=docs -e '
+            # See test.yml: Julia 1.11+ rejects path-develop of a package the
+            # active project already sources by url/rev. Strip [sources] from
+            # this throwaway docs env so the path-develops are the sole source.
+            import TOML
+            proj = Base.active_project()
+            d = TOML.parsefile(proj)
+            haskey(d, "sources") && delete!(d, "sources")
+            open(proj, "w") do io; TOML.print(io, d); end
+            using Pkg
+            deps = ENV["RUNNER_TEMP"] * "/aov-ci-deps"
+            Pkg.develop([
+              PackageSpec(path=pwd()),
+              PackageSpec(path=joinpath(deps, "DynamicObjects.jl")),
+              PackageSpec(path=joinpath(deps, "HTMX.jl")),
+              PackageSpec(path=joinpath(deps, "HTMXObjects.jl")),
+              PackageSpec(path=joinpath(deps, "Treebars.jl")),
+            ])
+            Pkg.instantiate()
+          '
+      - name: Build and deploy
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: julia --project=docs docs/make.jl

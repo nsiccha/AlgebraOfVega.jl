@@ -1,0 +1,53 @@
+{
+  "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+  "encoding": {
+    "tooltip": [
+      {
+        "field": "name",
+        "type": "nominal"
+      },
+      {
+        "field": "age",
+        "type": "quantitative"
+      }
+    ],
+    "x": {
+      "field": "name",
+      "type": "nominal"
+    },
+    "y": {
+      "field": "age",
+      "type": "quantitative"
+    }
+  },
+  "data": {
+    "values": [
+      {
+        "name": "Anna Coolidge",
+        "age": 34
+      },
+      {
+        "name": "Berta Bauer",
+        "age": 79
+      },
+      {
+        "name": "Charlie Archer",
+        "age": 58
+      }
+    ]
+  },
+  "title": "Named Bar Plot",
+  "params": [
+    {
+      "name": "grid",
+      "bind": "scales",
+      "select": {
+        "encodings": [
+          "y"
+        ],
+        "type": "interval"
+      }
+    }
+  ],
+  "mark": "bar"
+}
