@@ -42,7 +42,10 @@ function _facet_fields(vl::Dict)
     layers = _layer_array(vl)
     if layers !== nothing
         for l in layers
-            _push_channel_fields!(fields, get(l, "encoding", nothing), ("row", "column", "color"))
+            # Deliberately NOT "color": a missing color value renders as one
+            # null group, never an "undefined" panel, so replicating rows
+            # across color values only overpaints identical geometry.
+            _push_channel_fields!(fields, get(l, "encoding", nothing), ("row", "column"))
         end
     end
     unique(fields)
@@ -355,7 +358,7 @@ function plot_summary_md(vl::Dict; id=nothing)
     (isnothing(w) && isnothing(hgt)) ||
         println(io, "- size: ", isnothing(w) ? "auto" : _md_cell(w), " × ", isnothing(hgt) ? "auto" : _md_cell(hgt))
     # Only the genuine partition channels — deliberately NOT `_facet_fields`,
-    # which also collects sublayer `color` for the cross-source broadcast pass.
+    # which returns bare field names without the channel context this needs.
     facets = [_md_cell(get(_as_dict(def), "field", ch))
               for (ch, def) in channels if ch in ("row", "column", "facet") && !isnothing(_as_dict(def))]
     isempty(facets) || println(io, "- facet: ", join(("`" * f * "`" for f in facets), ", "))

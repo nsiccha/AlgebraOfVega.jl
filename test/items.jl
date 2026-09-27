@@ -1957,6 +1957,71 @@ field the base already assigns — untouched.
         "a", conflict; dims=dims, fixed=Dict(:column => "assay"), pinned=:row) isa Tuple
 end
 
+"""
+A color field mapped by only one layer (snag `auto-remap-unenc-6146618c`):
+`auto_remap` must not cartesian-broadcast it into layers that never encode
+it. Prediction ribbons and dosing rules missing the scatter-only `status`
+keep their exact row counts (varying the status count cannot inflate them)
+and carry no color encoding, while the legitimate facet broadcast —
+observations across the `basis` panels they lack — is retained in full.
+"""
+@testitem "auto_remap scatter-only color does not multiply other layers" setup=[AoVTestImports] tags=[:auto_remap, :regression] begin
+    _rows_for(n_status) = begin
+        statuses = ["S$i" for i in 1:n_status]
+        pred = (x=repeat(collect(1.0:6.0), outer=4),
+                median=collect(1.0:24.0),
+                lo=collect(1.0:24.0) .- 0.5,
+                hi=collect(1.0:24.0) .+ 0.5,
+                basis=repeat(["B1", "B2", "B3", "B4"], inner=6))
+        dose = (x=repeat([2.0, 4.0], outer=4),
+                basis=repeat(["B1", "B2", "B3", "B4"], inner=2))
+        obs = (x=[1.5, 2.5, 3.5, 4.5, 5.5],
+               y=[1.0, 2.0, 3.0, 4.0, 5.0],
+               status=[statuses[mod1(i, n_status)] for i in 1:5])
+        spec = (data(pred) * mapping(:x, :median; row=:basis) *
+                    lineribbon(bands=[:lo => :hi]) +
+                data(dose) * mapping(:x; row=:basis) * visual(VLines) +
+                data(obs) * mapping(:x, :y; color=:status) * visual(Scatter)) *
+               config(height=200)
+        _, _, vl = AlgebraOfVega._auto_remap_parts(
+            "unenc", spec;
+            dims=["status" => "Status", "basis" => "Basis"], pinned=:row)
+        vl
+    end
+
+    for n_status in (2, 3)
+        vl = _rows_for(n_status)
+        @test get(get(vl, "facet", Dict()), "row", Dict())["field"] == "basis"
+        vals = vl["data"]["values"]
+        # Identify each source by its columns, not by __src numbering.
+        pred_rows = [r for r in vals if haskey(r, "median")]
+        obs_rows = [r for r in vals if haskey(r, "status")]
+        dose_rows = [r for r in vals if !haskey(r, "median") && !haskey(r, "status")]
+        # Prediction and dose rows are NEVER multiplied by the status count…
+        @test length(pred_rows) == 24
+        @test length(dose_rows) == 8
+        # …while the legitimate facet broadcast retains every observation in
+        # every basis panel.
+        @test length(obs_rows) == 5 * 4
+        @test sort(unique(r["status"] for r in obs_rows)) == ["S$i" for i in 1:n_status]
+        @test sort(unique(r["basis"] for r in obs_rows)) == ["B1", "B2", "B3", "B4"]
+        # No two prediction rows share an (x, basis) cell: nothing differs
+        # only in an unencoded status value.
+        cells = [(r["x"], r["basis"]) for r in pred_rows]
+        @test length(unique(cells)) == length(cells)
+        # Only the scatter encodes the scatter-only color field.
+        for l in vl["spec"]["layer"]
+            mark = l["mark"] isa Dict ? l["mark"]["type"] : l["mark"]
+            enc = get(l, "encoding", Dict())
+            if mark == "point"
+                @test get(get(enc, "color", Dict()), "field", nothing) == "status"
+            else
+                @test !haskey(enc, "color")
+            end
+        end
+    end
+end
+
 @testitem "interval categorical median markers" setup=[AoVTestImports] tags=[:translation, :tidybayes, :regression] begin
     include(joinpath(@__DIR__, "interval_markers.jl"))
 end
