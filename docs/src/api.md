@@ -79,6 +79,8 @@ A `VegaSpec` also has `Base.show(io, MIME"text/html"(), spec)` and `Base.show(io
 vega_head
 vega_runtime
 update_data
+append_data
+update_spec
 ```
 
 | Helper            | Purpose                                                                              |
@@ -88,6 +90,32 @@ update_data
 | `vega_controls()` | Optional HTML controls block (legend toggles, view reset, …)                          |
 | `vega_cdn_urls()` | The current set of CDN URLs (override to pin versions or vendor locally)             |
 | `update_data(id, new_rows)` | Push fresh data into a rendered spec by id (HTMX server-side handler returns `update_data(...)`) |
+| `append_data(id, rows; max_rows)` | Add rows to a rendered spec by id, keeping the existing ones (optionally a sliding window of `max_rows`) |
+| `update_spec(id, spec)` | Re-embed a rendered plot in place with a new spec, e.g. one with an extra layer |
+
+### Incremental plots
+
+Plots whose data or layers arrive over time are rendered once with a stable `id`
+and then updated by fragments pushed from the server. With an HTMXObjects `@ws`
+route and htmx's [WebSocket extension](https://htmx.org/extensions/ws/), each
+message is an HTML fragment that htmx swaps in by `id`:
+
+```julia
+# In the page (with the htmx-ext-ws script loaded):
+to_node(spec; id="live-plot"),
+h.div(; hx_ext="ws", ws_connect="/feed")(h.div(; id="live-sink")),
+
+# In the @htmx struct:
+@ws feed() = for chunk in chunks
+    fragment = h.div(; id="live-sink")(append_data("live-plot", chunk))
+    HTTP.WebSockets.send(__ws__, repr(MIME"text/html"(), fragment))
+end
+```
+
+Send `update_spec("live-plot", new_spec)` instead to add layers. Rows added with
+`append_data`/`update_data` survive the plot's responsive re-embeds; a new spec
+from `update_spec` brings its own data. The gallery's *Streaming Data* and
+*Layers One by One* demos show both.
 
 ## Dynamic dashboard helpers
 
