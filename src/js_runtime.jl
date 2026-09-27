@@ -363,17 +363,20 @@ function vega_runtime()
             if (!spec || typeof spec !== 'object') return spec;
             var inner = (spec.spec && typeof spec.spec === 'object') ? spec.spec : null;
 
-            // Collect partition fields from facet config AND color encodings
+            // Collect partition fields from facet config AND sublayer
+            // row/column encodings. Deliberately NOT color: a missing color
+            // value renders as one null group, never an "undefined" panel,
+            // so replicating rows across color values only overpaints
+            // identical geometry.
             var fields = [];
             var pushField = function(f) {
                 if (f && f.field && fields.indexOf(f.field) === -1) fields.push(f.field);
             };
             if (spec.facet) { pushField(spec.facet.row); pushField(spec.facet.column); }
-            // Also broadcast for color fields (cross-source layers need them too)
             var layers = inner && inner.layer ? inner.layer : (spec.layer || null);
             if (layers) {
                 layers.forEach(function(l) {
-                    if (l && l.encoding && l.encoding.color) pushField(l.encoding.color);
+                    if (l && l.encoding) { pushField(l.encoding.row); pushField(l.encoding.column); }
                 });
             }
             if (!fields.length) return spec;
@@ -1296,7 +1299,8 @@ function vega_runtime()
             _remapAxis('x');
             _remapAxis('y');
 
-            // Re-broadcast cross-source layers after row/column/color mutations
+            // Re-broadcast cross-source layers after row/column mutations
+            // (color mutations need no broadcast — see _broadcastCrossSource).
             this._broadcastCrossSource(spec);
 
             // Re-embed, but preserve the TRUE original spec

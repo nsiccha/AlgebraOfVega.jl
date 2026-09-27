@@ -319,8 +319,11 @@ _visual_static_channels(_) = Set{Symbol}()
 # Layer-fixed color preservation: if the layer has `color=<field>` on a field
 # outside `dim_fields` (the set of remappable dims), the layer's own color
 # encoding is preserved verbatim and the resolved color kw is NOT applied to
-# this layer. Returns `(new_layer, keep_color_field)` where `keep_color_field`
-# is `nothing` unless the layer has a preserved, non-remappable color field.
+# this layer. A layer whose data lacks the resolved color field likewise gets
+# no color encoding (and detail is filtered to present fields): encoding a
+# split the layer cannot group by only multiplies its rows. Returns
+# `(new_layer, keep_color_field)` where `keep_color_field` is `nothing`
+# unless the layer has a preserved, non-remappable color field.
 function _rebuild_layer(layer, new_df, resolved, dim_fields::Set{String})
     # Detect layer-fixed color: `color=` on a field outside `dim_fields`.
     # Such layers keep their original color encoding and skip resolved.color_kw.
@@ -355,6 +358,16 @@ function _rebuild_layer(layer, new_df, resolved, dim_fields::Set{String})
     if !isnothing(keep_color_field) && haskey(extra, :color)
         extra = Base.structdiff(extra, NamedTuple{(:color,)})
     end
+    # A layer whose (broadcast) data lacks the resolved color field gets NO
+    # color encoding: replicating its rows across color values it does not
+    # have only overpaints identical geometry. The check runs against the
+    # broadcast df, so a color field coinciding with a facet field (arrived
+    # via facet broadcast) still encodes — those rows were legitimately
+    # multiplied once per panel. Combo color (`__aov_color`) encodes only
+    # where `_with_combos` built it, i.e. where every component is present.
+    if haskey(extra, :color) && !haskey(new_df, Symbol(_field_name(extra[:color])))
+        extra = Base.structdiff(extra, NamedTuple{(:color,)})
+    end
     # Preserve AoG scale-type modifiers (e.g. `nonnumeric`) from the user's
     # original named mapping on the resolved channel kw. Without this, a
     # layer built from `mapping(color=:flag => nonnumeric)` loses the
@@ -363,8 +376,12 @@ function _rebuild_layer(layer, new_df, resolved, dim_fields::Set{String})
     # diverging from the direct-render path.
     extra = _preserve_selector_modifiers(extra, layer.named, keep_color_field)
     new_named = merge(base, extra)
-    # Patch detail on the transformation chain
-    new_t = _patch_detail(layer.transformation, resolved.detail)
+    # Patch detail on the transformation chain, scoped to fields this layer
+    # has: analyses group by every detail field (`_key_columns` throws on a
+    # missing column), and a color-combo component from another layer's
+    # table is not groupable here.
+    present_detail = filter(s -> haskey(new_df, s), resolved.detail)
+    new_t = _patch_detail(layer.transformation, present_detail)
     # Compose a fresh layer using AoG operators (so .data, .positional, .named
     # are constructed in the AoG-native shapes), then swap in the patched
     # transformation.
@@ -464,9 +481,11 @@ function does all of it.
 4. `refine_channels(resolved, dfs...)` — strips dims absent or single-valued
    across every layer.
 5. For each layer's df: cartesian-product broadcasts the df across the
-   union of unique values for every row/color/column field it doesn't have
+   union of unique values for every row/column field it doesn't have
    (so partial-overlap layers like observation scatters land in every
    relevant pred panel), then `apply_combos!` builds `__aov_row`/etc.
+   Color fields never broadcast: a layer missing the color field keeps
+   its rows and gets no color encoding instead of fabricated copies.
 6. Rebuilds each layer with the new (broadcast) df and resolved channel
    kws merged into its mapping. lineribbon/pointinterval/etc. detail is
    patched on the transformation.
@@ -554,10 +573,14 @@ function _auto_remap_parts(plot_id, spec; dims, fixed=Dict(), pinned::Symbol=:ro
         extra_assigned)
     resolved = refine_channels(resolved, dfs...)
 
-    # Cartesian-product fill missing facet fields, then build combo columns.
-    bcast_fields = unique(vcat(resolved.color_fields, resolved.row_fields, resolved.column_fields))
-    field_uniques = _global_field_uniques(dfs, bcast_fields)
-    bcasted = [_broadcast_missing_fields(df, bcast_fields, field_uniques) for df in dfs]
+    # Cartesian-product fill missing FACET fields, then build combo columns.
+    # Only row/column fields broadcast: every layer must appear in every
+    # facet panel. Color fields never broadcast — a layer missing the color
+    # field gets no color encoding (see _rebuild_layer) instead of k-1
+    # fabricated row copies that overpaint identical geometry.
+    facet_bcast = unique(vcat(resolved.row_fields, resolved.column_fields))
+    field_uniques = _global_field_uniques(dfs, facet_bcast)
+    bcasted = [_broadcast_missing_fields(df, facet_bcast, field_uniques) for df in dfs]
     new_dfs = [_with_combos(df, resolved) for df in bcasted]
 
     rebuilt = [_rebuild_layer(layer, new_df, resolved, dim_fields) for (layer, new_df) in zip(layers, new_dfs)]
@@ -839,7 +862,9 @@ function mapping_controls(id, resolved::NamedTuple; table=nothing, spec=nothing)
         // Build synthetic combo field when 2+ fields selected for a channel.
         // Only sets the combo on rows that have ALL component fields — cross-source
         // rows (e.g. dose VLines) that lack them are left without the combo, so
-        // _broadcastCrossSource can replicate them across all unique combo values.
+        // _broadcastCrossSource can replicate facet-combo rows across all unique
+        // combo values. (Color combos left unset render as one null group —
+        // color never broadcasts.)
         var comboTitles = {};
         function resolveChannel(fields, comboName) {
             if (fields.length === 0) return '';
