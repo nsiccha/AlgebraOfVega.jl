@@ -2924,7 +2924,9 @@ empty cells render empty.
     # pad cells' axes render full top-and-bottom labels (a single-datum
     # domain renders a one-label axis that shrinks row pitch).
     @test length(pads) == 2
-    bounds_enc = vl["hconcat"][1]["spec"]["layer"][end]["encoding"]
+    tumor_child = only(ch for ch in vl["hconcat"]
+                       if occursin("'Tumor'", ch["transform"][1]["filter"]))
+    bounds_enc = tumor_child["spec"]["layer"][end]["encoding"]
     xf, yf = bounds_enc["x"]["field"], bounds_enc["y"]["field"]
     for p in pads
         @test p["basis"] == "bravo"
@@ -2970,15 +2972,27 @@ empty cells render empty.
     @test nreal >= 1
     for ch in vl["hconcat"]
         layers = ch["spec"]["layer"]
-        # the hidden bounds sublayer: last, point mark, opacity-only
-        # suppression (full geometry equalizes pitch), no transform (pads
-        # flow in), no tooltip (hovering it shows nothing).
+        padded = occursin("'Tumor'", ch["transform"][1]["filter"])
+        if !padded
+            # complete child: exact unpadded shape, zero pad references
+            # (snag `per-column-y-pad-0c9e8b2a` — the bounds sublayer used to
+            # ride every child and plot real rows visibly).
+            @test length(layers) == nreal
+            @test !occursin("__aov_pad", sprint(show, ch))
+            continue
+        end
+        # the hidden bounds sublayer: last, point mark, pad-filter transform
+        # (real rows never reach it) + unconditional value-0 opacity
+        # (condition-only would fall back to default — the phantom-points
+        # bug), no tooltip (hovering it shows nothing).
         @test length(layers) == nreal + 1
         @test layers[end]["mark"]["type"] == "point"
         @test has_pad_cond(layers[end]["encoding"], "opacity")
+        @test layers[end]["encoding"]["opacity"]["value"] == 0
+        @test any(occursin("__aov_pad", get(t, "filter", ""))
+                  for t in get(layers[end], "transform", []))
         @test !haskey(layers[end]["encoding"], "size")
         @test !haskey(layers[end]["encoding"], "tooltip")
-        @test !haskey(layers[end], "transform")
         # ... and no real sublayer gained a pad condition or guard: `__src`
         # filters drop pads, so real pipelines are untouched.
         for sl in layers[1:end-1]
@@ -3030,8 +3044,10 @@ empty cells render empty.
 
     # single-layer col= form: pads carry no `__src` (nothing tags them). The
     # filter-less unit suppresses via all three conditions (bounds come from
-    # the dummy), and the bounds sublayer rides along for pitch — never via
-    # a transform guard (layer transforms hoist pre-facet).
+    # the dummy) — never via a transform guard on the unit itself (unit
+    # transforms hoist pre-facet) — and the bounds sublayer rides along for
+    # pitch with its own pad filter (safe: it filters per-cell inside the
+    # operator-facet child).
     single = data(rows) * mapping(:t, :val; row=:basis, col=:endpoint) * visual(Scatter)
     # explicit column sort + sparse single-layer rows: `_densify_facet_sort!`
     # pads the facet form with NULL-measure fillers first, and those must
@@ -3069,6 +3085,12 @@ empty cells render empty.
     @test sort!([p["val"] for p in spads]) == [minimum(sval), maximum(sval)]
     for ch in svl["hconcat"]
         slayers = ch["spec"]["layer"]
+        if !occursin("'Tumor'", ch["transform"][1]["filter"])
+            # complete child: the lone unit, zero pad references.
+            @test length(slayers) == 1
+            @test !occursin("__aov_pad", sprint(show, ch))
+            continue
+        end
         @test length(slayers) == 2
         unit = slayers[1]
         uenc = get(unit, "encoding", Dict())
@@ -3080,6 +3102,75 @@ empty cells render empty.
         end
         @test slayers[end]["mark"]["type"] == "point"
         @test has_pad_cond(slayers[end]["encoding"], "opacity")
+        @test slayers[end]["encoding"]["opacity"]["value"] == 0
+        @test any(occursin("__aov_pad", get(t, "filter", ""))
+                  for t in get(slayers[end], "transform", []))
+    end
+end
+
+"""
+The hidden pad bounds sublayer must draw NOTHING (snag `per-column-y-pad-0c9e8b2a`):
+`21b86b0` mounted it on EVERY hconcat child with a condition-only opacity and no
+transform, so it plotted every real row at default opacity — phantom points in
+complete columns that needed no padding. It now restricts its data to pad rows,
+hides every mark unconditionally, and rides only padded children.
+"""
+@testitem "pad bounds sublayer draws nothing and rides only padded children" setup=[AoVTestImports] tags=[:translation, :config, :regression] begin
+    rows = vcat(
+        vec([Dict("t" => t, "val" => 10.0^t, "endpoint" => "Tumor", "basis" => b)
+             for b in ["alpha", "charlie"], t in 0.0:1.0:2.0]),
+        vec([Dict("t" => t, "val" => 350.0 + t, "endpoint" => "QTcF", "basis" => b)
+             for b in ["alpha", "bravo", "charlie"], t in 0.0:1.0:2.0]),
+    )
+    ysc = config(scales=scales(Y=(; scale=Dict("Tumor" => log10))))
+    colof(ch) = occursin("'Tumor'", ch["transform"][1]["filter"]) ? "Tumor" : "QTcF"
+    padfiltered(sl) = any(occursin("__aov_pad", get(t, "filter", ""))
+                          for t in get(sl, "transform", []))
+
+    # --- multi-layer: every mark's data is restricted; the bounds layer is invisible ---
+    spec = data(rows) * mapping(:t, :val; row=:basis, col=:endpoint) * lineribbon() +
+           data(rows) * mapping(:t, :val; row=:basis, col=:endpoint) * visual(Scatter)
+    vl = to_vegalite(spec * config(facet=(; linkyaxes=:none)) * ysc)
+    facet_vl = to_vegalite(spec * config(facet=(; linkyaxes=:none)))
+    nreal = length(facet_vl["spec"]["layer"])
+    for ch in vl["hconcat"]
+        layers = ch["spec"]["layer"]
+        if colof(ch) != "Tumor"
+            # complete child: exact unpadded shape — the phantom-points fix.
+            @test length(layers) == nreal
+            @test !occursin("__aov_pad", sprint(show, ch))
+            continue
+        end
+        @test length(layers) == nreal + 1
+        bounds = layers[end]
+        @test bounds["mark"]["type"] == "point"
+        # pad rows only, hidden unconditionally (a condition-only opacity
+        # falls back to the default for real rows — the reported bug).
+        @test padfiltered(bounds)
+        @test bounds["encoding"]["opacity"]["value"] == 0
+        # no mark without a `__src`/pad filter exists in a padded child:
+        # real pipelines filter by `__src`, the bounds layer by pad.
+        for sl in layers
+            srcfiltered = any(occursin("__src", get(t, "filter", ""))
+                              for t in get(sl, "transform", []))
+            @test srcfiltered || padfiltered(sl)
+        end
+    end
+
+    # --- single-layer: the filter-less unit shows real rows (correct) while the
+    # bounds layer stays filtered + invisible; complete children stay pristine ---
+    single = data(rows) * mapping(:t, :val; row=:basis, col=:endpoint) * visual(Scatter)
+    svl = to_vegalite(single * config(facet=(; linkyaxes=:none)) * ysc)
+    for ch in svl["hconcat"]
+        layers = ch["spec"]["layer"]
+        if colof(ch) != "Tumor"
+            @test length(layers) == 1
+            @test !occursin("__aov_pad", sprint(show, ch))
+            continue
+        end
+        @test length(layers) == 2
+        @test padfiltered(layers[end])
+        @test layers[end]["encoding"]["opacity"]["value"] == 0
     end
 end
 

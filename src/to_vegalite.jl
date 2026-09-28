@@ -641,6 +641,25 @@ function _pad_row(donor::Dict, rowfield::String, rv, colfield::String, cv, corne
     return pad
 end
 
+"""Column values that received `__aov_pad` rows (see `_pad_sparse_hconcat_rows!`).
+Read back from the shared dataset so the child loop can mount pad machinery
+only on padded children (snag `per-column-y-pad-0c9e8b2a`)."""
+function _padded_hconcat_columns(spec::Dict, colfield::String)
+    data = _as_dict(get(spec, "data", nothing))
+    vals = isnothing(data) ? nothing : _as_vec(get(data, "values", nothing))
+    isnothing(vals) && return Any[]
+    out = Any[]
+    for r in vals
+        rd = _as_dict(r)
+        isnothing(rd) && continue
+        get(rd, _AOV_PAD_FIELD, false) === true || continue
+        haskey(rd, colfield) || continue
+        v = rd[colfield]
+        any(u -> isequal(u, v), out) || push!(out, v)
+    end
+    return out
+end
+
 """Diagonal range corners over `needfields` for `rangerows`: `((min...),
 (max...))` as field => value pairs, or `nothing` when no range is computable
 (fewer than two fields, no valid values, unorderable values, or a single
@@ -680,11 +699,17 @@ Why a sublayer: an invisible FULL-geometry mark contributes full cell bounds
 zero-geometry mark measurably shrinks its child's pitch (5px/row). The bounds
 sublayer plots the same x/y as the first x/y sublayer (verbatim defs minus
 title/axis, so scales — including per-child log/linear types merged later —
-match exactly), with `opacity: {condition: pad → 0}` hiding every mark. It
-carries no transform (pads have no `__src` to filter on — they flow in while
-real sublayers drop them), no tooltip (hovering it shows nothing), and no
-color/size encodings (legend/selection immune). Real rows flow through it
-too, invisibly and domain-neutrally (same fields, same data)."""
+match exactly). It draws NOTHING, twice over (snag `per-column-y-pad-0c9e8b2a`):
+a pad-filter transform restricts its data to pad rows (pads carry no `__src`,
+so a `__src` filter cannot select them — the marker field is the selector;
+real rows never reach its marks, so real cells carry zero marks and stay
+hover-immune), and `opacity: {condition: pad → 0, value: 0}` hides every mark
+unconditionally (a condition-only opacity falls back to the default for
+non-matching rows — the phantom-points bug). It carries no tooltip (hovering
+it shows nothing) and no color/size encodings (legend/selection immune). Unlike
+a guard on a real unit, the pad filter is safe here: it sits on an auxiliary
+sublayer inside an operator-facet child, so it filters per-cell AFTER faceting
+instead of hoisting above it."""
 function _add_pad_bounds_sublayer!(inner::Dict)
     layers = _as_vec(get(inner, "layer", nothing))
     isnothing(layers) && return nothing
@@ -702,7 +727,8 @@ function _add_pad_bounds_sublayer!(inner::Dict)
         "mark" => Dict{String,Any}("type" => "point"),
         "encoding" => Dict{String,Any}(
             "x" => xdef, "y" => ydef,
-            "opacity" => Dict{String,Any}("condition" => cond))))
+            "opacity" => Dict{String,Any}("condition" => cond, "value" => 0)),
+        "transform" => Any[Dict{String,Any}("filter" => "datum.$(_AOV_PAD_FIELD)")]))
     return String[string(x["field"]), string(y["field"])]
 end
 
@@ -813,7 +839,9 @@ faceted view per column, each with its own inner scale and a row facet. Rows
 stay aligned because the shared dataset is padded with two fillers per
 missing (row, column) combo (diagonal range corners —
 `_pad_sparse_hconcat_rows!`), so every view facets the same full row domain —
-a cell without data renders empty, never packed.
+a cell without data renders empty, never packed. Only children whose column
+received pads carry the hidden bounds sublayer; complete children keep their
+exact unpadded shape (snag `per-column-y-pad-0c9e8b2a`).
 
 `ycols` maps column VALUES (as they appear in the data) to VL `scale` dicts
 (from `_scales_column_y_scales`). Unlisted columns keep the shared encoding's
@@ -902,19 +930,19 @@ function _per_column_y_hconcat!(spec::Dict, ycols::Dict)
     # each missing (row, column) combo a sparse column packs its rows from
     # the top beside the wrong first-view labels (snag
     # `per-column-y-sca-ad6baf40`). Complete cross-products pad nothing.
-    # Suppression runs once on the shared inner template so every child
-    # inherits it.
+    # Pad machinery (suppression + the hidden bounds sublayer) rides ONLY the
+    # children whose column actually received pads (snag
+    # `per-column-y-pad-0c9e8b2a`): complete children keep their exact
+    # unpadded shape, so real data there renders pixel-identical.
     rowfield = isnothing(rowdef) ? nothing : get(rowdef, "field", nothing)
+    padded_cols = Any[]
     if rowfield isa AbstractString
         xydefs = _pad_bounds_xy_defs(inner)
         needfields = isnothing(xydefs) ? String[] :
             String[string(xydefs[1]["field"]), string(xydefs[2]["field"])]
         npads = _pad_sparse_hconcat_rows!(spec, colfield, rowfield, colvals, needfields)
         if npads > 0
-            # Suppress first (filter-less units only), then add the bounds
-            # sublayer — order matters: suppression must not visit it.
-            _suppress_pad_marks!(inner)
-            _add_pad_bounds_sublayer!(inner)
+            padded_cols = _padded_hconcat_columns(spec, colfield)
         end
     end
 
@@ -934,6 +962,13 @@ function _per_column_y_hconcat!(spec::Dict, ycols::Dict)
             child["facet"] = Dict{String,Any}("row" => rd)
         end
         child_inner = deepcopy(inner)
+        if any(p -> isequal(p, v), padded_cols)
+            # Suppress first (filter-less units only), then add the bounds
+            # sublayer — order matters: suppression must not visit it (its
+            # size-0 geometry would defeat the pitch equalization).
+            _suppress_pad_marks!(child_inner)
+            _add_pad_bounds_sublayer!(child_inner)
+        end
         yscale = get(ycols, v, nothing)
         isnothing(yscale) || _merge_column_y_scale!(child_inner, yscale)
         child["spec"] = child_inner
