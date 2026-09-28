@@ -2490,7 +2490,10 @@ end
     # two children side by side must be wider than one child's height-sized figure
     @test sz.width > sz.height
     single = AlgebraOfVega.plot_size(vl["hconcat"][1])
-    @test sz.height ≈ single.height
+    # the figure is one child tall plus the concat's own column-field title
+    # band (each labeled child already prices its own title band inside
+    # `single`, so the delta is exactly one title overhead, not zero or two)
+    @test sz.height ≈ single.height + AlgebraOfVega._SIZE_TITLE_OVERHEAD
 end
 
 @testitem "unknown positional-axis scale option warns" setup=[AoVTestImports] tags=[:translation, :config] begin
@@ -2500,4 +2503,127 @@ end
            config(scales=scales(Y=(; scale=log10, Col=(; categories=["a", "b"]))))
     vl = (@test_logs (:warn, r"unknown `Y` scale option `Col`") match_mode=:any to_vegalite(spec))
     @test vl["encoding"]["y"]["scale"]["type"] == "log"
+end
+
+"""
+Per-column Y lowering must keep the facet form's column chrome: every hconcat
+child carries its column VALUE as a facet-header-styled title, and the column
+field title sits once on the concat. Only the Y scale type may differ between
+the two forms (snag `per-column-y-sca-894ada18`).
+"""
+@testitem "per-column Y scales label each child with its column value" setup=[AoVTestImports] tags=[:translation, :config, :regression] begin
+    rows = vcat(
+        [Dict("t" => t, "val" => 10.0^t, "endpoint" => "Tumor size (mm)", "basis" => "prior") for t in 0.0:1.0:2.0],
+        [Dict("t" => t, "val" => 350.0 + t, "endpoint" => "QTcF", "basis" => "prior") for t in 0.0:1.0:2.0],
+        [Dict("t" => t, "val" => 10.0^t, "endpoint" => "Tumor size (mm)", "basis" => "posterior") for t in 0.0:1.0:2.0],
+        [Dict("t" => t, "val" => 360.0 + t, "endpoint" => "QTcF", "basis" => "posterior") for t in 0.0:1.0:2.0],
+    )
+    spec = data(rows) * mapping(:t, :val; row=:basis, col=:endpoint) * lineribbon() +
+           data(rows) * mapping(:t, :val; row=:basis, col=:endpoint) * visual(Scatter)
+    colysc = config(scales=scales(Y=(; scale=Dict("Tumor size (mm)" => log10))))
+    vl = to_vegalite(spec * config(facet=(; linkyaxes=:none)) * colysc)
+
+    @test haskey(vl, "hconcat")
+    children = vl["hconcat"]
+    @test length(children) == 2
+    # every child — listed-scale or plain-linear — names its own column, in
+    # facet-header label styling (10px regular, matching VL header labels)
+    seen = Set{String}()
+    for ch in children
+        @test haskey(ch, "title")
+        title = ch["title"]
+        @test title isa Dict
+        @test title["fontSize"] == 10
+        @test title["fontWeight"] == "normal"
+        push!(seen, title["text"])
+        # the title names the same column the child's filter selects
+        @test occursin(title["text"], ch["transform"][1]["filter"])
+    end
+    @test seen == Set(["Tumor size (mm)", "QTcF"])
+    # the column field title sits once on the concat (11px bold, matching VL
+    # facet header titles)
+    @test vl["title"] isa Dict
+    @test vl["title"]["text"] == "endpoint"
+    @test vl["title"]["fontSize"] == 11
+    @test vl["title"]["fontWeight"] == "bold"
+
+    # an explicit figure title is never clobbered: the field title rides as subtitle
+    vl_t = to_vegalite(spec * config(title="PPC by endpoint", facet=(; linkyaxes=:none)) * colysc)
+    @test vl_t["title"]["text"] == "PPC by endpoint"
+    @test vl_t["title"]["subtitle"] == "endpoint"
+    # ... and an explicit subtitle wins over the derived field title
+    vl_s = to_vegalite(spec *
+                       config(title=Dict("text" => "PPC", "subtitle" => "mine"), facet=(; linkyaxes=:none)) * colysc)
+    @test vl_s["title"]["subtitle"] == "mine"
+    # ... including an explicit null subtitle, which stays respected
+    vl_sn = to_vegalite(spec *
+                        config(title=Dict("text" => "PPC", "subtitle" => nothing), facet=(; linkyaxes=:none)) * colysc)
+    @test vl_sn["title"]["text"] == "PPC"
+    @test vl_sn["title"]["subtitle"] === nothing
+
+    # numeric column values render JS-style ("20", not "20.0")
+    nrows = vcat(
+        [Dict("t" => t, "val" => t, "dose" => 5, "basis" => "prior") for t in 0.0:1.0:2.0],
+        [Dict("t" => t, "val" => 10t, "dose" => 20.0, "basis" => "prior") for t in 0.0:1.0:2.0],
+    )
+    nspec = data(nrows) * mapping(:t, :val; row=:basis, col=:dose) * visual(Scatter) +
+            data(nrows) * mapping(:t, :val; row=:basis, col=:dose) * visual(Lines)
+    nvl = to_vegalite(nspec * config(facet=(; linkyaxes=:none)) *
+                      config(scales=scales(Y=(; scale=Dict(5 => log10)))))
+    @test Set(ch["title"]["text"] for ch in nvl["hconcat"]) == Set(["5", "20"])
+end
+
+@testitem "per-column Y scales honor column header config" setup=[AoVTestImports] tags=[:translation, :config, :regression] begin
+    rows = vcat(
+        [Dict("t" => t, "val" => 10.0^t, "endpoint" => "Tumor") for t in 0.0:1.0:2.0],
+        [Dict("t" => t, "val" => 350.0 + t, "endpoint" => "QTcF") for t in 0.0:1.0:2.0],
+    )
+    spec = data(rows) * mapping(:t, :val; col=:endpoint) * visual(Scatter) +
+           data(rows) * mapping(:t, :val; col=:endpoint) * visual(Lines)
+    ysc = config(scales=scales(Y=(; scale=Dict("Tumor" => log10))))
+    lowered(col_override) = to_vegalite(spec * config(facet=(; linkyaxes=:none)) *
+                                        config(encoding=Dict("column" => col_override)) * ysc)
+
+    # header label settings map onto each child title; unset props keep defaults
+    vl = lowered(Dict("header" => Dict("labelFontSize" => 14, "labelColor" => "red")))
+    @test length(vl["hconcat"]) == 2
+    for ch in vl["hconcat"]
+        @test ch["title"]["fontSize"] == 14
+        @test ch["title"]["color"] == "red"
+        @test ch["title"]["fontWeight"] == "normal"
+    end
+
+    # an explicit header title overrides the field title on the concat
+    @test lowered(Dict("header" => Dict("title" => "Endpoint")))["title"]["text"] == "Endpoint"
+
+    # header title null suppresses the concat field title only
+    vl_nt = lowered(Dict("header" => Dict("title" => nothing)))
+    @test !haskey(vl_nt, "title")
+    @test all(haskey(ch, "title") for ch in vl_nt["hconcat"])
+
+    # labels:false suppresses the child titles only
+    vl_nl = lowered(Dict("header" => Dict("labels" => false)))
+    @test all(!haskey(ch, "title") for ch in vl_nl["hconcat"])
+    @test vl_nl["title"]["text"] == "endpoint"
+
+    # header:null suppresses both
+    vl_nh = lowered(Dict("header" => nothing))
+    @test all(!haskey(ch, "title") for ch in vl_nh["hconcat"])
+    @test !haskey(vl_nh, "title")
+
+    # channel title:null suppresses the concat field title only
+    vl_ct = lowered(Dict("title" => nothing))
+    @test !haskey(vl_ct, "title")
+    @test all(haskey(ch, "title") for ch in vl_ct["hconcat"])
+
+    # a relabeled column field heads the concat under its label
+    lspec = data(rows) * mapping(:t, :val; col=:endpoint => "Study endpoint") * visual(Scatter) +
+            data(rows) * mapping(:t, :val; col=:endpoint => "Study endpoint") * visual(Lines)
+    vl_lab = to_vegalite(lspec * config(facet=(; linkyaxes=:none)) * ysc)
+    @test vl_lab["title"]["text"] == "Study endpoint"
+
+    # font_scale flows through: sizes consult config.header like real headers
+    vl_fs = to_vegalite(spec * config(facet=(; linkyaxes=:none), font_scale=2) * ysc)
+    @test vl_fs["hconcat"][1]["title"]["fontSize"] == 20
+    @test vl_fs["title"]["fontSize"] == 22
 end

@@ -352,6 +352,42 @@ function _merge_column_y_scale!(spec, yscale::Dict)
     return
 end
 
+# Header-label text for a column-facet VALUE, matching what the facet operator
+# renders for the same value: strings pass through, whole-number floats print
+# JS-style (`"20"`, not `"20.0"`), booleans/nulls print JS-style.
+function _vl_header_label(v)
+    v isa AbstractString && return string(v)
+    v isa Bool && return v ? "true" : "false"
+    (isnothing(v) || ismissing(v)) && return "null"
+    if v isa Real
+        f = Float64(v)
+        isinteger(v) && abs(f) < 1e15 && return string(Int64(f))
+        return string(v)
+    end
+    return string(v)
+end
+
+# Map VL `header` label/title props onto the equivalent `title` props
+# (`labelFontSize` → `fontSize`, `titleFontWeight` → `fontWeight`, …) so
+# per-column titles honor the column def's header config. `labelExpr`,
+# `format`, and `labelPadding` have no title equivalent — titles are static
+# text, not data-driven marks — and are skipped, as are the `labels` toggle
+# and the bare `title` text key (both handled by the caller).
+function _map_header_props!(title::Dict, header, prefix::String)
+    header isa Dict || return title
+    for (k, v) in header
+        ks = string(k)
+        ks == "labels" && continue
+        startswith(ks, prefix) || continue
+        rest = ks[length(prefix)+1:end]
+        isempty(rest) && continue
+        prop = string(lowercase(first(rest))) * (length(rest) > 1 ? rest[2:end] : "")
+        prop in ("expr", "format", "formatType", "padding") && continue
+        title[prop] = v
+    end
+    title
+end
+
 """Re-lower a single-facet spec into an `hconcat` of per-column facet views so
 every column-facet VALUE can carry its own Y scale type.
 
@@ -371,8 +407,15 @@ top-level dataset. Anything else is a loud error — a silent fallback would
 plot every column with the wrong scale type.
 
 Top-level residue of the facet form (`resolve`, select-filter transforms) moves
-into each child; top-level `params`, `config`, `_aov` and `title` stay on the
-concat, where VL applies them to every view."""
+into each child; top-level `params`, `config` and `_aov` stay on the concat,
+where VL applies them to every view. The facet form's column chrome is
+preserved, not dropped: each child gets its column VALUE as a facet-header-
+styled title (10px regular, honoring the column def's header label config),
+and the column field title sits once on the concat (11px bold; as `subtitle`
+when the figure already carries its own title, which is never clobbered).
+VL header suppression is honored: `header: null` drops both, `labels: false`
+drops the child titles, and a null channel/header title drops the concat
+title."""
 function _per_column_y_hconcat!(spec::Dict, ycols::Dict)
     facet = _as_dict(get(spec, "facet", nothing))
     if isnothing(facet)
@@ -415,6 +458,24 @@ function _per_column_y_hconcat!(spec::Dict, ycols::Dict)
     colfield = string(coldef["field"])
     rowdef = _as_dict(get(facet, "row", nothing))
 
+    # Column chrome the facet form rendered and the concat must keep. Sizes
+    # consult the spec's own `config.header` first (so `font_scale` applies),
+    # then the column def's header (channel-near wins, matching VL
+    # precedence), defaulting to VL's header sizes (10px labels, 11px bold
+    # titles — verified against a headless facet render, not a bare title).
+    cheader_raw = get(coldef, "header", :absent)
+    header_off = cheader_raw === nothing
+    cheader = header_off ? nothing : _as_dict(cheader_raw)
+    labels_off = header_off ||
+        (!isnothing(cheader) && get(cheader, "labels", true) === false)
+    htitle_raw = isnothing(cheader) ? :absent : get(cheader, "title", :absent)
+    ctitle_raw = get(coldef, "title", :absent)
+    title_off = header_off || htitle_raw === nothing || ctitle_raw === nothing
+    field_title = htitle_raw isa AbstractString ? string(htitle_raw) :
+        ctitle_raw isa AbstractString ? string(ctitle_raw) : colfield
+    cfg = _as_dict(get(spec, "config", nothing))
+    cfg_header = isnothing(cfg) ? nothing : _as_dict(get(cfg, "header", nothing))
+
     colvals = _facet_column_values(spec, coldef)
     isempty(colvals) && error("AlgebraOfVega: per-column Y scales found no values for column facet field `$colfield`.")
 
@@ -446,6 +507,13 @@ function _per_column_y_hconcat!(spec::Dict, ycols::Dict)
         if !isnothing(resolve)
             child["resolve"] = deepcopy(resolve)
         end
+        if !labels_off
+            ct = Dict{String,Any}("text" => _vl_header_label(v),
+                                  "fontSize" => 10, "fontWeight" => "normal")
+            _map_header_props!(ct, cfg_header, "label")
+            _map_header_props!(ct, cheader, "label")
+            child["title"] = ct
+        end
         push!(children, child)
     end
 
@@ -453,8 +521,39 @@ function _per_column_y_hconcat!(spec::Dict, ycols::Dict)
         "\$schema" => VL_SCHEMA,
         "hconcat" => children,
     )
-    for keep in ("data", "params", "config", "title", "spacing", "usermeta")
+    for keep in ("data", "params", "config", "spacing", "usermeta")
         haskey(spec, keep) && (newspec[keep] = spec[keep])
+    end
+    if title_off
+        # Only a figure title the user explicitly set survives; the derived
+        # field title stays dropped.
+        haskey(spec, "title") && (newspec["title"] = spec["title"])
+    else
+        ft = Dict{String,Any}("text" => field_title,
+                              "fontSize" => 11, "fontWeight" => "bold")
+        _map_header_props!(ft, cfg_header, "title")
+        _map_header_props!(ft, cheader, "title")
+        if !haskey(spec, "title") || spec["title"] === nothing
+            # An explicit null figure title suppresses only the FIGURE title —
+            # the facet form still showed the field title, so the concat does.
+            newspec["title"] = ft
+        else
+            ut = spec["title"]
+            ud = _as_dict(ut)
+            if isnothing(ud)
+                newspec["title"] = Dict{String,Any}(
+                    "text" => ut isa AbstractString ? ut : string(ut),
+                    "subtitle" => ft["text"])
+            elseif !haskey(ud, "subtitle")
+                merged = deepcopy(ud)
+                merged["subtitle"] = ft["text"]
+                newspec["title"] = merged
+            else
+                # An explicit subtitle (even null) wins; the field title drops
+                # rather than clobbering user content.
+                newspec["title"] = ut
+            end
+        end
     end
     aov = _as_dict(get(spec, "_aov", nothing))
     if !isnothing(aov)
