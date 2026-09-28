@@ -2627,3 +2627,65 @@ end
     @test vl_fs["hconcat"][1]["title"]["fontSize"] == 20
     @test vl_fs["title"]["fontSize"] == 22
 end
+
+"""
+Facet sorts arriving via `scales()` densify sparse row×column grids.
+
+Vega-Lite positionally mis-binds panels when a facet channel carries an
+explicit `sort` array and the cross-product is sparse. AoV's densifier
+(`_densify_facet_sort!`, `1bd60c6`) originally ran only inside the
+`Layer`/`Layers` lowering — but sorts from `scales(Row/Col/Layout=categories)`
+(and raw `encoding.sort` overrides) are applied AFTER, in the `VegaSpec`
+config layer, so a sparse grid still met the sort and rendered data under the
+wrong header. The config layer now re-runs the densifier, and measure
+discovery scans sublayer encodings so multi-layer fillers null every measure
+(no phantom marks). Regression for snag `facet-column-sor-9904da1f`.
+"""
+@testitem "facet sorts from scales() densify sparse grids" setup=[AoVTestImports] tags=[:translation, :config, :regression] begin
+    # Sparse diagonal 2×2: (L1,size) and (L2,ratio) present; the other two cells empty.
+    tbl = (x=[1.0, 2.0], y=[10.0, 0.5], lesion=["L1", "L2"],
+           source=["Tumor size (mm)", "Tumor size change from baseline (ratio)"])
+    cats = ["Tumor size (mm)", "Tumor size change from baseline (ratio)"]
+    full_cells = Set(((r, c) for r in ["L1", "L2"] for c in cats))
+    base = data(tbl) * mapping(:x, :y; row=:lesion, col=:source) * visual(Scatter)
+    cells(vals) = Set((r["lesion"], r["source"]) for r in vals)
+
+    # 1. config(scales=...) spelling (the reported path): the sort arrives after
+    # the inner lowering — the grid must still densify.
+    vl = to_vegalite(base * config(scales=scales(Column=(categories=cats,))))
+    @test vl["encoding"]["column"]["sort"] == cats
+    @test cells(vl["data"]["values"]) == full_cells
+    fillers = [r for r in vl["data"]["values"] if isnothing(r["y"])]
+    @test length(fillers) == 2
+    @test all(!isnothing(r["x"]) for r in fillers)  # clone keeps valid keys
+
+    # 2. Second-positional Scales form applies the identical repair.
+    vl_b = to_vegalite(base, scales(Column=(categories=cats,)))
+    @test cells(vl_b["data"]["values"]) == full_cells
+    @test count(r -> isnothing(r["y"]), vl_b["data"]["values"]) == 2
+
+    # 3. sorter() + scales() do not double-fill (the re-run is idempotent).
+    srt = data(tbl) * mapping(:x, :y; row=:lesion, col=:source => sorter(cats)) * visual(Scatter)
+    vl_c = to_vegalite(srt * config(scales=scales(Column=(categories=cats,))))
+    @test length(vl_c["data"]["values"]) == 4
+
+    # 4. Multi-layer operator facet: fillers null EVERY sublayer measure, so no
+    # phantom mark renders in the genuinely-empty cells.
+    btbl = (x=[1.0, 2.0], median=[10.0, 0.5], q025=[9.0, 0.4], q975=[11.0, 0.6],
+            lesion=["L1", "L2"],
+            source=["Tumor size (mm)", "Tumor size change from baseline (ratio)"])
+    vl_d = to_vegalite(data(btbl) * mapping(:x, :median; row=:lesion, col=:source) *
+                       lineribbon(bands=[:q025 => :q975]) *
+                       config(scales=scales(Column=(categories=cats,))))
+    @test vl_d["facet"]["column"]["sort"] == cats
+    @test cells(vl_d["data"]["values"]) == full_cells
+    bfillers = [r for r in vl_d["data"]["values"] if isnothing(r["median"])]
+    @test length(bfillers) == 2
+    for r in bfillers, mf in ("median", "q025", "q975")
+        @test isnothing(r[mf])
+    end
+
+    # 5. Unsorted specs stay sparse — the repair only fires with a sort.
+    vl_e = to_vegalite(base)
+    @test length(vl_e["data"]["values"]) == 2
+end
