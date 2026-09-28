@@ -123,16 +123,42 @@ function _densify_facet_sort!(spec::Dict)
     isnothing(donor) && return
     # Positional measure fields to null so a filler draws no mark. `x` (the
     # independent axis) is left intact; nulling `y`/`y2`/`x2` covers the
-    # line/area/point/bar marks faceted small-multiples use.
-    inner_enc = isnothing(facet) ? enc : _as_dict(get(_as_dict(get(spec, "spec", nothing)), "encoding", nothing))
-    measure_fields = String[]
-    if !isnothing(inner_enc)
-        for pc in ("y", "y2", "x2")
-            ce = _as_dict(get(inner_enc, pc, nothing))
-            isnothing(ce) && continue
-            f = get(ce, "field", nothing)
-            f isa AbstractString && push!(measure_fields, f)
+    # line/area/point/bar marks faceted small-multiples use. Sublayer
+    # encodings are scanned too: a multi-layer facet carries its encodings
+    # per sublayer with NO shared encoding, and a filler that kept the
+    # donor's measures would draw phantom marks in genuinely-empty cells
+    # (snag `facet-column-sor-9904da1f`).
+    enc_dicts = Dict[]
+    !isnothing(enc) && push!(enc_dicts, enc)
+    inner = _as_dict(get(spec, "spec", nothing))
+    if !isnothing(inner)
+        ie = _as_dict(get(inner, "encoding", nothing))
+        !isnothing(ie) && push!(enc_dicts, ie)
+        inner_layers = get(inner, "layer", nothing)
+        if inner_layers isa AbstractVector
+            for sub in inner_layers
+                sd = _as_dict(sub)
+                isnothing(sd) && continue
+                se = _as_dict(get(sd, "encoding", nothing))
+                !isnothing(se) && push!(enc_dicts, se)
+            end
         end
+    end
+    top_layers = get(spec, "layer", nothing)
+    if top_layers isa AbstractVector
+        for sub in top_layers
+            sd = _as_dict(sub)
+            isnothing(sd) && continue
+            se = _as_dict(get(sd, "encoding", nothing))
+            !isnothing(se) && push!(enc_dicts, se)
+        end
+    end
+    measure_fields = String[]
+    for e in enc_dicts, pc in ("y", "y2", "x2")
+        ce = _as_dict(get(e, pc, nothing))
+        isnothing(ce) && continue
+        f = get(ce, "field", nothing)
+        (f isa AbstractString && !(f in measure_fields)) && push!(measure_fields, f)
     end
     rowvals = unique(r[row_field] for r in vals if r isa Dict && haskey(r, row_field))
     colvals = unique(r[col_field] for r in vals if r isa Dict && haskey(r, col_field))
@@ -855,9 +881,16 @@ function to_vegalite(v::VegaSpec; interactive::Bool=true)
     end
     interactive && add_auto_interactivity!(spec)
     # Per-column Y scales re-lower the finished faceted spec into an hconcat of
-    # per-column facet views. Runs LAST so child copies inherit select filters
-    # (moved per child) and auto-interactivity params (inner layers) as built.
+    # per-column facet views. Runs last among the lowerings so child copies
+    # inherit select filters (moved per child) and auto-interactivity params
+    # (inner layers) as built.
     isnothing(col_yscales) || _per_column_y_hconcat!(spec, col_yscales)
+    # Facet sorts can arrive via config — `scales(Row/Col/Layout=categories)`
+    # sugar or a raw `encoding.sort` override — AFTER the inner lowering already
+    # ran the densifier on the unsorted spec. Re-run it so a sparse row×column
+    # grid never meets a sort (snag `facet-column-sor-9904da1f`); a no-op on
+    # hconcat tops, unsorted specs, and already-dense grids.
+    _densify_facet_sort!(spec)
     spec
 end
 
@@ -882,6 +915,10 @@ function to_vegalite(v, sc::AlgebraOfGraphics.Scales; interactive::Bool=true)
     _apply_scales_sugar!(spec, sc)
     col = _scales_column_y_scales(sc)
     isnothing(col) || _per_column_y_hconcat!(spec, col)
+    # The sugar above can add a facet sort after the inner lowering densified
+    # (or skipped an unsorted spec) — re-run so a sparse grid never meets a
+    # sort (snag `facet-column-sor-9904da1f`).
+    _densify_facet_sort!(spec)
     spec
 end
 
