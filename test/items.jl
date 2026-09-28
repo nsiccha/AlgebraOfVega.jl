@@ -730,6 +730,50 @@ legacy `independent_scales=true` path still works (with a deprecation warning).
 end
 
 """
+Raw `config(encoding=…)` channel overrides deep-merge into the auto-generated
+encodings: a sub-Dict like `y.scale` ADDS to the scale that `scales()` sugar set
+(`zero=false` on top of `type=log`) instead of replacing it wholesale — which
+silently demoted log axes back to linear. Same-key conflicts still resolve to
+the later config value, and facet row/column channel overrides merge the same
+way without losing the facet `field`.
+Regression for snag `raw-encoding-con-2ef91c95`.
+"""
+@testitem "raw encoding config deep-merges into generated channels" setup=[AoVTestImports] tags=[:translation, :config, :regression] begin
+    df = (; x=[1.0, 2.0], y=[3.0, 4.0], g=["a", "b"])
+
+    rowof(vl) = begin
+        enc = get(vl, "encoding", nothing)
+        enc isa Dict && haskey(enc, "row") && return enc["row"]
+        facet = get(vl, "facet", nothing)
+        facet isa Dict && haskey(facet, "row") && return facet["row"]
+        error("no row channel found in spec")
+    end
+
+    # scales() log + raw encoding zero=false → BOTH survive in y.scale
+    spec = data(df) * mapping(:x, :y) * visual(Scatter) *
+        config(scales=scales(Y=(; scale=log10)),
+               encoding=Dict(:y => Dict("scale" => Dict("zero" => false))))
+    vl = to_vegalite(spec)
+    @test vl["encoding"]["y"]["scale"]["type"] == "log"
+    @test vl["encoding"]["y"]["scale"]["zero"] == false
+
+    # Later config still wins on a same-key conflict (explicit type override)
+    spec2 = data(df) * mapping(:x, :y) * visual(Scatter) *
+        config(scales=scales(Y=(; scale=log10)),
+               encoding=Dict(:y => Dict("scale" => Dict("type" => "sqrt"))))
+    vl2 = to_vegalite(spec2)
+    @test vl2["encoding"]["y"]["scale"]["type"] == "sqrt"
+
+    # Facet row override merges into the facet channel without losing the field
+    spec3 = data(df) * mapping(:x, :y, row=:g) * visual(Scatter) *
+        config(encoding=Dict("row" => Dict("sort" => ["b", "a"])))
+    vl3 = to_vegalite(spec3)
+    row = rowof(vl3)
+    @test row["field"] == "g"
+    @test row["sort"] == ["b", "a"]
+end
+
+"""
 Categorical `Color` scale override — `scales(Color=(palette=…, categories=…))` pins
 the group order (domain) and palette (range) on a layered analysis. It is applied
 ONLY to colour encodings that carry a `field`, so a `pointinterval()` median dot
