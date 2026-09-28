@@ -74,20 +74,113 @@ function _apply_no_truncate_default!(spec::Dict)
     return spec
 end
 
+# Facet-densifier pad reuse: `_densify_facet_sort!` pads via the shared
+# `_pad_sparse_hconcat_rows!` writer and suppresses via `_suppress_pad_marks!`
+# (landed with the per-column-Y fix, `21b86b0`), passing valid-rows-only
+# `rowvals` — a null-only value owns no facet slot. New in this commit: the
+# composite-mark `detail` carry-through below, `_densify_needfields`, and the
+# densifier rewire itself. Facet cells are fixed-size, so no bounds sublayer.
+"""Carry the pad marker through composite-mark aggregation so the suppression
+test still matches. A `boxplot` unit aggregates per group and the aggregate
+datum keeps only the groupby keys plus computed stats — a bare
+`datum.__aov_pad` condition then never matches and the pad box renders a
+visible sliver. Adding `detail: {field: __aov_pad}` puts the marker in the
+groupby (render-verified): pad groups carry `__aov_pad: true` and suppress,
+while real rows share one `undefined` group whose boxes are byte-identical.
+Runs only on filter-less composite-mark units, and only when pads were added
+(see `_merge_pad_details!`)."""
+function _merge_pad_detail!(enc::Dict)
+    paddef = Dict{String,Any}("field" => _AOV_PAD_FIELD, "type" => "nominal")
+    haskey(enc, "detail") || (enc["detail"] = paddef; return)
+    cur = enc["detail"]
+    if cur isa AbstractVector
+        any(d -> (dd = _as_dict(d); dd isa Dict && get(dd, "field", nothing) == _AOV_PAD_FIELD), cur) && return
+        if !(cur isa Vector{Any})
+            cur = Vector{Any}(cur)
+            enc["detail"] = cur
+        end
+        push!(cur, paddef)
+        return
+    end
+    d = _as_dict(cur)
+    if isnothing(d)
+        # Shorthand field name: keep it as the first group key.
+        enc["detail"] = Any[Dict{String,Any}("field" => cur), paddef]
+        return
+    end
+    get(d, "field", nothing) == _AOV_PAD_FIELD && return
+    enc["detail"] = Any[cur, paddef]
+    return
+end
+
+"""Merge the pad-marker `detail` carry-through into filter-less composite-mark
+units (same visit rule as `_suppress_pad_marks!`: `__src`-filtered sublayers
+never see pads, so they are untouched). Primitive marks need no `detail` —
+their suppression conditions match the raw row directly."""
+function _merge_pad_details!(node)
+    d = _as_dict(node)
+    isnothing(d) && return
+    layers = get(d, "layer", nothing)
+    layers isa AbstractVector && for sub in layers
+        _merge_pad_details!(sub)
+    end
+    _merge_pad_details!(get(d, "spec", nothing))
+    if !(layers isa AbstractVector) && isnothing(_as_dict(get(d, "spec", nothing)))
+        _sublayer_has_src_filter(d) && return
+        _unit_is_composite(d) || return
+        enc = _as_dict(get(d, "encoding", nothing))
+        isnothing(enc) && return
+        _merge_pad_detail!(enc)
+    end
+    return
+end
+
+function _unit_is_composite(unit::Dict)
+    m = get(unit, "mark", nothing)
+    m isa AbstractString && return m in _COMPOSITE_MARKS
+    md = _as_dict(m)
+    isnothing(md) && return false
+    t = get(md, "type", nothing)
+    return t isa AbstractString && t in _COMPOSITE_MARKS
+end
+
+"""First x/y field pair among the candidate encodings (the positional fields
+whose validity decides whether a row survives Vega-Lite's hoisted invalid
+filter), or `String[]` when no unit carries both (then every row counts as
+valid and pads fall back to single clones)."""
+function _densify_needfields(enc_dicts::AbstractVector)
+    for e in enc_dicts
+        ed = _as_dict(e)
+        isnothing(ed) && continue
+        x = _as_dict(get(ed, "x", nothing))
+        y = _as_dict(get(ed, "y", nothing))
+        (isnothing(x) || isnothing(y)) && continue
+        fx = get(x, "field", nothing)
+        fy = get(y, "field", nothing)
+        (fx isa AbstractString && fy isa AbstractString) || continue
+        return String[fx, fy]
+    end
+    return String[]
+end
+
 # Vega-Lite mis-binds faceted panels when a facet channel carries an explicit
 # `sort` array AND the row×column cross-product is sparse (some cells have no
 # data): VL fills the sorted header slots positionally, so a missing combination
 # shifts real panels under the wrong header. (Third-party VL behaviour, not an
-# AoV bug — repro in ~/scratch/heizung_shot: `with_sort` BROKEN vs `sort_dense`
-# CORRECT; the `encoding.column` shorthand and the top-level `facet` operator
+# AoV bug — the `encoding.column` shorthand and the top-level `facet` operator
 # forms fail identically, which is why the fix lives at the shared data level.)
-# Densify the cross-product: for every missing (row, col) cell, append a filler
-# row so the slot owns a cell. The filler is a CLONE of an existing row with its
-# measure (y) nulled — cloning keeps a valid colour/x value so no `null` category
-# leaks into the colour scale (a bare keys-only filler recolours the real series,
-# verified), and the null measure means no mark is drawn in the genuinely-empty
-# cell. Only fires when a facet `sort` is present and BOTH axes are faceted —
-# unsorted specs and single-axis facets already render sparse data correctly.
+# Densify the cross-product: for every missing (row, col) cell, append pad rows
+# so the slot owns a cell. Pads are donor CLONES with VALID, in-distribution
+# measures — a nulled measure is dropped before faceting in single-layer specs
+# (Vega-Lite hoists the `isValid(x) && isValid(y)` filter above the facet,
+# ahead of the row/column-domain aggregates — visible in the compiled Vega
+# dataflow) and materializes no cell (snag `facet-densify-fi-62fd2dbf`). Pad
+# marks are suppressed instead: `opacity`/`size`/`strokeWidth` zero-conditions
+# on the filter-less units pads can reach (`__src`-filtered sublayers drop
+# `__src`-less pads on their own), plus a `detail` carry-through on composite
+# marks whose aggregation would otherwise eat the marker. Only fires when a
+# facet `sort` is present and BOTH axes are faceted — unsorted specs and
+# single-axis facets already render sparse data correctly.
 _densify_facet_sort!(_) = nothing
 function _densify_facet_sort!(spec::Dict)
     # Recurse into layered / faceted children first (mirrors _apply_no_zero_default!).
@@ -114,20 +207,12 @@ function _densify_facet_sort!(spec::Dict)
     row_field = get(row_ch, "field", nothing)
     col_field = get(col_ch, "field", nothing)
     (row_field isa AbstractString && col_field isa AbstractString) || return
-    data = _as_dict(get(spec, "data", nothing))
-    isnothing(data) && return
-    vals = get(data, "values", nothing)
-    (vals isa AbstractVector && !isempty(vals)) || return  # named datasets / urls: can't densify here
-    donor = nothing
-    for r in vals; r isa Dict && (donor = r; break); end
-    isnothing(donor) && return
-    # Positional measure fields to null so a filler draws no mark. `x` (the
-    # independent axis) is left intact; nulling `y`/`y2`/`x2` covers the
-    # line/area/point/bar marks faceted small-multiples use. Sublayer
-    # encodings are scanned too: a multi-layer facet carries its encodings
-    # per sublayer with NO shared encoding, and a filler that kept the
-    # donor's measures would draw phantom marks in genuinely-empty cells
-    # (snag `facet-column-sor-9904da1f`).
+    # Candidate encodings for the x/y measure pair that decides whether a row
+    # survives Vega-Lite's hoisted invalid filter (`isValid(x) && isValid(y)`
+    # — compiled-dataflow verified, including with color/size/y2 encodings
+    # present: only the x/y positionals gate facet survival). A multi-layer
+    # facet carries its encodings per sublayer with NO shared encoding, so
+    # every level is scanned (snag `facet-column-sor-9904da1f`).
     enc_dicts = Dict[]
     !isnothing(enc) && push!(enc_dicts, enc)
     inner = _as_dict(get(spec, "spec", nothing))
@@ -153,24 +238,32 @@ function _densify_facet_sort!(spec::Dict)
             !isnothing(se) && push!(enc_dicts, se)
         end
     end
-    measure_fields = String[]
-    for e in enc_dicts, pc in ("y", "y2", "x2")
-        ce = _as_dict(get(e, pc, nothing))
-        isnothing(ce) && continue
-        f = get(ce, "field", nothing)
-        (f isa AbstractString && !(f in measure_fields)) && push!(measure_fields, f)
+    needfields = _densify_needfields(enc_dicts)
+    # Facet values that can own a cell: only rows with valid x/y measures
+    # survive to the facet partition — null-measure rows are dropped before
+    # it, so their combos still need pads, while a value with ONLY null rows
+    # owns no rendered slot and must not invent a header.
+    data = _as_dict(get(spec, "data", nothing))
+    vals = isnothing(data) ? nothing : _as_vec(get(data, "values", nothing))
+    (vals isa AbstractVector && !isempty(vals)) || return  # named datasets / urls: can't densify here
+    isvalidrow = rd -> all(f -> (v = get(rd, f, nothing); v !== nothing && !ismissing(v)), needfields)
+    rowvals = Any[]
+    colvals = Any[]
+    for r in vals
+        rd = _as_dict(r)
+        (isnothing(rd) || !isvalidrow(rd)) && continue
+        haskey(rd, row_field) && !any(u -> isequal(u, rd[row_field]), rowvals) && push!(rowvals, rd[row_field])
+        haskey(rd, col_field) && !any(u -> isequal(u, rd[col_field]), colvals) && push!(colvals, rd[col_field])
     end
-    rowvals = unique(r[row_field] for r in vals if r isa Dict && haskey(r, row_field))
-    colvals = unique(r[col_field] for r in vals if r isa Dict && haskey(r, col_field))
-    present = Set((get(r, row_field, nothing), get(r, col_field, nothing)) for r in vals if r isa Dict)
-    for rv in rowvals, cv in colvals
-        (rv, cv) in present && continue
-        filler = copy(donor)
-        filler[row_field] = rv
-        filler[col_field] = cv
-        for mf in measure_fields; filler[mf] = nothing; end
-        push!(vals, filler)
-    end
+    (isempty(rowvals) || isempty(colvals)) && return
+    # Shared pad writer (also serves `_per_column_y_hconcat!`): valid
+    # same-column donor clones at the column range corners, `__src` removed,
+    # `__aov_pad` marked. Idempotent: pads are valid rows carrying the facet
+    # fields, so a re-run counts their combos present and adds nothing.
+    npads = _pad_sparse_hconcat_rows!(spec, col_field, row_field, colvals, needfields; rowvals=rowvals)
+    npads > 0 || return
+    _suppress_pad_marks!(spec)
+    _merge_pad_details!(spec)
     return
 end
 
@@ -451,11 +544,17 @@ cells then show the donor column's range — aligned, documented); when no
 range is computable (unorderable or single-point columns) a single pad is
 emitted, which still fixes cell existence while pitch may drift.
 
+Pass `rowvals` to pad a caller-derived row set: the facet densifier passes
+the values of VALID rows only (null-measure rows are dropped before
+faceting, so their values own no slot and must not invent headers); the
+default derives the union over all rows (hconcat cross-child alignment needs
+every value shared).
+
 Skips (returning 0) when the dataset is not an inline `values` vector: the
 combos are unknowable there, so that corner keeps its pre-fix behaviour
 rather than gaining a new error."""
 function _pad_sparse_hconcat_rows!(spec::Dict, colfield::String, rowfield::String, colvals::AbstractVector,
-        needfields::AbstractVector{<:AbstractString}=String[])
+        needfields::AbstractVector{<:AbstractString}=String[]; rowvals::Union{Nothing,AbstractVector}=nothing)
     data = _as_dict(get(spec, "data", nothing))
     vals = isnothing(data) ? nothing : _as_vec(get(data, "values", nothing))
     (vals isa AbstractVector && !isempty(vals)) || return 0
@@ -469,20 +568,23 @@ function _pad_sparse_hconcat_rows!(spec::Dict, colfield::String, rowfield::Strin
     # shared across children, even one whose column data is all null (its
     # cells render empty; the facet form hides globally-null values instead
     # in single-layer specs — inherent to the alignment requirement).
-    rowvals = Any[]
-    for rd in rows
-        haskey(rd, rowfield) || continue
-        v = rd[rowfield]
-        any(u -> isequal(u, v), rowvals) || push!(rowvals, v)
+    # `_densify_facet_sort!` overrides via `rowvals=` with the valid-rows
+    # union instead (a null-only value owns no facet slot there).
+    _rowvals = rowvals
+    if isnothing(_rowvals)
+        _rowvals = Any[]
+        for rd in rows
+            haskey(rd, rowfield) || continue
+            v = rd[rowfield]
+            any(u -> isequal(u, v), _rowvals) || push!(_rowvals, v)
+        end
     end
     # Validity-aware presence: a row covers its combo only when its
-    # bounds-measure values are valid. `_densify_facet_sort!` (Layer level
-    # for sorter sorts, VegaSpec level for config sorts) pads sparse combos
-    # with NULL-measure fillers, and real rows can carry null measures too;
+    # bounds-measure values are valid. Real rows can carry null measures, and
     # in single-layer specs Vega-Lite drops those before faceting, so they
-    # materialize no cell and must not suppress our pads. (In multi-layer
-    # specs they partition but populate nothing; our pads still own the
-    # cell's bounds either way.)
+    # materialize no cell and must not suppress pads. (In multi-layer specs
+    # they partition but populate nothing; pads still own the cell either
+    # way.)
     present = Tuple{Any,Any}[]
     for rd in rows
         (haskey(rd, rowfield) && haskey(rd, colfield)) || continue
@@ -507,7 +609,7 @@ function _pad_sparse_hconcat_rows!(spec::Dict, colfield::String, rowfield::Strin
             end
         end
         corners = _pad_range_corners(rangerows, needfields)
-        for rv in rowvals
+        for rv in _rowvals
             any(p -> isequal(p[1], rv) && isequal(p[2], cv), present) && continue
             if isnothing(corners)
                 push!(vals, _pad_row(donor, rowfield, rv, colfield, cv, nothing))
@@ -679,10 +781,22 @@ function _merge_pad_condition!(enc::Dict, channel::String)
         enc[channel] = Dict{String,Any}("value" => enc[channel], "condition" => cond)
         return
     end
+    # Widen user-supplied dicts: a raw `encoding=Dict("opacity" =>
+    # Dict("value" => 0.5))` arrives as `Dict{String,Float64}` (possibly with
+    # `Symbol` keys), and merging a `"condition"` Dict into it throws. The
+    # widened copy serializes identically (JSON ignores Julia types).
+    if !(existing isa Dict{String,Any})
+        existing = Dict{String,Any}(string(k) => v for (k, v) in existing)
+        enc[channel] = existing
+    end
     haskey(existing, "condition") || (existing["condition"] = cond; return)
     cur = existing["condition"]
     if cur isa AbstractVector
         any(c -> _as_dict(c) isa Dict && get(_as_dict(c), "test", nothing) == cond["test"], cur) && return
+        if !(cur isa Vector{Any})
+            cur = Vector{Any}(cur)
+            existing["condition"] = cur
+        end
         pushfirst!(cur, cond)
     else
         existing["condition"] = Any[cond, cur]
