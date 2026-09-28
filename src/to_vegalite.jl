@@ -249,8 +249,23 @@ function _scales_to_encoding_override(sc::AlgebraOfGraphics.Scales)
     for (axis_key, props) in pairs(sc.dict)
         ch = _aog_axis_key_to_vl_channel(axis_key)
         isnothing(ch) && continue
+        # An unknown key on a positional axis is almost always a misplaced
+        # parenthesis (e.g. `scales(Y=(; scale=..., Col=(; categories=...)))`
+        # puts the column scale INSIDE the Y NamedTuple and the column order
+        # silently stays default). Warn once — never silently swallow.
+        for k in keys(props)
+            k in keys(_SCALES_NT_FORWARD) && continue
+            k === :scale && continue
+            @warn "AlgebraOfVega: unknown `$axis_key` scale option `$k` — not a known scale/nice/zero/domain/clamp/constant key. If you meant a facet order or per-column scale, check the parentheses (it must be a sibling of the `$axis_key=` argument, not inside its NamedTuple)." maxlog=1
+        end
         vl_scale = Dict{String,Any}()
         scale_fn = get(props, :scale, nothing)
+        # A Dict-valued `scale` is the per-facet-column form — it can never go
+        # into one shared facet encoding (every column would take the LAST
+        # written type). It is consumed by `_per_column_y_hconcat!` instead,
+        # which re-lowers the single-facet spec into an `hconcat` of per-column
+        # facet views (snag `mixed-log-and-li-a69d2f23`).
+        scale_fn isa AbstractDict && continue
         if !isnothing(scale_fn)
             translated = _aog_scale_fn_to_vl(scale_fn)
             !isnothing(translated) && merge!(vl_scale, translated)
@@ -263,6 +278,193 @@ function _scales_to_encoding_override(sc::AlgebraOfGraphics.Scales)
         override[ch] = Dict{String,Any}("scale" => vl_scale)
     end
     override
+end
+
+"""Extract a per-facet-column Y scale mapping from a `Scales` object, or `nothing`.
+
+`scales(Y=(; scale=Dict("Tumor size (mm)" => log10)))` requests one Y scale TYPE
+per column-facet VALUE: listed columns get the mapped transform, unlisted columns
+stay linear. Values are translated through `_aog_scale_fn_to_vl` (an unsupported
+function warns there and drops that column's entry)."""
+function _scales_column_y_scales(sc::AlgebraOfGraphics.Scales)
+    props = get(sc.dict, :Y, nothing)
+    isnothing(props) && return nothing
+    s = get(props, :scale, nothing)
+    s isa AbstractDict || return nothing
+    out = Dict{Any,Any}()
+    for (k, v) in s
+        translated = _aog_scale_fn_to_vl(v)
+        isnothing(translated) || (out[k] = translated)
+    end
+    isempty(out) ? nothing : out
+end
+
+# Vega-Lite filter literals: quote strings (escaping embedded quotes), emit
+# numbers/booleans bare, `null` for `nothing`.
+function _vl_filter_literal(v)
+    v isa AbstractString && return "'" * replace(string(v), "'" => "\\'") * "'"
+    isnothing(v) && return "null"
+    v isa Bool && return v ? "true" : "false"
+    v isa Real && return string(v)
+    return "'" * replace(string(v), "'" => "\\'") * "'"
+end
+
+# Column-facet values in draw order: the explicit `sort` array wins, otherwise
+# first-appearance order over the hoisted top-level data.
+function _facet_column_values(spec::Dict, coldef::Dict)
+    srt = get(coldef, "sort", nothing)
+    srt isa AbstractVector && !isempty(srt) && return collect(srt)
+    field = get(coldef, "field", nothing)
+    isnothing(field) && return String[]
+    data = _as_dict(get(spec, "data", nothing))
+    vals = isnothing(data) ? nothing : get(data, "values", nothing)
+    vals isa AbstractVector || return String[]
+    seen = Any[]
+    for r in vals
+        rd = _as_dict(r)
+        isnothing(rd) && continue
+        haskey(rd, field) || continue
+        v = rd[field]
+        v in seen || push!(seen, v)
+    end
+    seen
+end
+
+# Merge a per-column VL `scale` dict into every field-bearing Y encoding of a
+# spec tree (sublayer arrays + nested facet specs), mirroring the scoping rule
+# of `_merge_color_scale!`: field-less Y encodings are left alone.
+function _merge_column_y_scale!(spec, yscale::Dict)
+    d = _as_dict(spec)
+    isnothing(d) && return
+    enc = _as_dict(get(d, "encoding", nothing))
+    if !isnothing(enc)
+        y = _as_dict(get(enc, "y", nothing))
+        if !isnothing(y) && haskey(y, "field")
+            existing = get!(y, "scale", Dict{String,Any}())
+            existing isa Dict ? merge!(existing, yscale) : (y["scale"] = copy(yscale))
+        end
+    end
+    layers = get(d, "layer", nothing)
+    layers isa AbstractVector && for sub in layers
+        _merge_column_y_scale!(sub, yscale)
+    end
+    _merge_column_y_scale!(get(d, "spec", nothing), yscale)
+    return
+end
+
+"""Re-lower a single-facet spec into an `hconcat` of per-column facet views so
+every column-facet VALUE can carry its own Y scale type.
+
+Vega-Lite's facet operator shares ONE encoding across all columns — the scale
+TYPE cannot differ per column. The only VL shape that can is a concat of one
+faceted view per column, each with its own inner scale and a row facet (rows
+stay aligned because every view facets the same row field with the same sort
+and identical panel heights).
+
+`ycols` maps column VALUES (as they appear in the data) to VL `scale` dicts
+(from `_scales_column_y_scales`). Unlisted columns keep the shared encoding's
+existing scale (linear by default).
+
+Requires the operator-facet shape `layers_to_vl` emits: top-level `facet` with a
+field-bearing `column` channel and `spec.layer` sublayers over one hoisted
+top-level dataset. Anything else is a loud error — a silent fallback would
+plot every column with the wrong scale type.
+
+Top-level residue of the facet form (`resolve`, select-filter transforms) moves
+into each child; top-level `params`, `config`, `_aov` and `title` stay on the
+concat, where VL applies them to every view."""
+function _per_column_y_hconcat!(spec::Dict, ycols::Dict)
+    facet = _as_dict(get(spec, "facet", nothing))
+    if isnothing(facet)
+        # Single-view `col=` specs carry the facet at the encoding level —
+        # normalize into the operator form (`facet` + `spec.layer`) so the rest
+        # of the lowering is shape-uniform.
+        enc = _as_dict(get(spec, "encoding", nothing))
+        if !isnothing(enc) && haskey(enc, "column")
+            unit = Dict{String,Any}()
+            for k in ("mark", "encoding", "transform", "params")
+                haskey(spec, k) && (unit[k] = spec[k])
+            end
+            uenc = _as_dict(unit["encoding"])
+            facet = Dict{String,Any}()
+            facet["column"] = uenc["column"]
+            haskey(uenc, "row") && (facet["row"] = uenc["row"])
+            delete!(uenc, "column")
+            delete!(uenc, "row")
+            delete!(enc, "column")
+            delete!(enc, "row")
+            isempty(enc) && delete!(spec, "encoding")
+            spec["facet"] = facet
+            spec["spec"] = Dict{String,Any}("layer" => Any[unit])
+            delete!(spec, "mark")
+            delete!(spec, "transform")
+            delete!(spec, "params")
+            haskey(spec, "data") || (spec["data"] = Dict{String,Any}("values" => Any[]))
+        else
+            error("AlgebraOfVega: per-column Y scales (`scales(Y=(; scale=Dict(...)))`) need a faceted spec with a column facet; this spec has no facet.")
+        end
+    end
+    coldef = _as_dict(get(facet, "column", nothing))
+    if isnothing(coldef) || !haskey(coldef, "field")
+        error("AlgebraOfVega: per-column Y scales need a column facet (mapping col=...); this spec only facets by row/layout.")
+    end
+    inner = _as_dict(get(spec, "spec", nothing))
+    if isnothing(inner) || !haskey(inner, "layer")
+        error("AlgebraOfVega: per-column Y scales need the multi-layer faceted form (one `+`-composed spec with facet rows); single-layer `col=` specs keep one shared encoding and cannot vary the scale type per column.")
+    end
+    colfield = string(coldef["field"])
+    rowdef = _as_dict(get(facet, "row", nothing))
+
+    colvals = _facet_column_values(spec, coldef)
+    isempty(colvals) && error("AlgebraOfVega: per-column Y scales found no values for column facet field `$colfield`.")
+
+    # Top-level state that must survive onto every child / the concat.
+    resolve = _as_dict(get(spec, "resolve", nothing))
+    select_transforms = _as_vec(get(spec, "transform", nothing))
+    children = Any[]
+    for (i, v) in enumerate(colvals)
+        child = Dict{String,Any}()
+        # The row facet moves into each view; later views drop the row header
+        # (labels would repeat per column — never-truncate never-means-repeat).
+        if !isnothing(rowdef)
+            rd = deepcopy(rowdef)
+            i > 1 && (rd["header"] = nothing)
+            child["facet"] = Dict{String,Any}("row" => rd)
+        end
+        child_inner = deepcopy(inner)
+        yscale = get(ycols, v, nothing)
+        isnothing(yscale) || _merge_column_y_scale!(child_inner, yscale)
+        child["spec"] = child_inner
+        # The column facet becomes a child-level filter (applies before the
+        # row facet and every sublayer transform).
+        ctransforms = Any[Dict{String,Any}(
+            "filter" => "datum.$colfield === $(_vl_filter_literal(v))")]
+        if !isnothing(select_transforms)
+            append!(ctransforms, deepcopy(select_transforms))
+        end
+        child["transform"] = ctransforms
+        if !isnothing(resolve)
+            child["resolve"] = deepcopy(resolve)
+        end
+        push!(children, child)
+    end
+
+    newspec = Dict{String,Any}(
+        "\$schema" => VL_SCHEMA,
+        "hconcat" => children,
+    )
+    for keep in ("data", "params", "config", "title", "spacing", "usermeta")
+        haskey(spec, keep) && (newspec[keep] = spec[keep])
+    end
+    aov = _as_dict(get(spec, "_aov", nothing))
+    if !isnothing(aov)
+        newspec["_aov"] = merge!(deepcopy(aov), Dict{String,Any}("nFacetCols" => length(children)))
+    else
+        newspec["_aov"] = Dict{String,Any}("nFacetCols" => length(children))
+    end
+    empty!(spec)
+    merge!(spec, newspec)
+    spec
 end
 
 """Translate the props of a categorical/continuous `scales(Color=(; palette, categories, colormap))`
@@ -485,11 +687,16 @@ _select_field_list(v) = v
 function to_vegalite(v::VegaSpec; interactive::Bool=true)
     spec = to_vegalite(v.drawable; interactive)
     select_fields = nothing
+    col_yscales = nothing
     if !isnothing(v.config)
         props = v.config.properties
         # First pass: apply AoG-style sugar (scales, facet) so user-supplied
         # `encoding=Dict(...)` in the second pass can still override on conflict.
         haskey(props, :scales) && _apply_scales_sugar!(spec, props[:scales])
+        if haskey(props, :scales)
+            sc = _as_scales(props[:scales])
+            isnothing(sc) || (col_yscales = _scales_column_y_scales(sc))
+        end
         haskey(props, :facet) && _apply_facet_sugar!(spec, props[:facet])
         haskey(props, :axis) && _apply_axis_sugar!(spec, props[:axis])
         for (k, val) in props
@@ -548,6 +755,10 @@ function to_vegalite(v::VegaSpec; interactive::Bool=true)
         add_select_filters!(spec, v.drawable, select_fields)
     end
     interactive && add_auto_interactivity!(spec)
+    # Per-column Y scales re-lower the finished faceted spec into an hconcat of
+    # per-column facet views. Runs LAST so child copies inherit select filters
+    # (moved per child) and auto-interactivity params (inner layers) as built.
+    isnothing(col_yscales) || _per_column_y_hconcat!(spec, col_yscales)
     spec
 end
 
@@ -570,6 +781,8 @@ VL-dropped colour encoding.
 function to_vegalite(v, sc::AlgebraOfGraphics.Scales; interactive::Bool=true)
     spec = to_vegalite(v; interactive)
     _apply_scales_sugar!(spec, sc)
+    col = _scales_column_y_scales(sc)
+    isnothing(col) || _per_column_y_hconcat!(spec, col)
     spec
 end
 

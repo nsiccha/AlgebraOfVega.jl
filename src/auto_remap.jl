@@ -613,6 +613,9 @@ end
 function _scrub_independent_resolve_if_unfaceted!(vl::Dict)
     haskey(vl, "facet") && return
     haskey(vl, "spec") && !isnothing(_as_dict(vl["spec"])) && return
+    # A per-column-Y concat (`hconcat` of per-column facet views) is faceted by
+    # construction — every child carries its own facet + resolve. Don't strip.
+    haskey(vl, "hconcat") && return
     # Encoding-faceted specs (row=/col= → encoding.row/encoding.column) are
     # genuinely faceted even with no top-level `facet` key and no nested `spec`.
     # Don't strip a legitimate `resolve.scale.{x,y} = "independent"` the user
@@ -646,6 +649,18 @@ function _tag_keep_color_layers!(vl::Dict, keep_color_fields::Set{String})
     # Faceted specs nest layers under "spec"; plain layered specs use top-level "layer".
     nested = haskey(vl, "spec") ? _as_dict(vl["spec"]) : nothing
     container = isnothing(nested) ? vl : nested
+    if haskey(vl, "hconcat")
+        for child in _as_vec(vl["hconcat"])
+            cd = _as_dict(child)
+            isnothing(cd) && continue
+            inner = _as_dict(get(cd, "spec", nothing))
+            isnothing(inner) && continue
+            for l in _as_vec(get(inner, "layer", nothing))
+                _tag_keep_color_layer!(l, keep_color_fields)
+            end
+        end
+        return
+    end
     layers = _as_vec(get(container, "layer", nothing))
     isnothing(layers) && return
     for l in layers

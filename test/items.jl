@@ -2335,3 +2335,169 @@ The explorer routes faceted embeds through the same `AoV.embed` machinery.
     @test occursin("vegaEmbed('div.plot'", js_cls)
     @test !occursin("AoV.embed(", js_cls)
 end
+
+# --- Per-column Y scales (snag `mixed-log-and-li-a69d2f23`) -------------------
+
+"""
+`scales(Y=(; scale=Dict(...)))` keyed by column-facet VALUE re-lowers a multi-layer
+faceted spec into an `hconcat` of one facet view per column, each with its own Y
+scale type. This is the only Vega-Lite shape that can vary the scale TYPE per
+facet column (the facet operator shares one encoding across columns).
+"""
+@testitem "per-column Y scales lower to hconcat of per-column facet views" setup=[AoVTestImports] tags=[:translation, :config, :regression] begin
+    rows = vcat(
+        [Dict("t" => t, "val" => 10.0^t, "lo" => 10.0^t - 1, "hi" => 10.0^t + 1,
+              "endpoint" => "Tumor size (mm)", "basis" => "prior") for t in 0.0:1.0:2.0],
+        [Dict("t" => t, "val" => 350.0 + t, "lo" => 340.0 + t, "hi" => 360.0 + t,
+              "endpoint" => "QTcF", "basis" => "prior") for t in 0.0:1.0:2.0],
+        [Dict("t" => t, "val" => t * 10, "lo" => t * 10 - 2, "hi" => t * 10 + 2,
+              "endpoint" => "Tumor size (mm)", "basis" => "posterior") for t in 0.0:1.0:2.0],
+        [Dict("t" => t, "val" => 360.0 + t, "lo" => 350.0 + t, "hi" => 370.0 + t,
+              "endpoint" => "QTcF", "basis" => "posterior") for t in 0.0:1.0:2.0],
+    )
+    spec = data(rows) * mapping(:t, :val; row=:basis, col=:endpoint) * lineribbon() +
+           data(rows) * mapping(:t, :val; row=:basis, col=:endpoint) * visual(Scatter)
+    full = spec * config(facet=(; linkyaxes=:none)) *
+           config(scales=scales(Y=(; scale=Dict("Tumor size (mm)" => log10))))
+    vl = to_vegalite(full)
+
+    @test haskey(vl, "hconcat")
+    children = vl["hconcat"]
+    @test length(children) == 2  # one view per column value
+    @test haskey(vl, "data")     # data stays hoisted/shared at the top
+    @test vl["_aov"]["nFacetCols"] == 2
+
+    ytype(ch) = begin
+        scales = [get(get(l["encoding"]["y"], "scale", Dict()), "type", "linear")
+                  for l in ch["spec"]["layer"]
+                  if haskey(get(l, "encoding", Dict()), "y")]
+        unique(scales)
+    end
+    filters = [ch["transform"][1]["filter"] for ch in children]
+    @test any(occursin("Tumor size (mm)", f) for f in filters)
+    @test any(occursin("QTcF", f) for f in filters)
+    for ch in children
+        occursin("Tumor size (mm)", ch["transform"][1]["filter"]) && (@test ytype(ch) == ["log"])
+        occursin("QTcF", ch["transform"][1]["filter"]) && (@test ytype(ch) == ["linear"])
+        # the row facet moves into each view
+        @test ch["facet"]["row"]["field"] == "basis"
+        # child-level column filter + per-sublayer __src filters coexist
+        @test length(ch["transform"]) >= 1
+    end
+    # row headers repeat per column — only the first view keeps them
+    @test haskey(children[1]["facet"]["row"], "header") == false ||
+        children[1]["facet"]["row"]["header"] !== nothing
+    @test children[2]["facet"]["row"]["header"] === nothing
+end
+
+@testitem "per-column Y scales: sort order, positional form, single-layer col=" setup=[AoVTestImports] tags=[:translation, :config] begin
+    rows = vcat(
+        [Dict("t" => t, "val" => 10.0^t, "endpoint" => "Tumor", "basis" => "prior") for t in 0.0:1.0:2.0],
+        [Dict("t" => t, "val" => 350.0 + t, "endpoint" => "QTcF", "basis" => "prior") for t in 0.0:1.0:2.0],
+    )
+    sc = scales(Y=(; scale=Dict("Tumor" => log10)), Col=(; categories=["QTcF", "Tumor"]))
+
+    # explicit Col categories drive the hconcat child order
+    spec = data(rows) * mapping(:t, :val; row=:basis, col=:endpoint) * visual(Scatter) *
+           config(facet=(; linkyaxes=:none)) * config(scales=sc)
+    vl = to_vegalite(spec)
+    @test occursin("'QTcF'", vl["hconcat"][1]["transform"][1]["filter"])
+    @test occursin("'Tumor'", vl["hconcat"][2]["transform"][1]["filter"])
+
+    # second-positional Scales form applies the identical lowering
+    spec_b = data(rows) * mapping(:t, :val; row=:basis, col=:endpoint) * visual(Scatter) *
+             config(facet=(; linkyaxes=:none))
+    vl_b = to_vegalite(spec_b, scales(Y=(; scale=Dict("Tumor" => log10))))
+    @test haskey(vl_b, "hconcat")
+    tumor_b = only(ch for ch in vl_b["hconcat"] if occursin("'Tumor'", ch["transform"][1]["filter"]))
+    @test get(tumor_b["spec"]["layer"][1]["encoding"]["y"]["scale"], "type", "linear") == "log"
+
+    # single-layer col= (encoding-level facet) normalizes into the operator form
+    spec_c = data(rows) * mapping(:t, :val; row=:basis, col=:endpoint) * visual(Scatter) *
+             config(facet=(; linkyaxes=:none)) *
+             config(scales=scales(Y=(; scale=Dict("Tumor" => log10))))
+    vl_c = to_vegalite(spec_c)
+    @test haskey(vl_c, "hconcat")
+    @test length(vl_c["hconcat"]) == 2
+    tumor_c = only(ch for ch in vl_c["hconcat"] if occursin("'Tumor'", ch["transform"][1]["filter"]))
+    y2 = tumor_c["spec"]["layer"][1]["encoding"]["y"]
+    @test get(get(y2, "scale", Dict()), "type", "linear") == "log"
+end
+
+@testitem "per-column Y scales fail loudly on unsupported shapes" setup=[AoVTestImports] tags=[:translation, :config] begin
+    rows = (t=[0.0, 1.0], val=[1.0, 2.0], endpoint=["a", "b"], basis=["p", "q"])
+    colsc = scales(Y=(; scale=Dict("a" => log10)))
+
+    # non-faceted spec: no facet to key columns by — refuse instead of guessing
+    spec1 = data(rows) * mapping(:t, :val) * visual(Scatter) * config(scales=colsc)
+    @test_throws ErrorException to_vegalite(spec1)
+
+    # row-only facet: no column channel
+    spec2 = data(rows) * mapping(:t, :val; row=:basis) * visual(Scatter) * config(scales=colsc)
+    @test_throws ErrorException to_vegalite(spec2)
+end
+
+@testitem "per-column Y scales survive auto_remap" setup=[AoVTestImports] tags=[:auto_remap, :translation, :regression] begin
+    rows = vcat(
+        [Dict("t" => t, "val" => 10.0^t, "lo" => 10.0^t - 1, "hi" => 10.0^t + 1,
+              "endpoint" => "Tumor size (mm)", "basis" => "prior", "source" => "pred") for t in 0.0:1.0:2.0],
+        [Dict("t" => t, "val" => 350.0 + t, "lo" => 340.0 + t, "hi" => 360.0 + t,
+              "endpoint" => "QTcF", "basis" => "prior", "source" => "pred") for t in 0.0:1.0:2.0],
+        [Dict("t" => t, "val" => 10.0^t, "lo" => 10.0^t - 1, "hi" => 10.0^t + 1,
+              "endpoint" => "Tumor size (mm)", "basis" => "prior", "source" => "obs") for t in 0.0:2.0:2.0],
+        [Dict("t" => t, "val" => 350.0 + t, "lo" => 340.0 + t, "hi" => 360.0 + t,
+              "endpoint" => "QTcF", "basis" => "prior", "source" => "obs") for t in 0.0:2.0:2.0],
+    )
+    spec = data(rows) * mapping(:t, :val; color=:source, row=:basis, col=:endpoint) * lineribbon() +
+           data(filter(r -> r["source"] == "obs", collect(rows))) *
+           mapping(:t, :val; color=:source, row=:basis, col=:endpoint) * visual(Scatter)
+    full = spec * config(facet=(; linkyaxes=:none)) *
+           config(scales=scales(Y=(; scale=Dict("Tumor size (mm)" => log10))))
+
+    controls, plot, vl = AlgebraOfVega._auto_remap_parts("ppc-col-test", full;
+        dims=["source" => "Source", "basis" => "Prediction basis"],
+        fixed=Dict(:column => "endpoint"),
+        pinned=:row)
+
+    @test haskey(vl, "hconcat")
+    @test length(vl["hconcat"]) == 2
+    ytype(ch) = unique([get(get(l["encoding"]["y"], "scale", Dict()), "type", "linear")
+                        for l in ch["spec"]["layer"] if haskey(get(l, "encoding", Dict()), "y")])
+    @test [ytype(ch) == ["log"] for ch in vl["hconcat"]] == [true, false] ||
+          [ytype(ch) == ["log"] for ch in vl["hconcat"]] == [false, true]
+    @test any(ytype(ch) == ["linear"] for ch in vl["hconcat"])
+
+    # the independent-resolve scrubber must not treat the concat as unfaceted
+    resolve_before = get(vl["hconcat"][1], "resolve", nothing)
+    AlgebraOfVega._scrub_independent_resolve_if_unfaceted!(vl)
+    @test get(vl["hconcat"][1], "resolve", nothing) == resolve_before
+
+    # both controls and plot node render
+    @test !isempty(sprint(show, MIME("text/html"), controls))
+    @test !isempty(sprint(show, MIME("text/html"), plot))
+end
+
+@testitem "plot_size measures per-column concat" setup=[AoVTestImports] tags=[:plot_size, :translation] begin
+    rows = vcat(
+        [Dict("t" => t, "val" => 10.0^t, "endpoint" => "Tumor", "basis" => "prior") for t in 0.0:1.0:2.0],
+        [Dict("t" => t, "val" => 350.0 + t, "endpoint" => "QTcF", "basis" => "prior") for t in 0.0:1.0:2.0],
+    )
+    spec = data(rows) * mapping(:t, :val; row=:basis, col=:endpoint) * lineribbon() *
+           config(facet=(; linkyaxes=:none), height=200) *
+           config(scales=scales(Y=(; scale=Dict("Tumor" => log10))))
+    vl = to_vegalite(spec)
+    sz = AlgebraOfVega.plot_size(vl)
+    # two children side by side must be wider than one child's height-sized figure
+    @test sz.width > sz.height
+    single = AlgebraOfVega.plot_size(vl["hconcat"][1])
+    @test sz.height ≈ single.height
+end
+
+@testitem "unknown positional-axis scale option warns" setup=[AoVTestImports] tags=[:translation, :config] begin
+    df = (; x=[1.0, 2.0], y=[3.0, 4.0])
+    # a misplaced Col inside the Y NamedTuple must not be silently swallowed
+    spec = data(df) * mapping(:x, :y) * visual(Scatter) *
+           config(scales=scales(Y=(; scale=log10, Col=(; categories=["a", "b"]))))
+    vl = (@test_logs (:warn, r"unknown `Y` scale option `Col`") match_mode=:any to_vegalite(spec))
+    @test vl["encoding"]["y"]["scale"]["type"] == "log"
+end
