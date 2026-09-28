@@ -2689,3 +2689,223 @@ discovery scans sublayer encodings so multi-layer fillers null every measure
     vl_e = to_vegalite(base)
     @test length(vl_e["data"]["values"]) == 2
 end
+
+"""
+Sparse row×column cross-products must not misalign hconcat children: each
+child facets only ITS column's rows while children 2..N draw no row headers,
+so a column missing a row value used to pack its remaining rows from the top
+beside the WRONG labels (snag `per-column-y-sca-ad6baf40`). The lowering now
+pads the shared dataset with two fillers per missing (row, column) combo
+(diagonal range corners), so every child facets the full row domain and
+empty cells render empty.
+"""
+@testitem "per-column Y scales pad sparse row sets so children stay aligned" setup=[AoVTestImports] tags=[:translation, :config, :regression] begin
+    # "bravo" is the ASCENDING-middle row value: without padding, the sparse
+    # child's "charlie" rows pack into the "bravo" slot beside the wrong header.
+    rows = vcat(
+        vec([Dict("t" => t, "val" => 10.0^t, "endpoint" => "Tumor", "basis" => b)
+             for b in ["alpha", "charlie"], t in 0.0:1.0:2.0]),
+        vec([Dict("t" => t, "val" => 350.0 + t, "endpoint" => "QTcF", "basis" => b)
+             for b in ["alpha", "bravo", "charlie"], t in 0.0:1.0:2.0]),
+    )
+    ysc = config(scales=scales(Y=(; scale=Dict("Tumor" => log10))))
+    spec = data(rows) * mapping(:t, :val; row=:basis, col=:endpoint) * lineribbon() +
+           data(rows) * mapping(:t, :val; row=:basis, col=:endpoint) * visual(Scatter)
+    vl = to_vegalite(spec * config(facet=(; linkyaxes=:none)) * ysc)
+
+    @test haskey(vl, "hconcat")
+    @test length(vl["hconcat"]) == 2
+    vals = vl["data"]["values"]
+    pads = [r for r in vals if get(r, "__aov_pad", false) === true]
+    real = [r for r in vals if get(r, "__aov_pad", false) !== true]
+    # exactly the missing (row, column) combo is padded, nothing else — with
+    # TWO pads at the diagonal corners of the column's x/y range, so the
+    # pad cells' axes render full top-and-bottom labels (a single-datum
+    # domain renders a one-label axis that shrinks row pitch).
+    @test length(pads) == 2
+    bounds_enc = vl["hconcat"][1]["spec"]["layer"][end]["encoding"]
+    xf, yf = bounds_enc["x"]["field"], bounds_enc["y"]["field"]
+    for p in pads
+        @test p["basis"] == "bravo"
+        @test p["endpoint"] == "Tumor"
+        # `__src` REMOVED: every hoisted sublayer filter drops pads, so real
+        # pipelines stay pristine. Pads surface only in the hidden bounds
+        # sublayer (same x/y fields) and in filter-less units.
+        @test !haskey(p, "__src")
+        # measures stay VALID: a nulled measure never materializes a cell in
+        # single-layer specs, and same-column donors keep the bounds
+        # sublayer's shared domains bit-identical.
+        @test !any(v -> v === nothing || ismissing(v), values(p))
+    end
+    samecol = [d for d in real if isequal(d["endpoint"], "Tumor")]
+    @test !isempty(samecol)
+    # donor clone apart from facet fields, marker, and the spanned x/y
+    strip(r) = Dict(k => v for (k, v) in r if k ∉ ("basis", "endpoint", "__src", "__aov_pad", xf, yf))
+    @test any(d -> isequal(strip(d), strip(pads[1])), samecol)
+    @test isequal(strip(pads[1]), strip(pads[2]))
+    # ... and the two pads span the column's x/y range diagonally
+    xs = sort!([p[xf] for p in pads])
+    ys = sort!([p[yf] for p in pads])
+    rxs = sort!([d[xf] for d in samecol if haskey(d, xf)])
+    rys = sort!([d[yf] for d in samecol if haskey(d, yf)])
+    @test xs == [first(rxs), last(rxs)]
+    @test ys == [first(rys), last(rys)]
+    @test (pads[1][xf] == first(rxs)) == (pads[1][yf] == first(rys))
+    has_pad_cond(enc, ch) = begin
+        haskey(enc, ch) || return false
+        d = enc[ch]
+        d isa Dict || return false
+        haskey(d, "condition") || return false
+        c = d["condition"]
+        conds = c isa AbstractVector ? c : Any[c]
+        !isempty(conds) || return false
+        first = conds[1]
+        first isa Dict && get(first, "test", nothing) == "datum.__aov_pad" &&
+            get(first, "value", nothing) == 0
+    end
+    # baseline sublayer count from the facet form (same pipeline, no hconcat)
+    facet_vl = to_vegalite(spec * config(facet=(; linkyaxes=:none)))
+    nreal = length(facet_vl["spec"]["layer"])
+    @test nreal >= 1
+    for ch in vl["hconcat"]
+        layers = ch["spec"]["layer"]
+        # the hidden bounds sublayer: last, point mark, opacity-only
+        # suppression (full geometry equalizes pitch), no transform (pads
+        # flow in), no tooltip (hovering it shows nothing).
+        @test length(layers) == nreal + 1
+        @test layers[end]["mark"]["type"] == "point"
+        @test has_pad_cond(layers[end]["encoding"], "opacity")
+        @test !haskey(layers[end]["encoding"], "size")
+        @test !haskey(layers[end]["encoding"], "tooltip")
+        @test !haskey(layers[end], "transform")
+        # ... and no real sublayer gained a pad condition or guard: `__src`
+        # filters drop pads, so real pipelines are untouched.
+        for sl in layers[1:end-1]
+            enc = get(sl, "encoding", Dict())
+            @test !has_pad_cond(enc, "opacity")
+            @test !has_pad_cond(enc, "size")
+            @test !has_pad_cond(enc, "strokeWidth")
+            for t in get(sl, "transform", [])
+                @test !occursin("__aov_pad", get(t, "filter", ""))
+            end
+        end
+    end
+    # every child now covers the full row domain under its own column filter
+    union_rows = Set(["alpha", "bravo", "charlie"])
+    for ch in vl["hconcat"]
+        col = occursin("'Tumor'", ch["transform"][1]["filter"]) ? "Tumor" : "QTcF"
+        seen = Set(r["basis"] for r in vals if isequal(r["endpoint"], col))
+        @test seen == union_rows
+        # per-column scale types are unaffected by the padding
+        ytypes = unique([get(get(l["encoding"]["y"], "scale", Dict()), "type", "linear")
+                         for l in ch["spec"]["layer"] if haskey(get(l, "encoding", Dict()), "y")])
+        @test ytypes == (col == "Tumor" ? ["log"] : ["linear"])
+    end
+    # header suppression on later children is now CORRECT (rows are aligned),
+    # so it stays: labels still drawn once, on the first view.
+    @test vl["hconcat"][2]["facet"]["row"]["header"] === nothing
+
+    # complete cross-products pad nothing: no fillers, no suppression churn.
+    full_rows = vcat(
+        vec([Dict("t" => t, "val" => 10.0^t, "endpoint" => "Tumor", "basis" => b)
+             for b in ["alpha", "bravo", "charlie"], t in 0.0:1.0:2.0]),
+        vec([Dict("t" => t, "val" => 350.0 + t, "endpoint" => "QTcF", "basis" => b)
+             for b in ["alpha", "bravo", "charlie"], t in 0.0:1.0:2.0]),
+    )
+    full_spec = data(full_rows) * mapping(:t, :val; row=:basis, col=:endpoint) * lineribbon() +
+                data(full_rows) * mapping(:t, :val; row=:basis, col=:endpoint) * visual(Scatter)
+    full_vl = to_vegalite(full_spec * config(facet=(; linkyaxes=:none)) * ysc)
+    @test !any(r -> get(r, "__aov_pad", false) === true, full_vl["data"]["values"])
+    # no pads, no conditions, no bounds sublayer anywhere in the emitted spec
+    @test !occursin("__aov_pad", sprint(show, full_vl))
+
+    # a sort-listed column with NO data at all is skipped: pads need a
+    # same-column donor, and the facet form shows no panel for it either.
+    ghost_sc = scales(Y=(; scale=Dict("Tumor" => log10)), Col=(; categories=["QTcF", "Tumor", "Ghost"]))
+    gvl = to_vegalite(spec * config(facet=(; linkyaxes=:none)) * config(scales=ghost_sc))
+    @test length(gvl["hconcat"]) == 3
+    @test !any(r -> isequal(get(r, "endpoint", nothing), "Ghost"),
+               gvl["data"]["values"])
+
+    # single-layer col= form: pads carry no `__src` (nothing tags them). The
+    # filter-less unit suppresses via all three conditions (bounds come from
+    # the dummy), and the bounds sublayer rides along for pitch — never via
+    # a transform guard (layer transforms hoist pre-facet).
+    single = data(rows) * mapping(:t, :val; row=:basis, col=:endpoint) * visual(Scatter)
+    # explicit column sort + sparse single-layer rows: `_densify_facet_sort!`
+    # pads the facet form with NULL-measure fillers first, and those must
+    # NOT suppress our pads (Vega-Lite drops nulls before faceting in
+    # single-layer specs, so they materialize no cell — presence is
+    # validity-aware).
+    sortedysc = config(scales=scales(Y=(; scale=Dict("Tumor" => log10)),
+                                     Col=(; categories=["QTcF", "Tumor"])))
+    dvl = to_vegalite(single * config(facet=(; linkyaxes=:none)) * sortedysc)
+    dvals = dvl["data"]["values"]
+    dpads = [r for r in dvals if get(r, "__aov_pad", false) === true]
+    @test length(dpads) == 2
+    @test all(p -> isequal(p["basis"], "bravo") && isequal(p["endpoint"], "Tumor"), dpads)
+    # ours valid (on post-merge main the densifier's null fillers coexist as
+    # dead rows; presence is validity-aware so they never suppress ours)
+    @test all(p -> p["val"] !== nothing && !ismissing(p["val"]), dpads)
+    # same mechanism, directly: a RAW null-measure row for the missing combo
+    # (equivalent to a densifier filler) must not suppress our pads either.
+    nullrows = vcat(rows, [Dict("t" => 1.0, "val" => nothing,
+                                "endpoint" => "Tumor", "basis" => "bravo")])
+    nullsingle = data(nullrows) * mapping(:t, :val; row=:basis, col=:endpoint) * visual(Scatter)
+    nvl = to_vegalite(nullsingle * config(facet=(; linkyaxes=:none)) * ysc)
+    npads = [r for r in nvl["data"]["values"] if get(r, "__aov_pad", false) === true]
+    @test length(npads) == 2
+    @test all(p -> p["val"] !== nothing && !ismissing(p["val"]), npads)
+    svl = to_vegalite(single * config(facet=(; linkyaxes=:none)) * ysc)
+    spads = [r for r in svl["data"]["values"] if get(r, "__aov_pad", false) === true]
+    @test length(spads) == 2
+    @test all(p -> !haskey(p, "__src"), spads)
+    svals = svl["data"]["values"]
+    sreal = [r for r in svals if get(r, "__aov_pad", false) !== true]
+    stumor = [d["t"] for d in sreal if isequal(d["endpoint"], "Tumor")]
+    sval = [d["val"] for d in sreal if isequal(d["endpoint"], "Tumor")]
+    @test sort!([p["t"] for p in spads]) == [minimum(stumor), maximum(stumor)]
+    @test sort!([p["val"] for p in spads]) == [minimum(sval), maximum(sval)]
+    for ch in svl["hconcat"]
+        slayers = ch["spec"]["layer"]
+        @test length(slayers) == 2
+        unit = slayers[1]
+        uenc = get(unit, "encoding", Dict())
+        @test has_pad_cond(uenc, "opacity")
+        @test has_pad_cond(uenc, "size")
+        @test has_pad_cond(uenc, "strokeWidth")
+        for t in get(unit, "transform", [])
+            @test !occursin("__aov_pad", get(t, "filter", ""))
+        end
+        @test slayers[end]["mark"]["type"] == "point"
+        @test has_pad_cond(slayers[end]["encoding"], "opacity")
+    end
+end
+
+@testitem "pad condition merge preserves existing channel content" setup=[AoVTestImports] tags=[:translation, :config] begin
+    merge!(d, ch="opacity") = (AlgebraOfVega._merge_pad_condition!(d, ch); d["opacity"])
+    # missing channel: bare condition (falls back to mark/default for real rows)
+    @test merge!(Dict{String,Any}()) == Dict{String,Any}(
+        "condition" => Dict{String,Any}("test" => "datum.__aov_pad", "value" => 0))
+    # shorthand value: kept as the else-branch
+    @test merge!(Dict{String,Any}("opacity" => 0.5)) == Dict{String,Any}(
+        "value" => 0.5,
+        "condition" => Dict{String,Any}("test" => "datum.__aov_pad", "value" => 0))
+    # existing Dict without condition: condition added, rest preserved
+    m = merge!(Dict{String,Any}("opacity" => Dict{String,Any}("field" => "v", "type" => "quantitative")))
+    @test m["field"] == "v"
+    @test m["condition"]["value"] == 0
+    # single existing condition: demoted behind the pad test (pad first)
+    m2 = merge!(Dict{String,Any}("opacity" => Dict{String,Any}(
+        "condition" => Dict{String,Any}("param" => "sel", "value" => 1), "value" => 0.2)))
+    @test m2["condition"][1]["test"] == "datum.__aov_pad"
+    @test m2["condition"][2] == Dict{String,Any}("param" => "sel", "value" => 1)
+    @test m2["value"] == 0.2
+    # existing condition array: pad test prepended, idempotent on re-merge
+    enc = Dict{String,Any}("opacity" => Dict{String,Any}(
+        "condition" => Any[Dict{String,Any}("param" => "sel", "value" => 1)]))
+    AlgebraOfVega._merge_pad_condition!(enc, "opacity")
+    AlgebraOfVega._merge_pad_condition!(enc, "opacity")
+    @test length(enc["opacity"]["condition"]) == 2
+    @test enc["opacity"]["condition"][1]["test"] == "datum.__aov_pad"
+end
