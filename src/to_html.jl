@@ -1,19 +1,23 @@
 """
-    to_html(spec; id, width, height)
+    to_html(spec; id, width, height, source, base)
 
-Return a standalone HTML string with embedded vega-embed that self-loads scripts from CDN.
+Return a standalone HTML string with embedded vega-embed. `source` selects the
+script origin — `:cdn` (default), `:vendor`, or `:inline`, as in `vega_head`.
+`source=:inline` inlines AoV's vendored Vega builds, so the returned page
+renders with no network access at all.
 """
-function to_html(spec; id=nothing, width=nothing, height=nothing)
+function to_html(spec; id=nothing, width=nothing, height=nothing,
+        source::Symbol=:cdn, base::AbstractString="/vendor")
     vl = _as_vl_dict(spec)
     !isnothing(width) && (vl["width"] = width)
     !isnothing(height) && (vl["height"] = height)
     id = _sanitize_id(something(id, "vega-" * string(abs(hash(JSON.json(vl))), base=16)))
     json = JSON.json(vl)
+    scripts = join((sprint(show, MIME"text/html"(), n)
+        for n in _vega_script_nodes(; source, base)), "\n")
     """
     <div id="$id"></div>
-    <script src="https://cdn.jsdelivr.net/npm/vega@$VEGA_VERSION"></script>
-    <script src="https://cdn.jsdelivr.net/npm/vega-lite@$VEGALITE_VERSION"></script>
-    <script src="https://cdn.jsdelivr.net/npm/vega-embed@$VEGA_EMBED_VERSION"></script>
+    $scripts
     <script>vegaEmbed('#$id', $json, {actions: false}).catch(console.error);</script>
     """
 end
@@ -24,25 +28,29 @@ _html_escape(s::AbstractString) =
     replace(s, "&" => "&amp;", "<" => "&lt;", ">" => "&gt;", "\"" => "&quot;")
 
 """
-    to_html(node::HTMX.Node; title="AoV plot", head_extra="") -> String
+    to_html(node::HTMX.Node; title="AoV plot", head_extra="", source, base) -> String
 
 Serialize a rendered plot node (e.g. `to_node`, `auto_remap_node`, or a
 `with_plot_caption` fragment) as ONE standalone `.html` document string:
 `<!DOCTYPE html>` + `<head>` + `<body>`.
 
-The `<head>` is the exact `vega_head()` set — Vega/Vega-Lite/Vega-Embed CDN
+The `<head>` is the exact `vega_head()` set — Vega/Vega-Lite/Vega-Embed
 scripts plus the inlined `window.AoV.*` runtime — rendered by construction
-from `vega_head()` itself, so versions can never drift. `head_extra` appends
-additional rendered head HTML (the `with_plot_caption` methods use it for
-caption CSS + table sorting). The node body carries picker controls, embed
-scripts, and inlined spec/data JSON, so the saved file keeps working with no
-server: picker re-facets, CSV/PNG/SVG download, caption/summary render. Only
-`signals=`-wired plots degrade (their `htmx.ajax` callback has no server),
-and they do so silently — see `signalToHtmx`.
+from `vega_head()` itself, so versions can never drift. `source` selects the
+script origin (`:cdn` default, `:vendor`, `:inline`, as in `vega_head`);
+`source=:inline` inlines the vendored builds, so the saved file renders with
+no network at all. `head_extra` appends additional rendered head HTML (the
+`with_plot_caption` methods use it for caption CSS + table sorting). The node
+body carries picker controls, embed scripts, and inlined spec/data JSON, so
+the saved file keeps working with no server: picker re-facets, CSV/PNG/SVG
+download, caption/summary render. Only `signals=`-wired plots degrade (their
+`htmx.ajax` callback has no server), and they do so silently — see
+`signalToHtmx`.
 """
-function to_html(node::HTMX.Node; title::AbstractString="AoV plot", head_extra::AbstractString="")
+function to_html(node::HTMX.Node; title::AbstractString="AoV plot", head_extra::AbstractString="",
+        source::Symbol=:cdn, base::AbstractString="/vendor")
     head_io = IOBuffer()
-    for n in vega_head()
+    for n in vega_head(; source, base)
         show(head_io, MIME"text/html"(), n)
     end
     head_html = String(take!(head_io)) * head_extra
@@ -99,3 +107,12 @@ vega_cdn_urls(; vega=VEGA_VERSION, vegalite=VEGALITE_VERSION, embed=VEGA_EMBED_V
     "https://cdn.jsdelivr.net/npm/vega-lite@$vegalite",
     "https://cdn.jsdelivr.net/npm/vega-embed@$embed",
 ]
+
+"""
+    vega_sri_hashes()
+
+Subresource-integrity (sha384) hashes for the exact-pinned `vega_cdn_urls()`,
+in the same order — for systems that declare script dependencies with
+integrity checks.
+"""
+vega_sri_hashes() = [VEGA_SRI, VEGALITE_SRI, VEGA_EMBED_SRI]

@@ -7,14 +7,88 @@ Convert a spec to a Vega-Lite JSON string. Passes `kwargs` to `JSON.json`.
 """
 to_json(x; kwargs...) = JSON.json(to_vegalite(x); kwargs...)
 
-VEGA_VERSION = "5"
-VEGALITE_VERSION = "5"
-VEGA_EMBED_VERSION = "6"
+# Exact pins, not major-only: a CDN-side release inside the major line used to
+# change rendering with zero repo diff. These are the latest in each major
+# line as of 2026-09-28 — i.e. what the floating tags already served — so the
+# freeze is behavior-preserving. The same builds are vendored under `vendor/`.
+VEGA_VERSION = "5.33.1"
+VEGALITE_VERSION = "5.23.0"
+VEGA_EMBED_VERSION = "6.29.0"
+
+# Subresource-integrity (sha384) hashes of the exact-pinned jsDelivr builds,
+# byte-identical to `vendor/`. Recompute on every trio bump (vendor/README.md).
+VEGA_SRI = "sha384-NMXhl2TbCXxcN7o4ROC56Funm78m4AylL8gMg/7Kn4YU+wrm23K9l7cY8lDRXQ9d"
+VEGALITE_SRI = "sha384-D9LYH0esGjcxQJsBuxOuXtCDJGXRWW1+KhluzWPqi0rLJmiR/ygPChefaD+rFFDQ"
+VEGA_EMBED_SRI = "sha384-M+Ax7e/WFJpxSOF09HzI+Sj4wg9ottVd/uxmV2ItGGh02fLH28t2FAOJx3TJBap5"
+
+const _VEGA_VENDOR_FILES = ("vega.min.js", "vega-lite.min.js", "vega-embed.min.js")
 
 """
-    vega_head(; vega_version, vegalite_version, vega_embed_version, zoom, max_width, actions)
+    vega_vendor_dir() -> String
+
+Absolute path of the directory holding AoV's vendored Vega/Vega-Lite/Vega-Embed
+builds — the exact-pinned trio `vega_head()` serves from CDN by default.
+Serve this directory from your app (e.g. mount it at `/vendor` with a static
+route) and pass `vega_head(; source=:vendor, base="/vendor")` to render plots
+with no CDN dependency.
+"""
+vega_vendor_dir() = normpath(joinpath(pkgdir(AlgebraOfVega), "vendor"))
+
+_vega_vendor_bytes(file) = read(joinpath(vega_vendor_dir(), file), String)
+
+_cdn_script(url, sri) =
+    isnothing(sri) ? h.script(src=url) : h.script(src=url, integrity=sri, crossorigin="anonymous")
+
+"""
+    _vega_script_nodes(; source, base, vega_version, vegalite_version, vega_embed_version)
+
+The three Vega/Vega-Lite/Vega-Embed `<script>` nodes shared by `vega_head()`
+and `to_html`: `:cdn` (default) emits exact-pinned CDN tags with
+subresource integrity; `:vendor` emits same-origin `<base>/<file>` tags for an
+app serving `vega_vendor_dir()` at `base`; `:inline` inlines the vendored
+bytes for fully self-contained pages. Version overrides apply only to `:cdn` —
+the vendored bytes are fixed at the pinned trio.
+"""
+function _vega_script_nodes(; source::Symbol=:cdn, base::AbstractString="/vendor",
+        vega_version=VEGA_VERSION, vegalite_version=VEGALITE_VERSION,
+        vega_embed_version=VEGA_EMBED_VERSION)
+    if source === :cdn
+        return [
+            _cdn_script("https://cdn.jsdelivr.net/npm/vega@$vega_version",
+                vega_version == VEGA_VERSION ? VEGA_SRI : nothing),
+            _cdn_script("https://cdn.jsdelivr.net/npm/vega-lite@$vegalite_version",
+                vegalite_version == VEGALITE_VERSION ? VEGALITE_SRI : nothing),
+            _cdn_script("https://cdn.jsdelivr.net/npm/vega-embed@$vega_embed_version",
+                vega_embed_version == VEGA_EMBED_VERSION ? VEGA_EMBED_SRI : nothing),
+        ]
+    elseif source === :vendor || source === :inline
+        if vega_version != VEGA_VERSION || vegalite_version != VEGALITE_VERSION ||
+                vega_embed_version != VEGA_EMBED_VERSION
+            throw(ArgumentError("source=$source serves AoV's vendored trio " *
+                "(vega@$VEGA_VERSION, vega-lite@$VEGALITE_VERSION, vega-embed@$VEGA_EMBED_VERSION); " *
+                "version overrides apply only to source=:cdn"))
+        end
+        if source === :vendor
+            root = rstrip(base, '/')
+            return [h.script(src="$root/$f") for f in _VEGA_VENDOR_FILES]
+        else
+            return [h.script(Raw(_vega_vendor_bytes(f))) for f in _VEGA_VENDOR_FILES]
+        end
+    else
+        throw(ArgumentError("source must be :cdn, :vendor, or :inline, got $source"))
+    end
+end
+
+"""
+    vega_head(; vega_version, vegalite_version, vega_embed_version, source, base, zoom, max_width, actions)
 
 Return a vector of `h.script`/`h.style` nodes to include in `htmx(; extra_head=vega_head())`.
+
+`source` selects where the Vega/Vega-Lite/Vega-Embed scripts come from:
+`:cdn` (default) emits exact-pinned CDN tags with subresource integrity;
+`:vendor` emits same-origin `<base>/vega.min.js` tags — serve
+`vega_vendor_dir()` at `base` from your app; `:inline` inlines the vendored
+bytes. Version overrides apply only to `:cdn`.
 
 `zoom` uniformly scales all plots (chart area, fonts, axes, legend). Responsive plots
 are sized to `containerWidth / zoom` so they don't overflow their container.
@@ -28,14 +102,14 @@ function vega_head(;
     vega_version=VEGA_VERSION,
     vegalite_version=VEGALITE_VERSION,
     vega_embed_version=VEGA_EMBED_VERSION,
+    source::Symbol=:cdn,
+    base::AbstractString="/vendor",
     zoom=nothing,
     max_width=nothing,
     actions=nothing,
 )
     nodes = [
-        h.script(src="https://cdn.jsdelivr.net/npm/vega@$vega_version"),
-        h.script(src="https://cdn.jsdelivr.net/npm/vega-lite@$vegalite_version"),
-        h.script(src="https://cdn.jsdelivr.net/npm/vega-embed@$vega_embed_version"),
+        _vega_script_nodes(; source, base, vega_version, vegalite_version, vega_embed_version)...,
         # Fix vega-embed actions SVG sizing when CSS frameworks (Pico) override defaults
         h.style(Raw("""
             details[title] > summary > svg { width: 14px !important; height: 14px !important; }

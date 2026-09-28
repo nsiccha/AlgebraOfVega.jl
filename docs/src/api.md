@@ -47,7 +47,7 @@ vlspec
 |----------------|-------------------------------------------------------------------------------------|
 | `to_node(spec)`| An [`HTMX.Node`](https://github.com/nsiccha/HTMX.jl) — embed in HTMX/Oxygen apps    |
 | `vdraw(spec)`  | Alias for `to_node` — use when you want a "draw"-shaped name without clashing with AoG's `draw` |
-| `to_html(spec)`| A standalone HTML string with the Vega CDN tags embedded                             |
+| `to_html(spec)`| A standalone HTML string with the Vega tags embedded (`source=:inline` for fully offline) |
 | `to_json(spec)`| Pretty-printed Vega-Lite JSON                                                       |
 | `to_vegalite(spec; interactive=true)` | Raw Vega-Lite spec as a `Dict{String,Any}`; pass `interactive=false` to omit AoV-generated parameters |
 | `sdraw(spec, path; kwargs...)` | Save through AoG/Makie and return an `HTMX.Node` image pointing to `path` |
@@ -85,10 +85,12 @@ update_spec
 
 | Helper            | Purpose                                                                              |
 |-------------------|--------------------------------------------------------------------------------------|
-| `vega_head()`     | The `<script>` tags for Vega/Vega-Lite/Vega-Embed CDN — drop in your `<head>`        |
+| `vega_head()`     | The `<script>` tags for Vega/Vega-Lite/Vega-Embed — drop in your `<head>` (`source=:cdn`/`:vendor`/`:inline`) |
 | `vega_runtime()`  | The AoV JS runtime — handles signal binding, `update_data`, etc.                     |
 | `vega_controls()` | Optional HTML controls block (legend toggles, view reset, …)                          |
-| `vega_cdn_urls()` | The current set of CDN URLs (override to pin versions or vendor locally)             |
+| `vega_cdn_urls()` | The exact-pinned CDN URLs (Vega, Vega-Lite, Vega-Embed in order)                      |
+| `vega_sri_hashes()` | The subresource-integrity hashes for the pinned CDN URLs, in the same order        |
+| `vega_vendor_dir()` | Directory holding the vendored trio — serve it from your app for `source=:vendor`  |
 | `update_data(id, new_rows)` | Push fresh data into a rendered spec by id (HTMX server-side handler returns `update_data(...)`) |
 | `append_data(id, rows; max_rows)` | Add rows to a rendered spec by id, keeping the existing ones (optionally a sliding window of `max_rows`) |
 | `update_spec(id, spec)` | Re-embed a rendered plot in place with a new spec, e.g. one with an extra layer |
