@@ -151,7 +151,12 @@ end
 # Generic recursive dict merge: a nested-Dict value merges key-by-key into the
 # matching target Dict; every other value (strings, numbers, arrays) replaces.
 # Used for the `config(config=…)` passthrough so a user overlay preserves the
-# base config's other keys (no-truncate labelLimit defaults, font_scale sizes).
+# base config's other keys (no-truncate labelLimit defaults, font_scale sizes),
+# and for raw `config(encoding=…)` channel overrides so a sub-Dict like
+# `y.scale` adds to the auto-generated scale (e.g. `zero=false` on top of the
+# `type=log` that `scales()` set) instead of replacing it wholesale. Same-key
+# conflicts still resolve to the config value ("later config wins"); to drop an
+# auto-generated key, set it to `nothing` (JSON null).
 function _deep_merge_dict!(target::Dict, src::Dict)
     for (k, v) in src
         sk = string(k)
@@ -164,19 +169,6 @@ function _deep_merge_dict!(target::Dict, src::Dict)
         end
     end
     return target
-end
-
-function _deep_merge_encoding!(target_enc::Dict, config_enc::Dict)
-    for (ek, ev) in config_enc
-        sek = string(ek)
-        ev_dict = _as_dict(ev)
-        target_dict = _as_dict(get(target_enc, sek, nothing))
-        if !isnothing(ev_dict) && !isnothing(target_dict)
-            merge!(target_dict, Dict{String,Any}(string(k2) => v2 for (k2, v2) in ev_dict))
-        else
-            target_enc[sek] = ev
-        end
-    end
 end
 
 # Recurse the merge into a child spec only when it's actually a Dict.
@@ -198,11 +190,11 @@ function _merge_encoding_config!(spec::Dict, config_enc::Dict)
             target = _as_dict(facet[config_key])
             override = _as_dict(config_enc[config_key])
             !isnothing(target) && !isnothing(override) &&
-                _deep_merge_encoding!(target, override)
+                _deep_merge_dict!(target, override)
         end
     end
     if haskey(spec, "encoding")
-        _deep_merge_encoding!(spec["encoding"], config_enc)
+        _deep_merge_dict!(spec["encoding"], config_enc)
     end
     if haskey(spec, "layer")
         for sublayer in spec["layer"]
