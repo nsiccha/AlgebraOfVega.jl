@@ -2636,12 +2636,20 @@ explicit `sort` array and the cross-product is sparse. AoV's densifier
 (`_densify_facet_sort!`, `1bd60c6`) originally ran only inside the
 `Layer`/`Layers` lowering — but sorts from `scales(Row/Col/Layout=categories)`
 (and raw `encoding.sort` overrides) are applied AFTER, in the `VegaSpec`
-config layer, so a sparse grid still met the sort and rendered data under the
-wrong header. The config layer now re-runs the densifier, and measure
-discovery scans sublayer encodings so multi-layer fillers null every measure
-(no phantom marks). Regression for snag `facet-column-sor-9904da1f`.
+config layer, so a sparse grid still met the sort (snag
+`facet-column-sor-9904da1f`, fixed by re-running the densifier after config).
+The re-run's fillers nulled their measures — but Vega-Lite hoists the
+invalid-value filter above the facet in single-layer specs, so null-measure
+fillers never reach faceting and fix nothing at render time (snag
+`facet-densify-fi-62fd2dbf`). Pads now keep VALID, in-distribution measures
+and their marks are suppressed instead (`opacity`/`size`/`strokeWidth`
+zero-conditions on filter-less units, plus a `detail` carry-through on
+composite marks). The guarded block at the end renders the emitted spec with
+vl-convert when available and asserts mark→cell binding geometrically — the
+values-array assertions alone cannot catch a mis-binding.
 """
 @testitem "facet sorts from scales() densify sparse grids" setup=[AoVTestImports] tags=[:translation, :config, :regression] begin
+    using JSON
     # Sparse diagonal 2×2: (L1,size) and (L2,ratio) present; the other two cells empty.
     tbl = (x=[1.0, 2.0], y=[10.0, 0.5], lesion=["L1", "L2"],
            source=["Tumor size (mm)", "Tumor size change from baseline (ratio)"])
@@ -2649,28 +2657,53 @@ discovery scans sublayer encodings so multi-layer fillers null every measure
     full_cells = Set(((r, c) for r in ["L1", "L2"] for c in cats))
     base = data(tbl) * mapping(:x, :y; row=:lesion, col=:source) * visual(Scatter)
     cells(vals) = Set((r["lesion"], r["source"]) for r in vals)
+    pads(vals) = [r for r in vals if get(r, "__aov_pad", false) === true]
+    PADTEST = "datum.__aov_pad"
+    # The pad test is present on the channel (bare-condition form or merged
+    # into an array/dict alongside pre-existing conditions).
+    function has_pad_cond(enc, ch)
+        c = get(enc, ch, nothing)
+        c === nothing && return false
+        c isa Dict && haskey(c, "condition") || return false
+        cur = c["condition"]
+        cur isa Dict && return get(cur, "test", nothing) == PADTEST
+        cur isa AbstractVector || return false
+        return any(x -> x isa Dict && get(x, "test", nothing) == PADTEST, cur)
+    end
+    issuppressed(enc) = all(ch -> has_pad_cond(enc, ch), ("opacity", "size", "strokeWidth"))
 
     # 1. config(scales=...) spelling (the reported path): the sort arrives after
-    # the inner lowering — the grid must still densify.
+    # the inner lowering — the grid must still densify, with VALID pads whose
+    # marks are suppressed (single-point columns here, so one pad per combo).
     vl = to_vegalite(base * config(scales=scales(Column=(categories=cats,))))
     @test vl["encoding"]["column"]["sort"] == cats
     @test cells(vl["data"]["values"]) == full_cells
-    fillers = [r for r in vl["data"]["values"] if isnothing(r["y"])]
-    @test length(fillers) == 2
-    @test all(!isnothing(r["x"]) for r in fillers)  # clone keeps valid keys
+    fp = pads(vl["data"]["values"])
+    @test length(fp) == 2
+    @test Set((r["lesion"], r["source"]) for r in fp) ==
+        Set([("L1", cats[2]), ("L2", cats[1])])
+    for r in fp
+        @test r["x"] isa Number && r["y"] isa Number  # valid, in-distribution
+        @test !haskey(r, "__src")
+    end
+    @test issuppressed(vl["encoding"])
+    @test all(!haskey(r, "__aov_pad") for r in vl["data"]["values"] if r ∉ fp)
 
     # 2. Second-positional Scales form applies the identical repair.
     vl_b = to_vegalite(base, scales(Column=(categories=cats,)))
     @test cells(vl_b["data"]["values"]) == full_cells
-    @test count(r -> isnothing(r["y"]), vl_b["data"]["values"]) == 2
+    bp = pads(vl_b["data"]["values"])
+    @test length(bp) == 2
+    @test all(r["x"] isa Number && r["y"] isa Number for r in bp)
 
     # 3. sorter() + scales() do not double-fill (the re-run is idempotent).
     srt = data(tbl) * mapping(:x, :y; row=:lesion, col=:source => sorter(cats)) * visual(Scatter)
     vl_c = to_vegalite(srt * config(scales=scales(Column=(categories=cats,))))
     @test length(vl_c["data"]["values"]) == 4
 
-    # 4. Multi-layer operator facet: fillers null EVERY sublayer measure, so no
-    # phantom mark renders in the genuinely-empty cells.
+    # 4. Multi-layer operator facet: pads keep every sublayer measure VALID
+    # (no nulls anywhere) and carry no `__src`, so `__src`-filtered sublayers
+    # drop them while filter-less units suppress them.
     btbl = (x=[1.0, 2.0], median=[10.0, 0.5], q025=[9.0, 0.4], q975=[11.0, 0.6],
             lesion=["L1", "L2"],
             source=["Tumor size (mm)", "Tumor size change from baseline (ratio)"])
@@ -2679,15 +2712,183 @@ discovery scans sublayer encodings so multi-layer fillers null every measure
                        config(scales=scales(Column=(categories=cats,))))
     @test vl_d["facet"]["column"]["sort"] == cats
     @test cells(vl_d["data"]["values"]) == full_cells
-    bfillers = [r for r in vl_d["data"]["values"] if isnothing(r["median"])]
-    @test length(bfillers) == 2
-    for r in bfillers, mf in ("median", "q025", "q975")
-        @test isnothing(r[mf])
+    dp = pads(vl_d["data"]["values"])
+    @test length(dp) == 2
+    for r in dp, mf in ("median", "q025", "q975", "x")
+        @test r[mf] isa Number
+    end
+    @test all(!haskey(r, "__src") for r in dp)
+    for sub in vl_d["spec"]["layer"]
+        enc = get(sub, "encoding", nothing)
+        enc === nothing && continue
+        hassrc = any(t -> occursin("__src", string(get(t, "filter", ""))),
+                     get(sub, "transform", []))
+        if hassrc
+            @test !issuppressed(enc)  # untouched: its filter drops pads
+        else
+            @test issuppressed(enc)
+        end
     end
 
     # 5. Unsorted specs stay sparse — the repair only fires with a sort.
     vl_e = to_vegalite(base)
     @test length(vl_e["data"]["values"]) == 2
+    @test isempty(pads(vl_e["data"]["values"]))
+    @test !issuppressed(vl_e["encoding"])
+
+    # 6. Null-measure rows neither cover their combo nor invent headers: the
+    # (L1,size) null shares its combo with a valid row (covered), (L2,size)
+    # and (L1,ratio) are padded, and null-only L3 owns no slot.
+    ntbl = (x=[1.0, 2.0, 3.0, 4.0], y=[10.0, nothing, 0.5, nothing],
+            lesion=["L1", "L1", "L2", "L3"], source=[cats[1], cats[1], cats[2], cats[1]])
+    vl_f = to_vegalite(data(ntbl) * mapping(:x, :y; row=:lesion, col=:source) *
+                       visual(Scatter) * config(scales=scales(Column=(categories=cats,))))
+    @test vl_f["encoding"]["column"]["sort"] == cats
+    nfp = pads(vl_f["data"]["values"])
+    @test Set((r["lesion"], r["source"]) for r in nfp) ==
+        Set([("L1", cats[2]), ("L2", cats[1])])
+    @test all(!("L3" == r["lesion"]) for r in nfp)
+    @test count(r -> isnothing(r["y"]), vl_f["data"]["values"]) == 2  # real nulls kept
+
+    # 7. Corner pairs: a column with x/y range pads each missing combo twice
+    # (diagonal corners), keeping shared domains bit-identical.
+    ctbl = (x=[1.0, 2.0, 3.0, 4.0, 5.0], y=[1.0, 2.0, 3.0, 4.0, 5.0],
+            lesion=["L1", "L2", "L1", "L2", "L3"],
+            source=[cats[1], cats[1], cats[2], cats[2], cats[1]])
+    vl_g = to_vegalite(data(ctbl) * mapping(:x, :y; row=:lesion, col=:source) *
+                       visual(Scatter) * config(scales=scales(Column=(categories=cats,))))
+    gp = [r for r in pads(vl_g["data"]["values"]) if (r["lesion"], r["source"]) == ("L3", cats[2])]
+    @test length(gp) == 2
+    @test Set((r["x"], r["y"]) for r in gp) == Set([(3.0, 3.0), (4.0, 4.0)])
+
+    # 8. Boxplot units merge the pad marker into `detail` so it survives the
+    # boxplot aggregation (else the pad box renders a visible sliver).
+    vl_h = to_vegalite(data(tbl) * mapping(:x, :y; row=:lesion, col=:source) *
+                       visual(BoxPlot) * config(scales=scales(Column=(categories=cats,))))
+    hp = pads(vl_h["data"]["values"])
+    @test length(hp) == 2
+    @test issuppressed(vl_h["encoding"])
+    det = get(vl_h["encoding"], "detail", nothing)
+    detlist = det isa Dict ? Any[det] : det isa AbstractVector ? Any[det...] : Any[]
+    @test any(d -> d isa Dict && get(d, "field", nothing) == "__aov_pad", detlist)
+
+    # 8b. A pre-existing `detail` (AoV `group`) is kept as the first group key.
+    gtbl = (x=[1.0, 2.0], y=[10.0, 0.5], lesion=["L1", "L2"], grp=["a", "b"],
+            source=[cats[1], cats[2]])
+    vl_h2 = to_vegalite(data(gtbl) * mapping(:x, :y; row=:lesion, col=:source, group=:grp) *
+                        visual(BoxPlot) * config(scales=scales(Column=(categories=cats,))))
+    det2 = get(vl_h2["encoding"], "detail", nothing)
+    det2list = det2 isa Dict ? Any[det2] : det2 isa AbstractVector ? Any[det2...] : Any[]
+    @test any(d -> d isa Dict && get(d, "field", nothing) == "grp", det2list)
+    @test any(d -> d isa Dict && get(d, "field", nothing) == "__aov_pad", det2list)
+
+    # 9. A user opacity override survives as the else-branch (pad test merged
+    # alongside, never clobbering).
+    vl_i = to_vegalite(base * config(scales=scales(Column=(categories=cats,)),
+                                     encoding=Dict("opacity" => Dict("value" => 0.5))))
+    @test issuppressed(vl_i["encoding"])
+    @test vl_i["encoding"]["opacity"]["value"] == 0.5
+    # Concretely-typed user condition vectors widen too (the pad test merges
+    # first without throwing on the narrow eltype).
+    vl_j = to_vegalite(base * config(scales=scales(Column=(categories=cats,)),
+                                     encoding=Dict("size" => Dict("condition" => [Dict("test" => "datum.x > 1")],
+                                                                  "value" => 30))))
+    sc = vl_j["encoding"]["size"]["condition"]
+    @test sc isa AbstractVector && length(sc) == 2
+    if sc isa AbstractVector && length(sc) == 2
+        @test sc[1]["test"] == "datum.__aov_pad"
+        @test sc[2] == Dict("test" => "datum.x > 1")
+    end
+
+    # 10. Rendered cell geometry (vl-convert when available — never in CI):
+    # every real mark binds under its sorted header and every pad mark is
+    # invisible. Values-array assertions alone cannot catch a mis-binding.
+    vlc = Sys.which("vl-convert")
+    if vlc !== nothing
+        ver = try
+            readchomp(`$vlc --version`)
+        catch
+            ""
+        end
+        if startswith(ver, "vl-convert 1.")
+            # Minimal SVG scan: accumulate <g transform="translate"> nesting,
+            # record aria-labelled paths under `role-mark` groups with their
+            # cell origin, opacity, and datum label. No absolute pixels are
+            # asserted — cells are ranked, so layout shifts don't churn.
+            function svg_marks(svg::String)
+                svg = replace(svg, r"<style>.*?</style>"s => "")
+                svg = replace(svg, r"<defs>.*?</defs>"s => "")
+                out = Tuple{Tuple{Float64,Float64},String,String}[]
+                stack = [(x=0.0, y=0.0, marks=false, cell=(0.0, 0.0))]
+                for m in eachmatch(r"<(/?)(\w+)([^>]*)>", svg)
+                    closing, tag, attrs = m.captures[1], m.captures[2], m.captures[3]
+                    if tag == "g" && closing == ""
+                        top = stack[end]
+                        tm = match(r"translate\(([-\d\.eE]+)[,\s]+([-\d\.eE]+)\)", attrs)
+                        dx = tm === nothing ? 0.0 : parse(Float64, tm.captures[1])
+                        dy = tm === nothing ? 0.0 : parse(Float64, tm.captures[2])
+                        ismarks = occursin("role-mark", attrs)
+                        newtop = (x=top.x + dx, y=top.y + dy, marks=top.marks || ismarks,
+                                  cell=ismarks ? (top.x + dx, top.y + dy) : top.cell)
+                        endswith(attrs, "/") || push!(stack, newtop)
+                    elseif tag == "g"
+                        length(stack) > 1 && pop!(stack)
+                    elseif tag == "path" && stack[end].marks
+                        lab = match(r"aria-label=\"([^\"]*)\"", attrs)
+                        lab === nothing && continue
+                        op = match(r"opacity=\"([^\"]*)\"", attrs)
+                        push!(out, (stack[end].cell, op === nothing ? "1" : op.captures[1],
+                                    lab.captures[1]))
+                    end
+                end
+                return out
+            end
+            y_of(lab) = parse(Float64, match(r"y: ([\d\.\-eE]+)", lab).captures[1])
+            function check_binding(vlspec, realvals::Dict)
+                # realvals: expected y per real cell (:topleft, :bottomright).
+                mktempdir() do dir
+                    specfile = joinpath(dir, "spec.json")
+                    svgfile = joinpath(dir, "out.svg")
+                    open(specfile, "w") do io
+                        JSON.print(io, vlspec)
+                    end
+                    run(`$vlc vl2svg -i $specfile -o $svgfile`)
+                    marks = svg_marks(read(svgfile, String))
+                    xs = sort!(unique!([c[1] for (c, _, _) in marks]))
+                    ys = sort!(unique!([c[2] for (c, _, _) in marks]))
+                    colidx = Dict(x => i for (i, x) in enumerate(xs))
+                    rowidx = Dict(y => i for (i, y) in enumerate(ys))
+                    # Expected grid: cols cats[1..2] left-to-right (the sort),
+                    # rows L1/L2 top-to-bottom (ascending default = data order).
+                    expect = Dict{Tuple{Int,Int},String}(
+                        (1, 1) => "real", (2, 1) => "pad",
+                        (1, 2) => "pad", (2, 2) => "real")
+                    bycell = Dict{Tuple{Int,Int},Vector{Tuple{String,String}}}()
+                    for (c, op, lab) in marks
+                        k = (colidx[c[1]], rowidx[c[2]])
+                        push!(get!(bycell, k, []), (op, lab))
+                    end
+                    @test sort!(collect(keys(bycell))) ==
+                        [(1, 1), (1, 2), (2, 1), (2, 2)]
+                    for (k, kind) in expect
+                        @test haskey(bycell, k)
+                        haskey(bycell, k) || continue
+                        if kind == "pad"
+                            @test all(op -> op == "0", [op for (op, _) in bycell[k]])
+                        else
+                            @test all(op -> op != "0", [op for (op, _) in bycell[k]])
+                            vs = [y_of(lab) for (_, lab) in bycell[k]]
+                            want = k == (1, 1) ? realvals[:topleft] : realvals[:bottomright]
+                            @test want in vs
+                        end
+                    end
+                end
+            end
+            # (L1,size) carries y=10.0 top-left; (L2,ratio) carries y=0.5 bottom-right.
+            check_binding(vl, Dict(:topleft => 10.0, :bottomright => 0.5))
+            check_binding(vl_h, Dict(:topleft => 10.0, :bottomright => 0.5))
+        end
+    end
 end
 
 """
