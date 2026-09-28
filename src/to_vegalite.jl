@@ -414,14 +414,292 @@ function _map_header_props!(title::Dict, header, prefix::String)
     title
 end
 
+# Marker field on pad rows (see `_pad_sparse_hconcat_rows!`). Pads carry no
+# `__src`, so every hoisted sublayer filter drops them and real pipelines
+# stay pristine; they surface only in the hidden bounds sublayer
+# (`_add_pad_bounds_sublayer!`) and in filter-less units, where their marks
+# are suppressed (`_merge_pad_condition!`).
+const _AOV_PAD_FIELD = "__aov_pad"
+
+"""Append one pad row per missing (row, column) combo to the shared dataset so
+every hconcat child facets the full row domain. Returns the pads added.
+
+Each child filters the shared dataset to ITS column before faceting, so a
+column missing a row value packs its remaining rows from the top beside the
+wrong (first-view) labels. A pad is a donor clone with the facet fields set,
+`__src` REMOVED, and `__aov_pad: true`. Measures stay VALID and SAME-COLUMN:
+a nulled measure is dropped before faceting in single-layer specs and
+materializes no cell (render-verified against vl-convert 1.9.0), and the pad
+enters the hidden bounds sublayer's scale domains, which must stay
+in-distribution (pad values ⊆ real values ⇒ shared domains bit-identical).
+
+Two things pads are NOT, both render-verified:
+- NOT `transform` guard filters: layer transforms hoist above the facet in
+  single-layer specs, removing the pad before the facet domain is computed.
+- NOT cross-column donors (see above). Combos in wholly-empty
+  (sort-listed, dataless) columns are skipped for the same reason — that
+  child keeps its title-only rendering, matching the facet form.
+
+Each missing combo gets TWO pads at the diagonal corners of the column's
+x/y range (min,min) and (max,max) over `needfields` (the bounds sublayer's
+x/y): a single-datum cell domain renders a one-label axis whose missing
+label overhang shrinks that child's row pitch (5px/row), while a spanned
+domain renders full top-and-bottom labels and identical pitch
+(render-verified on vl-convert 1.9.0). Ranges prefer same-column rows
+carrying the fields, else any rows carrying them (a ragged column's empty
+cells then show the donor column's range — aligned, documented); when no
+range is computable (unorderable or single-point columns) a single pad is
+emitted, which still fixes cell existence while pitch may drift.
+
+Skips (returning 0) when the dataset is not an inline `values` vector: the
+combos are unknowable there, so that corner keeps its pre-fix behaviour
+rather than gaining a new error."""
+function _pad_sparse_hconcat_rows!(spec::Dict, colfield::String, rowfield::String, colvals::AbstractVector,
+        needfields::AbstractVector{<:AbstractString}=String[])
+    data = _as_dict(get(spec, "data", nothing))
+    vals = isnothing(data) ? nothing : _as_vec(get(data, "values", nothing))
+    (vals isa AbstractVector && !isempty(vals)) || return 0
+    rows = Dict[]
+    for r in vals
+        rd = _as_dict(r)
+        isnothing(rd) || push!(rows, rd)
+    end
+    isempty(rows) && return 0
+    # Union over ALL rows (valid or not): alignment requires every row value
+    # shared across children, even one whose column data is all null (its
+    # cells render empty; the facet form hides globally-null values instead
+    # in single-layer specs — inherent to the alignment requirement).
+    rowvals = Any[]
+    for rd in rows
+        haskey(rd, rowfield) || continue
+        v = rd[rowfield]
+        any(u -> isequal(u, v), rowvals) || push!(rowvals, v)
+    end
+    # Validity-aware presence: a row covers its combo only when its
+    # bounds-measure values are valid. `_densify_facet_sort!` (Layer level
+    # for sorter sorts, VegaSpec level for config sorts) pads sparse combos
+    # with NULL-measure fillers, and real rows can carry null measures too;
+    # in single-layer specs Vega-Lite drops those before faceting, so they
+    # materialize no cell and must not suppress our pads. (In multi-layer
+    # specs they partition but populate nothing; our pads still own the
+    # cell's bounds either way.)
+    present = Tuple{Any,Any}[]
+    for rd in rows
+        (haskey(rd, rowfield) && haskey(rd, colfield)) || continue
+        all(f -> (v = get(rd, f, nothing); v !== nothing && !ismissing(v)), needfields) || continue
+        push!(present, (rd[rowfield], rd[colfield]))
+    end
+    hasfields(rd) = all(f -> haskey(rd, f), needfields)
+    npads = 0
+    for cv in colvals
+        colrows = [rd for rd in rows if haskey(rd, colfield) && isequal(rd[colfield], cv)]
+        isempty(colrows) && continue
+        donor = nothing
+        for rd in colrows
+            hasfields(rd) && (donor = rd; break)
+        end
+        isnothing(donor) && (donor = colrows[1])
+        rangerows = [rd for rd in colrows if hasfields(rd)]
+        if isempty(rangerows)
+            rangerows = [rd for rd in rows if hasfields(rd)]
+            if !isempty(rangerows) && (isnothing(donor) || !hasfields(donor))
+                donor = rangerows[1]
+            end
+        end
+        corners = _pad_range_corners(rangerows, needfields)
+        for rv in rowvals
+            any(p -> isequal(p[1], rv) && isequal(p[2], cv), present) && continue
+            if isnothing(corners)
+                push!(vals, _pad_row(donor, rowfield, rv, colfield, cv, nothing))
+                npads += 1
+            else
+                (lo, hi) = corners
+                push!(vals, _pad_row(donor, rowfield, rv, colfield, cv, lo))
+                push!(vals, _pad_row(donor, rowfield, rv, colfield, cv, hi))
+                npads += 2
+            end
+        end
+    end
+    return npads
+end
+
+"""One pad row: donor clone with facet fields set, `__src` removed, marker
+set, and `corner` (field => value overwrites, or `nothing`) applied."""
+function _pad_row(donor::Dict, rowfield::String, rv, colfield::String, cv, corner)
+    pad = Dict{String,Any}(donor)
+    pad[rowfield] = rv
+    pad[colfield] = cv
+    delete!(pad, "__src")
+    pad[_AOV_PAD_FIELD] = true
+    if !isnothing(corner)
+        for (f, v) in corner
+            pad[f] = v
+        end
+    end
+    return pad
+end
+
+"""Diagonal range corners over `needfields` for `rangerows`: `((min...),
+(max...))` as field => value pairs, or `nothing` when no range is computable
+(fewer than two fields, no valid values, unorderable values, or a single
+point — the single-pad fallback then still fixes cell existence)."""
+function _pad_range_corners(rangerows::AbstractVector, needfields::AbstractVector{<:AbstractString})
+    length(needfields) >= 2 || return nothing
+    isempty(rangerows) && return nothing
+    lo = Pair{String,Any}[]
+    hi = Pair{String,Any}[]
+    try
+        for f in needfields[1:2]
+            vs = Any[]
+            for rd in rangerows
+                v = get(rd, f, nothing)
+                (v === nothing || ismissing(v)) && continue
+                push!(vs, v)
+            end
+            isempty(vs) && return nothing
+            push!(lo, f => minimum(vs))
+            push!(hi, f => maximum(vs))
+        end
+    catch e
+        e isa InterruptException && rethrow()
+        return nothing
+    end
+    all(i -> isequal(lo[i].second, hi[i].second), eachindex(lo)) && return nothing
+    return (lo, hi)
+end
+
+"""Add one hidden point sublayer that equalizes facet-cell bounds across
+sparse and complete columns. Returns the x/y fields it encodes (for donor
+selection), or `nothing` when no sublayer carries both (then pads still fix
+cell existence, but pitch may drift — only HLines/VLines-only figures).
+
+Why a sublayer: an invisible FULL-geometry mark contributes full cell bounds
+(render-verified: identical row pitch to complete columns), while a
+zero-geometry mark measurably shrinks its child's pitch (5px/row). The bounds
+sublayer plots the same x/y as the first x/y sublayer (verbatim defs minus
+title/axis, so scales — including per-child log/linear types merged later —
+match exactly), with `opacity: {condition: pad → 0}` hiding every mark. It
+carries no transform (pads have no `__src` to filter on — they flow in while
+real sublayers drop them), no tooltip (hovering it shows nothing), and no
+color/size encodings (legend/selection immune). Real rows flow through it
+too, invisibly and domain-neutrally (same fields, same data)."""
+function _add_pad_bounds_sublayer!(inner::Dict)
+    layers = _as_vec(get(inner, "layer", nothing))
+    isnothing(layers) && return nothing
+    found = _pad_bounds_xy_defs(inner)
+    isnothing(found) && return nothing
+    x, y = found
+    xdef = Dict{String,Any}(x)
+    ydef = Dict{String,Any}(y)
+    delete!(xdef, "title")
+    delete!(xdef, "axis")
+    delete!(ydef, "title")
+    delete!(ydef, "axis")
+    cond = Dict{String,Any}("test" => "datum.$(_AOV_PAD_FIELD)", "value" => 0)
+    push!(layers, Dict{String,Any}(
+        "mark" => Dict{String,Any}("type" => "point"),
+        "encoding" => Dict{String,Any}(
+            "x" => xdef, "y" => ydef,
+            "opacity" => Dict{String,Any}("condition" => cond))))
+    return String[string(x["field"]), string(y["field"])]
+end
+
+"""First x/y channel def pair (verbatim dicts) among `inner`'s sublayers, or
+`nothing`. Read-only field source for pad donor selection (see call site)."""
+function _pad_bounds_xy_defs(inner::Dict)
+    layers = _as_vec(get(inner, "layer", nothing))
+    isnothing(layers) && return nothing
+    for sub in layers
+        d = _as_dict(sub)
+        isnothing(d) && continue
+        enc = _as_dict(get(d, "encoding", nothing))
+        isnothing(enc) && continue
+        x = _as_dict(get(enc, "x", nothing))
+        y = _as_dict(get(enc, "y", nothing))
+        (isnothing(x) || isnothing(y)) && continue
+        (haskey(x, "field") && haskey(y, "field")) || continue
+        return (x, y)
+    end
+    return nothing
+end
+
+"""Merge pad-suppression conditions into filter-less unit sublayers (single-
+layer units and any unit without a `__src` filter — pads flow into those,
+since nothing drops them). Sublayers WITH a `__src` filter are untouched.
+
+Each of `opacity`, `size`, and `strokeWidth` gets `{condition: {test:
+"datum.__aov_pad", value: 0}}`, merged to preserve whatever the unit already
+carries (a missing channel gains a bare condition, which falls back to the
+mark value or Vega-Lite default for real rows — verified; an existing
+condition is demoted behind the pad test, which must match first). Opacity 0
+hides the mark in every renderer; size 0 removes point / bar / text / rule
+geometry and strokeWidth 0 covers ticks (unhoverable, so no ghost tooltips —
+which is why array tooltips need no condition of their own). Cell bounds come
+from the bounds sublayer, so zeroing geometry here costs no pitch. Runs only
+when pads were added."""
+function _suppress_pad_marks!(node)
+    d = _as_dict(node)
+    isnothing(d) && return
+    layers = get(d, "layer", nothing)
+    layers isa AbstractVector && for sub in layers
+        _suppress_pad_marks!(sub)
+    end
+    _suppress_pad_marks!(get(d, "spec", nothing))
+    if !(layers isa AbstractVector) && isnothing(_as_dict(get(d, "spec", nothing)))
+        # Runs before the bounds sublayer is added (see call site), so the
+        # bounds sublayer — whose geometry must stay full — is never visited.
+        _sublayer_has_src_filter(d) && return
+        enc = _as_dict(get(d, "encoding", nothing))
+        isnothing(enc) && return
+        for ch in ("opacity", "size", "strokeWidth")
+            _merge_pad_condition!(enc, ch)
+        end
+    end
+    return
+end
+
+function _sublayer_has_src_filter(sublayer::Dict)
+    ts = _as_vec(get(sublayer, "transform", nothing))
+    isnothing(ts) && return false
+    for t in ts
+        td = _as_dict(t)
+        isnothing(td) && continue
+        f = get(td, "filter", nothing)
+        f isa AbstractString && occursin("datum.__src", f) && return true
+    end
+    return false
+end
+
+function _merge_pad_condition!(enc::Dict, channel::String)
+    cond = Dict{String,Any}("test" => "datum.$(_AOV_PAD_FIELD)", "value" => 0)
+    haskey(enc, channel) || (enc[channel] = Dict{String,Any}("condition" => cond); return)
+    existing = _as_dict(enc[channel])
+    if isnothing(existing)
+        # Shorthand value (e.g. `"opacity": 0.5`): keep it as the else-branch.
+        enc[channel] = Dict{String,Any}("value" => enc[channel], "condition" => cond)
+        return
+    end
+    haskey(existing, "condition") || (existing["condition"] = cond; return)
+    cur = existing["condition"]
+    if cur isa AbstractVector
+        any(c -> _as_dict(c) isa Dict && get(_as_dict(c), "test", nothing) == cond["test"], cur) && return
+        pushfirst!(cur, cond)
+    else
+        existing["condition"] = Any[cond, cur]
+    end
+    return
+end
+
 """Re-lower a single-facet spec into an `hconcat` of per-column facet views so
 every column-facet VALUE can carry its own Y scale type.
 
 Vega-Lite's facet operator shares ONE encoding across all columns — the scale
 TYPE cannot differ per column. The only VL shape that can is a concat of one
-faceted view per column, each with its own inner scale and a row facet (rows
-stay aligned because every view facets the same row field with the same sort
-and identical panel heights).
+faceted view per column, each with its own inner scale and a row facet. Rows
+stay aligned because the shared dataset is padded with two fillers per
+missing (row, column) combo (diagonal range corners —
+`_pad_sparse_hconcat_rows!`), so every view facets the same full row domain —
+a cell without data renders empty, never packed.
 
 `ycols` maps column VALUES (as they appear in the data) to VL `scale` dicts
 (from `_scales_column_y_scales`). Unlisted columns keep the shared encoding's
@@ -505,6 +783,27 @@ function _per_column_y_hconcat!(spec::Dict, ycols::Dict)
     colvals = _facet_column_values(spec, coldef)
     isempty(colvals) && error("AlgebraOfVega: per-column Y scales found no values for column facet field `$colfield`.")
 
+    # Pad sparse row sets BEFORE building children: every child facets the
+    # shared dataset through its own column filter, so without fillers for
+    # each missing (row, column) combo a sparse column packs its rows from
+    # the top beside the wrong first-view labels (snag
+    # `per-column-y-sca-ad6baf40`). Complete cross-products pad nothing.
+    # Suppression runs once on the shared inner template so every child
+    # inherits it.
+    rowfield = isnothing(rowdef) ? nothing : get(rowdef, "field", nothing)
+    if rowfield isa AbstractString
+        xydefs = _pad_bounds_xy_defs(inner)
+        needfields = isnothing(xydefs) ? String[] :
+            String[string(xydefs[1]["field"]), string(xydefs[2]["field"])]
+        npads = _pad_sparse_hconcat_rows!(spec, colfield, rowfield, colvals, needfields)
+        if npads > 0
+            # Suppress first (filter-less units only), then add the bounds
+            # sublayer — order matters: suppression must not visit it.
+            _suppress_pad_marks!(inner)
+            _add_pad_bounds_sublayer!(inner)
+        end
+    end
+
     # Top-level state that must survive onto every child / the concat.
     resolve = _as_dict(get(spec, "resolve", nothing))
     select_transforms = _as_vec(get(spec, "transform", nothing))
@@ -513,6 +812,8 @@ function _per_column_y_hconcat!(spec::Dict, ycols::Dict)
         child = Dict{String,Any}()
         # The row facet moves into each view; later views drop the row header
         # (labels would repeat per column — never-truncate never-means-repeat).
+        # Suppression is sound: padding above keeps every child's row domain
+        # complete, so the first view's labels stay true for every column.
         if !isnothing(rowdef)
             rd = deepcopy(rowdef)
             i > 1 && (rd["header"] = nothing)
