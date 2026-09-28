@@ -3097,6 +3097,10 @@ empty cells render empty.
         @test has_pad_cond(uenc, "opacity")
         @test has_pad_cond(uenc, "size")
         @test has_pad_cond(uenc, "strokeWidth")
+        # ... and no `detail` carry-through: primitive marks match the raw
+        # row directly, so only composite units gain one (snag
+        # `hconcat-pads-mis-96d5cb25`).
+        @test !haskey(uenc, "detail")
         for t in get(unit, "transform", [])
             @test !occursin("__aov_pad", get(t, "filter", ""))
         end
@@ -3105,6 +3109,132 @@ empty cells render empty.
         @test slayers[end]["encoding"]["opacity"]["value"] == 0
         @test any(occursin("__aov_pad", get(t, "filter", ""))
                   for t in get(slayers[end], "transform", []))
+    end
+
+    # boxplot inner unit (snag `hconcat-pads-mis-96d5cb25`): a boxplot
+    # aggregates per group and the aggregate datum keeps only groupby keys
+    # plus computed stats, so the bare pad conditions above never match —
+    # without a `detail` carry-through the pad box renders a visible sliver
+    # in the empty cell. Several reps per group so real boxes aggregate
+    # over multiple observations, like the reporter's probe.
+    boxrows = vcat(
+        vec([Dict("t" => t, "val" => 10.0^t + 0.01 * r, "endpoint" => "Tumor", "basis" => b)
+             for b in ["alpha", "charlie"], t in 0.0:1.0:2.0, r in 1:6]),
+        vec([Dict("t" => t, "val" => 350.0 + t + r, "endpoint" => "QTcF", "basis" => b)
+             for b in ["alpha", "bravo", "charlie"], t in 0.0:1.0:2.0, r in 1:6]),
+    )
+    boxspec = data(boxrows) * mapping(:t, :val; row=:basis, col=:endpoint) * visual(BoxPlot)
+    bvl = to_vegalite(boxspec * config(facet=(; linkyaxes=:none)) * ysc)
+    bpads = [r for r in bvl["data"]["values"] if get(r, "__aov_pad", false) === true]
+    @test length(bpads) == 2
+    @test all(p -> isequal(p["basis"], "bravo") && isequal(p["endpoint"], "Tumor"), bpads)
+    has_pad_detail(enc) = begin
+        haskey(enc, "detail") || return false
+        dd = enc["detail"]
+        defs = dd isa AbstractVector ? dd : Any[dd]
+        any(d -> d isa Dict && get(d, "field", nothing) == "__aov_pad", defs)
+    end
+    for ch in bvl["hconcat"]
+        if !occursin("'Tumor'", ch["transform"][1]["filter"])
+            # complete child: exact unpadded shape, zero pad references.
+            @test !occursin("__aov_pad", sprint(show, ch))
+            continue
+        end
+        bunit = ch["spec"]["layer"][1]
+        @test AlgebraOfVega._mark_type(get(bunit, "mark", nothing)) == "boxplot"
+        buenc = get(bunit, "encoding", Dict())
+        @test has_pad_cond(buenc, "opacity")
+        @test has_pad_cond(buenc, "size")
+        @test has_pad_cond(buenc, "strokeWidth")
+        @test has_pad_detail(buenc)
+    end
+    # complete boxplot cross-products pad nothing: no marker anywhere.
+    fullboxrows = vcat(
+        vec([Dict("t" => t, "val" => 10.0^t + 0.01 * r, "endpoint" => "Tumor", "basis" => b)
+             for b in ["alpha", "bravo", "charlie"], t in 0.0:1.0:2.0, r in 1:6]),
+        vec([Dict("t" => t, "val" => 350.0 + t + r, "endpoint" => "QTcF", "basis" => b)
+             for b in ["alpha", "bravo", "charlie"], t in 0.0:1.0:2.0, r in 1:6]),
+    )
+    fullbox = data(fullboxrows) * mapping(:t, :val; row=:basis, col=:endpoint) * visual(BoxPlot)
+    full_bvl = to_vegalite(fullbox * config(facet=(; linkyaxes=:none)) * ysc)
+    @test !occursin("__aov_pad", sprint(show, full_bvl))
+
+    # Rendered pad-cell invisibility (vl-convert when available — never in
+    # CI): the padded cell's box marks are all hidden (opacity 0) while
+    # every other cell keeps visible boxes. Structure assertions above
+    # cannot catch a suppression condition that never matches.
+    using JSON
+    vlc = Sys.which("vl-convert")
+    if vlc !== nothing
+        ver = try
+            readchomp(`$vlc --version`)
+        catch
+            ""
+        end
+        if startswith(ver, "vl-convert 1.")
+            # Minimal SVG scan (same idiom as the densifier's geometry
+            # block): accumulate <g transform="translate"> nesting, record
+            # aria-labelled paths under `role-mark` groups with their cell
+            # origin and opacity. Only aggregate box rects (whose labels
+            # carry the boxplot stats) are recorded — the hidden bounds
+            # sublayer's points carry aria-labels too and are not at issue
+            # here. Origins are rounded: cells are tens of px apart, so
+            # rounding absorbs sub-pixel cross-child wobble.
+            function svg_box_marks(svg::String)
+                svg = replace(svg, r"<style>.*?</style>"s => "")
+                svg = replace(svg, r"<defs>.*?</defs>"s => "")
+                out = Tuple{Tuple{Int,Int},String}[]
+                stack = [(x=0.0, y=0.0, marks=false, cell=(0.0, 0.0))]
+                for m in eachmatch(r"<(/?)(\w+)([^>]*)>", svg)
+                    closing, tag, attrs = m.captures[1], m.captures[2], m.captures[3]
+                    if tag == "g" && closing == ""
+                        top = stack[end]
+                        tm = match(r"translate\(([\-\d\.eE]+)[,\s]+([\-\d\.eE]+)\)", attrs)
+                        dx = tm === nothing ? 0.0 : parse(Float64, tm.captures[1])
+                        dy = tm === nothing ? 0.0 : parse(Float64, tm.captures[2])
+                        ismarks = occursin("role-mark", attrs)
+                        newtop = (x=top.x + dx, y=top.y + dy, marks=top.marks || ismarks,
+                                  cell=ismarks ? (top.x + dx, top.y + dy) : top.cell)
+                        endswith(attrs, "/") || push!(stack, newtop)
+                    elseif tag == "g"
+                        length(stack) > 1 && pop!(stack)
+                    elseif tag == "path" && stack[end].marks
+                        lab = match(r"aria-label=\"([^\"]*)\"", attrs)
+                        lab === nothing && continue
+                        occursin("Median of val", lab.captures[1]) || continue
+                        op = match(r"opacity=\"([^\"]*)\"", attrs)
+                        cell = stack[end].cell
+                        push!(out, ((round(Int, cell[1]), round(Int, cell[2])),
+                                      op === nothing ? "1" : op.captures[1]))
+                    end
+                end
+                return out
+            end
+            mktempdir() do dir
+                specfile = joinpath(dir, "spec.json")
+                svgfile = joinpath(dir, "out.svg")
+                open(specfile, "w") do io
+                    JSON.print(io, bvl)
+                end
+                run(`$vlc vl2svg -i $specfile -o $svgfile`)
+                marks = svg_box_marks(read(svgfile, String))
+                # 17 box marks in 6 cells: 5 real cells × 3 t-groups plus
+                # the padded cell's 2 pad groups.
+                @test length(marks) == 17
+                bycell = Dict{Tuple{Int,Int},Vector{String}}()
+                for (c, op) in marks
+                    push!(get!(bycell, c, String[]), op)
+                end
+                @test length(bycell) == 6
+                hidden = [ops for ops in values(bycell) if all(==("0"), ops)]
+                @test length(hidden) == 1
+                @test length(hidden[1]) == 2
+                for ops in values(bycell)
+                    all(==("0"), ops) && continue
+                    @test all(!=("0"), ops)
+                end
+            end
+        end
     end
 end
 
@@ -3200,4 +3330,35 @@ end
     AlgebraOfVega._merge_pad_condition!(enc, "opacity")
     @test length(enc["opacity"]["condition"]) == 2
     @test enc["opacity"]["condition"][1]["test"] == "datum.__aov_pad"
+end
+
+@testitem "pad detail carry-through preserves existing detail content" setup=[AoVTestImports] tags=[:translation, :config] begin
+    carry!(d) = (AlgebraOfVega._merge_pad_detail!(d); d["detail"])
+    paddef = Dict{String,Any}("field" => "__aov_pad", "type" => "nominal")
+    # missing detail: bare pad def
+    @test carry!(Dict{String,Any}()) == paddef
+    # existing Dict def: kept as the first group key
+    m = carry!(Dict{String,Any}("detail" => Dict{String,Any}("field" => "g", "type" => "nominal")))
+    @test m == Any[Dict{String,Any}("field" => "g", "type" => "nominal"), paddef]
+    # shorthand field name: kept as the first group key
+    m = carry!(Dict{String,Any}("detail" => "g"))
+    @test m == Any[Dict{String,Any}("field" => "g"), paddef]
+    # existing vector: pad def appended, idempotent on re-carry
+    enc = Dict{String,Any}("detail" => Any[Dict{String,Any}("field" => "g")])
+    AlgebraOfVega._merge_pad_detail!(enc)
+    AlgebraOfVega._merge_pad_detail!(enc)
+    @test length(enc["detail"]) == 2
+    @test enc["detail"][2] == paddef
+    # concretely-typed user vector: widened before pushing (else MethodError)
+    enc = Dict{String,Any}("detail" => [Dict("field" => "g")])
+    AlgebraOfVega._merge_pad_detail!(enc)
+    @test enc["detail"] isa Vector{Any}
+    @test length(enc["detail"]) == 2
+    # an existing pad def is left alone
+    enc = Dict{String,Any}("detail" => deepcopy(paddef))
+    AlgebraOfVega._merge_pad_detail!(enc)
+    @test enc["detail"] == paddef
+    enc = Dict{String,Any}("detail" => Any[Dict{String,Any}("field" => "g"), deepcopy(paddef)])
+    AlgebraOfVega._merge_pad_detail!(enc)
+    @test length(enc["detail"]) == 2
 end
