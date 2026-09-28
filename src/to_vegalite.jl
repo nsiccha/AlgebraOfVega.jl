@@ -511,7 +511,8 @@ end
 # `__src`, so every hoisted sublayer filter drops them and real pipelines
 # stay pristine; they surface only in the hidden bounds sublayer
 # (`_add_pad_bounds_sublayer!`) and in filter-less units, where their marks
-# are suppressed (`_merge_pad_condition!`).
+# are suppressed (`_merge_pad_condition!`, plus a `detail` carry-through on
+# composite marks — `_merge_pad_details!`).
 const _AOV_PAD_FIELD = "__aov_pad"
 
 """Append one pad row per missing (row, column) combo to the shared dataset so
@@ -965,8 +966,13 @@ function _per_column_y_hconcat!(spec::Dict, ycols::Dict)
         if any(p -> isequal(p, v), padded_cols)
             # Suppress first (filter-less units only), then add the bounds
             # sublayer — order matters: suppression must not visit it (its
-            # size-0 geometry would defeat the pitch equalization).
+            # size-0 geometry would defeat the pitch equalization). The
+            # `detail` carry-through rides alongside suppression: composite
+            # units aggregate per group, so without it the pad conditions
+            # never match and the pad mark renders a visible sliver (snag
+            # `hconcat-pads-mis-96d5cb25`).
             _suppress_pad_marks!(child_inner)
+            _merge_pad_details!(child_inner)
             _add_pad_bounds_sublayer!(child_inner)
         end
         yscale = get(ycols, v, nothing)
