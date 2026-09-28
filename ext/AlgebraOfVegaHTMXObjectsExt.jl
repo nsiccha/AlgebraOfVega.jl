@@ -270,6 +270,8 @@ re-facets, CSV/PNG/SVG download, caption/summary render. `kwargs` forward to
 The node form `to_html(plot_node, caption; plot_id, ...)` wraps a
 pre-rendered node instead; use it for `signals=`-wired nodes, which degrade
 silently offline (their `htmx.ajax` callback has no server).
+`source=:inline` inlines AoV's vendored Vega builds, so the saved file renders
+with no network at all.
 """
 function to_html(spec::VegaSpec, caption::CaptionSpec;
                  plot_id::AbstractString,
@@ -277,11 +279,13 @@ function to_html(spec::VegaSpec, caption::CaptionSpec;
                  summary_table=:auto,
                  title::Union{Nothing,AbstractString}=nothing,
                  head_extra::AbstractString="",
+                 source::Symbol=:cdn,
+                 base::AbstractString="/vendor",
                  kwargs...)
     frag = with_plot_caption(spec, caption;
         plot_id=plot_id, auto_remap=auto_remap, summary_table=summary_table, kwargs...)
     to_html(frag; title=something(title, caption.title),
-            head_extra=_caption_head_extra(head_extra))
+            head_extra=_caption_head_extra(head_extra), source=source, base=base)
 end
 
 to_html(spec::VegaSpec, caption::AbstractString; kwargs...) =
@@ -291,10 +295,12 @@ function to_html(plot_node, caption::CaptionSpec;
                  plot_id::AbstractString,
                  title::Union{Nothing,AbstractString}=nothing,
                  head_extra::AbstractString="",
+                 source::Symbol=:cdn,
+                 base::AbstractString="/vendor",
                  kwargs...)
     figure = with_plot_caption(plot_node, caption; plot_id=plot_id, kwargs...)
     to_html(figure; title=something(title, caption.title),
-            head_extra=_caption_head_extra(head_extra))
+            head_extra=_caption_head_extra(head_extra), source=source, base=base)
 end
 
 to_html(plot_node, caption::AbstractString; kwargs...) =
