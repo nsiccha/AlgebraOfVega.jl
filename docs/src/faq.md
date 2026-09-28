@@ -54,9 +54,11 @@ AoG's `pregrouped(xs, ys, ...)` is the right hook when your data is already in n
 
 See the [API Reference](api.md#tidybayes-style-uncertainty-analyses) for the full docstring set and the [Gallery](gallery.md) for worked examples.
 
-## CDN versions
+## CDN versions and offline rendering
 
-`vega_head()` injects CDN tags pinned to the versions in `vega_cdn_urls()` (a `Vector` of three URL strings — Vega, Vega-Lite, Vega-Embed in that order). To vendor Vega locally or pin specific versions, build your own `<script>` tags from your URLs of choice and inject them in your page `<head>` directly.
+`vega_head()` injects tags for the exact-pinned trio in `vega_cdn_urls()` (a `Vector` of three URL strings — Vega, Vega-Lite, Vega-Embed in that order), with subresource-integrity hashes (`vega_sri_hashes()`), so a CDN-side release can never change rendering with zero repo diff. Override `vega_version=` / `vegalite_version=` / `vega_embed_version=` only with `source=:cdn` (a custom version opts out of SRI, since the hash would not match).
+
+For offline use, AoV vendors the same builds under `vendor/`: `vega_head(; source=:vendor, base="/vendor")` emits same-origin tags (serve `vega_vendor_dir()` at `base` from your app), and `source=:inline` inlines the bytes. `to_html(...; source=:inline)` writes a standalone file that renders with no network at all.
 
 ## "My spec doesn't render and I get no error"
 

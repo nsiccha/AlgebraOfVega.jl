@@ -3362,3 +3362,119 @@ end
     AlgebraOfVega._merge_pad_detail!(enc)
     @test length(enc["detail"]) == 2
 end
+
+# --- Offline Vega trio (snag `render-aov-plots-7a1ef498`) --------------------
+
+"""
+The Vega/Vega-Lite/Vega-Embed trio is exact-pinned (a CDN-side release inside
+a major line used to change rendering with zero repo diff), SRI-hashed, and
+vendored byte-identical under `vendor/`. The sha256 table below locks the
+vendored bytes; the sha384 check ties the SRI constants to those same bytes,
+so a trio bump that forgets either side fails loudly. All three builds are
+free of `</script`, so `source=:inline` output stays well-formed HTML.
+"""
+@testitem "vendored vega trio pins and hashes" setup=[AoVTestImports] tags=[:standalone, :regression] begin
+    using SHA, Base64
+    V, L, E = AlgebraOfVega.VEGA_VERSION, AlgebraOfVega.VEGALITE_VERSION,
+        AlgebraOfVega.VEGA_EMBED_VERSION
+
+    # Exact pins, not major-only.
+    for v in (V, L, E)
+        @test count(==('.'), v) == 2
+    end
+    @test vega_cdn_urls() == [
+        "https://cdn.jsdelivr.net/npm/vega@$V",
+        "https://cdn.jsdelivr.net/npm/vega-lite@$L",
+        "https://cdn.jsdelivr.net/npm/vega-embed@$E",
+    ]
+    sris = vega_sri_hashes()
+    @test length(sris) == 3
+    for s in sris
+        @test startswith(s, "sha384-")
+    end
+
+    # Vendored bytes, locked by content hash (see vendor/README.md).
+    dir = vega_vendor_dir()
+    @test isdir(dir)
+    locked = [
+        "vega.min.js" => "463f3db6a40b20e9747b4ed38f37ed0add508838f9141b1cf8366784b07b30c8",
+        "vega-lite.min.js" => "58c27358e26f2d319cf62f45bc17a4c8362f08645001df2ec8d341eee4097c7f",
+        "vega-embed.min.js" => "12d02acfbe3ec59ef9a37dd4822a2e04e2961b5bbb671bbe661d2221715b99da",
+    ]
+    for (i, (file, sha)) in enumerate(locked)
+        bytes = read(joinpath(dir, file))
+        @test bytes2hex(sha256(bytes)) == sha
+        @test "sha384-" * base64encode(sha384(bytes)) == sris[i]
+        @test !occursin(r"</script"i, String(copy(bytes)))
+    end
+end
+
+"""
+`vega_head` / `to_html` serve the trio from three origins: `:cdn` (default,
+exact-pinned tags with integrity), `:vendor` (same-origin `<base>/<file>`
+tags for an app serving `vega_vendor_dir()`), and `:inline` (vendored bytes
+inlined — a standalone file that renders with no network at all). Version
+overrides apply only to `:cdn`; anything else fails explicitly.
+"""
+@testitem "vega script source modes" setup=[AoVTestImports] tags=[:standalone, :regression] begin
+    html(x) = sprint(show, MIME"text/html"(), x)
+    head(; kwargs...) = join(html(n) for n in vega_head(; kwargs...))
+
+    # Default: exact-pinned CDN tags with subresource integrity + the runtime.
+    dflt = head()
+    for u in vega_cdn_urls()
+        @test occursin(u, dflt)
+    end
+    for s in vega_sri_hashes()
+        @test occursin("integrity=\"$s\"", dflt)
+    end
+    @test occursin("crossorigin=\"anonymous\"", dflt)
+    @test occursin("window.AoV = window.AoV ||", dflt)
+
+    # Vendor mode: same-origin tags, no CDN anywhere.
+    vend = head(; source=:vendor)
+    for f in ("vega.min.js", "vega-lite.min.js", "vega-embed.min.js")
+        @test occursin("src=\"/vendor/$f\"", vend)
+    end
+    @test !occursin("cdn.jsdelivr.net", vend)
+    @test occursin("window.AoV = window.AoV ||", vend)
+    custom = head(; source=:vendor, base="/static/js/")
+    @test occursin("src=\"/static/js/vega.min.js\"", custom)
+    @test !occursin("//vega.min.js", custom)
+
+    # Inline mode: the vendored bytes, in full, and no external scripts.
+    dir = vega_vendor_dir()
+    inlined = head(; source=:inline)
+    for f in ("vega.min.js", "vega-lite.min.js", "vega-embed.min.js")
+        @test occursin(read(joinpath(dir, f), String), inlined)
+    end
+    @test !occursin("cdn.jsdelivr.net", inlined)
+    @test !occursin("<script src=", inlined)
+
+    # The spec form shares the same core: inline output embeds everything.
+    df = (; x=[1.0, 2.0], y=[3.0, 4.0])
+    spec = data(df) * mapping(:x, :y) * visual(Scatter)
+    bare = to_html(spec; source=:inline)
+    @test occursin("vegaEmbed('#vega-", bare)
+    @test !occursin("cdn.jsdelivr.net", bare)
+    for f in ("vega.min.js", "vega-lite.min.js", "vega-embed.min.js")
+        @test occursin(read(joinpath(dir, f), String)[1:200], bare)
+    end
+
+    # The node form threads source through to the same head set.
+    page = to_html(to_node(spec; id="src-plot"); source=:inline)
+    @test startswith(page, "<!DOCTYPE html>")
+    @test !occursin("cdn.jsdelivr.net", page)
+    @test occursin("window.AoV = window.AoV ||", page)
+
+    # A custom version opts out of SRI (the hash would not match) but keeps CDN.
+    pinned = head(; vega_version="5.32.0")
+    @test occursin("https://cdn.jsdelivr.net/npm/vega@5.32.0", pinned)
+    @test !occursin("integrity=", pinned[1:findfirst("vega-lite", pinned)[1]])
+
+    # Vendored modes serve the fixed trio: overrides and unknown modes throw.
+    @test_throws ArgumentError vega_head(; source=:inline, vega_version="5.32.0")
+    @test_throws ArgumentError vega_head(; source=:vendor, vega_embed_version="6.0.0")
+    @test_throws ArgumentError vega_head(; source=:bogus)
+    @test_throws ArgumentError to_html(spec; source=:bogus)
+end
