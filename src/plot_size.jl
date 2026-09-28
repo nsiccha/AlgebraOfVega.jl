@@ -184,6 +184,19 @@ policy itself — `plot_size` measures, it does not know about pages (decision
 """
 function plot_size(spec::AbstractDict)
     top::Dict = spec isa Dict ? spec : Dict{String,Any}(string(k) => v for (k, v) in spec)
+    # hconcat of per-column facet views (per-column Y scales): size each child
+    # (a normal faceted spec) and sum horizontally. Children share row facet +
+    # panel heights, so the max height is the figure height; widths add.
+    children = get(top, "hconcat", nothing)
+    if children isa AbstractVector && !isempty(children)
+        sizes = [plot_size(c) for c in children if c isa AbstractDict]
+        isempty(sizes) && return (width = _VL_CONTINUOUS_LEN, height = _VL_CONTINUOUS_LEN)
+        sp = _as_number(get(top, "spacing", nothing))
+        sp = isnothing(sp) ? _size_cfg(top, ("config", "compose", "spacing"), _VL_FACET_SPACING) : Float64(sp)
+        width = sum(s.width for s in sizes) + (length(sizes) - 1) * sp
+        height = maximum(s.height for s in sizes) + (haskey(top, "title") ? _SIZE_TITLE_OVERHEAD : 0.0)
+        return (; width = Float64(width), height = Float64(height))
+    end
     rows    = _size_collect_rows(top)
     step    = _size_cfg(top, ("config", "view", "step"), _VL_DISCRETE_STEP)
     spacing = _size_cfg(top, ("config", "facet", "spacing"), _VL_FACET_SPACING)

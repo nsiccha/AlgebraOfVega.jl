@@ -285,7 +285,13 @@ function vega_runtime()
             // Classify the shape. Only _aov-marked composite specs are JS-sized
             // (single views use VL-native width:"container").
             var kind = null, nCols = 0, computed = 0;
-            if (spec._aov && spec._aov.nFacetCols && spec.spec) {
+            if (spec._aov && spec._aov.nFacetCols && spec.hconcat) {
+                // hconcat of per-column facet views (per-column Y scales):
+                // per-child width from container / nCols, written into every
+                // child's inner spec.
+                kind = 'hconcat'; nCols = spec._aov.nFacetCols;
+                computed = Math.max(minCell, Math.floor((containerWidth - padding) / nCols) - padding);
+            } else if (spec._aov && spec._aov.nFacetCols && spec.spec) {
                 // Operator-faceted specs: per-cell width from container / nCols
                 kind = 'facet'; nCols = spec._aov.nFacetCols;
                 computed = Math.max(minCell, Math.floor((containerWidth - padding) / nCols) - padding);
@@ -313,7 +319,11 @@ function vega_runtime()
             var corr = (self._corrections || {})[id];
             var width = (corr && corr.regime === regime) ? corr.width : computed;
 
-            if (kind === 'facet' || kind === 'inner') {
+            if (kind === 'hconcat') {
+                spec.hconcat.forEach(function(child) {
+                    if (child && child.spec) child.spec = Object.assign({}, child.spec, {width: width});
+                });
+            } else if (kind === 'facet' || kind === 'inner') {
                 spec.spec = Object.assign({}, spec.spec, {width: width});
             } else {
                 // 'top' and 'encfacet' both write top-level width: total span
@@ -347,7 +357,7 @@ function vega_runtime()
             var over = canvas.clientWidth - info.budget;
             if (over <= 2) return;
             var minCell = 100;
-            var perCell = (info.kind === 'facet' || info.kind === 'encfacet') && info.nCols > 0;
+            var perCell = (info.kind === 'facet' || info.kind === 'encfacet' || info.kind === 'hconcat') && info.nCols > 0;
             var shrink = perCell ? Math.ceil(over / info.nCols) : Math.ceil(over);
             var newWidth = info.width - shrink;
             if (newWidth >= info.width || newWidth < minCell) return;
@@ -380,6 +390,16 @@ function vega_runtime()
                 if (f && f.field && fields.indexOf(f.field) === -1) fields.push(f.field);
             };
             if (spec.facet) { pushField(spec.facet.row); pushField(spec.facet.column); }
+            if (spec.hconcat) {
+                spec.hconcat.forEach(function(child) {
+                    if (!child) return;
+                    if (child.facet) { pushField(child.facet.row); pushField(child.facet.column); }
+                    var cl = child.spec && child.spec.layer ? child.spec.layer : null;
+                    if (cl) cl.forEach(function(l) {
+                        if (l && l.encoding) { pushField(l.encoding.row); pushField(l.encoding.column); }
+                    });
+                });
+            }
             var layers = inner && inner.layer ? inner.layer : (spec.layer || null);
             if (layers) {
                 layers.forEach(function(l) {
@@ -1064,6 +1084,115 @@ function vega_runtime()
             if (mapping._comboData && mapping._comboData.values) {
                 if (spec.data && spec.data.values) spec.data = mapping._comboData;
                 else if (spec.spec && spec.spec.data) spec.spec.data = mapping._comboData;
+            }
+
+            // Per-column-Y concat (`hconcat` of per-column facet views —
+            // `scales(Y=(; scale=Dict(...)))`): remap color/row/detail/axes in
+            // EVERY child, preserving each child's Y scale type and column
+            // filter. Column remapping is not supported — the per-column scale
+            // keys bind to the authored column field — so it logs and no-ops
+            // (the picker should pin the column channel on these figures).
+            if (spec.hconcat && Array.isArray(spec.hconcat)) {
+                // Local title lookup — the shared `_titles`/`_fieldTitle` pair is
+                // declared further down, so at this point the hoisted `var` is
+                // still undefined (proven live: `_titles[f]` TypeError).
+                var _titlesC = mapping._comboTitles || {};
+                function _fieldTitleC(f) { return _titlesC[f] || f; }
+                if ('column' in mapping) {
+                    console.info('AoV.remapEncoding: column remap is not supported on per-column-scale (hconcat) figures; keeping the authored column field.');
+                }
+                if ('color' in mapping) {
+                    var cfC = mapping.color;
+                    spec.hconcat.forEach(function(child) {
+                        if (!child || !child.spec || !Array.isArray(child.spec.layer)) return;
+                        child.spec.layer.forEach(function(l) {
+                            if (!l || !l.encoding || l._keep_color) return;
+                            if (cfC) {
+                                l.encoding.color = {field: cfC, type: 'nominal', title: _fieldTitleC(cfC)};
+                            } else {
+                                delete l.encoding.color;
+                            }
+                        });
+                    });
+                }
+                if ('row' in mapping) {
+                    var rfC = mapping.row;
+                    spec.hconcat.forEach(function(child) {
+                        if (!child || !child.facet) return;
+                        if (rfC) {
+                            child.facet.row = {field: rfC, type: 'nominal', title: _fieldTitleC(rfC)};
+                        } else {
+                            delete child.facet.row;
+                        }
+                    });
+                }
+                if (mapping._dimensions) {
+                    var detailFieldsC = mapping._dimensions;
+                    spec.hconcat.forEach(function(child) {
+                        if (!child || !child.spec || !Array.isArray(child.spec.layer)) return;
+                        child.spec.layer.forEach(function(l) {
+                            if (!l || !l.encoding) return;
+                            if (detailFieldsC.length > 0) {
+                                l.encoding.detail = detailFieldsC.length === 1 ?
+                                    {field: detailFieldsC[0], type: 'nominal'} :
+                                    detailFieldsC.map(function(f) { return {field: f, type: 'nominal'}; });
+                            } else {
+                                delete l.encoding.detail;
+                            }
+                        });
+                    });
+                }
+                function _remapConcatAxis(axis) {
+                    if (!(axis in mapping)) return;
+                    var newField = mapping[axis];
+                    if (!newField) return;
+                    var valsC = spec.data && Array.isArray(spec.data.values) ? spec.data.values : null;
+                    var sampleC = null;
+                    if (valsC) {
+                        for (var i = 0; i < valsC.length; i++) {
+                            if (valsC[i] && valsC[i][newField] !== undefined && valsC[i][newField] !== null) { sampleC = valsC[i][newField]; break; }
+                        }
+                    }
+                    var newTypeC = sampleC !== null ? _inferType(sampleC) : null;
+                    spec.hconcat.forEach(function(child) {
+                        if (!child || !child.spec || !Array.isArray(child.spec.layer)) return;
+                        child.spec.layer.forEach(function(l) {
+                            if (!l || l._no_axis_remap || !l.encoding) return;
+                            var encC = l.encoding[axis];
+                            if (!encC || typeof encC !== 'object' || encC.field === undefined) return;
+                            var oldField = encC.field;
+                            encC.field = newField;
+                            if (newTypeC) {
+                                encC.type = newTypeC;
+                                if (newTypeC !== 'quantitative' && encC.scale && encC.scale.type) {
+                                    var stC = encC.scale.type;
+                                    if (stC === 'log' || stC === 'sqrt' || stC === 'pow') delete encC.scale.type;
+                                }
+                            }
+                            encC.title = _fieldTitleC(newField);
+                            if (Array.isArray(encC.tooltip)) {
+                                encC.tooltip.forEach(function(t) {
+                                    if (t && t.field === oldField) {
+                                        t.field = newField;
+                                        t.title = _fieldTitleC(newField);
+                                        if (newTypeC) t.type = newTypeC;
+                                    }
+                                });
+                            }
+                        });
+                    });
+                }
+                _remapConcatAxis('x');
+                _remapConcatAxis('y');
+
+                // Re-broadcast cross-source layers after row mutations
+                this._broadcastCrossSource(spec);
+
+                // Re-embed, but preserve the TRUE original spec
+                var savedOrigC = this._origSpecs[id];
+                this._embed(id, spec, undefined, true);
+                this._origSpecs[id] = savedOrigC;
+                return;
             }
 
             // Find layers in either simple or faceted structure

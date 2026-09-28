@@ -74,6 +74,13 @@ function _draw_kwargs(cfg::Union{Config,Nothing}; faceted=false)
         k in (:width, :height, :encoding) && continue  # handled above
         if k === :scales
             s = _as_scales(v); isnothing(s) || (scales_obj = s)
+            # Per-column Y scales are a Vega-Lite composition (`hconcat` of
+            # per-column facet views). Makie's `draw(spec, scales(...))` has no
+            # per-facet-column scale; rendering one linearly would silently
+            # violate the never-pre-log rule the feature exists for — fail loud.
+            if !isnothing(s) && !isnothing(_scales_column_y_scales(s))
+                error("AlgebraOfVega: per-column Y scales (`scales(Y=(; scale=Dict(...)))`) are not supported on the static Makie path; render with `vdraw`/`to_vegalite` (Vega-Lite hconcat of per-column facet views) instead.")
+            end
         elseif k === :facet
             _merge_nt!(facet_kw, _as_nt(v))
         elseif k === :axis
