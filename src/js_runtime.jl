@@ -333,6 +333,12 @@ Client-side API:
   optionally keeping only the most recent `maxRows`
 - `AoV.onSignal(id, signal, callback)` — listen to a Vega signal
 - Signal→HTMX wiring is set up automatically by `to_node(; signals=...)`
+
+Plots whose first render has an empty dataset (the incremental-plot pattern)
+hide legends bound to empty scale domains until the first data change: Vega
+renders an empty legend as a zero-item group whose inverted bounds collapse
+the whole canvas to 0x0. The first `appendData`/`updateData` re-embeds once
+with the accumulated rows, restoring the legend bound to the real domain.
 """
 function vega_runtime()
     h.script(Raw(raw"""
@@ -343,6 +349,8 @@ function vega_runtime()
         _liveRows: {},
         _specRows: {},
         _origSpecs: {},
+        _droppedLegends: {},
+        _embedOpts: {},
 
         _applyResponsiveWidth: function(id, spec) {
             var el = document.getElementById(id);
@@ -540,9 +548,14 @@ function vega_runtime()
             if (!(prev && el && el.contains(prev.container()))) {
                 delete self._signals[id];
                 delete self._liveRows[id];
+                delete self._droppedLegends[id];
             } else if (!keepData) {
                 delete self._liveRows[id];
             }
+            // Remember the embed options so the restore re-embed below (and any
+            // legend-restore re-embed from appendData/updateData) can preserve
+            // them (e.g. actions:false) instead of falling back to defaults.
+            self._embedOpts[id] = opts;
             // Store original spec for re-embed on resize and remapEncoding
             var origSpec = JSON.parse(JSON.stringify(spec));
             self._broadcastCrossSource(origSpec);
@@ -622,6 +635,7 @@ function vega_runtime()
                 self._liveRows[id][name] = data;
                 var changeset = vega.changeset().remove(function() { return true; }).insert(data);
                 view.change(name, changeset).run();
+                self._maybeRestoreLegends(id);
             });
         },
 
@@ -638,7 +652,70 @@ function vega_runtime()
                     vega.changeset().remove(function() { return true; }).insert(rows) :
                     vega.changeset().insert(data);
                 view.change(name, changeset).run();
+                self._maybeRestoreLegends(id);
             });
+        },
+
+        // Vega renders a legend whose scale domain is empty as a zero-item
+        // legend group with inverted bounds; the legend layout folds those
+        // bounds into the view origin, collapsing the whole canvas to 0x0
+        // (observed on vega 5.33.1 / vega-lite 5.23.0). The incremental-plot
+        // pattern starts from a typed-empty table, so this is the normal first
+        // paint for any colored plot whose data streams in later. _withLiveRows
+        // drops such legends at the compiled-spec boundary (an empty legend has
+        // nothing to label), records the drop per plot, and the first data
+        // change re-embeds once with live rows to restore the legend.
+        _legendDomainEmpty: function(vg, domainSpec) {
+            var self = this;
+            if (Array.isArray(domainSpec)) return domainSpec.length === 0;
+            if (domainSpec && domainSpec.fields) {
+                // Multi-layer union domain: empty only when every field's
+                // source dataset resolves empty.
+                return (domainSpec.fields || []).every(function(f) {
+                    return self._legendDomainEmpty(vg, f);
+                });
+            }
+            if (domainSpec && domainSpec.data) {
+                var ds = (vg.data || []).find(function(d) { return d.name === domainSpec.data; });
+                if (ds) return self._datasetEmpty(vg, ds);
+            }
+            return false;
+        },
+        _datasetEmpty: function(vg, ds) {
+            if (ds.values) return ds.values.length === 0;
+            if (ds.source) {
+                var src = (vg.data || []).find(function(d) { return d.name === ds.source; });
+                return src ? this._datasetEmpty(vg, src) : false;
+            }
+            return false;
+        },
+        _dropEmptyLegends: function(id, vg) {
+            var self = this;
+            var scales = {};
+            (vg.scales || []).forEach(function(s) { scales[s.name] = s; });
+            var dropped = 0, kept = [];
+            (vg.legends || []).forEach(function(L) {
+                var empty = false;
+                ['fill', 'stroke', 'shape', 'size', 'opacity', 'fontWeight'].forEach(function(prop) {
+                    var sc = L[prop] && scales[L[prop]];
+                    if (sc && self._legendDomainEmpty(vg, sc.domain)) empty = true;
+                });
+                if (empty) { dropped++; return; }
+                kept.push(L);
+            });
+            vg.legends = kept;
+            if (dropped > 0) self._droppedLegends[id] = dropped;
+            else delete self._droppedLegends[id];
+        },
+        _maybeRestoreLegends: function(id) {
+            var self = this;
+            if (!self._droppedLegends[id]) return;
+            delete self._droppedLegends[id];
+            // keepData re-embed: the patched patch substitutes the appended
+            // rows, so the legend comes back bound to the real domain. Signal
+            // listeners re-attach in _embed; the view swap is invisible at
+            // 60 fps (single bounded re-embed after the first data change).
+            self._embed(id, self._origSpecs[id], self._embedOpts[id], true);
         },
 
         // The raw rows of datasets changed via updateData/appendData are kept per plot, and
@@ -652,6 +729,7 @@ function vega_runtime()
                     if (Array.isArray(d.values)) specRows[d.name] = d.values;
                     if (live[d.name]) d.values = live[d.name];
                 });
+                self._dropEmptyLegends(id, vg);
                 return vg;
             }});
         },
