@@ -2301,6 +2301,42 @@ embedding across re-embeds and replaces, rather than leaks, a re-embedded view.
 end
 
 """
+Incremental plots that start from a typed-empty table with a color mapping:
+the runtime drops the empty legend at embed and restores it on the first
+data change.
+
+Regression (snag `incremental-empt-d6d1e330`): Vega renders a legend whose
+scale domain is empty as a zero-item legend group with inverted bounds, and
+the legend layout folds those bounds into the view origin, collapsing the
+whole canvas to 0x0 (vega 5.33.1 / vega-lite 5.23.0). Every documented §11b
+incremental-plot first render (typed-empty table, data streams in later) hit
+this on any colored plot: the embed painted nothing, and appended rows
+arrived into a 0x0 view. The runtime now drops legends whose scale domain
+resolves empty (literal `[]`, or data-driven — including multi-layer union
+`fields` domains — with an empty source chain) in the compiled-spec patch,
+records the drop per plot, and the first `appendData`/`updateData` re-embeds
+once with live rows (original embed options preserved) so the legend comes
+back bound to the real domain. Plots with non-empty or pinned domains are
+untouched.
+"""
+@testitem "runtime drops empty-domain legends until data arrives" setup=[AoVTestImports] tags=[:incremental, :regression] begin
+    rt = sprint(show, MIME"text/html"(), vega_runtime())
+    @test occursin("_droppedLegends: {}", rt)
+    @test occursin("_dropEmptyLegends: function", rt)
+    @test occursin("_legendDomainEmpty: function", rt)
+    @test occursin("_maybeRestoreLegends: function", rt)
+    # Union `fields` domains (multi-layer shared scales) resolve empty only
+    # when every field source resolves empty.
+    @test occursin("domainSpec.fields", rt)
+    # The restore re-embed keeps appended rows and the original embed options.
+    @test occursin("self._embedOpts[id] = opts", rt)
+    @test occursin("self._embed(id, self._origSpecs[id], self._embedOpts[id], true)", rt)
+    # update_data restores as well as append_data: the hook fires after both
+    # change sites (two call sites in the runtime).
+    @test count(line -> occursin("self._maybeRestoreLegends(id);", line), split(rt, "\n")) == 2
+end
+
+"""
 The responsive JS sizes faceted/layered cells from the container, corrects for
 rendered chrome, and contains floored plots in-frame.
 
