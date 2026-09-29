@@ -1,0 +1,6 @@
+# Vendored Vega builds are hashed byte-for-byte (sha256 lock in test/items.jl
+# plus the SRI constants in src/js_runtime.jl): check them out verbatim on
+# every platform — no CRLF conversion on Windows.
+# (Without this, windows-latest CI checks out CRLF bytes and the 6 hash
+# asserts fail while Linux/macOS stay green.)
+/vendor/*.min.js -text
