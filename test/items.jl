@@ -2372,6 +2372,35 @@ The explorer routes faceted embeds through the same `AoV.embed` machinery.
     @test !occursin("AoV.embed(", js_cls)
 end
 
+"""
+Single-view `width: "container"` plots size their own embed element, so they
+fill the container on any page — not only pages that load HTMXObjects' shell.
+
+Regression (snag `container-fitted-53476128`): `to_node`'s plot element got its
+`width: 100%` only from `class="u-w-full"`, a utility class AoV never defines
+(HTMXObjects' `htmxo_utility_styles`). vega-embed makes the element
+`display: inline-block`, so on any page without that stylesheet — a bare
+`vega_head()` page, a `to_html(to_node(spec))` file, a runtime-only docs embed —
+the element shrink-wrapped to 0px and every container-fitted plot rendered 0px
+wide (headless Chrome: canvas 0×260; 1068px after the fix). `AoV.embed` now sets
+the element's width for container specs itself.
+"""
+@testitem "container-width specs size their embed element" setup=[AoVTestImports] tags=[:responsive, :regression] begin
+    html(x) = sprint(show, MIME"text/html"(), x)
+    spec = data((; x=[1.0, 2.0], y=[3.0, 4.0], g=["a", "b"])) *
+        mapping(:x, :y, color=:g) * visual(Lines)
+    @test occursin("\"width\":\"container\"", html(to_node(spec; id="p")))
+    @test !occursin("\"width\":\"container\"", html(to_node(spec * config(width=500); id="p")))
+
+    fill = "if (spec.width === 'container' && el) el.style.width = '100%';"
+    @test occursin(fill, html(vega_runtime()))
+    # The standalone page carries no HTMXObjects stylesheet; the runtime it
+    # inlines is what sizes the element.
+    page = to_html(to_node(spec; id="p"))
+    @test !occursin(".u-w-full", page)
+    @test occursin(fill, page)
+end
+
 # --- Per-column Y scales (snag `mixed-log-and-li-a69d2f23`) -------------------
 
 """
