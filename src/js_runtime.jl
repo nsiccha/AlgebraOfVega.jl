@@ -339,6 +339,11 @@ hide legends bound to empty scale domains until the first data change: Vega
 renders an empty legend as a zero-item group whose inverted bounds collapse
 the whole canvas to 0x0. The first `appendData`/`updateData` re-embeds once
 with the accumulated rows, restoring the legend bound to the real domain.
+
+`AoV.embed` sizes the plot element of a `width: "container"` spec to its
+container itself, so single-view plots fill their container on any page —
+without it vega-embed's `display: inline-block` shrink-wraps the element and
+the view measures 0px wide wherever no page stylesheet widens it.
 """
 function vega_runtime()
     h.script(Raw(raw"""
@@ -560,6 +565,15 @@ function vega_runtime()
             var origSpec = JSON.parse(JSON.stringify(spec));
             self._broadcastCrossSource(origSpec);
             self._origSpecs[id] = origSpec;
+
+            // width:"container" sizes the view from the embed element's own
+            // width, and vega-embed makes that element display:inline-block,
+            // which shrink-wraps its (not yet rendered) content: unless a page
+            // stylesheet happens to widen it, the container measures 0 and the
+            // plot renders 0px wide. Size the element here, where the runtime
+            // runs, so single-view plots fill their container on any page
+            // (vega_head pages, to_html files, runtime-only docs embeds).
+            if (spec.width === 'container' && el) el.style.width = '100%';
 
             // Width cap for VL-native single-view specs: width:"container" has
             // no max, so bound the embed element itself and the plot fills
