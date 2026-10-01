@@ -340,8 +340,13 @@ Client-side API:
 
 A Vega view registers `window`/`document` listeners (`width: "container"`
 resize, zoom/pan drags, the actions menu) that keep it — its data, scenegraph
-and canvas — reachable until it is finalized, so removing a plot's element alone
-frees nothing. `dispose` finalizes through vega-embed's own `finalize`, as does
+and canvas — reachable until it is finalized, so the runtime finalizes it. A
+plot whose element leaves the document is disposed automatically: one
+`MutationObserver` sweeps the registry after DOM removals, once the removing
+script yields. A node removed and re-inserted synchronously stays live, and a
+same-id re-render already embedded into its new element is untouched; a plot
+detached and re-attached later is not revived (re-run its embed). `dispose`
+finalizes through vega-embed's own `finalize`, as does
 every re-embed (`View.finalize` alone leaves the actions menu's `document`
 listener, which keeps the replaced view alive). Only the latest embed of a plot
 registers: one superseded by a newer embed or by `dispose` is finalized when it
@@ -562,6 +567,30 @@ function vega_runtime()
             return this._embed(id, spec, opts, false);
         },
 
+        // A plot whose element leaves the document is disposed. One
+        // MutationObserver (installed on the first embed) sweeps the registry
+        // after any batch of DOM removals. Its callback runs at the next
+        // microtask checkpoint, so a node removed and re-inserted synchronously
+        // stays live; it compares element identity, so a same-id re-render
+        // already embedded into its new element is untouched.
+        _sweepDetached: function() {
+            var self = this;
+            Object.keys(self._els).forEach(function(id) {
+                var el = self._els[id];
+                if (el && !el.isConnected) self.dispose(id);
+            });
+        },
+        _watchRemovals: function() {
+            if (this._removalObserver || typeof MutationObserver === 'undefined' || !document.documentElement) return;
+            var self = this;
+            this._removalObserver = new MutationObserver(function(records) {
+                for (var i = 0; i < records.length; i++) {
+                    if (records[i].removedNodes.length) { self._sweepDetached(); return; }
+                }
+            });
+            this._removalObserver.observe(document.documentElement, {childList: true, subtree: true});
+        },
+
         // `keepData`: carry rows added via updateData/appendData over to the new spec
         // (for re-embeds of the same data, e.g. remapEncoding).
         _embed: function(id, spec, opts, keepData) {
@@ -570,6 +599,7 @@ function vega_runtime()
                 opts = Object.assign({}, opts, {actions: window.AoV.defaultActions});
             }
             var self = this;
+            self._watchRemovals();
             // Live state (rows added via updateData/appendData, onSignal listeners) belongs
             // to the plot element: a new element with this ID (e.g. after an HTMX swap)
             // starts fresh, a new spec for the same element keeps the listeners.

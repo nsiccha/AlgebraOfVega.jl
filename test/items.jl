@@ -2303,7 +2303,9 @@ end
 """
 Plots are torn down through the runtime: `AoV.dispose(id)` finalizes the view via
 vega-embed's own `finalize` and clears every per-plot map; `AoV.disposeWithin(root)`
-does so for every plot whose element is inside a subtree.
+does so for every plot whose element is inside a subtree; and a plot whose element
+leaves the document is disposed automatically (one `MutationObserver` sweep,
+matched on element identity so a same-id re-render is untouched).
 
 Regression (snag `no-documented-vi-57f028dc`): removing a plot's element freed
 nothing. Measured in headless Chrome, 5 pages of 48 removed figures kept all 240
@@ -2335,6 +2337,11 @@ removed page, heap flat.
     # One permanent console tagger instead of per-embed save/restore.
     @test occursin("_tagConsole: function()", rt)
     @test !occursin("var _warn = console.warn", rt)
+    # Removal disposes: every embed installs (once) the removal sweep, which
+    # disposes plots whose recorded element is no longer in the document.
+    @test occursin("self._watchRemovals();", rt)
+    @test occursin("if (el && !el.isConnected) self.dispose(id);", rt)
+    @test occursin("observe(document.documentElement, {childList: true, subtree: true})", rt)
 end
 
 """
