@@ -948,6 +948,10 @@ function mapping_controls(id, resolved::NamedTuple; table=nothing, spec=nothing)
     // Restore from URL params once the spec is embedded
     (function _aovRestore_$(js_id)() {
         if (!(typeof AoV !== 'undefined' && AoV._origSpecs && AoV._origSpecs['$(id)'])) {
+            // Stop once the plot element has been in the page and left it
+            // (removed/disposed before its spec registered): nothing to restore.
+            var el = _aovRestore_$(js_id).el = _aovRestore_$(js_id).el || document.getElementById('$(id)');
+            if (el && !el.isConnected) return;
             setTimeout(_aovRestore_$(js_id), 50);
             return;
         }
