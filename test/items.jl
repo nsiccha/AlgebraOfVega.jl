@@ -2296,8 +2296,52 @@ embedding across re-embeds and replaces, rather than leaks, a re-embedded view.
     rt = html(vega_runtime())
     @test occursin("appendData: function", rt)
     @test occursin("whenReady: function", rt)
-    @test occursin("_withLiveRows(id, opts)", rt)
+    @test occursin("_withLiveRows(id, opts, gen)", rt)
     @test occursin(".finalize()", rt)
+end
+
+"""
+Plots are torn down through the runtime: `AoV.dispose(id)` finalizes the view via
+vega-embed's own `finalize` and clears every per-plot map; `AoV.disposeWithin(root)`
+does so for every plot whose element is inside a subtree; and a plot whose element
+leaves the document is disposed automatically (one `MutationObserver` sweep,
+matched on element identity so a same-id re-render is untouched).
+
+Regression (snag `no-documented-vi-57f028dc`): removing a plot's element freed
+nothing. Measured in headless Chrome, 5 pages of 48 removed figures kept all 240
+views, elements and canvases alive (JS heap +26 MB per page). Three holders: the
+per-plot maps; the Vega view's own `window`/`document` listeners, which only
+`finalize` removes; and the per-embed `console.warn`/`console.error` save/restore,
+which concurrent embeds left as a growing chain of wrappers. Re-embeds called
+`View.finalize` alone, so the actions menu's `document` listener kept every
+replaced view alive (20 of 20 after 20 re-embeds). With the fix: 0 of 48 per
+removed page, heap flat.
+"""
+@testitem "runtime tears plots down" setup=[AoVTestImports] tags=[:incremental, :regression] begin
+    rt = sprint(show, MIME"text/html"(), vega_runtime())
+    @test occursin("dispose: function(id)", rt)
+    @test occursin("disposeWithin: function(root)", rt)
+    # Every map the runtime keys by plot id is listed for dispose() to clear
+    # (the in-flight counter clears itself when each embed settles).
+    listed = Set(m.captures[1] for m in eachmatch(r"'(views|_[A-Za-z]+)'",
+        match(r"_perPlotState: \[([^\]]*)\]", rt).captures[1]))
+    keyed = Set(m.captures[1] for m in eachmatch(r"(?:self|this)\.(views|_[A-Za-z]+)\[id\]\s*=", rt))
+    @test "_origSpecs" in keyed && "views" in keyed
+    @test setdiff(keyed, ["_inFlight"]) ⊆ listed
+    # Views are finalized through vega-embed's result (drops the actions-menu
+    # document listener), never View.finalize alone.
+    @test occursin("if (r) r.finalize(); else if (v) v.finalize();", rt)
+    @test !occursin("self.views[id].finalize()", rt)
+    # An embed superseded by a newer one, or by dispose(), is finalized on resolve.
+    @test occursin("if (self._gens[id] !== gen) { result.finalize(); return result; }", rt)
+    # One permanent console tagger instead of per-embed save/restore.
+    @test occursin("_tagConsole: function()", rt)
+    @test !occursin("var _warn = console.warn", rt)
+    # Removal disposes: every embed installs (once) the removal sweep, which
+    # disposes plots whose recorded element is no longer in the document.
+    @test occursin("self._watchRemovals();", rt)
+    @test occursin("if (el && !el.isConnected) self.dispose(id);", rt)
+    @test occursin("observe(document.documentElement, {childList: true, subtree: true})", rt)
 end
 
 """

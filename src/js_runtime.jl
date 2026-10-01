@@ -333,6 +333,24 @@ Client-side API:
   optionally keeping only the most recent `maxRows`
 - `AoV.onSignal(id, signal, callback)` — listen to a Vega signal
 - Signal→HTMX wiring is set up automatically by `to_node(; signals=...)`
+- `AoV.dispose(id)` — tear a plot down: finalize its Vega view and drop all
+  per-plot runtime state (DOM untouched)
+- `AoV.disposeWithin(root)` — dispose every plot whose element is `root` or
+  inside it (works on detached subtrees too)
+
+A Vega view registers `window`/`document` listeners (`width: "container"`
+resize, zoom/pan drags, the actions menu) that keep it — its data, scenegraph
+and canvas — reachable until it is finalized, so the runtime finalizes it. A
+plot whose element leaves the document is disposed automatically: one
+`MutationObserver` sweeps the registry after DOM removals, once the removing
+script yields. A node removed and re-inserted synchronously stays live, and a
+same-id re-render already embedded into its new element is untouched; a plot
+detached and re-attached later is not revived (re-run its embed). `dispose`
+finalizes through vega-embed's own `finalize`, as does
+every re-embed (`View.finalize` alone leaves the actions menu's `document`
+listener, which keeps the replaced view alive). Only the latest embed of a plot
+registers: one superseded by a newer embed or by `dispose` is finalized when it
+resolves, and resize/fit re-embeds scheduled by a superseded embed are inert.
 
 Plots whose first render has an empty dataset (the incremental-plot pattern)
 hide legends bound to empty scale domains until the first data change: Vega
@@ -356,6 +374,17 @@ function vega_runtime()
         _origSpecs: {},
         _droppedLegends: {},
         _embedOpts: {},
+        _results: {},
+        _els: {},
+        _embedTok: {},
+        _gens: {},
+        _genSeq: 0,
+
+        // Every map keyed by plot id; dispose() clears each. A new per-plot
+        // map belongs in this list.
+        _perPlotState: ['views', '_results', '_els', '_embedTok', '_gens', '_pending',
+            '_signals', '_liveRows', '_specRows', '_origSpecs', '_droppedLegends',
+            '_embedOpts', '_observers', '_computedWidths', '_corrections', '_correctedRegime'],
 
         _applyResponsiveWidth: function(id, spec) {
             var el = document.getElementById(id);
@@ -538,6 +567,30 @@ function vega_runtime()
             return this._embed(id, spec, opts, false);
         },
 
+        // A plot whose element leaves the document is disposed. One
+        // MutationObserver (installed on the first embed) sweeps the registry
+        // after any batch of DOM removals. Its callback runs at the next
+        // microtask checkpoint, so a node removed and re-inserted synchronously
+        // stays live; it compares element identity, so a same-id re-render
+        // already embedded into its new element is untouched.
+        _sweepDetached: function() {
+            var self = this;
+            Object.keys(self._els).forEach(function(id) {
+                var el = self._els[id];
+                if (el && !el.isConnected) self.dispose(id);
+            });
+        },
+        _watchRemovals: function() {
+            if (this._removalObserver || typeof MutationObserver === 'undefined' || !document.documentElement) return;
+            var self = this;
+            this._removalObserver = new MutationObserver(function(records) {
+                for (var i = 0; i < records.length; i++) {
+                    if (records[i].removedNodes.length) { self._sweepDetached(); return; }
+                }
+            });
+            this._removalObserver.observe(document.documentElement, {childList: true, subtree: true});
+        },
+
         // `keepData`: carry rows added via updateData/appendData over to the new spec
         // (for re-embeds of the same data, e.g. remapEncoding).
         _embed: function(id, spec, opts, keepData) {
@@ -546,6 +599,7 @@ function vega_runtime()
                 opts = Object.assign({}, opts, {actions: window.AoV.defaultActions});
             }
             var self = this;
+            self._watchRemovals();
             // Live state (rows added via updateData/appendData, onSignal listeners) belongs
             // to the plot element: a new element with this ID (e.g. after an HTMX swap)
             // starts fresh, a new spec for the same element keeps the listeners.
@@ -557,6 +611,12 @@ function vega_runtime()
             } else if (!keepData) {
                 delete self._liveRows[id];
             }
+            // The element this plot lives in (disposeWithin matches on it) and
+            // this embed's ownership token: resize/fit re-embeds scheduled by an
+            // earlier embed of the id check it and do nothing once superseded.
+            var tok = {};
+            self._els[id] = el;
+            self._embedTok[id] = tok;
             // Remember the embed options so the restore re-embed below (and any
             // legend-restore re-embed from appendData/updateData) can preserve
             // them (e.g. actions:false) instead of falling back to defaults.
@@ -586,15 +646,28 @@ function vega_runtime()
             }
 
             var doEmbed = function() {
+                // Superseded by a newer embed of this id, or disposed: a resize or
+                // fit re-embed scheduled earlier must not resurrect the old spec.
+                if (self._embedTok[id] !== tok) return Promise.resolve();
                 var s = self._applyResponsiveWidth(id, JSON.parse(JSON.stringify(origSpec)));
                 // Replace (not leak) the previous view
-                if (self.views[id]) { self.views[id].finalize(); delete self.views[id]; }
+                self._finalizeView(id);
+                // Only the latest embed registers its view; one that resolves after
+                // a newer embed (or a dispose) started is finalized instead.
+                var gen = self._gens[id] = ++self._genSeq;
                 // Tag VL warnings/errors with the plot ID for easier debugging
-                var _warn = console.warn, _error = console.error;
-                console.warn = function() { var a = Array.from(arguments); a[0] = '[' + id + '] ' + a[0]; _warn.apply(console, a); };
-                console.error = function() { var a = Array.from(arguments); a[0] = '[' + id + '] ' + a[0]; _error.apply(console, a); };
-                return vegaEmbed('#' + id, s, self._withLiveRows(id, opts)).then(function(result) {
-                    console.warn = _warn; console.error = _error;
+                self._tagConsole();
+                self._inFlight[id] = (self._inFlight[id] || 0) + 1;
+                var settled = false;
+                var settle = function() {
+                    if (settled) return;
+                    settled = true;
+                    if (--self._inFlight[id] <= 0) delete self._inFlight[id];
+                };
+                return vegaEmbed('#' + id, s, self._withLiveRows(id, opts, gen)).then(function(result) {
+                    settle();
+                    if (self._gens[id] !== gen) { result.finalize(); return result; }
+                    self._results[id] = result;
                     var view = self.views[id] = result.view;
                     (self._signals[id] || []).forEach(function(sig) {
                         self._attachSignal(view, sig.signal, sig.callback);
@@ -607,7 +680,7 @@ function vega_runtime()
                     // rendered chrome overshoots the computed budget.
                     self._fitCorrection(id, function() { doEmbed(); });
                     return result;
-                }).catch(function(err) { console.warn = _warn; console.error = _error; _error.call(console, '[' + id + ']', err); });
+                }).catch(function(err) { settle(); self._console.error.call(console, '[' + id + ']', err); });
             };
 
             // Set up resize observer for responsive re-embed (only for _aov-marked specs)
@@ -632,6 +705,57 @@ function vega_runtime()
             }
 
             return doEmbed();
+        },
+
+        // Vega-Lite compiles inside vegaEmbed with no per-embed logger, so its
+        // warnings carry no plot id. One permanent wrapper tags them while
+        // exactly one embed is in flight (with several in flight the source is
+        // ambiguous). Per-embed save/restore of console.warn interleaves across
+        // concurrent embeds and leaves a growing chain of wrappers installed,
+        // each keeping its plot reachable after dispose().
+        _inFlight: {},
+        _tagConsole: function() {
+            if (this._console) return;
+            var self = this, orig = this._console = {warn: console.warn, error: console.error};
+            ['warn', 'error'].forEach(function(level) {
+                console[level] = function() {
+                    var a = Array.prototype.slice.call(arguments), ids = Object.keys(self._inFlight);
+                    if (ids.length === 1) a[0] = '[' + ids[0] + '] ' + a[0];
+                    return orig[level].apply(console, a);
+                };
+            });
+        },
+
+        // Finalize a plot's current view through vega-embed's own finalize:
+        // View.finalize() alone leaves the actions menu's document click
+        // listener, which keeps the whole replaced view reachable.
+        _finalizeView: function(id) {
+            var r = this._results[id], v = this.views[id];
+            if (r) r.finalize(); else if (v) v.finalize();
+            delete this._results[id];
+            delete this.views[id];
+        },
+
+        // Tear a plot down: finalize its view (removing the window/document
+        // listeners that otherwise keep its data, scenegraph and canvas alive)
+        // and drop every piece of per-plot state. The DOM is left alone; an
+        // embed still in flight is finalized when it resolves.
+        dispose: function(id) {
+            var self = this;
+            self._finalizeView(id);
+            if (self._observers && self._observers[id]) self._observers[id].disconnect();
+            self._perPlotState.forEach(function(k) { if (self[k]) delete self[k][id]; });
+        },
+
+        // Dispose every plot whose element is `root` or inside it. Walks the
+        // registry rather than the DOM, so it also works on a detached subtree.
+        disposeWithin: function(root) {
+            var self = this;
+            if (!root) return;
+            Object.keys(self._els).forEach(function(id) {
+                var el = self._els[id];
+                if (el && (el === root || root.contains(el))) self.dispose(id);
+            });
         },
 
         whenReady: function(id, fn) {
@@ -734,10 +858,13 @@ function vega_runtime()
 
         // The raw rows of datasets changed via updateData/appendData are kept per plot, and
         // re-embeds (resize, remapEncoding) compile the spec with them in place of its own.
-        _withLiveRows: function(id, opts) {
+        _withLiveRows: function(id, opts, gen) {
             var self = this, patch = opts.patch;
             return Object.assign({}, opts, {patch: function(vg) {
                 if (typeof patch === 'function') vg = patch(vg);
+                // An embed superseded or disposed while compiling still compiles;
+                // it must not re-create the plot's state.
+                if (self._gens[id] !== gen) return vg;
                 var live = self._liveRows[id] || {}, specRows = self._specRows[id] = {};
                 (vg.data || []).forEach(function(d) {
                     if (Array.isArray(d.values)) specRows[d.name] = d.values;
@@ -749,6 +876,10 @@ function vega_runtime()
         },
 
         onSignal: function(id, signal, callback) {
+            // A plot disposed before its embed resolved (to_node wires signals
+            // in the embed's .then) has nothing to listen to. Listeners added
+            // before a plot's first embed were already dropped by that embed.
+            if (!(id in this._els)) return;
             // Kept per plot so re-embeds (resize, new layers) re-attach it
             this._signals[id] = this._signals[id] || [];
             this._signals[id].push({signal: signal, callback: callback});
