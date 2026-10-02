@@ -26,6 +26,14 @@
             .find(node => node.textContent === label);
         check(!!node, container.id + ': missing legend label ' + label);
         if (node) {
+            node.scrollIntoView({block: 'center'});
+            const box = node.getBoundingClientRect();
+            const hit = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
+            check(getComputedStyle(node).pointerEvents !== 'none' && hit === node,
+                container.id + ': legend label cannot receive native pointer events');
+            const symbol = container.querySelector('.role-legend-symbol path');
+            check(symbol && getComputedStyle(symbol).pointerEvents !== 'none',
+                container.id + ': legend symbol cannot receive native pointer events');
             node.dispatchEvent(new MouseEvent('click', {bubbles: true, shiftKey: shift}));
             await pause();
             await view.runAsync();
@@ -38,16 +46,18 @@
     }
     for (const [mode, collection] of Object.entries({highlight: fixtures, filter: filterFixtures})) {
         for (const [name, spec] of Object.entries(collection)) {
-            for (const path of ['direct', 'runtime']) {
-                const container = document.createElement('div');
+            for (const path of mode === 'highlight' ? ['direct', 'runtime', 'caption'] : ['direct', 'runtime']) {
+                const container = path === 'caption' ? document.getElementById([mode, name, path].join('-')) :
+                    document.createElement('div');
                 container.id = [mode, name, path].join('-');
-                document.body.append(container);
+                if (path !== 'caption') document.body.append(container);
                 let view;
                 try {
                     const options = {renderer: 'svg', actions: false};
                     if (path === 'direct') view = (await vegaEmbed(container, spec, options)).view;
                     else {
-                        await AoV.embed(container.id, spec, options);
+                        if (path === 'runtime') await AoV.embed(container.id, spec, options);
+                        else for (let i = 0; i < 100 && !AoV.views[container.id]; i++) await pause();
                         view = AoV.views[container.id];
                     }
                     check(!!view, container.id + ': embed failed');
@@ -112,7 +122,7 @@
                 } catch (error) {
                     failures.push(container.id + ': ' + error.stack);
                 } finally {
-                    if (path === 'runtime') AoV.dispose(container.id);
+                    if (path !== 'direct') AoV.dispose(container.id);
                     else view?.finalize();
                 }
             }

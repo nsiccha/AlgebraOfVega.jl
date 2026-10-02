@@ -10,6 +10,18 @@ parameters generated automatically by AoV; explicit `config(params=...)` and
 `config(select=...)` remain in the output.
 """
 function to_vegalite(layer::AlgebraOfGraphics.Layer; interactive::Bool=true)
+    to_vegalite(vlspec(layer); interactive)
+end
+
+function to_vegalite(layers::AlgebraOfGraphics.Layers; interactive::Bool=true)
+    to_vegalite(vlspec(layers); interactive)
+end
+
+# Lower the drawable before config and automatic interaction are applied. Bare
+# drawables and configured specs share the same finalization path; adding params
+# here would make generated selections look user-authored during config lowering.
+_base_vegalite(drawable) = to_vegalite(drawable; interactive=false)
+function _base_vegalite(layer::AlgebraOfGraphics.Layer)
     spec = layer_to_vl(layer)
     _apply_no_zero_default!(spec)
     _apply_no_truncate_default!(spec)
@@ -17,7 +29,7 @@ function to_vegalite(layer::AlgebraOfGraphics.Layer; interactive::Bool=true)
     spec
 end
 
-function to_vegalite(layers::AlgebraOfGraphics.Layers; interactive::Bool=true)
+function _base_vegalite(layers::AlgebraOfGraphics.Layers)
     spec = layers_to_vl(layers)
     _apply_no_zero_default!(spec)
     _apply_no_truncate_default!(spec)
@@ -1266,7 +1278,7 @@ _select_field_list(s::Symbol) = [s]
 _select_field_list(v) = v
 
 function to_vegalite(v::VegaSpec; interactive::Bool=true)
-    spec = to_vegalite(v.drawable; interactive)
+    spec = _base_vegalite(v.drawable)
     select_fields = nothing
     col_yscales = nothing
     if !isnothing(v.config)
