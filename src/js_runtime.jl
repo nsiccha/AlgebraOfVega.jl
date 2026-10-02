@@ -591,8 +591,121 @@ function vega_runtime()
             this._removalObserver.observe(document.documentElement, {childList: true, subtree: true});
         },
 
-        // `keepData`: carry rows added via updateData/appendData over to the new spec
-        // (for re-embeds of the same data, e.g. remapEncoding).
+        // Refresh ONLY AoV-generated legend selections after channel remapping.
+        // Units may have been cloned by ribbon reconstruction or facet/concat
+        // lowering. Restore their recorded opacity/filter before electing one
+        // owner per field; explicit user params and encodings survive unchanged.
+        _refreshLegendSelections: function(spec) {
+            var mode = spec._aov && spec._aov.legendInteraction;
+            if (!mode) return;
+            var units = [];
+            function visit(node, data, encoding) {
+                if (!node) return;
+                data = node.data || data;
+                encoding = Object.assign({}, encoding, node.encoding || {});
+                var children = node.spec ? [node.spec] : [];
+                ['layer', 'hconcat', 'vconcat', 'concat'].forEach(function(k) {
+                    children = children.concat(node[k] || []);
+                });
+                if (children.length) children.forEach(function(c) { visit(c, data, encoding); });
+                else if (node.mark) units.push({unit:node, data:data, encoding:encoding});
+            }
+            visit(spec, null, {});
+            units.forEach(function(info) {
+                var u = info.unit, meta = u._aovLegend;
+                if (!meta) return;
+                if (u.params) {
+                    u.params = u.params.filter(function(p) { return meta.params.indexOf(p.name) === -1; });
+                    if (!u.params.length) delete u.params;
+                }
+                if (meta.dimmed) {
+                    if (meta.opacity === null) delete u.encoding.opacity;
+                    else u.encoding.opacity = meta.opacity;
+                }
+                if (meta.domain && u.encoding.color && u.encoding.color.scale &&
+                    JSON.stringify(u.encoding.color.scale.domain) === JSON.stringify(meta.domain)) {
+                    delete u.encoding.color.scale.domain;
+                    if (!Object.keys(u.encoding.color.scale).length) delete u.encoding.color.scale;
+                }
+                if (meta.filtered) {
+                    if (meta.transform.length) u.transform = meta.transform;
+                    else delete u.transform;
+                }
+                delete u._aovLegend;
+            });
+            units = [];
+            visit(spec, null, {});
+            var owners = Object.create(null), fields = [];
+            function composite(u) {
+                var m = typeof u.mark === 'string' ? u.mark : u.mark.type;
+                return ['boxplot', 'errorbar', 'errorband'].indexOf(m) !== -1;
+            }
+            units.forEach(function(info) {
+                var c = info.encoding.color;
+                if (composite(info.unit) || !c || !c.field ||
+                    ['nominal', 'ordinal'].indexOf(c.type) === -1 || c.legend === null || c.scale === null ||
+                    c.aggregate || c.bin || c.timeUnit) return;
+                if (!owners[c.field]) { owners[c.field] = info.unit; fields.push(c.field); }
+            });
+            function hasField(v, field) {
+                return v && typeof v === 'object' && (v.field === field ||
+                    Object.keys(v).some(function(k) { return hasField(v[k], field); }));
+            }
+            units.forEach(function(info) {
+                var u = info.unit;
+                if (composite(u)) return;
+                var rows = info.data && info.data.values || [];
+                var member = fields.filter(function(f) {
+                    return hasField(info.encoding, f) || rows.some(function(r) {
+                        return Object.prototype.hasOwnProperty.call(r, f);
+                    });
+                });
+                if (!member.length) return;
+                var enc = Object.assign({}, info.encoding);
+                u.encoding = enc;
+                var meta = {params:[], dimmed:false, filtered:false,
+                    opacity:enc.opacity === undefined ? null : enc.opacity,
+                    transform:u.transform || []};
+                u._aovLegend = meta;
+                var color = enc.color;
+                if (mode === 'filter' && color && color.field && color.scale !== null &&
+                    !(color.scale && 'domain' in color.scale)) {
+                    var domain = [];
+                    units.forEach(function(peer) {
+                        (peer.data && peer.data.values || []).forEach(function(row) {
+                            var value = row[color.field];
+                            if (value !== undefined && value !== null && domain.indexOf(value) === -1) domain.push(value);
+                        });
+                    });
+                    if (domain.length) {
+                        enc.color = Object.assign({}, color, {scale:Object.assign({}, color.scale, {domain:{unionWith:domain}})});
+                        meta.domain = {unionWith:domain};
+                    }
+                }
+                var predicate = {and:member.map(function(f) {
+                    var i = fields.indexOf(f), name = i ? 'legend_selection_' + (i+1) : 'legend_selection';
+                    if (owners[f] === u) {
+                        u.params = (u.params || []).concat([{name:name, select:{type:'point', fields:[f]}, bind:'legend'}]);
+                        meta.params.push(name);
+                    }
+                    return {or:['!isValid(datum[' + JSON.stringify(f) + '])', {param:name, empty:true}]};
+                })};
+                if (mode === 'filter') {
+                    meta.filtered = true;
+                    u.transform = meta.transform.concat([{filter:predicate}]);
+                } else {
+                    var base = enc.opacity === undefined ?
+                        (typeof u.mark === 'object' && u.mark.opacity !== undefined ? u.mark.opacity : 1) :
+                        enc.opacity && enc.opacity.value;
+                    if (typeof base === 'number' && !(enc.opacity && enc.opacity.condition)) {
+                        meta.dimmed = true;
+                        enc.opacity = {condition:{test:predicate, value:base}, value:0.15*base};
+                    }
+                }
+            });
+        },
+
+        // `keepData` retains rows added via updateData/appendData on re-embed.
         _embed: function(id, spec, opts, keepData) {
             opts = opts || {};
             if (window.AoV && window.AoV.defaultActions !== undefined) {
@@ -623,6 +736,8 @@ function vega_runtime()
             self._embedOpts[id] = opts;
             // Store original spec for re-embed on resize and remapEncoding
             var origSpec = JSON.parse(JSON.stringify(spec));
+            self._refreshLegendSelections(origSpec);
+            spec = origSpec;
             self._broadcastCrossSource(origSpec);
             self._origSpecs[id] = origSpec;
 
@@ -1487,7 +1602,7 @@ function vega_runtime()
 
                 // Re-embed, but preserve the TRUE original spec
                 var savedOrigC = this._origSpecs[id];
-                this._embed(id, spec, undefined, true);
+                this._embed(id, spec, this._embedOpts[id], true);
                 this._origSpecs[id] = savedOrigC;
                 return;
             }
@@ -1638,7 +1753,7 @@ function vega_runtime()
                 } else {
                     // Single-view spec: move mark+encoding into spec.spec
                     var inner = {};
-                    ['mark', 'encoding', 'transform', 'selection', 'params'].forEach(function(k) {
+                    ['mark', 'encoding', 'transform', 'selection', 'params', '_aovLegend'].forEach(function(k) {
                         if (spec[k] !== undefined) { inner[k] = spec[k]; delete spec[k]; }
                     });
                     spec.spec = inner;
@@ -1801,7 +1916,7 @@ function vega_runtime()
 
             // Re-embed, but preserve the TRUE original spec
             var savedOrig = this._origSpecs[id];
-            this._embed(id, spec, undefined, true);
+            this._embed(id, spec, this._embedOpts[id], true);
             this._origSpecs[id] = savedOrig;
         }
     };
