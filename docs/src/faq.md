@@ -18,9 +18,21 @@ Both aliases call straight through to the canonical implementation — no behavi
 AlgebraOfGraphics's `draw` is for Makie figures and will error on a `VegaSpec`. Use `to_node(spec)` (or its alias `vdraw(spec)`) instead, or rely on the `Base.show` MIME hooks.
 :::
 
-## Legend binding limitation
+## Select series from the color legend
 
-Vega-Lite supports binding legend selections to a parameter (so clicking a legend entry filters the visible marks). AlgebraOfVega wires this up automatically when **color is encoded at the top level**. If color is only present on sublayers (the layered-spec case), the binding may not behave as expected — fall back to a custom Vega-Lite param.
+Click a categorical color legend entry to highlight its series. Other groups dim
+to 15% of their usual opacity; the data and axis ranges stay in place. Shift-click
+adds another group, and clicking blank plot space clears the selection.
+
+This works with layer-local color encodings, facets, uncertainty bands and
+intervals, and per-column scale layouts, in live plots and standalone HTML.
+Layers and facets sharing a color field share one selection. The channel picker
+rebuilds that selection when color changes.
+
+`interactive=false` disables automatic interaction. Explicit Vega-Lite `params`
+remain authoritative, as do conditional or data-driven opacity encodings.
+Continuous color scales, hidden legends, and Vega-Lite composite marks do not
+receive automatic legend selections.
 
 ## Faceting + `select=` interactions
 

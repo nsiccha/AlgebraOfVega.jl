@@ -1335,6 +1335,7 @@ function to_vegalite(v::VegaSpec; interactive::Bool=true)
     if !isnothing(select_fields)
         add_select_filters!(spec, v.drawable, select_fields)
     end
+    auto_legend = interactive && !_has_vl_params(spec)
     interactive && add_auto_interactivity!(spec)
     # Per-column Y scales re-lower the finished faceted spec into an hconcat of
     # per-column facet views. Runs last among the lowerings so child copies
@@ -1347,6 +1348,7 @@ function to_vegalite(v::VegaSpec; interactive::Bool=true)
     # grid never meets a sort (snag `facet-column-sor-9904da1f`); a no-op on
     # hconcat tops, unsorted specs, and already-dense grids.
     _densify_facet_sort!(spec)
+    auto_legend && _add_auto_legend_interactivity!(spec)
     spec
 end
 
@@ -1375,6 +1377,8 @@ function to_vegalite(v, sc::AlgebraOfGraphics.Scales; interactive::Bool=true)
     # (or skipped an unsorted spec) — re-run so a sparse grid never meets a
     # sort (snag `facet-column-sor-9904da1f`).
     _densify_facet_sort!(spec)
+    haskey(get(spec, "_aov", Dict()), "legendInteraction") &&
+        _add_auto_legend_interactivity!(spec)
     spec
 end
 
@@ -1435,27 +1439,170 @@ function add_select_filters!(spec::Dict{String,Any}, drawable, fields)
     spec
 end
 
+const _AUTO_LEGEND_MODE = :highlight
+
+# Walk composition nodes, carrying inherited data/encoding into each unit.
+# The units belong to the fresh lowering output; caller tables remain read-only.
+function _legend_units!(out, node::Dict; data=nothing, encoding=Dict{String,Any}())
+    data = get(node, "data", data)
+    enc = merge(encoding, get(node, "encoding", Dict{String,Any}()))
+    children = Any[]
+    haskey(node, "spec") && push!(children, node["spec"])
+    for key in ("layer", "hconcat", "vconcat", "concat")
+        append!(children, get(node, key, Any[]))
+    end
+    if isempty(children)
+        haskey(node, "mark") && push!(out, (; unit=node, data, encoding=enc))
+    else
+        for child in children
+            _legend_units!(out, child; data, encoding=enc)
+        end
+    end
+    out
+end
+
+function _has_vl_params(node::Dict)
+    haskey(node, "params") && return true
+    haskey(node, "spec") && _has_vl_params(node["spec"]) && return true
+    any(key -> any(_has_vl_params, get(node, key, Any[])),
+        ("layer", "hconcat", "vconcat", "concat"))
+end
+
+# Clear only our own generated definitions. Required when a later lowering or
+# the channel picker copies/remaps units; explicit user parameters are untouched.
+function _clear_auto_legend!(unit::Dict)
+    meta = pop!(unit, "_aovLegend", nothing)
+    isnothing(meta) && return
+    if haskey(unit, "params")
+        unit["params"] = [p for p in unit["params"] if get(p, "name", nothing) ∉ meta["params"]]
+        isempty(unit["params"]) && delete!(unit, "params")
+    end
+    if meta["dimmed"]
+        if isnothing(meta["opacity"])
+            delete!(unit["encoding"], "opacity")
+        else
+            unit["encoding"]["opacity"] = meta["opacity"]
+        end
+    end
+    if haskey(meta, "domain")
+        color = get(unit["encoding"], "color", nothing)
+        scale = color isa AbstractDict ? get(color, "scale", nothing) : nothing
+        if scale isa AbstractDict && get(scale, "domain", nothing) == meta["domain"]
+            delete!(color["scale"], "domain")
+            isempty(color["scale"]) && delete!(color, "scale")
+        end
+    end
+    if meta["filtered"]
+        unit["transform"] = meta["transform"]
+        isempty(unit["transform"]) && delete!(unit, "transform")
+    end
+end
+
+_legend_has_field(value, field) = false
+_legend_has_field(value::AbstractDict, field) =
+    get(value, "field", nothing) == field || any(v -> _legend_has_field(v, field), values(value))
+_legend_has_field(value::AbstractVector, field) = any(v -> _legend_has_field(v, field), value)
+
+function _legend_predicate(names, fields)
+    Dict{String,Any}("and" => Any[Dict{String,Any}("or" => Any[
+        "!isValid(datum[" * JSON.json(field) * "])" ,
+        Dict{String,Any}("param" => name, "empty" => true)])
+        for (name, field) in zip(names, fields)])
+end
+
+function _apply_legend_response!(::Val{:highlight}, unit, enc, predicate, meta)
+    opacity = get(enc, "opacity", nothing)
+    opacity isa AbstractDict && haskey(opacity, "condition") && return
+    # Preserve data-driven opacity, existing conditions, and pad suppression.
+    base = isnothing(opacity) ? get(something(_as_dict(get(unit, "mark", nothing)), Dict()), "opacity", 1) :
+        get(something(_as_dict(opacity), Dict()), "value", nothing)
+    base isa Real || return
+    meta["dimmed"] = true
+    enc["opacity"] = Dict{String,Any}("condition" => Dict{String,Any}(
+        "test" => predicate, "value" => base), "value" => 0.15 * base)
+end
+
+function _apply_legend_response!(::Val{:filter}, unit, enc, predicate, meta)
+    meta["filtered"] = true
+    unit["transform"] = vcat(meta["transform"], Any[Dict{String,Any}("filter" => predicate)])
+end
+
+function _add_auto_legend_interactivity!(spec::Dict; mode=_AUTO_LEGEND_MODE)
+    # One owner per categorical color field, including layer-local encodings.
+    # A unit-owned selection binds the shared legend without VL cloning tuple
+    # signals into every sibling layer. Its global predicate spans all facets.
+    units = _legend_units!(Any[], spec)
+    foreach(info -> _clear_auto_legend!(info.unit), units)
+    units = _legend_units!(Any[], spec)
+    owners = Dict{String,Any}()
+    fields = String[]
+    for info in units
+        _is_composite_mark(info.unit) && continue
+        color = _as_dict(get(info.encoding, "color", nothing))
+        isnothing(color) && continue
+        get(color, "type", "") in ("nominal", "ordinal") || continue
+        haskey(color, "field") || continue
+        any(k -> haskey(color, k), ("aggregate", "bin", "timeUnit")) && continue
+        get(color, "legend", true) === nothing && continue
+        get(color, "scale", true) === nothing && continue
+        field = string(color["field"])
+        haskey(owners, field) && continue
+        owners[field] = info.unit
+        push!(fields, field)
+    end
+    isempty(fields) && return spec
+    names = [i == 1 ? "legend_selection" : "legend_selection_$i" for i in eachindex(fields)]
+    get!(spec, "_aov", Dict{String,Any}())["legendInteraction"] = string(mode)
+    for info in units
+        unit = info.unit
+        _is_composite_mark(unit) && continue
+        rows = isnothing(info.data) ? Any[] : get(info.data, "values", Any[])
+        member = [i for i in eachindex(fields) if _legend_has_field(info.encoding, fields[i]) ||
+            any(row -> row isa AbstractDict && haskey(row, fields[i]), rows)]
+        isempty(member) && continue
+        enc = Dict{String,Any}(info.encoding)
+        unit["encoding"] = enc
+        meta = Dict{String,Any}("params" => String[], "dimmed" => false, "filtered" => false,
+            "opacity" => deepcopy(get(enc, "opacity", nothing)),
+            "transform" => deepcopy(get(unit, "transform", Any[])))
+        unit["_aovLegend"] = meta
+        color = _as_dict(get(enc, "color", nothing))
+        if mode == :filter && !isnothing(color) && haskey(color, "field") &&
+                get(color, "scale", true) !== nothing &&
+                !haskey(get(color, "scale", Dict()), "domain")
+            field = string(color["field"])
+            domain = unique(Any[row[field] for peer in units for row in
+                (isnothing(peer.data) ? Any[] : get(peer.data, "values", Any[]))
+                if row isa AbstractDict && haskey(row, field) && !isnothing(row[field])])
+            if !isempty(domain)
+                color = Dict{String,Any}(color)
+                generated_domain = Dict("unionWith" => domain)
+                scale = Dict{String,Any}(get(color, "scale", Dict()))
+                scale["domain"] = generated_domain
+                color["scale"] = scale
+                enc["color"] = color
+                meta["domain"] = deepcopy(generated_domain)
+            end
+        end
+        for i in member
+            owners[fields[i]] === unit || continue
+            push!(get!(unit, "params", Any[]), Dict{String,Any}("name" => names[i],
+                "select" => Dict{String,Any}("type" => "point", "fields" => [fields[i]]),
+                "bind" => "legend"))
+            push!(meta["params"], names[i])
+        end
+        _apply_legend_response!(Val(mode), unit, enc,
+            _legend_predicate(names[member], fields[member]), meta)
+    end
+    spec
+end
+
 """
     add_auto_interactivity!(spec)
 
-Add automatic client-side interactivity to a Vega-Lite spec:
-- **Legend click filtering**: For single-view specs with top-level `color` encoding,
-  adds `bind: "legend"` selection so clicking legend items toggles group visibility.
-  Uses `empty: true` so all data is visible by default.
-- **Nearest-point tooltip**: For `line`/`area` marks with tooltip, adds `nearest: true`
-  so the tooltip snaps to the closest data point.
-
-Skipped when:
-- User already defined `params` via `config()` (don't override explicit interactivity)
-- Spec is faceted (`haskey(spec, "facet")`)
-- Color encoding is only in sublayers, not top-level (VL `bind: "legend"` silently
-  breaks layered specs where color is per-sublayer — renders empty)
-
-Also skips adding the opacity condition when the mark already has an intentional
-`opacity` property — both for sublayers (e.g. CI band areas with `mark.opacity: 0.2`)
-and for single-view marks (e.g. `visual(Lines; opacity=0.15)` on a top-level-colored
-line ensemble). An explicit `mark.opacity` always wins; the auto legend-dim only applies
-when the user hasn't set their own opacity.
+Add zoom/pan and point hover parameters without overriding user parameters.
+Legend selection is added separately after facet/concat lowering, so a selection
+has exactly one unit owner even when per-column scale lowering copies layers.
 """
 function add_auto_interactivity!(spec::Dict{String,Any})
     # Don't add interactivity if user already defined params (via config)
@@ -1522,14 +1669,6 @@ function add_auto_interactivity!(spec::Dict{String,Any})
         !isnothing(d) && haskey(d, "aggregate")
     end
 
-    # Find color field from top-level encoding only.
-    # Legend binding doesn't work reliably for layered specs where color is only in sublayers.
-    color_field = nothing
-    if !isnothing(enc)
-        color_enc = _as_dict(get(enc, "color", nothing))
-        isnothing(color_enc) || (color_field = get(color_enc, "field", nothing))
-    end
-
     params = Dict{String,Any}[]
 
     # Zoom (scroll) + pan (drag) — only on quantitative non-aggregate axes
@@ -1566,43 +1705,6 @@ function add_auto_interactivity!(spec::Dict{String,Any})
             push!(sl_params, grid_param)
         else
             push!(params, grid_param)
-        end
-    end
-
-    if !isnothing(color_field)
-        # Legend click selection: toggle group visibility + hover highlight
-        push!(params, Dict{String,Any}(
-            "name" => "legend_selection",
-            "select" => Dict{String,Any}("type" => "point", "fields" => [color_field]),
-            "bind" => "legend",
-        ))
-
-        opacity_condition = Dict{String,Any}(
-            "condition" => Dict{String,Any}("param" => "legend_selection", "empty" => true, "value" => 1),
-            "value" => 0.15,
-        )
-
-        if !isnothing(sublayers)
-            for sl in sublayers
-                sl_enc = get(sl, "encoding", nothing)
-                # Skip layers that already have opacity in encoding or mark
-                sl_mark = _as_dict(get(sl, "mark", nothing))
-                mark_has_opacity = !isnothing(sl_mark) && haskey(sl_mark, "opacity")
-                if !isnothing(sl_enc) && !haskey(sl_enc, "opacity") && !mark_has_opacity
-                    sl_enc["opacity"] = opacity_condition
-                end
-            end
-        elseif !isnothing(enc) && !haskey(enc, "opacity")
-            # Don't clobber an explicit mark.opacity (e.g. visual(Lines; opacity=0.15))
-            # with the legend-binding opacity condition — mirrors the sublayer branch above,
-            # which already skips marks carrying an intentional `opacity`. VL's encoding-level
-            # opacity overrides mark-level, so injecting the condition here would silently drop
-            # the user's explicit opacity (its empty-state value is 1 → full opacity).
-            top_mark = _as_dict(mark)
-            mark_has_opacity = !isnothing(top_mark) && haskey(top_mark, "opacity")
-            if !mark_has_opacity
-                enc["opacity"] = opacity_condition
-            end
         end
     end
 
