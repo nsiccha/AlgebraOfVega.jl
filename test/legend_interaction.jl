@@ -20,7 +20,8 @@ using TestItemRunner
         "hconcat" => data(rows) * mapping(:x, :y; color=:group, col=:panel, row=:row) *
             (visual(Scatter) + visual(Lines)) *
             config(scales=scales(Y=(; scale=Dict("Q" => log10)))))
-    default_specs = Dict(k => to_vegalite(v * config(width=180, height=120)) for (k, v) in fixtures)
+    default_specs = Dict(k => AlgebraOfVega._embed_spec(v; width=180, height=120, fit_width=false)
+        for (k, v) in fixtures)
     specs = deepcopy(default_specs)
     foreach(s -> AlgebraOfVega._add_auto_legend_interactivity!(s; mode=:highlight), values(specs))
     units(s) = AlgebraOfVega._legend_units!(Any[], s)
@@ -32,6 +33,24 @@ end
     for spec in values(default_specs)
         @test spec["_aov"]["legendInteraction"] == string(AlgebraOfVega._AUTO_LEGEND_MODE)
         @test length(legend_params(spec)) == 1
+    end
+end
+
+@testitem "bare drawables retain legend interaction through public renderers" setup=[AoVLegendFixtures] tags=[:translation, :regression] begin
+    using HTMXObjects
+    @test !isnothing(Base.get_extension(AlgebraOfVega, :AlgebraOfVegaHTMXObjectsExt))
+    for (name, drawable) in fixtures
+        bare = to_vegalite(drawable)
+        @test bare == to_vegalite(drawable * config())
+        @test length(legend_params(bare)) == 1
+        quiet = to_vegalite(drawable; interactive=false)
+        @test isempty(legend_params(quiet))
+        @test !haskey(get(quiet, "_aov", Dict()), "legendInteraction")
+        @test length(legend_params(AlgebraOfVega._embed_spec(drawable))) == 1
+        @test occursin("legend_selection", to_html(drawable; source=:vendor))
+        node = vdraw(drawable; id="bare-" * name)
+        card = with_plot_caption(node, "Series"; plot_id="bare-" * name)
+        @test occursin("legend_selection", sprint(show, MIME"text/html"(), card))
     end
 end
 
@@ -90,6 +109,7 @@ end
 end
 
 @testitem "legend clicks render and remap with the vendored runtime" setup=[AoVLegendFixtures] tags=[:translation, :browser, :regression] begin
+    using HTMXObjects
     chrome = something(Sys.which("google-chrome"), Sys.which("chromium"), "")
     if isempty(chrome)
         @test_skip "headless Chrome is not installed"
@@ -100,7 +120,12 @@ end
             foreach(s -> AlgebraOfVega._add_auto_legend_interactivity!(s; mode=:filter), values(filter_specs))
             runtime = join(sprint(show, MIME"text/html"(), n) for n in vega_head(source=:inline))
             driver = read(joinpath(@__DIR__, "legend_interaction.js"), String)
-            html = "<!doctype html><meta charset='utf-8'>" * runtime * "<body><script>" *
+            cards = join(sprint(show, MIME"text/html"(), with_plot_caption(
+                vdraw(v; id="highlight-" * k * "-caption", width=180, height=120, fit_width=false),
+                "Series"; plot_id="highlight-" * k * "-caption")) for (k, v) in fixtures)
+            html = "<!doctype html><meta charset='utf-8'>" * runtime *
+                "<body><script>const originalEmbed=vegaEmbed;vegaEmbed=(el,spec,opts)=>" *
+                "originalEmbed(el,spec,Object.assign({},opts,{renderer:'svg'}));</script>" * cards * "<script>" *
                 "const fixtures=" * JSON.json(specs) * ";const filterFixtures=" * JSON.json(filter_specs) *
                 ";" * driver * "</script></body>"
             path = joinpath(dir, "test.html")
