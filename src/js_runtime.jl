@@ -1758,9 +1758,15 @@ function vega_runtime()
                     });
                     spec.spec = inner;
                 }
+                // Width/height describe the child view in a facet operator.
+                // Leaving height on the outer object loses the authored size;
+                // a categorical axis then falls back to step sizing (and VL's
+                // nearest-point overlay can compile an unbound datum expression).
+                ['width', 'height'].forEach(function(k) {
+                    if (spec[k] !== undefined) { spec.spec[k] = spec[k]; delete spec[k]; }
+                });
                 spec.facet = {};
                 // Remove single-view-only properties from outer spec
-                delete spec.width;
                 delete spec.autosize;
                 // Add _aov hint for responsive faceted sizing
                 spec._aov = spec._aov || {};
@@ -1775,6 +1781,9 @@ function vega_runtime()
                 var inner = spec.spec || {};
                 if (inner.layer) {
                     spec.layer = inner.layer;
+                    ['width', 'height'].forEach(function(k) {
+                        if (inner[k] !== undefined) spec[k] = inner[k];
+                    });
                 } else {
                     // Restore single-view keys
                     Object.keys(inner).forEach(function(k) { spec[k] = inner[k]; });
