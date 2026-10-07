@@ -3526,8 +3526,15 @@ exact-pinned tags with integrity), `:vendor` (same-origin `<base>/<file>`
 tags for an app serving `vega_vendor_dir()`), and `:inline` (vendored bytes
 inlined — a standalone file that renders with no network at all). Version
 overrides apply only to `:cdn`; anything else fails explicitly.
+
+AoV's own runtime and stylesheet are files in `vega_vendor_dir()` too: by
+default they are inlined, byte for byte; `runtime=:linked` (with
+`source=:vendor`) references them by URL instead, so a full page no longer
+repeats ~96 KB of runtime (snag `cacheable-aov-ru-114438c0`). Every vendor
+URL carries `?v=<content hash>`, which changes exactly when the file does.
 """
 @testitem "vega script source modes" setup=[AoVTestImports] tags=[:standalone, :regression] begin
+    using SHA
     html(x) = sprint(show, MIME"text/html"(), x)
     head(; kwargs...) = join(html(n) for n in vega_head(; kwargs...))
 
@@ -3542,19 +3549,55 @@ overrides apply only to `:cdn`; anything else fails explicitly.
     @test occursin("crossorigin=\"anonymous\"", dflt)
     @test occursin("window.AoV = window.AoV ||", dflt)
 
-    # Vendor mode: same-origin tags, no CDN anywhere.
+    # Vendor mode: same-origin, content-versioned trio tags; no CDN. AoV's
+    # runtime + stylesheet stay inline unless linked.
+    dir = vega_vendor_dir()
+    version(f) = bytes2hex(sha256(read(joinpath(dir, f))))[1:16]
+    tag(f) = "<script src=\"/vendor/$f?v=$(version(f))\" data-aov-vendor=\"$f\"></script>"
     vend = head(; source=:vendor)
     for f in ("vega.min.js", "vega-lite.min.js", "vega-embed.min.js")
-        @test occursin("src=\"/vendor/$f\"", vend)
+        @test occursin(tag(f), vend)
     end
     @test !occursin("cdn.jsdelivr.net", vend)
     @test occursin("window.AoV = window.AoV ||", vend)
-    custom = head(; source=:vendor, base="/static/js/")
-    @test occursin("src=\"/static/js/vega.min.js\"", custom)
+    @test !occursin("aov-runtime.js", vend)
+
+    # Linked runtime: AoV's runtime + stylesheet by URL too — no inline
+    # runtime/CSS bytes, a few hundred bytes of head in all.
+    linked = head(; source=:vendor, runtime=:linked)
+    for f in ("vega.min.js", "vega-lite.min.js", "vega-embed.min.js", "aov-runtime.js")
+        @test occursin(tag(f), linked)
+    end
+    @test occursin("<link rel=\"stylesheet\" href=\"/vendor/aov.css?v=$(version("aov.css"))\" data-aov-vendor=\"aov.css\">", linked)
+    @test !occursin("window.AoV = window.AoV ||", linked)
+    @test !occursin("<style>", linked)
+    @test ncodeunits(linked) < 1_000
+    # Page settings stay explicit and inline, after the runtime.
+    lset = head(; source=:vendor, runtime=:linked, zoom=1.5, theme=:none)
+    @test occursin("<style>.vega-embed { zoom: 1.5; }</style>", lset)
+    @test findfirst("aov-runtime.js", lset)[1] < findfirst("window.AoV = Object.assign", lset)[1]
+    custom = head(; source=:vendor, runtime=:linked, base="/static/js/")
+    @test occursin("src=\"/static/js/vega.min.js?v=", custom)
+    @test occursin("src=\"/static/js/aov-runtime.js?v=", custom)
     @test !occursin("//vega.min.js", custom)
+    @test occursin("src=\"assets/vendor/aov-runtime.js?v=",
+        head(; source=:vendor, runtime=:linked, base="assets/vendor"))
+    # Linking needs the vendor mount; unknown modes fail explicitly.
+    @test_throws ArgumentError vega_head(; runtime=:linked)
+    @test_throws ArgumentError vega_head(; source=:inline, runtime=:linked)
+    @test_throws ArgumentError vega_head(; source=:vendor, runtime=:cdn)
+
+    # One source: the inline runtime/CSS of :cdn are the served files' bytes.
+    runtime_bytes = read(joinpath(dir, "aov-runtime.js"), String)
+    style_bytes = read(joinpath(dir, "aov.css"), String)
+    @test html(vega_runtime()) == "<script>" * runtime_bytes * "</script>"
+    @test occursin("<style>" * style_bytes * "</style>", dflt)
+    @test occursin("<script>" * runtime_bytes * "</script>", dflt)
+    # Both are inlined by :cdn/:inline, so neither may close its element early.
+    @test !occursin(r"</script"i, runtime_bytes)
+    @test !occursin(r"</style"i, style_bytes)
 
     # Inline mode: the vendored bytes, in full, and no external scripts.
-    dir = vega_vendor_dir()
     inlined = head(; source=:inline)
     for f in ("vega.min.js", "vega-lite.min.js", "vega-embed.min.js")
         @test occursin(read(joinpath(dir, f), String), inlined)
@@ -3572,7 +3615,9 @@ overrides apply only to `:cdn`; anything else fails explicitly.
         @test occursin(read(joinpath(dir, f), String)[1:200], bare)
     end
 
-    # The node form threads source through to the same head set.
+    # The node form threads source (and runtime) through to the same head set.
+    @test occursin("/vendor/aov-runtime.js?v=",
+        to_html(to_node(spec; id="src-plot"); source=:vendor, runtime=:linked))
     page = to_html(to_node(spec; id="src-plot"); source=:inline)
     @test startswith(page, "<!DOCTYPE html>")
     @test !occursin("cdn.jsdelivr.net", page)

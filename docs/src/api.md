@@ -85,12 +85,12 @@ update_spec
 
 | Helper            | Purpose                                                                              |
 |-------------------|--------------------------------------------------------------------------------------|
-| `vega_head()`     | The `<script>` tags for Vega/Vega-Lite/Vega-Embed — drop in your `<head>` (`source=:cdn`/`:vendor`/`:inline`; `theme=:host`/`:none`, see the FAQ's light/dark section) |
-| `vega_runtime()`  | The AoV JS runtime — handles signal binding, `update_data`, etc.                     |
+| `vega_head()`     | The head tags for Vega/Vega-Lite/Vega-Embed plus AoV's runtime and stylesheet — drop in your `<head>` (`source=:cdn`/`:vendor`/`:inline`; `runtime=:linked` with `:vendor` loads AoV's runtime by cacheable URL too; `theme=:host`/`:none`, see the FAQ's light/dark section) |
+| `vega_runtime()`  | The AoV JS runtime, inline — handles signal binding, `update_data`, etc. (source: `aov-runtime.js` in `vega_vendor_dir()`) |
 | `vega_controls()` | Optional HTML controls block (legend toggles, view reset, …)                          |
 | `vega_cdn_urls()` | The exact-pinned CDN URLs (Vega, Vega-Lite, Vega-Embed in order)                      |
 | `vega_sri_hashes()` | The subresource-integrity hashes for the pinned CDN URLs, in the same order        |
-| `vega_vendor_dir()` | Directory holding the vendored trio — serve it from your app for `source=:vendor`  |
+| `vega_vendor_dir()` | Directory holding the vendored trio and AoV's runtime/stylesheet — serve it from your app for `source=:vendor` |
 | `update_data(id, new_rows)` | Replace a rendered plot's raw rows by id (HTMX server-side handler returns `update_data(...)`) |
 | `append_data(id, rows; max_rows)` | Add rows to a rendered spec by id, keeping the existing ones (optionally a sliding window of `max_rows`) |
 | `update_spec(id, spec; auto_remap)` | Refresh a rendered plot from a new spec — new data and/or layers — re-lowered like a first render; keeps the picker assignment, and zoom when only data changed |

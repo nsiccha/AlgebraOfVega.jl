@@ -28,7 +28,7 @@ _html_escape(s::AbstractString) =
     replace(s, "&" => "&amp;", "<" => "&lt;", ">" => "&gt;", "\"" => "&quot;")
 
 """
-    to_html(node::HTMX.Node; title="AoV plot", head_extra="", source, base) -> String
+    to_html(node::HTMX.Node; title="AoV plot", head_extra="", source, base, runtime) -> String
 
 Serialize a rendered plot node (e.g. `to_node`, `auto_remap_node`, or a
 `with_plot_caption` fragment) as ONE standalone `.html` document string:
@@ -37,7 +37,8 @@ Serialize a rendered plot node (e.g. `to_node`, `auto_remap_node`, or a
 The `<head>` is the exact `vega_head()` set — Vega/Vega-Lite/Vega-Embed
 scripts plus the inlined `window.AoV.*` runtime — rendered by construction
 from `vega_head()` itself, so versions can never drift. `source` selects the
-script origin (`:cdn` default, `:vendor`, `:inline`, as in `vega_head`);
+script origin (`:cdn` default, `:vendor`, `:inline`) and `runtime` how AoV's
+runtime is loaded (`:inline` default, `:linked`), as in `vega_head`;
 `source=:inline` inlines the vendored builds, so the saved file renders with
 no network at all. `head_extra` appends additional rendered head HTML (the
 `with_plot_caption` methods use it for caption CSS + table sorting). The node
@@ -48,9 +49,9 @@ download, caption/summary render. Only `signals=`-wired plots degrade (their
 `signalToHtmx`.
 """
 function to_html(node::HTMX.Node; title::AbstractString="AoV plot", head_extra::AbstractString="",
-        source::Symbol=:cdn, base::AbstractString="/vendor")
+        source::Symbol=:cdn, base::AbstractString="/vendor", runtime::Symbol=:inline)
     head_io = IOBuffer()
-    for n in vega_head(; source, base)
+    for n in vega_head(; source, base, runtime)
         show(head_io, MIME"text/html"(), n)
     end
     head_html = String(take!(head_io)) * head_extra
