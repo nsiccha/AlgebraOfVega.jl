@@ -462,12 +462,26 @@ function _ribbon_to_vl(
         color_enc = Dict{String,Any}("field" => color_field, "type" => "nominal")
         !isnothing(color_label) && color_label != color_field && (color_enc["title"] = color_label)
         color_vals = sort(unique(row[color_field] for row in summary if haskey(row, color_field)))
+        # Each group's layers carry `_lr_group`, so the runtime can add the
+        # layers of a group that rows sent later bring (`AoV._regroupRibbons`).
+        # With no group yet (an incremental plot's empty first render) the
+        # template layers stand in, unfiltered and tagged `_lr_proto`: they
+        # give the plot its dataset and are what the first groups copy.
         for gval in color_vals
             filter_expr = "datum[$(_vl_json(color_field))] === $(_vl_json(gval))"
             for tl in template_layers
                 gl = deepcopy(tl)
                 gl["transform"] = [Dict{String,Any}("filter" => filter_expr)]
                 gl["encoding"]["color"] = copy(color_enc)
+                gl["_lr_group"] = gval
+                push!(layers, gl)
+            end
+        end
+        if isempty(color_vals)
+            for tl in template_layers
+                gl = deepcopy(tl)
+                gl["encoding"]["color"] = copy(color_enc)
+                gl["_lr_proto"] = true
                 push!(layers, gl)
             end
         end

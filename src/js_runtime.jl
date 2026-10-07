@@ -340,9 +340,12 @@ Client-side API:
 - `AoV.updateData(id, data)` — swap a view's data without re-creating it
 - `AoV.appendData(id, data, name, maxRows)` — insert rows into a view's data,
   optionally keeping only the most recent `maxRows`
+- `AoV.replaceData(id, data, key, name)` — replace the rows of the groups `data`
+  carries (rows whose `key` field values match a row of `data`), keeping the
+  other groups' rows
 - `data` is a row array or the columnar `{n, columns}` form `update_data` /
-  `append_data` send; `AoV.embed`/`AoV.updateSpec` expand inline datasets in
-  that form too (`AoV._rowsFromColumns`)
+  `append_data` / `replace_data` send; `AoV.embed`/`AoV.updateSpec` expand
+  inline datasets in that form too (`AoV._rowsFromColumns`)
 - `AoV.onSignal(id, signal, callback)` — listen to a Vega signal
 - Signal→HTMX wiring is set up automatically by `to_node(; signals=...)`
 - `AoV.refreshTheme()` — re-render host-themed plots whose inherited text colour
@@ -374,6 +377,12 @@ hide legends bound to empty scale domains until the first data change: Vega
 renders an empty legend as a zero-item group whose inverted bounds collapse
 the whole canvas to 0x0. The first `appendData`/`updateData` re-embeds once
 with the accumulated rows, restoring the legend bound to the real domain.
+
+A coloured `lineribbon`/`ribbon` draws each colour group as its own layers
+(tagged `_lr_group`; an empty first render has `_lr_proto` template layers
+instead), so the groups paint in order. A data change whose rows bring a group
+without layers re-embeds once with layers for every group of the rows; rows of
+groups that already have layers are swapped into the live view.
 
 `AoV.embed` sizes the plot element of a `width: "container"` spec to its
 container itself, so single-view plots fill their container on any page —

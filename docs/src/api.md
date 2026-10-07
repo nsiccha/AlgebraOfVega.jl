@@ -80,6 +80,7 @@ vega_head
 vega_runtime
 update_data
 append_data
+replace_data
 update_spec
 ```
 
@@ -93,6 +94,7 @@ update_spec
 | `vega_vendor_dir()` | Directory holding the vendored trio and AoV's runtime/stylesheet — serve it from your app for `source=:vendor` |
 | `update_data(id, new_rows)` | Replace a rendered plot's raw rows by id (HTMX server-side handler returns `update_data(...)`) |
 | `append_data(id, rows; max_rows)` | Add rows to a rendered spec by id, keeping the existing ones (optionally a sliding window of `max_rows`) |
+| `replace_data(id, rows; key)` | Replace the rows of the groups `rows` carries (same `key` column values), keeping every other group's rows |
 | `update_spec(id, spec; auto_remap)` | Refresh a rendered plot from a new spec — new data and/or layers — re-lowered like a first render; keeps the picker assignment, and zoom when only data changed |
 
 ### Incremental plots
@@ -115,9 +117,20 @@ end
 ```
 
 Send `update_spec("live-plot", new_spec)` instead to add layers. Rows added with
-`append_data`/`update_data` survive the plot's responsive re-embeds; a new spec
-from `update_spec` brings its own data. The gallery's *Streaming Data* and
-*Layers One by One* demos show both.
+`append_data`/`update_data`/`replace_data` survive the plot's responsive
+re-embeds; a new spec from `update_spec` brings its own data. The gallery's
+*Streaming Data* and *Layers One by One* demos show both.
+
+When one group of the rows is refined in stages — one scenario's provisional
+bands, re-sent as its draws accumulate — send only that group's rows with
+`replace_data(id, rows; key=:scenario)`: the rows whose `key` values `rows`
+carries are replaced and the other groups' rows stay in the view (`key` may be a
+vector of columns). A coloured `lineribbon`/`ribbon` draws each colour group as
+its own layers; a group that a data change brings first gets its layers then
+(the plot re-embeds once, resetting zoom), so an empty first render can be
+filled group by group. A ribbon layered with other layers
+(`lineribbon(...) + visual(Scatter)`) cannot grow layers this way and logs a
+console warning: send `update_spec` when a group first appears there.
 
 The rows travel column by column, not as one JSON object per row: a regular
 coordinate (a range such as `range(0, 28, length=6721)`, also repeated once per

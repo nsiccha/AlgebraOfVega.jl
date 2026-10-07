@@ -235,13 +235,9 @@ window.AoV = window.AoV || {
         this._removalObserver.observe(document.documentElement, {childList: true, subtree: true});
     },
 
-    // Refresh ONLY AoV-generated legend selections after channel remapping.
-    // Units may have been cloned by ribbon reconstruction or facet/concat
-    // lowering. Restore their recorded opacity/filter before electing one
-    // owner per field; explicit user params and encodings survive unchanged.
-    _refreshLegendSelections: function(spec) {
-        var mode = spec._aov && spec._aov.legendInteraction;
-        if (!mode) return;
+    // The primitive units of a spec, each with the data and encoding it
+    // inherits from its ancestors.
+    _legendUnits: function(spec) {
         var units = [];
         function visit(node, data, encoding) {
             if (!node) return;
@@ -255,7 +251,11 @@ window.AoV = window.AoV || {
             else if (node.mark) units.push({unit:node, data:data, encoding:encoding});
         }
         visit(spec, null, {});
-        units.forEach(function(info) {
+        return units;
+    },
+    // Undo what _refreshLegendSelections added to a spec's units.
+    _stripLegendSelections: function(spec) {
+        this._legendUnits(spec).forEach(function(info) {
             var u = info.unit, meta = u._aovLegend;
             if (!meta) return;
             if (u.params) {
@@ -277,8 +277,16 @@ window.AoV = window.AoV || {
             }
             delete u._aovLegend;
         });
-        units = [];
-        visit(spec, null, {});
+    },
+    // Refresh ONLY AoV-generated legend selections after channel remapping.
+    // Units may have been cloned by ribbon reconstruction or facet/concat
+    // lowering. Restore their recorded opacity/filter before electing one
+    // owner per field; explicit user params and encodings survive unchanged.
+    _refreshLegendSelections: function(spec) {
+        var mode = spec._aov && spec._aov.legendInteraction;
+        if (!mode) return;
+        this._stripLegendSelections(spec);
+        var units = this._legendUnits(spec);
         var owners = Object.create(null), fields = [];
         function composite(u) {
             var m = typeof u.mark === 'string' ? u.mark : u.mark.type;
@@ -648,12 +656,8 @@ window.AoV = window.AoV || {
         var self = this;
         this.whenReady(id, function(view) {
             if (self._refuseRawRows('updateData', id, view, name, data)) return;
-            self._liveRows[id] = self._liveRows[id] || {};
-            self._liveRows[id][name] = data;
-            var changeset = vega.changeset().remove(function() { return true; }).insert(data);
-            view.change(name, changeset).run();
-            self._maybeRestoreLegends(id);
-            self._dataChanged(id);
+            self._applyRows(id, view, name, data,
+                vega.changeset().remove(function() { return true; }).insert(data));
         });
     },
 
@@ -663,17 +667,12 @@ window.AoV = window.AoV || {
         var self = this;
         this.whenReady(id, function(view) {
             if (self._refuseRawRows('appendData', id, view, name, data)) return;
-            var live = self._liveRows[id] = self._liveRows[id] || {};
-            var rows = (live[name] || (self._specRows[id] || {})[name] || []).concat(data);
+            var rows = self._currentRows(id, name).concat(data);
             var trimmed = maxRows && rows.length > maxRows;
             if (trimmed) rows = rows.slice(rows.length - maxRows);
-            live[name] = rows;
-            var changeset = trimmed ?
+            self._applyRows(id, view, name, rows, trimmed ?
                 vega.changeset().remove(function() { return true; }).insert(rows) :
-                vega.changeset().insert(data);
-            view.change(name, changeset).run();
-            self._maybeRestoreLegends(id);
-            self._dataChanged(id);
+                vega.changeset().insert(data));
         });
     },
 
@@ -745,6 +744,195 @@ window.AoV = window.AoV || {
             });
         })(spec);
         return spec;
+    },
+
+    // Replace the rows of the groups `data` carries (`replace_data`): every
+    // row whose `key` field values equal those of a row of `data` is
+    // removed and `data` inserted, in one changeset; the rows of every
+    // other group stay in the view untouched.
+    replaceData: function(id, data, key, name) {
+        name = name || 'source_0';
+        data = this._rowsFromColumns(data);
+        var self = this, fields = [].concat(key);
+        var keyOf = function(r) { return JSON.stringify(fields.map(function(f) { return r[f]; })); };
+        this.whenReady(id, function(view) {
+            if (self._refuseRawRows('replaceData', id, view, name, data)) return;
+            var keys = new Set(data.map(keyOf));
+            var replaced = function(r) { return keys.has(keyOf(r)); };
+            var rows = self._currentRows(id, name).filter(function(r) { return !replaced(r); });
+            self._applyRows(id, view, name, rows.concat(data),
+                vega.changeset().remove(replaced).insert(data));
+        });
+    },
+
+    // A dataset's rows as the plot shows them: those a data operation set,
+    // else the embedded spec's own.
+    _currentRows: function(id, name) {
+        return (this._liveRows[id] || {})[name] || (this._specRows[id] || {})[name] || [];
+    },
+
+    // Record `rows` as the dataset's rows — re-embeds compile with them —
+    // and apply `changeset`, the same change, to the live view. A coloured
+    // ribbon whose rows bring a new colour group re-embeds instead, with
+    // that group's layers (_regroupRibbons).
+    _applyRows: function(id, view, name, rows, changeset) {
+        var live = this._liveRows[id] = this._liveRows[id] || {};
+        live[name] = rows;
+        if (!this._regroupRibbons(id, name)) {
+            view.change(name, changeset).run();
+            this._maybeRestoreLegends(id);
+        }
+        this._dataChanged(id);
+    },
+
+    // A coloured lineribbon/ribbon draws each colour group as its own
+    // layers — bands, then line, tagged `_lr_group` — so the groups paint
+    // in order (`_ribbon_to_vl`); an empty first render has the
+    // `_lr_proto` template layers instead. Rows that bring a group with no
+    // layers would not be drawn, so re-embed with layers for the groups of
+    // the rows. Returns whether it did. Such layers read the plot's
+    // top-level rows, the `source_0` dataset.
+    _regroupRibbons: function(id, name) {
+        var cur = this._cur[id];
+        if (name !== 'source_0' || !cur) return false;
+        var rows = this._currentRows(id, name);
+        var spec = this._withRibbonGroups(cur.spec, rows);
+        if (!spec) { this._warnUngrownRibbons(id, cur.spec, rows); return false; }
+        // A re-facet's re-embed keeps the true original (remapEncoding).
+        var orig = this._origSpecs[id], remapped = !!this._mappings[id];
+        this._embed(id, spec, this._embedOpts[id], true);
+        if (remapped) this._origSpecs[id] = orig;
+        return true;
+    },
+    // A ribbon layered with other layers (`lineribbon(...) + visual(...)`)
+    // keeps its group layers each with its own copy of the rows, which a
+    // data change cannot extend: say so when the rows bring a group it lacks.
+    _warnUngrownRibbons: function(id, spec, rows) {
+        var self = this, host = spec && spec.spec && Array.isArray(spec.spec.layer) ? spec.spec : spec;
+        var have = {}, missing = [];
+        ((host && host.layer) || []).forEach(function(l) {
+            if (!l || !l._lr_layer || !l.data || l._lr_group === undefined ||
+                !l.encoding || !l.encoding.color || typeof l.encoding.color.field !== 'string') return;
+            var f = l.encoding.color.field;
+            (have[f] = have[f] || {})[JSON.stringify(l._lr_group)] = true;
+        });
+        Object.keys(have).forEach(function(f) {
+            self._rowGroups(rows, f).forEach(function(g) {
+                if (!have[f][JSON.stringify(g)]) missing.push(g);
+            });
+        });
+        if (missing.length) console.warn('AoV: the rows for plot "' + id + '" bring colour group(s) ' +
+            missing.join(', ') + ' that its layered lineribbon/ribbon has no layers for, so they are ' +
+            'not drawn there. Send update_spec(id, spec) when a group first appears in a ribbon ' +
+            'layered with other layers.');
+    },
+    _isRibbonGroupLayer: function(l) {
+        return !!(l && l._lr_layer && !l.data && (l._lr_group !== undefined || l._lr_proto) &&
+            l.encoding && l.encoding.color && typeof l.encoding.color.field === 'string');
+    },
+    // The runs of consecutive group layers of one colour field in `layers`.
+    _ribbonRuns: function(layers) {
+        var runs = [], i = 0;
+        while (i < layers.length) {
+            if (!this._isRibbonGroupLayer(layers[i])) { i++; continue; }
+            var field = layers[i].encoding.color.field, j = i;
+            while (j < layers.length && this._isRibbonGroupLayer(layers[j]) &&
+                layers[j].encoding.color.field === field) j++;
+            runs.push({start: i, end: j, field: field});
+            i = j;
+        }
+        return runs;
+    },
+    // The colour groups of `rows` in `field`, in the order the server
+    // emits group layers (sorted).
+    _rowGroups: function(rows, field) {
+        var seen = {}, groups = [];
+        rows.forEach(function(r) {
+            var v = r && r[field];
+            if (v === undefined || v === null) return;
+            var k = JSON.stringify(v);
+            if (!seen[k]) { seen[k] = true; groups.push(v); }
+        });
+        return groups.sort(function(a, b) {
+            if (typeof a === 'number' && typeof b === 'number') return a - b;
+            a = String(a); b = String(b);
+            return a < b ? -1 : a > b ? 1 : 0;
+        });
+    },
+    // `spec` (a copy) with each ribbon's group layers rebuilt for the
+    // groups of `rows`, or null when every group of `rows` already has
+    // its layers. Existing groups keep their layers; a new group's layers
+    // copy another group's (or the prototype layers) with its own filter.
+    _withRibbonGroups: function(spec, rows) {
+        var self = this;
+        if (!spec || !spec.data || !Array.isArray(spec.data.values) || !rows.length) return null;
+        var lacking = function(s) {
+            var host = s.spec && Array.isArray(s.spec.layer) ? s.spec : s;
+            var layers = Array.isArray(host.layer) ? host.layer : [];
+            return self._ribbonRuns(layers).some(function(run) {
+                var have = {};
+                layers.slice(run.start, run.end).forEach(function(l) {
+                    if (l._lr_group !== undefined) have[JSON.stringify(l._lr_group)] = true;
+                });
+                return self._rowGroups(rows, run.field).some(function(g) { return !have[JSON.stringify(g)]; });
+            });
+        };
+        if (!lacking(spec)) return null;
+        var out = JSON.parse(JSON.stringify(spec));
+        this._stripLegendSelections(out);
+        var host = out.spec && Array.isArray(out.spec.layer) ? out.spec : out;
+        var layers = host.layer, result = [], at = 0;
+        this._ribbonRuns(layers).forEach(function(run) {
+            result = result.concat(layers.slice(at, run.start));
+            at = run.end;
+            var runLayers = layers.slice(run.start, run.end), byGroup = {}, proto = [];
+            runLayers.forEach(function(l) {
+                if (l._lr_proto) { proto.push(l); return; }
+                var k = JSON.stringify(l._lr_group);
+                (byGroup[k] = byGroup[k] || []).push(l);
+            });
+            if (!proto.length) proto = byGroup[JSON.stringify(runLayers[0]._lr_group)];
+            var prefix = 'datum[' + JSON.stringify(run.field) + '] === ';
+            proto = proto.map(function(l) {
+                var c = JSON.parse(JSON.stringify(l));
+                delete c.params; delete c._lr_group; delete c._lr_proto;
+                c.transform = (c.transform || []).filter(function(t) {
+                    return !(t && typeof t.filter === 'string' && t.filter.indexOf(prefix) === 0);
+                });
+                return c;
+            });
+            var next = [];
+            self._rowGroups(rows, run.field).forEach(function(g) {
+                next = next.concat(byGroup[JSON.stringify(g)] ||
+                    self._ribbonGroupLayers(proto, run.field, [g]));
+            });
+            // Parameters (the zoom/pan binding) of layers that are dropped —
+            // the prototype layers, a group the rows no longer carry — move
+            // to the run's first layer.
+            runLayers.forEach(function(l) {
+                if (!l.params || next.indexOf(l) !== -1) return;
+                next[0].params = (next[0].params || []).concat(l.params);
+            });
+            result = result.concat(next);
+        });
+        host.layer = result.concat(layers.slice(at));
+        return out;
+    },
+    // One colour group's layers (`proto`: bands, then line) for each of
+    // `groups`, each copy filtered to its group and tagged `_lr_group`.
+    _ribbonGroupLayers: function(proto, field, groups) {
+        var out = [];
+        groups.forEach(function(g) {
+            var expr = 'datum[' + JSON.stringify(field) + '] === ' + JSON.stringify(g);
+            proto.forEach(function(tl) {
+                var gl = JSON.parse(JSON.stringify(tl));
+                gl.transform = (gl.transform || []).concat([{filter: expr}]);
+                gl._lr_layer = true;
+                gl._lr_group = g;
+                out.push(gl);
+            });
+        });
+        return out;
     },
 
     // Raw rows can only replace raw rows. A dataset AoV lowered server-side
@@ -1539,6 +1727,9 @@ window.AoV = window.AoV || {
     remapEncoding: function(id, mapping) {
         var spec = this._remappedSpec(id, mapping);
         if (!spec) return;
+        // Ribbon groups that rows sent since the first render brought.
+        var live = (this._liveRows[id] || {}).source_0;
+        if (live) spec = this._withRibbonGroups(spec, live) || spec;
         var kept = Object.assign({}, mapping);
         delete kept._comboData;
         this._mappings[id] = kept;
@@ -1745,24 +1936,17 @@ window.AoV = window.AoV || {
                     }
                 }
                 if (cf) {
-                    // Get unique values of the new color field from data
-                    var vals = spec.data && spec.data.values || [];
-                    var seen = {}; var groups = [];
-                    vals.forEach(function(r) {
-                        var v = r[cf];
-                        if (v !== undefined && !seen[v]) { seen[v] = true; groups.push(v); }
+                    // One group's layers per value of the new color field in the data
+                    var proto = tmpl.map(function(tl) {
+                        var gl = JSON.parse(JSON.stringify(tl));
+                        gl.transform = srcFilter ? [srcFilter] : [];
+                        gl.encoding.color = {field: cf, type: 'nominal', title: _fieldTitle(cf)};
+                        return gl;
                     });
-                    groups.sort();
-                    groups.forEach(function(gval) {
-                        var filterExpr = 'datum[' + JSON.stringify(cf) + '] === ' + JSON.stringify(gval);
-                        tmpl.forEach(function(tl) {
-                            var gl = JSON.parse(JSON.stringify(tl));
-                            gl.transform = srcFilter ? [srcFilter, {filter: filterExpr}] : [{filter: filterExpr}];
-                            gl.encoding.color = {field: cf, type: 'nominal', title: _fieldTitle(cf)};
-                            gl._lr_layer = true;
-                            newLayers.push(gl);
-                        });
-                    });
+                    var groups = self._rowGroups(spec.data && spec.data.values || [], cf);
+                    // No group yet: the template layers stand in (as the server emits them).
+                    newLayers = groups.length ? self._ribbonGroupLayers(proto, cf, groups) :
+                        proto.map(function(gl) { gl._lr_layer = true; gl._lr_proto = true; return gl; });
                 } else {
                     // No color: use template layers as-is (with __src filter if any)
                     tmpl.forEach(function(tl) {
