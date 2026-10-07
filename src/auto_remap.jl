@@ -805,10 +805,10 @@ function mapping_controls(id, resolved::NamedTuple; table=nothing, spec=nothing)
         )
     end
 
-    dim_fields = JSON.json([first(d) for d in dims])
-    dim_labels = JSON.json(Dict(first(d) => _prettify(first(d)) for d in dims))
-    fixed_js_str = JSON.json(fixed_js)
-    channels_json = JSON.json(all_ch_strs)
+    dim_fields = _vl_json([first(d) for d in dims])
+    dim_labels = _vl_json(Dict(first(d) => _prettify(first(d)) for d in dims))
+    fixed_js_str = _vl_json(fixed_js)
+    channels_json = _vl_json(all_ch_strs)
 
     js = h.script(Raw("""
     var _aovPin_$(js_id)_current = '$(pinned_str)';

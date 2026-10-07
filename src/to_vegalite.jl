@@ -1545,7 +1545,7 @@ _legend_has_field(value::AbstractVector, field) = any(v -> _legend_has_field(v, 
 
 function _legend_predicate(names, fields)
     Dict{String,Any}("and" => Any[Dict{String,Any}("or" => Any[
-        "!isValid(datum[" * JSON.json(field) * "])" ,
+        "!isValid(datum[" * _vl_json(field) * "])" ,
         Dict{String,Any}("param" => name, "empty" => true)])
         for (name, field) in zip(names, fields)])
 end

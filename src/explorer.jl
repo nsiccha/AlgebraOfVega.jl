@@ -111,7 +111,7 @@ function _filter_init_js(::Nothing, namespace)
     ""
 end
 function _filter_init_js(d::AbstractDict, namespace)
-    parts = join(["'$(k)': new Set($(JSON.json(v)))" for (k, v) in d], ", ")
+    parts = join(["'$(k)': new Set($(_vl_json(v)))" for (k, v) in d], ", ")
     "\n            $(namespace)_explorerFilterSelected = {$parts};"
 end
 
@@ -459,8 +459,8 @@ function explorer_data_init_js(datasets; namespace="")
         "categorical" => classify_columns(datasets[name]).categorical,
     ) for name in ds_names)
     """
-            $(namespace)_explorerDatasets = $(JSON.json(ds_dict));
-            $(namespace)_explorerColumns = $(JSON.json(col_dict));"""
+            $(namespace)_explorerDatasets = $(_vl_json(ds_dict));
+            $(namespace)_explorerColumns = $(_vl_json(col_dict));"""
 end
 
 """
@@ -770,7 +770,7 @@ function write_explorer_assets(dir, datasets_or_table; width="container", height
 
     # Write data JSON
     ds_dict = Dict(name => table_to_rows(datasets[name]) for name in ds_names)
-    write(joinpath(dir, "explorer-data.json"), JSON.json(ds_dict))
+    write(joinpath(dir, "explorer-data.json"), _vl_json(ds_dict))
 
     # Write columns JSON
     col_dict = Dict(name => Dict(
@@ -778,7 +778,7 @@ function write_explorer_assets(dir, datasets_or_table; width="container", height
         "numeric" => classify_columns(datasets[name]).numeric,
         "categorical" => classify_columns(datasets[name]).categorical,
     ) for name in ds_names)
-    write(joinpath(dir, "explorer-columns.json"), JSON.json(col_dict))
+    write(joinpath(dir, "explorer-columns.json"), _vl_json(col_dict))
 
     js_width = _js_width(width)
 

@@ -3,9 +3,10 @@
 """
     to_json(spec; kwargs...) -> String
 
-Convert a spec to a Vega-Lite JSON string. Passes `kwargs` to `JSON.json`.
+Convert a spec to a Vega-Lite JSON string. Non-finite floats (`NaN`, `±Inf`) are
+written as `null`, which Vega-Lite renders as a gap; `kwargs` pass through to `JSON.json`.
 """
-to_json(x; kwargs...) = JSON.json(to_vegalite(x); kwargs...)
+to_json(x; kwargs...) = _vl_json(to_vegalite(x); kwargs...)
 
 # Exact pins, not major-only: a CDN-side release inside the major line used to
 # change rendering with zero repo diff. These are the latest in each major
@@ -196,7 +197,7 @@ function vega_head(;
     theme === :host || (settings["theme"] = string(theme))
     if !isempty(settings)
         !isnothing(zoom) && push!(nodes, h.style(Raw(".vega-embed { zoom: $zoom; }")))
-        push!(nodes, h.script(Raw("window.AoV = Object.assign(window.AoV || {}, $(JSON.json(settings)));")))
+        push!(nodes, h.script(Raw("window.AoV = Object.assign(window.AoV || {}, $(_vl_json(settings)));")))
     end
     nodes
 end

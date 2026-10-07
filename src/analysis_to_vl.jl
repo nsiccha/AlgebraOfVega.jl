@@ -463,7 +463,7 @@ function _ribbon_to_vl(
         !isnothing(color_label) && color_label != color_field && (color_enc["title"] = color_label)
         color_vals = sort(unique(row[color_field] for row in summary if haskey(row, color_field)))
         for gval in color_vals
-            filter_expr = "datum[$(JSON.json(color_field))] === $(JSON.json(gval))"
+            filter_expr = "datum[$(_vl_json(color_field))] === $(_vl_json(gval))"
             for tl in template_layers
                 gl = deepcopy(tl)
                 gl["transform"] = [Dict{String,Any}("filter" => filter_expr)]
