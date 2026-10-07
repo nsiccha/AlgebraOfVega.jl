@@ -79,8 +79,13 @@ function _vega_script_nodes(; source::Symbol=:cdn, base::AbstractString="/vendor
     end
 end
 
+const _THEMES = (:host, :none)
+_check_theme(theme::Symbol) = theme in _THEMES ||
+    throw(ArgumentError("theme must be one of $(join(repr.(_THEMES), ", ")), got $(repr(theme))"))
+_check_theme(theme) = throw(ArgumentError("theme must be a Symbol (:host or :none), got $(repr(theme))"))
+
 """
-    vega_head(; vega_version, vegalite_version, vega_embed_version, source, base, zoom, max_width, actions)
+    vega_head(; vega_version, vegalite_version, vega_embed_version, source, base, zoom, max_width, actions, theme)
 
 Return a vector of `h.script`/`h.style` nodes to include in `htmx(; extra_head=vega_head())`.
 
@@ -97,6 +102,17 @@ are sized to `containerWidth / zoom` so they don't overflow their container.
 sized as if the container were `max_width` px (layered/faceted specs), or fills
 at most `max_width` px of its container (single-view specs). A per-plot
 `config(max_width=...)` overrides this page-level value for that plot.
+
+`theme` selects how plots follow the page's light/dark choice. `:host` (the
+default) draws axes, legends, facet headers, titles and unencoded text in the
+CSS `color` each plot element inherits, on a transparent background, and
+re-renders the plots when the page's colour scheme changes (a
+`prefers-color-scheme` change, or a `class` / `data-theme` / `style` change on
+`<html>` or `<body>`). Mark colours (palettes, `visual(...; color=...)`) are
+unchanged, and a spec's own `config(config=Dict(...))` values still win. PNG/SVG
+downloads of such a plot are painted on the page background behind it. `:none`
+keeps Vega's own defaults (white background, black text). A per-plot
+`config(theme=...)` overrides this page-level value for that plot.
 """
 function vega_head(;
     vega_version=VEGA_VERSION,
@@ -107,7 +123,9 @@ function vega_head(;
     zoom=nothing,
     max_width=nothing,
     actions=nothing,
+    theme=:host,
 )
+    _check_theme(theme)
     nodes = [
         _vega_script_nodes(; source, base, vega_version, vegalite_version, vega_embed_version)...,
         # Fix vega-embed actions SVG sizing when CSS frameworks (Pico) override defaults
@@ -188,6 +206,7 @@ function vega_head(;
     !isnothing(zoom) && (settings["zoom"] = zoom)
     !isnothing(max_width) && (settings["maxWidth"] = max_width)
     !isnothing(actions) && (settings["defaultActions"] = actions)
+    theme === :host || (settings["theme"] = string(theme))
     if !isempty(settings)
         !isnothing(zoom) && push!(nodes, h.style(Raw(".vega-embed { zoom: $zoom; }")))
         push!(nodes, h.script(Raw("window.AoV = Object.assign(window.AoV || {}, $(JSON.json(settings)));")))
@@ -333,6 +352,11 @@ Client-side API:
   optionally keeping only the most recent `maxRows`
 - `AoV.onSignal(id, signal, callback)` — listen to a Vega signal
 - Signal→HTMX wiring is set up automatically by `to_node(; signals=...)`
+- `AoV.refreshTheme()` — re-render host-themed plots whose inherited text colour
+  changed (automatic on `prefers-color-scheme` and `<html>`/`<body>` class,
+  `data-theme` or `style` changes; call it after other theme switches)
+- `AoV.hostThemeConfig(el)` / `AoV.hostBackground(el)` — the Vega-Lite config a
+  host-themed plot in `el` embeds with, and the background its image downloads use
 - `AoV.dispose(id)` — tear a plot down: finalize its Vega view and drop all
   per-plot runtime state (DOM untouched)
 - `AoV.disposeWithin(root)` — dispose every plot whose element is `root` or
@@ -385,13 +409,17 @@ function vega_runtime()
         _cur: {},
         _pickers: {},
         _mappings: {},
+        // The host-theme config each plot was last embedded with (JSON), and
+        // the re-embed that applies a changed one (see refreshTheme).
+        _themeKeys: {},
+        _reembeds: {},
 
         // Every map keyed by plot id; dispose() clears each. A new per-plot
         // map belongs in this list.
         _perPlotState: ['views', '_results', '_els', '_embedTok', '_gens', '_pending',
             '_signals', '_liveRows', '_specRows', '_origSpecs', '_droppedLegends',
             '_embedOpts', '_observers', '_computedWidths', '_corrections', '_correctedRegime',
-            '_cur', '_pickers', '_mappings'],
+            '_cur', '_pickers', '_mappings', '_themeKeys', '_reembeds'],
 
         _applyResponsiveWidth: function(id, spec) {
             var el = document.getElementById(id);
@@ -720,6 +748,7 @@ function vega_runtime()
             }
             var self = this;
             self._watchRemovals();
+            self._watchTheme();
             // Live state (rows added via updateData/appendData, onSignal listeners) belongs
             // to the plot element: a new element with this ID (e.g. after an HTMX swap)
             // starts fresh, a new spec for the same element keeps the listeners.
@@ -780,6 +809,8 @@ function vega_runtime()
                 // fit re-embed scheduled earlier must not resurrect the old spec.
                 if (self._embedTok[id] !== tok) return Promise.resolve();
                 var s = self._applyResponsiveWidth(id, JSON.parse(JSON.stringify(cur.spec)));
+                // Host theme, read now: a theme change re-runs this embed.
+                var embedOpts = self._themedOpts(id, s, opts);
                 // Replace (not leak) the previous view
                 self._finalizeView(id);
                 // Only the latest embed registers its view; one that resolves after
@@ -794,7 +825,7 @@ function vega_runtime()
                     settled = true;
                     if (--self._inFlight[id] <= 0) delete self._inFlight[id];
                 };
-                return vegaEmbed('#' + id, s, self._withLiveRows(id, opts, gen)).then(function(result) {
+                return vegaEmbed('#' + id, s, self._withLiveRows(id, embedOpts, gen)).then(function(result) {
                     settle();
                     if (self._gens[id] !== gen) { result.finalize(); return result; }
                     self._results[id] = result;
@@ -834,7 +865,114 @@ function vega_runtime()
                 }
             }
 
+            // A host-theme change re-embeds like a resize does: the current
+            // spec (picker assignment, update_spec data) and live rows carry over.
+            self._reembeds[id] = doEmbed;
             return doEmbed();
+        },
+
+        // --- Host theme ---
+        // The page's light/dark choice reaches a plot through the CSS `color`
+        // its element inherits. Vega's canvas cannot resolve `currentColor`
+        // (it paints black), so the runtime resolves the colour itself and
+        // embeds with a Vega-Lite config that draws the chrome (axes, legends,
+        // facet headers, titles, unencoded text) in it on a transparent
+        // background. Mark colours are left alone. The spec's own `config`
+        // wins key by key (vega-lite merges the embed config under it).
+        // Page default: `window.AoV.theme` (`vega_head(theme=...)`); per plot:
+        // `spec._aov.theme` (`config(theme=...)`). Values: 'host' or 'none'.
+        _themeOn: function(spec) {
+            var t = spec && spec._aov && spec._aov.theme;
+            if (t === undefined || t === null) t = window.AoV && window.AoV.theme;
+            return (t === undefined || t === null ? 'host' : t) === 'host';
+        },
+        _rgba: function(css) {
+            var m = /^rgba?\(\s*([\d.]+)[\s,]+([\d.]+)[\s,]+([\d.]+)(?:\s*[,\/]\s*([\d.]+)(%?))?\s*\)$/.exec(css || '');
+            if (!m) return null;
+            var a = m[4] === undefined ? 1 : parseFloat(m[4]) / (m[5] ? 100 : 1);
+            return [+m[1], +m[2], +m[3], a];
+        },
+        // The Vega-Lite config for a plot element's resolved text colour.
+        // Alphas reproduce Vega's defaults for black text on white (domain
+        // and ticks #888, grid and view frame #ddd), so a light page renders
+        // as before apart from the transparent background.
+        hostThemeConfig: function(el) {
+            var c = (el && this._rgba(getComputedStyle(el).color)) || [0, 0, 0, 1];
+            var ink = function(a) { return 'rgba(' + c[0] + ',' + c[1] + ',' + c[2] + ',' + (+(c[3] * a).toFixed(3)) + ')'; };
+            var text = ink(1), soft = ink(0.467), faint = ink(0.133);
+            return {
+                background: 'transparent',
+                title: {color: text, subtitleColor: soft},
+                axis: {labelColor: text, titleColor: text, domainColor: soft, tickColor: soft, gridColor: faint},
+                legend: {labelColor: text, titleColor: text},
+                header: {labelColor: text, titleColor: text},
+                view: {stroke: faint},
+                text: {color: text},
+                style: {'aov-ink': {color: text}}
+            };
+        },
+        // The first opaque background behind `el` (exports paint it).
+        hostBackground: function(el) {
+            for (var n = el; n && n.nodeType === 1; n = n.parentElement) {
+                var c = this._rgba(getComputedStyle(n).backgroundColor);
+                if (c && c[3] > 0) return 'rgb(' + c[0] + ',' + c[1] + ',' + c[2] + ')';
+            }
+            return 'white';
+        },
+        _deepMerge: function(base, over) {
+            var out = Object.assign({}, base);
+            Object.keys(over || {}).forEach(function(k) {
+                var b = out[k], o = over[k];
+                out[k] = (b && o && typeof b === 'object' && typeof o === 'object' &&
+                    !Array.isArray(b) && !Array.isArray(o)) ? this._deepMerge(b, o) : o;
+            }, this);
+            return out;
+        },
+        // `opts` for one embed of `spec` into plot `id`, with the host theme
+        // applied. Records the theme so refreshTheme can tell when it changed.
+        // AoV's own neutral ink (`style: "aov-ink"`, e.g. dot-interval rules)
+        // follows the theme too unless the spec set a colour other than AoV's.
+        _themedOpts: function(id, spec, opts) {
+            if (!this._themeOn(spec)) { delete this._themeKeys[id]; return opts; }
+            var cfg = this.hostThemeConfig(this._els[id] || document.getElementById(id));
+            this._themeKeys[id] = JSON.stringify(cfg);
+            var ink = spec.config && spec.config.style && spec.config.style['aov-ink'];
+            if (ink && ink.color === '#333') ink.color = cfg.style['aov-ink'].color;
+            return Object.assign({}, opts, {config: this._deepMerge(cfg, opts.config)});
+        },
+        // Re-embed every themed plot whose host colours changed. Runs on
+        // prefers-color-scheme changes and on class / data-theme / style
+        // changes of <html> and <body>; call it after switching a theme by
+        // other means (e.g. a class on a wrapper element).
+        refreshTheme: function() {
+            var self = this;
+            Object.keys(self._themeKeys).forEach(function(id) {
+                var el = self._els[id], again = self._reembeds[id];
+                if (!el || !el.isConnected || !again) return;
+                if (JSON.stringify(self.hostThemeConfig(el)) !== self._themeKeys[id]) again();
+            });
+        },
+        _watchTheme: function() {
+            if (this._themeWatch || typeof document === 'undefined') return;
+            var self = this, frame = null;
+            var check = function() {
+                if (frame !== null) return;
+                var raf = window.requestAnimationFrame || function(f) { return setTimeout(f, 16); };
+                frame = raf(function() { frame = null; self.refreshTheme(); });
+                // A CSS colour transition settles after the first frame.
+                setTimeout(function() { self.refreshTheme(); }, 400);
+            };
+            this._themeWatch = check;
+            if (window.matchMedia) {
+                var mq = window.matchMedia('(prefers-color-scheme: dark)');
+                if (mq.addEventListener) mq.addEventListener('change', check); else if (mq.addListener) mq.addListener(check);
+            }
+            if (typeof MutationObserver !== 'undefined') {
+                var mo = new MutationObserver(check);
+                [document.documentElement, document.body].forEach(function(n) {
+                    if (n) mo.observe(n, {attributes: true, attributeFilter: ['class', 'data-theme', 'style']});
+                });
+            }
         },
 
         // Vega-Lite compiles inside vegaEmbed with no per-embed logger, so its
@@ -1285,12 +1423,14 @@ function vega_runtime()
         },
 
         // Public: download the plot as a PNG/SVG image via vega view.toImageURL.
+        // A host-themed plot is transparent on screen; its image is painted
+        // on the host's background so its text stays legible as a file.
         downloadPlotImage: function(id, format, filenameBase) {
             filenameBase = filenameBase || id;
             format = (format || 'png').toLowerCase();
             var view = this.views[id];
             if (!view) { console.warn('AoV.downloadPlotImage: no view for', id); return; }
-            view.toImageURL(format).then(function(url) {
+            return this.plotImageURL(id, format).then(function(url) {
                 var a = document.createElement('a');
                 a.href = url; a.download = filenameBase + '.' + format;
                 document.body.appendChild(a); a.click();
@@ -1298,6 +1438,18 @@ function vega_runtime()
             }).catch(function(err) {
                 console.warn('AoV.downloadPlotImage failed:', err);
             });
+        },
+        // The image URL the PNG/SVG download saves.
+        plotImageURL: function(id, format) {
+            var view = this.views[id];
+            if (!view) return Promise.reject(new Error('AoV.plotImageURL: no view for ' + id));
+            if (!(id in this._themeKeys)) return view.toImageURL(format || 'png');
+            var prev = view.background();
+            view.background(this.hostBackground(this._els[id]));
+            var restore = function() { view.background(prev); return view.runAsync(); };
+            return view.toImageURL(format || 'png').then(function(url) {
+                return restore().then(function() { return url; });
+            }, function(err) { return restore().then(function() { throw err; }); });
         },
 
         // Public: download THIS card as a standalone .html file — no server
@@ -1687,9 +1839,23 @@ function vega_runtime()
             this._origSpecs[id] = savedOrig;
         },
 
+        // The colour encoding a remap assigns to `field`. A field the layer
+        // was authored with keeps its authored scale (palette, category
+        // order), sort and legend; any other field gets the default scheme.
+        _remappedColor: function(authored, field, title) {
+            var enc = {field: field, type: 'nominal', title: title};
+            if (authored && authored.field === field) {
+                ['scale', 'sort', 'legend'].forEach(function(k) {
+                    if (authored[k] !== undefined) enc[k] = authored[k];
+                });
+            }
+            return enc;
+        },
+
         // The spec `remapEncoding` embeds: the stored original with `mapping`
         // applied. Embeds nothing.
         _remappedSpec: function(id, mapping) {
+            var self = this;
             var orig = this._origSpecs[id];
             if (!orig) { console.warn('AoV.remapEncoding: no stored spec for', id); return null; }
             var spec = JSON.parse(JSON.stringify(orig));
@@ -1723,7 +1889,7 @@ function vega_runtime()
                         child.spec.layer.forEach(function(l) {
                             if (!l || !l.encoding || l._keep_color) return;
                             if (cfC) {
-                                l.encoding.color = {field: cfC, type: 'nominal', title: _fieldTitleC(cfC)};
+                                l.encoding.color = self._remappedColor(l.encoding.color, cfC, _fieldTitleC(cfC));
                             } else {
                                 delete l.encoding.color;
                             }
@@ -1918,7 +2084,7 @@ function vega_runtime()
                         var staticColor = l.mark && typeof l.mark === 'object' && l.mark.color;
                         if (staticColor) return;
                         if (cf) {
-                            l.encoding.color = {field: cf, type: 'nominal', title: _fieldTitle(cf)};
+                            l.encoding.color = self._remappedColor(l.encoding.color, cf, _fieldTitle(cf));
                         } else {
                             delete l.encoding.color;
                         }

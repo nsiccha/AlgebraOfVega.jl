@@ -633,7 +633,7 @@ function analysis_to_vl(a::DotIntervalAnalysis, layer::AlgebraOfGraphics.Layer; 
                                     group_label, color_label, group_sort, color_sort,
                                     offset_field, offset_sort)
         push!(interval_layers, Dict{String,Any}(
-            "mark" => Dict{String,Any}("type" => "rule", "strokeWidth" => stroke_widths[i], "color" => "#333"),
+            "mark" => Dict{String,Any}("type" => "rule", "strokeWidth" => stroke_widths[i], "style" => _AOV_INK),
             "encoding" => enc,
         ))
     end

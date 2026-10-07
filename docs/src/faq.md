@@ -34,6 +34,26 @@ remain authoritative, as do conditional or data-driven opacity encodings.
 Continuous color scales, hidden legends, and Vega-Lite composite marks do not
 receive automatic legend selections.
 
+## Light and dark pages
+
+Plots follow the page's light/dark choice. The runtime draws axes, legends,
+facet headers, titles and unencoded text in the CSS `color` the plot element
+inherits, on a transparent background, so a plot inside a dark Pico page (or a
+dark card) reads as part of it. Mark colours — palettes, `scales(Color=...)`,
+`visual(...; color=...)` — are unchanged. When the page switches theme
+(`prefers-color-scheme`, or a `class` / `data-theme` / `style` change on
+`<html>` or `<body>`) the plots re-render in place, keeping the channel-picker
+assignment, `update_spec` data and streamed rows. After switching a theme some
+other way (a class on a wrapper element), call `AoV.refreshTheme()`.
+
+- Do not style the chrome with `currentColor` in `config(config=...)`: Vega's
+  canvas renderer paints `currentColor` black. A spec's own `config` values
+  still win over the theme, key by key.
+- Do not invert the canvas with a CSS `filter` — it recolours the palette too.
+- PNG/SVG downloads of a plot are painted on the page background behind it.
+- `vega_head(theme=:none)` (page) or `config(theme=:none)` (one plot) keeps
+  Vega's own look: white background, black text.
+
 ## Faceting + `select=` interactions
 
 `config(select=:origin)` adds a client-side dropdown that filters the data frame *before* it reaches any layer. When you also use faceting (`row=` / `col=` channels), the filter applies to *all* facets — there's no per-facet dropdown. If you want per-facet interaction, use `mapping_controls` + `auto_remap_node` instead.

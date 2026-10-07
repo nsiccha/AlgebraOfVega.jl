@@ -25,6 +25,7 @@ function _base_vegalite(layer::AlgebraOfGraphics.Layer)
     spec = layer_to_vl(layer)
     _apply_no_zero_default!(spec)
     _apply_no_truncate_default!(spec)
+    _apply_ink_default!(spec)
     _densify_facet_sort!(spec)
     spec
 end
@@ -33,6 +34,7 @@ function _base_vegalite(layers::AlgebraOfGraphics.Layers)
     spec = layers_to_vl(layers)
     _apply_no_zero_default!(spec)
     _apply_no_truncate_default!(spec)
+    _apply_ink_default!(spec)
     _densify_facet_sort!(spec)
     spec
 end
@@ -56,6 +58,27 @@ function _apply_no_zero_default!(spec::Dict)
         for sub in spec["layer"]; _apply_no_zero_default!(sub); end
     end
     if haskey(spec, "spec"); _apply_no_zero_default!(spec["spec"]); end
+end
+
+# AoV's neutral ink: marks AoV draws in a fixed text-like colour (dot-interval
+# rules) carry `style: "aov-ink"` instead of a literal colour, and the top-level
+# config defines that style as `#333`. The JS runtime's host theme redraws the
+# style in the page's text colour, so the marks stay visible on a dark page; any
+# other renderer gets `#333` exactly as before. A spec that sets its own
+# `aov-ink` colour keeps it.
+const _AOV_INK = "aov-ink"
+const _AOV_INK_COLOR = "#333"
+_uses_style(x, name) = false
+_uses_style(v::AbstractVector, name) = any(x -> _uses_style(x, name), v)
+_uses_style(d::AbstractDict, name) = get(d, "style", nothing) == name ||
+    any(((k, x),) -> k != "data" && k != "datasets" && _uses_style(x, name), d)
+_apply_ink_default!(_) = nothing
+function _apply_ink_default!(spec::Dict)
+    _uses_style(spec, _AOV_INK) || return spec
+    cfg = get!(spec, "config", Dict{String,Any}())
+    style = get!(get!(cfg, "style", Dict{String,Any}()), _AOV_INK, Dict{String,Any}())
+    haskey(style, "color") || (style["color"] = _AOV_INK_COLOR)
+    spec
 end
 
 # AoV default: never silently truncate the LABELS of user-read guides. Vega-Lite
@@ -1329,6 +1352,11 @@ function to_vegalite(v::VegaSpec; interactive::Bool=true)
                 # Store max width in _aov for JS to cap responsive sizing
                 aov = get!(spec, "_aov", Dict{String,Any}())
                 aov["maxWidth"] = val
+            elseif sk == "theme"
+                # Per-plot host-theme choice; overrides `vega_head(theme=...)`
+                _check_theme(val)
+                aov = get!(spec, "_aov", Dict{String,Any}())
+                aov["theme"] = string(val)
             elseif sk == "select"
                 # Collect select fields — processed after spec is built
                 select_fields = _select_field_list(val)
