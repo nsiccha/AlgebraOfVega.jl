@@ -1687,9 +1687,23 @@ function vega_runtime()
             this._origSpecs[id] = savedOrig;
         },
 
+        // The colour encoding a remap assigns to `field`. A field the layer
+        // was authored with keeps its authored scale (palette, category
+        // order), sort and legend; any other field gets the default scheme.
+        _remappedColor: function(authored, field, title) {
+            var enc = {field: field, type: 'nominal', title: title};
+            if (authored && authored.field === field) {
+                ['scale', 'sort', 'legend'].forEach(function(k) {
+                    if (authored[k] !== undefined) enc[k] = authored[k];
+                });
+            }
+            return enc;
+        },
+
         // The spec `remapEncoding` embeds: the stored original with `mapping`
         // applied. Embeds nothing.
         _remappedSpec: function(id, mapping) {
+            var self = this;
             var orig = this._origSpecs[id];
             if (!orig) { console.warn('AoV.remapEncoding: no stored spec for', id); return null; }
             var spec = JSON.parse(JSON.stringify(orig));
@@ -1723,7 +1737,7 @@ function vega_runtime()
                         child.spec.layer.forEach(function(l) {
                             if (!l || !l.encoding || l._keep_color) return;
                             if (cfC) {
-                                l.encoding.color = {field: cfC, type: 'nominal', title: _fieldTitleC(cfC)};
+                                l.encoding.color = self._remappedColor(l.encoding.color, cfC, _fieldTitleC(cfC));
                             } else {
                                 delete l.encoding.color;
                             }
@@ -1918,7 +1932,7 @@ function vega_runtime()
                         var staticColor = l.mark && typeof l.mark === 'object' && l.mark.color;
                         if (staticColor) return;
                         if (cf) {
-                            l.encoding.color = {field: cf, type: 'nominal', title: _fieldTitle(cf)};
+                            l.encoding.color = self._remappedColor(l.encoding.color, cf, _fieldTitle(cf));
                         } else {
                             delete l.encoding.color;
                         }
