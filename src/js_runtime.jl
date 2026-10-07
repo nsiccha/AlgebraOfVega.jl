@@ -340,6 +340,9 @@ Client-side API:
 - `AoV.updateData(id, data)` — swap a view's data without re-creating it
 - `AoV.appendData(id, data, name, maxRows)` — insert rows into a view's data,
   optionally keeping only the most recent `maxRows`
+- `data` is a row array or the columnar `{n, columns}` form `update_data` /
+  `append_data` send; `AoV.embed`/`AoV.updateSpec` expand inline datasets in
+  that form too (`AoV._rowsFromColumns`)
 - `AoV.onSignal(id, signal, callback)` — listen to a Vega signal
 - Signal→HTMX wiring is set up automatically by `to_node(; signals=...)`
 - `AoV.refreshTheme()` — re-render host-themed plots whose inherited text colour

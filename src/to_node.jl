@@ -423,7 +423,7 @@ Requires vega/vega-lite/vega-embed scripts to be loaded (use `vega_head()` in pa
 """
 function to_node(spec; id=nothing, width=nothing, height=nothing, actions=false, signals=nothing, fit_width=true)
     vl = _embed_spec(spec; width, height, fit_width)
-    json = _vl_json(vl)
+    json = _vl_json(_wire_spec(vl))
     id = _sanitize_id(something(id, "vega-" * string(abs(hash(json)), base=16)))
 
     # Queue embed for deferred execution (after layout is computed)
@@ -517,11 +517,184 @@ places or selects the plot's marks (a positional/facet channel field or a
 """
 function update_data(id, table; name="source_0")
     id = _sanitize_id(id)
-    json = _vl_json(_rows_json(table))
+    json = _vl_json(_wire_table(table))
     h.script(Raw("AoV.updateData('$id', $json, '$name');"))
 end
 
-_rows_json(table) = [Dict{String,Any}(string(k) => v for (k, v) in pairs(nt)) for nt in Tables.rowtable(table)]
+# --- Columnar wire format -------------------------------------------------
+# Rows bound for the AoV runtime — `append_data`/`update_data` tables and the
+# inline datasets `to_node`/`update_spec` embed — travel column by column,
+#
+#     {"n": <rows>, "columns": {"<name>": <column>, …}}
+#
+# where each column is one of
+#
+#     [v₀, v₁, …]                     the values, one per row;
+#     "a" / 1.5 / true / null         one value shared by every row;
+#     {"runs": [v…], "lengths": [k…]} v₁ repeated k₁ times, then v₂ …;
+#     {"start": a, "step": b, …}      a numeric sequence: row i holds
+#                                     ((a + j·b)·scale)/den, j = i mod period
+#                                     (`scale`, `den`, `period` optional).
+#
+# `AoV._rowsFromColumns` expands it to the row objects the row-wise JSON
+# parses to, with the same values: a sequence is chosen only when JavaScript's
+# double arithmetic reproduces every value bit for bit, which is checked here
+# in the same Float64 operations. So a regular coordinate axis is sent as
+# three numbers, a constant label once, and no per-row keys are repeated.
+
+function _wire_table(table)
+    cols = Tables.columns(table)
+    names = Tables.columnnames(cols)
+    n = isempty(names) ? 0 : length(Tables.getcolumn(cols, first(names)))
+    _wire_columns(n, (string(k) => Tables.getcolumn(cols, k) for k in names))
+end
+
+function _wire_columns(n, named_columns)
+    columns = JSON.Object{String,Any}()
+    for (name, col) in named_columns
+        columns[name] = _wire_column(col)
+    end
+    JSON.Object{String,Any}("n" => n, "columns" => columns)
+end
+
+_wire_column(col) = _wire_column(collect(col))
+function _wire_column(col::AbstractVector)
+    length(col) == 0 && return col
+    starts = _run_starts(col)
+    !isnothing(starts) && length(starts) == 1 && _wire_scalar(first(col)) && return first(col)
+    seq = _wire_sequence(col)
+    !isnothing(seq) && return seq
+    isnothing(starts) && return col
+    JSON.Object{String,Any}("runs" => [col[firstindex(col) + s - 1] for s in starts],
+        "lengths" => diff([starts; length(col) + 1]))
+end
+
+# Start (1-based position) of each run of equal values, or `nothing` once
+# runs would not halve the column. Equal means same type too: `1` and `true`
+# are `isequal` but serialize differently.
+function _run_starts(col)
+    n = length(col)
+    starts = [1]
+    i0 = firstindex(col)
+    prev = col[i0]
+    for k in 2:n
+        v = col[i0 + k - 1]
+        if !(typeof(v) === typeof(prev) && isequal(v, prev))
+            push!(starts, k)
+            2 * length(starts) > n && return nothing
+        end
+        prev = v
+    end
+    starts
+end
+
+# Values JSON writes as a scalar, so a constant column cannot be mistaken
+# for an encoded one.
+_wire_scalar(v) = v isa Union{AbstractString, Symbol, AbstractChar, Real, Nothing, Missing, TimeType}
+
+# The Float64 JavaScript parses from the value's JSON, or `nothing` when that
+# is not a finite number held exactly.
+_js_number(x::Float64) = isfinite(x) ? x : nothing
+_js_number(x::Bool) = nothing
+_js_number(x::Integer) = -maxintfloat(Float64) <= x <= maxintfloat(Float64) ? Float64(x) : nothing
+_js_number(x) = nothing
+
+function _wire_sequence(col)
+    n = length(col)
+    n >= 3 || return nothing
+    u = Vector{Float64}(undef, n)
+    for (k, x) in enumerate(col)
+        v = _js_number(x)
+        isnothing(v) && return nothing
+        u[k] = v
+    end
+    # A coordinate repeated per series (a long table) restarts at its first value.
+    period = something(findnext(==(u[1]), u, 2), n + 1) - 1
+    period == n || (period >= 3 && all(k -> u[k] === u[k - period], period+1:n)) || return nothing
+    seq = _affine_sequence(view(u, 1:period))
+    isnothing(seq) && return nothing
+    period < n && (seq["period"] = period)
+    seq
+end
+
+# ((a + j·b)·scale)/den, j = 0, 1, …: the forms Julia grids take.
+function _affine_sequence(u)
+    a, b = u[1], u[2] - u[1]
+    # t0 .+ (0:n-1) .* dt
+    _reproduces(u, a, b, nothing, nothing) && return _sequence(a, b)
+    # (o:o+n-1) .* dt
+    o = a / b
+    if isfinite(o) && isinteger(o) && abs(o) <= maxintfloat(Float64) && _reproduces(u, o, 1.0, b, nothing)
+        return _sequence(o, 1.0; scale=b)
+    end
+    # range(lo, hi, length=n) / lo:step:hi: correctly rounded (p + j·q)/d
+    pqd = _rational_steps(first(u), last(u), length(u))
+    isnothing(pqd) && return nothing
+    p, q, d = pqd
+    _reproduces(u, p, q, nothing, d) ? _sequence(p, q; den=d) : nothing
+end
+
+function _reproduces(u, a, b, scale, den)
+    for (j, x) in enumerate(u)
+        v = a + (j - 1) * b
+        isnothing(scale) || (v *= scale)
+        isnothing(den) || (v /= den)
+        v === x || return false
+    end
+    true
+end
+
+function _sequence(a, b; scale=nothing, den=nothing)
+    seq = JSON.Object{String,Any}("start" => a, "step" => b)
+    isnothing(scale) || (seq["scale"] = scale)
+    isnothing(den) || (seq["den"] = den)
+    seq
+end
+
+# Integers p, q, d (as exact Float64s) with lo == p/d and hi == (p + (m-1)·q)/d,
+# where lo and hi read as the simplest fractions they round from, or `nothing`.
+function _rational_steps(lo, hi, m)
+    _exact_rational(x) = isinteger(x) ? Rational{BigInt}(BigInt(x)) : rationalize(BigInt, x)
+    rlo, rhi = _exact_rational(lo), _exact_rational(hi)
+    step = (rhi - rlo) / (m - 1)
+    d = lcm(denominator(rlo), denominator(step))
+    p, q = numerator(rlo * d), numerator(step * d)
+    limit = BigInt(maxintfloat(Float64))
+    (d <= limit && abs(p) + (m - 1) * abs(q) <= limit) || return nothing
+    (Float64(p), Float64(q), Float64(d))
+end
+
+# The runtime-bound copy of a Vega-Lite spec: every inline dataset (`data.values`
+# rows, `datasets` entries) in the columnar form above. `spec` is not modified.
+_wire_spec(x) = x
+_wire_spec(v::AbstractVector) = Any[_wire_spec(e) for e in v]
+function _wire_spec(d::AbstractDict)
+    out = Dict{keytype(d),Any}()
+    for (k, x) in d
+        out[k] = k == "data" && x isa AbstractDict ? _wire_data(x) :
+            k == "datasets" && x isa AbstractDict ?
+                Dict{keytype(x),Any}(name => something(_wire_rows(rows), rows) for (name, rows) in x) :
+            _wire_spec(x)
+    end
+    out
+end
+function _wire_data(d::AbstractDict)
+    wire = _wire_rows(get(d, "values", nothing))
+    isnothing(wire) && return d
+    out = Dict{keytype(d),Any}(d)
+    out["values"] = wire
+    out
+end
+
+# Inline rows as columns: only when every row is an object with the same keys,
+# since a column cannot say that a row lacks a key.
+_wire_rows(rows) = nothing
+function _wire_rows(rows::AbstractVector)
+    (isempty(rows) || !all(r -> r isa AbstractDict, rows)) && return nothing
+    ks = collect(keys(first(rows)))
+    all(r -> length(r) == length(ks) && all(k -> haskey(r, k), ks), rows) || return nothing
+    _wire_columns(length(rows), (string(k) => [r[k] for r in rows] for k in ks))
+end
 
 """
     append_data(id, table; name="source_0", max_rows=nothing)
@@ -529,6 +702,11 @@ _rows_json(table) = [Dict{String,Any}(string(k) => v for (k, v) in pairs(nt)) fo
 Return an `h.script` node that inserts the rows of `table` into an existing Vega
 view's dataset, keeping the rows already there; scales and axes grow to fit.
 With `max_rows`, only the most recent `max_rows` rows are kept (a sliding window).
+
+`table` is any Tables.jl source, read column by column (lazy columns stay lazy)
+and sent in a compact columnar form: a regular coordinate as a sequence, a
+constant column once, sorted labels as runs, other columns as flat arrays. The
+runtime rebuilds the identical rows.
 
 For plots whose data arrives incrementally, e.g. one `append_data` fragment per
 chunk pushed over an HTMXObjects `@ws` route or returned by an HTMX poller.
@@ -541,7 +719,7 @@ Like [`update_data`](@ref), this inserts raw rows: refresh an AoV-lowered plot
 """
 function append_data(id, table; name="source_0", max_rows=nothing)
     id = _sanitize_id(id)
-    json = _vl_json(_rows_json(table))
+    json = _vl_json(_wire_table(table))
     h.script(Raw("AoV.appendData('$id', $json, '$name', $(something(max_rows, "null")));"))
 end
 
@@ -573,7 +751,7 @@ function update_spec(id, spec; auto_remap::Union{Nothing,NamedTuple}=nothing,
                      width=nothing, height=nothing, actions=false, fit_width=true)
     id = _sanitize_id(id)
     lowered = isnothing(auto_remap) ? spec : _auto_remap_lowering(spec; auto_remap...).vl
-    json = _vl_json(_embed_spec(lowered; width, height, fit_width))
+    json = _vl_json(_wire_spec(_embed_spec(lowered; width, height, fit_width)))
     h.script(Raw("AoV.updateSpec('$id', $json, {actions: $actions});"))
 end
 
