@@ -1004,10 +1004,13 @@ function vega_runtime()
             // Not embedded into this element yet (a first render, or a fresh
             // element from an htmx swap): an ordinary embed.
             if (el && self._els[id] !== el) return self.embed(id, spec, opts);
-            // Element gone (a removed plot): apply once a plot with this id embeds.
             self.whenReady(id, function(view) {
-                if (!el) return self.updateSpec(id, spec, opts);
-                if (self._els[id] !== el) return;
+                var now = document.getElementById(id);
+                // Sent while no element had this id: apply to the plot that
+                // has since embedded under it (as appendData/updateData do).
+                if (!el) { if (now) self.updateSpec(id, spec, opts); return; }
+                // Removed, or replaced by a fresh render, meanwhile.
+                if (now !== el || self._els[id] !== el) return;
                 var pristine = JSON.parse(JSON.stringify(spec));
                 self._refreshLegendSelections(pristine);
                 self._broadcastCrossSource(pristine);

@@ -140,6 +140,15 @@
         check(plain === before, 'plain update_spec: swapped in place');
         check(points(plain).length === 4, 'plain update_spec: new rows replace the appended ones');
 
+        // A refresh for a plot whose element was just removed (not yet swept)
+        // is dropped, not re-dispatched forever.
+        const holder = document.getElementById(pid).parentElement;
+        const node = holder.removeChild(document.getElementById(pid));
+        let threw = null;
+        try { send('plain_spec'); } catch (e) { threw = e; }
+        check(threw === null, 'update_spec on a removed plot: ' + threw);
+        holder.appendChild(node);
+
         check(errors.length === 2, 'unexpected runtime errors: ' + errors.join('; '));
     } catch (error) {
         failures.push(error.stack);
