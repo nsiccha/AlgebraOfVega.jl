@@ -379,12 +379,19 @@ function vega_runtime()
         _embedTok: {},
         _gens: {},
         _genSeq: 0,
+        // The spec the current view was embedded from (resize/fit re-embeds
+        // read it; update_spec swaps new data into it), the picker's current
+        // channel-assignment builder, and the last applied remap mapping.
+        _cur: {},
+        _pickers: {},
+        _mappings: {},
 
         // Every map keyed by plot id; dispose() clears each. A new per-plot
         // map belongs in this list.
         _perPlotState: ['views', '_results', '_els', '_embedTok', '_gens', '_pending',
             '_signals', '_liveRows', '_specRows', '_origSpecs', '_droppedLegends',
-            '_embedOpts', '_observers', '_computedWidths', '_corrections', '_correctedRegime'],
+            '_embedOpts', '_observers', '_computedWidths', '_corrections', '_correctedRegime',
+            '_cur', '_pickers', '_mappings'],
 
         _applyResponsiveWidth: function(id, spec) {
             var el = document.getElementById(id);
@@ -716,11 +723,16 @@ function vega_runtime()
             // Live state (rows added via updateData/appendData, onSignal listeners) belongs
             // to the plot element: a new element with this ID (e.g. after an HTMX swap)
             // starts fresh, a new spec for the same element keeps the listeners.
+            // Same element: the one the last embed recorded — which also covers
+            // a re-embed issued while the previous one is still in flight (no
+            // view registered yet), e.g. the two remaps of one picker change.
             var prev = self.views[id], el = document.getElementById(id);
-            if (!(prev && el && el.contains(prev.container()))) {
+            var sameEl = el && (self._els[id] === el || (prev && el.contains(prev.container())));
+            if (!sameEl) {
                 delete self._signals[id];
                 delete self._liveRows[id];
                 delete self._droppedLegends[id];
+                delete self._mappings[id];
             } else if (!keepData) {
                 delete self._liveRows[id];
             }
@@ -740,6 +752,9 @@ function vega_runtime()
             spec = origSpec;
             self._broadcastCrossSource(origSpec);
             self._origSpecs[id] = origSpec;
+            // Held by reference so an in-place data swap (updateSpec) reaches
+            // the resize/fit re-embeds this embed schedules.
+            var cur = self._cur[id] = {spec: origSpec};
 
             // width:"container" sizes the view from the embed element's own
             // width, and vega-embed makes that element display:inline-block,
@@ -764,7 +779,7 @@ function vega_runtime()
                 // Superseded by a newer embed of this id, or disposed: a resize or
                 // fit re-embed scheduled earlier must not resurrect the old spec.
                 if (self._embedTok[id] !== tok) return Promise.resolve();
-                var s = self._applyResponsiveWidth(id, JSON.parse(JSON.stringify(origSpec)));
+                var s = self._applyResponsiveWidth(id, JSON.parse(JSON.stringify(cur.spec)));
                 // Replace (not leak) the previous view
                 self._finalizeView(id);
                 // Only the latest embed registers its view; one that resolves after
@@ -884,11 +899,13 @@ function vega_runtime()
             name = name || 'source_0';
             var self = this;
             this.whenReady(id, function(view) {
+                if (self._refuseRawRows('updateData', id, view, name, data)) return;
                 self._liveRows[id] = self._liveRows[id] || {};
                 self._liveRows[id][name] = data;
                 var changeset = vega.changeset().remove(function() { return true; }).insert(data);
                 view.change(name, changeset).run();
                 self._maybeRestoreLegends(id);
+                self._dataChanged(id);
             });
         },
 
@@ -896,6 +913,7 @@ function vega_runtime()
             name = name || 'source_0';
             var self = this;
             this.whenReady(id, function(view) {
+                if (self._refuseRawRows('appendData', id, view, name, data)) return;
                 var live = self._liveRows[id] = self._liveRows[id] || {};
                 var rows = (live[name] || (self._specRows[id] || {})[name] || []).concat(data);
                 var trimmed = maxRows && rows.length > maxRows;
@@ -906,6 +924,171 @@ function vega_runtime()
                     vega.changeset().insert(data);
                 view.change(name, changeset).run();
                 self._maybeRestoreLegends(id);
+                self._dataChanged(id);
+            });
+        },
+
+        // Raw rows can only replace raw rows. A dataset AoV lowered server-side
+        // (an interval/ribbon summary, a merged multi-layer dataset with its
+        // `__src` filters, picker combo columns) carries fields raw rows lack:
+        // inserting them would place or select no mark and blank the figure
+        // without an error. Refuse, loudly, when the new rows lack a field
+        // that places or selects marks and that the current rows carry.
+        _refuseRawRows: function(fn, id, view, name, rows) {
+            var current;
+            try { current = view.data(name); } catch (e) { return false; }
+            if (!current || !current.length || !rows || !rows.length) return false;
+            var have = this._rowKeys(rows), had = this._rowKeys(current);
+            var read = this._placementFields((this._cur[id] || {}).spec);
+            var missing = Object.keys(had).filter(function(k) { return !have[k] && read[k]; });
+            if (!missing.length) return false;
+            console.error('AoV.' + fn + ': the rows for plot "' + id + '" lack ' + missing.join(', ') +
+                ', which place or select its marks in dataset "' + name + '". That dataset was lowered ' +
+                'by AoV (an interval/ribbon summary, a merged multi-layer dataset or picker combo ' +
+                'columns), so raw rows cannot replace it: send update_spec(id, spec) instead (with ' +
+                'auto_remap=... for a picker plot), which re-lowers the new data. Data left unchanged.');
+            return true;
+        },
+        _rowKeys: function(rows) {
+            var keys = {};
+            rows.forEach(function(r) {
+                if (r && typeof r === 'object') Object.keys(r).forEach(function(k) { keys[k] = true; });
+            });
+            return keys;
+        },
+        // Fields that place or select a Vega-Lite spec's marks: positional and
+        // facet channel fields (encodings and facet operators) and the fields
+        // a `filter` transform tests (`datum.x` / `datum["x"]` in an
+        // expression, or a predicate's `field`). A row lacking one is not
+        // drawn, or lands in a null panel; a row lacking only e.g. its colour
+        // field — or a field a colour/opacity condition tests — still draws.
+        _PLACEMENT_CHANNELS: ['x', 'y', 'x2', 'y2', 'theta', 'theta2', 'radius', 'radius2',
+            'latitude', 'longitude', 'latitude2', 'longitude2', 'row', 'column', 'facet'],
+        _placementFields: function(spec) {
+            var out = {}, channels = this._PLACEMENT_CHANNELS;
+            function take(def) {
+                (Array.isArray(def) ? def : [def]).forEach(function(d) {
+                    if (d && typeof d === 'object' && typeof d.field === 'string') out[d.field] = true;
+                });
+            }
+            (function walk(v, key, inFilter) {
+                if (typeof v === 'string') {
+                    if (!inFilter) return;
+                    var re = /datum(?:\.([A-Za-z_$][\w$]*)|\[\s*(['"])(.*?)\2\s*\])/g, m;
+                    while ((m = re.exec(v))) out[m[1] || m[3]] = true;
+                } else if (Array.isArray(v)) {
+                    v.forEach(function(x) { walk(x, key, inFilter); });
+                } else if (v && typeof v === 'object') {
+                    if (key === 'encoding' || key === 'facet') {
+                        channels.forEach(function(ch) { if (v[ch]) take(v[ch]); });
+                        if (key === 'facet') take(v);
+                    }
+                    if (inFilter) take(v);
+                    Object.keys(v).forEach(function(k) {
+                        if (k === 'values' && Array.isArray(v[k])) return;  // inline rows
+                        walk(v[k], k, inFilter || k === 'filter');
+                    });
+                }
+            })(spec);
+            return out;
+        },
+
+        // Refresh a plot from a newly lowered spec (`update_spec`), keeping the
+        // reader's state. The picker's current channel assignment is re-applied
+        // to the new spec. When the result differs from the embedded spec only
+        // in inline data, the view's datasets are swapped in place, so zoom/pan,
+        // legend selection and the canvas survive; any structural change
+        // (panels, layers, encodings, size) re-embeds in place.
+        updateSpec: function(id, spec, opts) {
+            var self = this, el = document.getElementById(id);
+            // Not embedded into this element yet (a first render, or a fresh
+            // element from an htmx swap): an ordinary embed.
+            if (el && self._els[id] !== el) return self.embed(id, spec, opts);
+            // Element gone (a removed plot): apply once a plot with this id embeds.
+            self.whenReady(id, function(view) {
+                if (!el) return self.updateSpec(id, spec, opts);
+                if (self._els[id] !== el) return;
+                var pristine = JSON.parse(JSON.stringify(spec));
+                self._refreshLegendSelections(pristine);
+                self._broadcastCrossSource(pristine);
+                var shown = pristine;
+                if (self._mappings[id]) {
+                    // The picker builds combo columns from the stored original.
+                    self._origSpecs[id] = pristine;
+                    var mapping = self._pickers[id] ? self._pickers[id]() : self._mappings[id];
+                    shown = (mapping && self._remappedSpec(id, mapping)) || pristine;
+                }
+                var prepared = JSON.parse(JSON.stringify(shown));
+                self._refreshLegendSelections(prepared);
+                self._broadcastCrossSource(prepared);
+                var cur = self._cur[id];
+                if (cur && !self._droppedLegends[id] &&
+                        self._structureKey(prepared) === self._structureKey(cur.spec) &&
+                        self._swapData(id, view, prepared)) {
+                    cur.spec = prepared;
+                    delete self._liveRows[id];
+                } else {
+                    self._embed(id, shown, opts, false);
+                }
+                self._origSpecs[id] = pristine;
+                self._dataChanged(id);
+            });
+        },
+
+        // A spec's JSON with its inline data rows blanked: equal keys mean two
+        // specs compile to the same dataflow, differing only in the rows.
+        _structureKey: function(spec) {
+            return JSON.stringify(spec, function(k, v) {
+                if (k === 'data' && v && typeof v === 'object' && Array.isArray(v.values)) {
+                    var shape = Object.assign({}, v);
+                    shape.values = null;
+                    return shape;
+                }
+                if (k === 'datasets' && v && typeof v === 'object') return Object.keys(v).sort();
+                return v;
+            });
+        },
+
+        // Insert `spec`'s inline datasets into the live view in place of its
+        // current rows. `spec` matches the embedded one up to data rows, so its
+        // compiled dataset names are the view's. Returns false (the caller then
+        // re-embeds) when that cannot be established or a legend would be left
+        // with an empty domain (handled by the embed-time legend drop).
+        _swapData: function(id, view, spec) {
+            var vg, self = this, opts = self._embedOpts[id] || {};
+            try {
+                vg = vegaLite.compile(JSON.parse(JSON.stringify(spec)),
+                    {logger: vega.logger(vega.None)}).spec;
+                if (typeof opts.patch === 'function') vg = opts.patch(vg);
+            } catch (e) { return false; }
+            if (self._emptyLegends(vg).length) return false;
+            var sources = (vg.data || []).filter(function(d) { return Array.isArray(d.values); });
+            try { sources.forEach(function(d) { view.data(d.name); }); } catch (e) { return false; }
+            var specRows = self._specRows[id] = self._specRows[id] || {};
+            sources.forEach(function(d) {
+                var rows = d.format ? vega.read(d.values, d.format) : d.values;
+                specRows[d.name] = rows;
+                view.change(d.name, vega.changeset().remove(function() { return true; }).insert(rows));
+            });
+            view.run();
+            return true;
+        },
+
+        // Captioned figures render their raw-data / pretty-summary panes once,
+        // on first open. After a data change, re-render the open ones and mark
+        // the rest stale so they render fresh when opened.
+        _dataChanged: function(id) {
+            var self = this;
+            self.whenReady(id, function() {
+                var sel = '[data-aov-plot-id="' + id + '"]';
+                document.querySelectorAll('.aov-data-raw-body' + sel + ', .aov-data-pretty-body' + sel)
+                    .forEach(function(body) {
+                        if (body.dataset.aovRendered !== '1') return;
+                        delete body.dataset.aovRendered;
+                        var details = body.closest('details');
+                        if (details && details.open) self._lazyRenderDataView(details,
+                            body.classList.contains('aov-data-raw-body') ? 'raw' : 'pretty');
+                    });
             });
         },
 
@@ -942,21 +1125,21 @@ function vega_runtime()
             }
             return false;
         },
-        _dropEmptyLegends: function(id, vg) {
+        _emptyLegends: function(vg) {
             var self = this;
             var scales = {};
             (vg.scales || []).forEach(function(s) { scales[s.name] = s; });
-            var dropped = 0, kept = [];
-            (vg.legends || []).forEach(function(L) {
-                var empty = false;
-                ['fill', 'stroke', 'shape', 'size', 'opacity', 'fontWeight'].forEach(function(prop) {
+            return (vg.legends || []).filter(function(L) {
+                return ['fill', 'stroke', 'shape', 'size', 'opacity', 'fontWeight'].some(function(prop) {
                     var sc = L[prop] && scales[L[prop]];
-                    if (sc && self._legendDomainEmpty(vg, sc.domain)) empty = true;
+                    return sc && self._legendDomainEmpty(vg, sc.domain);
                 });
-                if (empty) { dropped++; return; }
-                kept.push(L);
             });
-            vg.legends = kept;
+        },
+        _dropEmptyLegends: function(id, vg) {
+            var self = this, empty = self._emptyLegends(vg);
+            var dropped = empty.length;
+            vg.legends = (vg.legends || []).filter(function(L) { return empty.indexOf(L) === -1; });
             if (dropped > 0) self._droppedLegends[id] = dropped;
             else delete self._droppedLegends[id];
         },
@@ -1486,9 +1669,26 @@ function vega_runtime()
         },
 
         // Client-side encoding remapping: swap color/row/column fields without server round-trip
+        // Re-facet a plot client-side (the channel picker). The mapping is kept
+        // (minus its data copy) so update_spec can re-apply it to a refreshed
+        // spec when no picker builder is registered for the plot.
         remapEncoding: function(id, mapping) {
+            var spec = this._remappedSpec(id, mapping);
+            if (!spec) return;
+            var kept = Object.assign({}, mapping);
+            delete kept._comboData;
+            this._mappings[id] = kept;
+            // Re-embed, but preserve the TRUE original spec
+            var savedOrig = this._origSpecs[id];
+            this._embed(id, spec, this._embedOpts[id], true);
+            this._origSpecs[id] = savedOrig;
+        },
+
+        // The spec `remapEncoding` embeds: the stored original with `mapping`
+        // applied. Embeds nothing.
+        _remappedSpec: function(id, mapping) {
             var orig = this._origSpecs[id];
-            if (!orig) { console.warn('AoV.remapEncoding: no stored spec for', id); return; }
+            if (!orig) { console.warn('AoV.remapEncoding: no stored spec for', id); return null; }
             var spec = JSON.parse(JSON.stringify(orig));
 
             // If combo data was pre-built by the caller (multi-select picker),
@@ -1600,11 +1800,7 @@ function vega_runtime()
                 // Re-broadcast cross-source layers after row mutations
                 this._broadcastCrossSource(spec);
 
-                // Re-embed, but preserve the TRUE original spec
-                var savedOrigC = this._origSpecs[id];
-                this._embed(id, spec, this._embedOpts[id], true);
-                this._origSpecs[id] = savedOrigC;
-                return;
+                return spec;
             }
 
             // Find layers in either simple or faceted structure
@@ -1923,10 +2119,7 @@ function vega_runtime()
             // (color mutations need no broadcast — see _broadcastCrossSource).
             this._broadcastCrossSource(spec);
 
-            // Re-embed, but preserve the TRUE original spec
-            var savedOrig = this._origSpecs[id];
-            this._embed(id, spec, this._embedOpts[id], true);
-            this._origSpecs[id] = savedOrig;
+            return spec;
         }
     };
     """))

@@ -91,9 +91,9 @@ update_spec
 | `vega_cdn_urls()` | The exact-pinned CDN URLs (Vega, Vega-Lite, Vega-Embed in order)                      |
 | `vega_sri_hashes()` | The subresource-integrity hashes for the pinned CDN URLs, in the same order        |
 | `vega_vendor_dir()` | Directory holding the vendored trio — serve it from your app for `source=:vendor`  |
-| `update_data(id, new_rows)` | Push fresh data into a rendered spec by id (HTMX server-side handler returns `update_data(...)`) |
+| `update_data(id, new_rows)` | Replace a rendered plot's raw rows by id (HTMX server-side handler returns `update_data(...)`) |
 | `append_data(id, rows; max_rows)` | Add rows to a rendered spec by id, keeping the existing ones (optionally a sliding window of `max_rows`) |
-| `update_spec(id, spec)` | Re-embed a rendered plot in place with a new spec, e.g. one with an extra layer |
+| `update_spec(id, spec; auto_remap)` | Refresh a rendered plot from a new spec — new data and/or layers — re-lowered like a first render; keeps the picker assignment, and zoom when only data changed |
 
 ### Incremental plots
 
@@ -118,6 +118,27 @@ Send `update_spec("live-plot", new_spec)` instead to add layers. Rows added with
 `append_data`/`update_data` survive the plot's responsive re-embeds; a new spec
 from `update_spec` brings its own data. The gallery's *Streaming Data* and
 *Layers One by One* demos show both.
+
+`append_data`/`update_data` insert rows verbatim, so they fit only plots whose
+embedded dataset is raw rows. A plot AoV lowered server-side — an interval or
+ribbon summary (`pointinterval`, `lineribbon`, …), a faceted `density`, a
+merged multi-layer dataset — is refreshed from new raw rows with `update_spec`,
+which recomputes the lowering. For a channel-picker plot pass the picker's
+keywords as `auto_remap` (the `(; dims, fixed, pinned, off)` given to
+`auto_remap_node` or `with_plot_caption`):
+
+```julia
+update_spec("ladder-plot", data(new_rows) * mapping(:value; y=:model, color=:family, col=:metric) *
+    pointinterval(); auto_remap=(; dims=["family" => "Family"], fixed=Dict(:column => "metric")))
+```
+
+The reader's picker assignment is re-applied to the refreshed spec. When only
+the data changed, the new datasets are swapped into the live view (zoom/pan,
+legend selection and canvas survive); a structural change — new facet panels,
+layers, encodings or size — re-embeds the plot in place. Raw rows that lack a
+field placing or selecting the plot's marks (e.g. a summary's `lo_*`/`hi_*`
+bounds or a merged dataset's `__src`) are refused with a console error and the
+plot is left unchanged.
 
 ## Dynamic dashboard helpers
 
