@@ -47,7 +47,7 @@ carry are refused with a console error instead of blanking the plot.
     @test occursin("AoV.updateSpec('$id', ", html(update_spec(id, figure(measurements(1.0)); auto_remap=remap)))
     @test JSON.parse(match(r"AoV\.updateSpec\('[^']*', (\{.*\}), \{actions"s,
             html(update_spec(id, figure(measurements(2.0)); auto_remap=remap))).captures[1]) ==
-        JSON.parse(JSON.json(lowered(measurements(2.0))))
+        JSON.parse(JSON.json(AlgebraOfVega._wire_spec(lowered(measurements(2.0)))))
 
     plain = data((; x=[1.0, 2.0, 3.0], y=[1.0, 4.0, 9.0], g=["a", "b", "a"])) *
         mapping(:x, :y; color=:g) * visual(Scatter) * config(height=200)

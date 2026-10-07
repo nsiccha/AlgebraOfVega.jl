@@ -385,7 +385,7 @@ window.AoV = window.AoV || {
         // them (e.g. actions:false) instead of falling back to defaults.
         self._embedOpts[id] = opts;
         // Store original spec for re-embed on resize and remapEncoding
-        var origSpec = JSON.parse(JSON.stringify(spec));
+        var origSpec = self._expandSpecData(JSON.parse(JSON.stringify(spec)));
         self._refreshLegendSelections(origSpec);
         spec = origSpec;
         self._broadcastCrossSource(origSpec);
@@ -644,6 +644,7 @@ window.AoV = window.AoV || {
 
     updateData: function(id, data, name) {
         name = name || 'source_0';
+        data = this._rowsFromColumns(data);
         var self = this;
         this.whenReady(id, function(view) {
             if (self._refuseRawRows('updateData', id, view, name, data)) return;
@@ -658,6 +659,7 @@ window.AoV = window.AoV || {
 
     appendData: function(id, data, name, maxRows) {
         name = name || 'source_0';
+        data = this._rowsFromColumns(data);
         var self = this;
         this.whenReady(id, function(view) {
             if (self._refuseRawRows('appendData', id, view, name, data)) return;
@@ -673,6 +675,76 @@ window.AoV = window.AoV || {
             self._maybeRestoreLegends(id);
             self._dataChanged(id);
         });
+    },
+
+    // Rows sent column by column (`_wire_columns` in to_node.jl):
+    // {n, columns: {name: column}}, where a column is an array of values, a
+    // scalar shared by every row, {runs, lengths}, or a numeric sequence
+    // {start, step, scale?, den?, period?} whose row i holds
+    // ((start + j*step)*scale)/den with j = i % period. Returns the row
+    // objects the row-wise JSON would have parsed to; a row array passes
+    // through unchanged. The server picks a sequence only when exactly
+    // these double operations reproduce every value.
+    _isColumns: function(data) {
+        return !!data && typeof data === 'object' && !Array.isArray(data) &&
+            typeof data.n === 'number' && !!data.columns && typeof data.columns === 'object';
+    },
+    _rowsFromColumns: function(data) {
+        if (!this._isColumns(data)) return data;
+        var n = data.n, names = Object.keys(data.columns), self = this;
+        var cols = names.map(function(k) { return self._columnValues(k, data.columns[k], n); });
+        var rows = new Array(n);
+        for (var i = 0; i < n; i++) {
+            var row = {};
+            for (var j = 0; j < names.length; j++) row[names[j]] = cols[j][i];
+            rows[i] = row;
+        }
+        return rows;
+    },
+    _columnValues: function(name, c, n) {
+        if (Array.isArray(c)) return c;
+        var out = new Array(n), i;
+        if (c === null || typeof c !== 'object') {
+            for (i = 0; i < n; i++) out[i] = c;
+        } else if (Array.isArray(c.runs)) {
+            var k = 0;
+            c.runs.forEach(function(v, r) { for (var m = 0; m < c.lengths[r]; m++) out[k++] = v; });
+        } else if (typeof c.start === 'number' && typeof c.step === 'number') {
+            var p = c.period || n;
+            for (i = 0; i < n; i++) {
+                var v = c.start + (i % p) * c.step;
+                if (c.scale !== undefined) v *= c.scale;
+                if (c.den !== undefined) v /= c.den;
+                out[i] = v;
+            }
+        } else {
+            throw new Error('AoV: column "' + name + '" has an unknown encoding with keys ' +
+                Object.keys(c).join(', '));
+        }
+        return out;
+    },
+    // A spec's inline datasets (`data.values`, `datasets` entries) sent
+    // column by column, expanded in place to rows.
+    _expandSpecData: function(spec) {
+        var self = this;
+        (function walk(v) {
+            if (Array.isArray(v)) { v.forEach(walk); return; }
+            if (!v || typeof v !== 'object') return;
+            Object.keys(v).forEach(function(k) {
+                var x = v[k];
+                if (k === 'data' && x && typeof x === 'object' && !Array.isArray(x)) {
+                    if (self._isColumns(x.values)) x.values = self._rowsFromColumns(x.values);
+                    else if (!Array.isArray(x.values)) walk(x);
+                } else if (k === 'datasets' && x && typeof x === 'object') {
+                    Object.keys(x).forEach(function(name) {
+                        if (self._isColumns(x[name])) x[name] = self._rowsFromColumns(x[name]);
+                    });
+                } else {
+                    walk(x);
+                }
+            });
+        })(spec);
+        return spec;
     },
 
     // Raw rows can only replace raw rows. A dataset AoV lowered server-side
@@ -758,7 +830,7 @@ window.AoV = window.AoV || {
             if (!el) { if (now) self.updateSpec(id, spec, opts); return; }
             // Removed, or replaced by a fresh render, meanwhile.
             if (now !== el || self._els[id] !== el) return;
-            var pristine = JSON.parse(JSON.stringify(spec));
+            var pristine = self._expandSpecData(JSON.parse(JSON.stringify(spec)));
             self._refreshLegendSelections(pristine);
             self._broadcastCrossSource(pristine);
             var shown = pristine;

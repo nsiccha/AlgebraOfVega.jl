@@ -1552,8 +1552,10 @@ which Vega-Lite renders as a gap, on every path that writes JSON for the browser
         end
     end
     rows = (; x=[1.0, 2.0], y=[NaN, Inf])
-    @test occursin("[{\"x\":1.0,\"y\":null},{\"x\":2.0,\"y\":null}]", html(update_data("nf", rows)))
-    @test occursin("\"y\":null", html(append_data("nf", rows)))
+    # Rows travel column by column (test/columnar_wire.jl); non-finite cells stay null.
+    @test occursin("{\"n\":2,\"columns\":{\"x\":[1.0,2.0],\"y\":[null,null]}}", html(update_data("nf", rows)))
+    @test occursin("\"y\":[null,null]", html(append_data("nf", rows)))
+    @test occursin("\"y\":null", html(append_data("nf", (; x=[1.0, 2.0, 3.0], y=fill(NaN, 3)))))
 end
 
 """
@@ -2309,8 +2311,8 @@ embedding across re-embeds and replaces, rather than leaks, a re-embedded view.
     df = (; x=[1.0, 2.0], y=[3.0, 4.0], g=["a", "b"])
 
     a = html(append_data("my plot", df))
-    @test occursin("AoV.appendData('my-plot', [", a)
-    @test occursin("\"x\":1.0", a) && occursin("\"g\":\"b\"", a)
+    @test occursin("AoV.appendData('my-plot', {\"n\":2,\"columns\":", a)
+    @test occursin("\"x\":[1.0,2.0]", a) && occursin("\"g\":[\"a\",\"b\"]", a)
     @test occursin("'source_0', null);", a)
     @test occursin("'src', 100);", html(append_data("p", df; name="src", max_rows=100)))
 

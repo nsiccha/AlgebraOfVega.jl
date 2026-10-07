@@ -119,6 +119,17 @@ Send `update_spec("live-plot", new_spec)` instead to add layers. Rows added with
 from `update_spec` brings its own data. The gallery's *Streaming Data* and
 *Layers One by One* demos show both.
 
+The rows travel column by column, not as one JSON object per row: a regular
+coordinate (a range such as `range(0, 28, length=6721)`, also repeated once per
+series in a long table) is sent as three numbers, a constant column (a series
+label) once, sorted labels as runs, and every other column as one flat array.
+The runtime rebuilds the same rows with the same values — a coordinate is sent
+as a sequence only when the browser's arithmetic reproduces every value
+exactly. Any Tables.jl source works, lazy columns included (a `Fill` label,
+a range, a `TreeData` reduction); nothing builds a row table on the server.
+The inline datasets `to_node`/`update_spec` embed use the same form. For a
+one-series time course of 6721 points this is 126 KB instead of 454 KB.
+
 `append_data`/`update_data` insert rows verbatim, so they fit only plots whose
 embedded dataset is raw rows. A plot AoV lowered server-side — an interval or
 ribbon summary (`pointinterval`, `lineribbon`, …), a faceted `density`, a
