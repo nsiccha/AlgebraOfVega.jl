@@ -517,8 +517,7 @@ places or selects the plot's marks (a positional/facet channel field or a
 """
 function update_data(id, table; name="source_0")
     id = _sanitize_id(id)
-    json = _vl_json(_wire_table(table))
-    h.script(Raw("AoV.updateData('$id', $json, '$name');"))
+    h.script(Raw("AoV.updateData('$id', $(_rows_payload(table)), '$name');"))
 end
 
 # --- Columnar wire format -------------------------------------------------
@@ -696,6 +695,9 @@ function _wire_rows(rows::AbstractVector)
     _wire_columns(length(rows), (string(k) => [r[k] for r in rows] for k in ks))
 end
 
+# The rows of `table` as the runtime's data operations receive them.
+_rows_payload(table) = _vl_json(_wire_table(table))
+
 """
     append_data(id, table; name="source_0", max_rows=nothing)
 
@@ -719,8 +721,51 @@ Like [`update_data`](@ref), this inserts raw rows: refresh an AoV-lowered plot
 """
 function append_data(id, table; name="source_0", max_rows=nothing)
     id = _sanitize_id(id)
-    json = _vl_json(_wire_table(table))
-    h.script(Raw("AoV.appendData('$id', $json, '$name', $(something(max_rows, "null")));"))
+    h.script(Raw("AoV.appendData('$id', $(_rows_payload(table)), '$name', $(something(max_rows, "null")));"))
+end
+
+"""
+    replace_data(id, table; key, name="source_0")
+
+Return an `h.script` node that replaces, in an existing Vega view's dataset, the
+rows of the groups `table` carries: every row whose `key` values (one column, or
+a vector of columns for a composite key) equal those of some row of `table` is
+removed, and the rows of `table` are inserted, in one change. Rows of every
+other group stay as they are, so a group that is refined in stages — one
+scenario's provisional posterior bands, re-sent as its draws accumulate — costs
+only its own rows on the wire and in the view (sent in the same columnar form as
+[`append_data`](@ref)):
+
+```julia
+vdraw(data(rows) * mapping(:x, :y; color=:scenario) *
+    lineribbon(bands=[:lower => :upper]); id="bands")
+replace_data("bands", scenario_rows; key=:scenario)   # one scenario's rows, each stage
+```
+
+A group that `table` does not carry cannot be removed this way; send
+[`update_data`](@ref) for that. Like `append_data`/`update_data`, the rows
+survive the view's responsive re-embeds, calls arriving before the view has
+embedded are applied once it is ready, and raw rows are refused for a dataset
+AoV lowered server-side (refresh those with [`update_spec`](@ref)). A coloured
+`lineribbon`/`ribbon` draws each colour group as its own layers; a group first
+brought by a data change gets its layers then (the plot re-embeds once) — except
+in a ribbon layered with other layers, which logs a console warning instead:
+send `update_spec` when a group first appears there.
+"""
+function replace_data(id, table; key, name="source_0")
+    id = _sanitize_id(id)
+    fields = _replace_key(key)
+    columns = string.(Tables.columnnames(Tables.columns(table)))
+    absent = setdiff(fields, columns)
+    isempty(absent) || throw(ArgumentError("replace_data: key column(s) $(join(absent, ", ")) " *
+        "not in the table; it has $(join(columns, ", "))"))
+    h.script(Raw("AoV.replaceData('$id', $(_rows_payload(table)), $(_vl_json(fields)), '$name');"))
+end
+
+_replace_key(key::Union{Symbol,AbstractString}) = [string(key)]
+function _replace_key(key::AbstractVector)
+    isempty(key) && throw(ArgumentError("replace_data: `key` names no column"))
+    string.(key)
 end
 
 """
