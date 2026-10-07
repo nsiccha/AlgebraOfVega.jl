@@ -85,7 +85,7 @@ update_spec
 
 | Helper            | Purpose                                                                              |
 |-------------------|--------------------------------------------------------------------------------------|
-| `vega_head()`     | The `<script>` tags for Vega/Vega-Lite/Vega-Embed — drop in your `<head>` (`source=:cdn`/`:vendor`/`:inline`) |
+| `vega_head()`     | The `<script>` tags for Vega/Vega-Lite/Vega-Embed — drop in your `<head>` (`source=:cdn`/`:vendor`/`:inline`; `theme=:host`/`:none`, see the FAQ's light/dark section) |
 | `vega_runtime()`  | The AoV JS runtime — handles signal binding, `update_data`, etc.                     |
 | `vega_controls()` | Optional HTML controls block (legend toggles, view reset, …)                          |
 | `vega_cdn_urls()` | The exact-pinned CDN URLs (Vega, Vega-Lite, Vega-Embed in order)                      |
