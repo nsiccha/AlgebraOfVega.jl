@@ -514,9 +514,21 @@ end
 
 # Same idea as `_remap_node_parts`: expose the (controls, plot_node) pair for
 # composition with `with_plot_caption` et al.
-function _auto_remap_parts(plot_id, spec; dims, fixed=Dict(), pinned::Symbol=:row,
-                            axes::Bool=false, off=String[],
-                            color=nothing, row=nothing, column=nothing, detail=nothing)
+function _auto_remap_parts(plot_id, spec; kwargs...)
+    (; resolved, new_spec, vl) = _auto_remap_lowering(spec; kwargs...)
+    controls = isempty(resolved.dims) ? "" : mapping_controls(plot_id, resolved; spec=new_spec)
+    plot = to_node(vl; id=plot_id)
+    (controls, plot, vl)
+end
+
+# The Vega-Lite lowering behind `auto_remap_node`: resolved channels, the
+# rebuilt spec (broadcast facet fields, combo columns, resolved mappings,
+# patched analysis detail) and its Vega-Lite dict. `update_spec(id, spec;
+# auto_remap=…)` re-lowers through this same function, so a refreshed figure's
+# datasets have exactly the first render's shape.
+function _auto_remap_lowering(spec; dims, fixed=Dict(), pinned::Symbol=:row,
+                              axes::Bool=false, off=String[],
+                              color=nothing, row=nothing, column=nothing, detail=nothing)
     layers = _spec_layers(spec)
     raw_dfs = [extract_data(l) for l in layers]
     any(isnothing, raw_dfs) && error("auto_remap_node: every layer must have associated data (no Pregrouped layers supported here)")
@@ -600,10 +612,7 @@ function _auto_remap_parts(plot_id, spec; dims, fixed=Dict(), pinned::Symbol=:ro
     # layers", which gives each band/point sublayer its own x/y axis (top-axes
     # stack-up bug).
     _scrub_independent_resolve_if_unfaceted!(vl)
-
-    controls = isempty(resolved.dims) ? "" : mapping_controls(plot_id, resolved; spec=new_spec)
-    plot = to_node(vl; id=plot_id)
-    (controls, plot, vl)
+    (; resolved, new_spec, vl)
 end
 
 # Drop `resolve.scale.x|y == "independent"` entries when the spec is not
@@ -815,7 +824,9 @@ function mapping_controls(id, resolved::NamedTuple; table=nothing, spec=nothing)
         _aovRemap_$(js_id)('pin');
     }
 
-    function _aovRemap_$(js_id)(changed) {
+    // The reader's current channel assignment as a remapEncoding mapping
+    // (combo columns built from the stored original spec's data).
+    function _aovMapping_$(js_id)() {
         var allDims = $(dim_fields);
         var labels = $(dim_labels);
         var channels = $(channels_json);
@@ -855,7 +866,7 @@ function mapping_controls(id, resolved::NamedTuple; table=nothing, spec=nothing)
 
         // Clone origSpec data for combo building
         var orig = AoV._origSpecs['$(id)'];
-        if (!orig) return;
+        if (!orig) return null;
         var dataObj = orig.data || (orig.spec && orig.spec.data);
         var dataClone = dataObj ? JSON.parse(JSON.stringify(dataObj)) : null;
 
@@ -929,10 +940,18 @@ function mapping_controls(id, resolved::NamedTuple; table=nothing, spec=nothing)
                 mapping[k] = fs.length <= 1 ? (fs[0] || '') : resolveChannel(fs, '__aov_' + k);
             }
         }
+        return {mapping: mapping, selections: selections};
+    }
 
-        AoV.remapEncoding('$(id)', mapping);
+    function _aovRemap_$(js_id)(changed) {
+        var current = _aovMapping_$(js_id)();
+        if (!current) return;
+        AoV.remapEncoding('$(id)', current.mapping);
 
         // URL persistence: comma-separated field lists + pin state
+        var channels = $(channels_json);
+        var selections = current.selections;
+        var pinned = _aovPin_$(js_id)_current;
         var params = new URLSearchParams(window.location.search);
         channels.forEach(function(ch) {
             var key = 'aov_' + ch + '_$(id)';
@@ -943,6 +962,15 @@ function mapping_controls(id, resolved::NamedTuple; table=nothing, spec=nothing)
         params.set('aov_pin_$(id)', pinned);
         var qs = params.toString();
         try { history.replaceState(null, '', qs ? '?' + qs : window.location.pathname); } catch (e) { /* standalone file:// or sandboxed iframe: URL persistence unavailable */ }
+    }
+
+    // update_spec re-applies the reader's current assignment to a refreshed spec.
+    if (typeof AoV !== 'undefined') {
+        AoV._pickers = AoV._pickers || {};
+        AoV._pickers['$(id)'] = function() {
+            var current = _aovMapping_$(js_id)();
+            return current && current.mapping;
+        };
     }
 
     // Restore from URL params once the spec is embedded

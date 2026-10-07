@@ -501,8 +501,19 @@ end
 """
     update_data(id, table; name="source_0")
 
-Return an `h.script` node that updates an existing Vega view's dataset.
-Useful for HTMX responses that should update a plot without re-rendering.
+Return an `h.script` node that replaces an existing Vega view's dataset with the
+rows of `table`, verbatim. Useful for HTMX responses that should update a plot
+without re-rendering.
+
+Raw rows only fit a plot whose embedded dataset *is* raw rows. A plot that AoV
+lowered server-side — an interval/ribbon summary (`pointinterval`,
+`lineribbon`, …), a faceted `density`, a merged multi-layer dataset, picker
+combo columns — embeds derived rows, so refresh it with
+[`update_spec`](@ref) instead. The runtime refuses (console error, data left
+unchanged) when the new rows lack a field that its current rows carry and that
+places or selects the plot's marks (a positional/facet channel field or a
+`filter` field — e.g. a summary's `lo_*`/`hi_*` bounds or a merged dataset's
+`__src`).
 """
 function update_data(id, table; name="source_0")
     id = _sanitize_id(id)
@@ -523,6 +534,10 @@ For plots whose data arrives incrementally, e.g. one `append_data` fragment per
 chunk pushed over an HTMXObjects `@ws` route or returned by an HTMX poller.
 Calls that arrive before the view has finished embedding are applied once it
 is ready, and appended rows survive the view's responsive re-embeds.
+
+Like [`update_data`](@ref), this inserts raw rows: refresh an AoV-lowered plot
+(interval/ribbon summaries, merged multi-layer datasets) with
+[`update_spec`](@ref), which recomputes the lowering.
 """
 function append_data(id, table; name="source_0", max_rows=nothing)
     id = _sanitize_id(id)
@@ -531,17 +546,35 @@ function append_data(id, table; name="source_0", max_rows=nothing)
 end
 
 """
-    update_spec(id, spec; width, height, actions, fit_width)
+    update_spec(id, spec; auto_remap=nothing, width, height, actions, fit_width)
 
-Return an `h.script` node that re-embeds the existing plot `id` (created by
-[`to_node`](@ref)) with a new `spec`, e.g. one with an additional layer. The
-plot element stays in place and signal listeners wired via `to_node(; signals)`
-carry over; the data is the new spec's.
+Return an `h.script` node that refreshes the existing plot `id` (created by
+[`to_node`](@ref), `vdraw`, [`auto_remap_node`](@ref) or `with_plot_caption`)
+from a new `spec` — new data, an additional layer, or both. `spec` is lowered
+server-side exactly like a first render, so analysis summaries, merged
+multi-layer datasets and facet densification are recomputed from the new raw
+rows: this is how an AoV-lowered plot (`pointinterval`, `lineribbon`, a faceted
+`density`, …) is refreshed as data arrives.
+
+For a plot rendered through the channel picker, pass the picker's keywords as
+`auto_remap` — the same `(; dims, fixed, pinned, off, …)` given to
+`auto_remap_node` (or `with_plot_caption(...; auto_remap=…)`) — so the new spec
+is lowered through the same channel resolution.
+
+The reader's state carries over: the picker's current channel assignment is
+re-applied to the new spec, and when only the data changed the view's datasets
+are swapped in place, keeping zoom/pan, legend selection and the canvas. A
+structural change (new facet panels, a new layer, changed encodings or size)
+re-embeds the plot in place. Signal listeners wired via `to_node(; signals)`
+carry over either way; rows added earlier by `append_data`/`update_data` are
+replaced by the new spec's data.
 """
-function update_spec(id, spec; width=nothing, height=nothing, actions=false, fit_width=true)
+function update_spec(id, spec; auto_remap::Union{Nothing,NamedTuple}=nothing,
+                     width=nothing, height=nothing, actions=false, fit_width=true)
     id = _sanitize_id(id)
-    json = JSON.json(_embed_spec(spec; width, height, fit_width))
-    h.script(Raw("AoV.embed('$id', $json, {actions: $actions});"))
+    lowered = isnothing(auto_remap) ? spec : _auto_remap_lowering(spec; auto_remap...).vl
+    json = JSON.json(_embed_spec(lowered; width, height, fit_width))
+    h.script(Raw("AoV.updateSpec('$id', $json, {actions: $actions});"))
 end
 
 _CHANNEL_LABELS = Dict("color" => "Color", "row" => "Row", "column" => "Column", "detail" => "Ungrouped", "off" => "Pooled")

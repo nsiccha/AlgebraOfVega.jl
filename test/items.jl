@@ -2286,15 +2286,17 @@ embedding across re-embeds and replaces, rather than leaks, a re-embedded view.
     @test occursin("'src', 100);", html(append_data("p", df; name="src", max_rows=100)))
 
     spec = data(df) * mapping(:x, :y, color=:g) * visual(Scatter)
-    # Same embedded spec as the initial `to_node`, re-embedded under the same ID
-    embedded(h) = match(r"AoV\.embed\('p', (\{.*\}), \{actions", h).captures[1]
+    # Same embedded spec as the initial `to_node`, refreshed under the same ID
+    embedded(h) = match(r"AoV\.(?:embed|updateSpec)\('p', (\{.*\}), \{actions", h).captures[1]
     u = html(update_spec("p", spec))
+    @test occursin("AoV.updateSpec('p', ", u)
     @test embedded(u) == embedded(html(to_node(spec; id="p")))
     layered = spec + data(df) * mapping(:x, :y) * linear()
     @test embedded(html(update_spec("p", layered))) == embedded(html(to_node(layered; id="p")))
 
     rt = html(vega_runtime())
     @test occursin("appendData: function", rt)
+    @test occursin("updateSpec: function", rt)
     @test occursin("whenReady: function", rt)
     @test occursin("_withLiveRows(id, opts, gen)", rt)
     @test occursin(".finalize()", rt)
