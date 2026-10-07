@@ -25,3 +25,11 @@ Update recipe (bump the trio):
 3. Update `VEGA_VERSION` / `VEGALITE_VERSION` / `VEGA_EMBED_VERSION` and the
    `*_SRI` (sha384) constants in `src/js_runtime.jl`.
 4. Update the sha256 lock in `test/items.jl` ("vendored vega trio" testitem).
+
+## AoV's own runtime and stylesheet
+
+`aov-runtime.js` (the `window.AoV.*` browser runtime) and `aov.css` (the head
+stylesheet) are AoV's own sources, not vendored third-party builds: edit them
+here directly. `vega_head` inlines both (`vega_runtime()` returns the runtime
+inline), so neither may contain a closing `script` / `style` tag; they are not
+hash-locked.
