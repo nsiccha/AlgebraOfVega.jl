@@ -11,8 +11,8 @@ function to_html(spec; id=nothing, width=nothing, height=nothing,
     vl = _as_vl_dict(spec)
     !isnothing(width) && (vl["width"] = width)
     !isnothing(height) && (vl["height"] = height)
-    id = _sanitize_id(something(id, "vega-" * string(abs(hash(JSON.json(vl))), base=16)))
-    json = JSON.json(vl)
+    id = _sanitize_id(something(id, "vega-" * string(abs(hash(_vl_json(vl))), base=16)))
+    json = _vl_json(vl)
     scripts = join((sprint(show, MIME"text/html"(), n)
         for n in _vega_script_nodes(; source, base)), "\n")
     """

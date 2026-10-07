@@ -5,12 +5,11 @@ using HTMXObjects
 using HTMXObjects: CaptionSpec, with_caption, render_caption, render_table,
     caption_style, sortable_table_js
 using HTMX: h
-import JSON
 import Tables
 import Statistics
 import AlgebraOfVega: with_plot_caption, draws_summary_table, _sanitize_id,
                       _auto_summary_args, _auto_remap_parts, to_node, to_html,
-                      VegaSpec, caption_share_button
+                      VegaSpec, caption_share_button, _vl_json
 
 # HTMX 1.0 escapes attribute values itself (`&`, `"`, `'`, `<`, `>`), and the
 # HTML parser decodes them back before JS/`dataset` ever sees them — so JSON
@@ -76,7 +75,7 @@ function with_plot_caption(plot_node, caption::CaptionSpec;
                             summary_table=nothing)
     plot_id = _sanitize_id(plot_id)
     fname = something(filename_base, plot_id)
-    labels_js = isnothing(layer_labels) ? "{}" : JSON.json(Dict(string(k) => string(v) for (k, v) in layer_labels))
+    labels_js = isnothing(layer_labels) ? "{}" : _vl_json(Dict(string(k) => string(v) for (k, v) in layer_labels))
 
     actions = Any[]
     if data_download
@@ -227,7 +226,7 @@ function with_plot_caption(spec::VegaSpec, caption::CaptionSpec;
             h.div(; class="aov-data-pretty-body",
                   id="$(plot_id_s)-pretty",
                   data_aov_plot_id=plot_id_s,
-                  data_aov_summary_opts=JSON.json(opts))()
+                  data_aov_summary_opts=_vl_json(opts))()
         end
     else
         summary_table

@@ -1528,6 +1528,35 @@ facet page whose study has no rows after dropping NaNs.
 end
 
 """
+Non-finite cells in a pre-aggregated `bands=` table — a statistic undefined in
+every draw (`NaN`), an unbounded interval (`±Inf`) — serialize as JSON `null`,
+which Vega-Lite renders as a gap, on every path that writes JSON for the browser.
+"""
+@testitem "pre-aggregated bands with non-finite cells serialize as null" setup=[AoVTestImports] tags=[:tidybayes, :regression] begin
+    # Regression: JSON.jl ≥ 1 throws `ArgumentError: NaN not allowed to be
+    # written in JSON spec` where JSON.jl 0.21 wrote `null`, so one undefined
+    # cell made the whole figure fail to render.
+    import JSON
+    html(x) = sprint(show, MIME"text/html"(), x)
+    t = (; g=["a", "b", "c"], x=[1.0, 2.0, 3.0], m=[1.0, NaN, 2.0], lo=[0.5, NaN, -Inf], hi=[1.5, NaN, Inf])
+    nulls(s) = count("null", s)
+    for spec in (data(t) * mapping(:m, y=:g) * pointinterval(bands=[:lo => :hi]),
+                 data(t) * mapping(:x, :m) * lineribbon(bands=[:lo => :hi]))
+        s = to_json(spec)
+        @test JSON.parse(s) isa AbstractDict      # strict JSON: no NaN/Infinity tokens
+        @test !occursin("NaN", s) && !occursin("Infinity", s)
+        @test nulls(s) >= 4                        # m, lo, hi of "b" plus the infinite bounds of "c"
+        @test occursin("null", to_json(spec; pretty=true))  # kwargs still pass through
+        for out in (html(vdraw(spec; id="nf")), html(update_spec("nf", spec)), to_html(spec; id="nf"))
+            @test !occursin("NaN", out) && !occursin("Infinity", out) && occursin("null", out)
+        end
+    end
+    rows = (; x=[1.0, 2.0], y=[NaN, Inf])
+    @test occursin("[{\"x\":1.0,\"y\":null},{\"x\":2.0,\"y\":null}]", html(update_data("nf", rows)))
+    @test occursin("\"y\":null", html(append_data("nf", rows)))
+end
+
+"""
 Interval analyses reject a non-numeric default value channel with a useful
 orientation hint; both documented vertical spellings remain valid.
 """

@@ -3,6 +3,16 @@
 """Vega-Lite v5 JSON schema URL, injected at top level of every spec."""
 VL_SCHEMA = "https://vega.github.io/schema/vega-lite/v5.json"
 
+"""
+    _vl_json(x; kwargs...) -> String
+
+AoV's single JSON writer for everything it hands to the browser. Every non-finite
+float (`NaN`, `Inf`, `-Inf`) is written as `null`, which Vega-Lite reads as a
+missing value — a line/area gap or a dropped point/rule — instead of the
+`ArgumentError` JSON.jl ≥ 1 raises by default. `kwargs` pass through to `JSON.json`.
+"""
+_vl_json(x; kwargs...) = JSON.json(x; allownan=true, nan="null", inf="null", ninf="null", kwargs...)
+
 """Build a VL encoding channel dict. Filters out `nothing` values."""
 function vl_enc(field; type=nothing, title=nothing, kwargs...)
     d = Dict{String,Any}("field" => string(field))

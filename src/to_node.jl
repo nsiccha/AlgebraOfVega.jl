@@ -423,7 +423,7 @@ Requires vega/vega-lite/vega-embed scripts to be loaded (use `vega_head()` in pa
 """
 function to_node(spec; id=nothing, width=nothing, height=nothing, actions=false, signals=nothing, fit_width=true)
     vl = _embed_spec(spec; width, height, fit_width)
-    json = JSON.json(vl)
+    json = _vl_json(vl)
     id = _sanitize_id(something(id, "vega-" * string(abs(hash(json)), base=16)))
 
     # Queue embed for deferred execution (after layout is computed)
@@ -517,7 +517,7 @@ places or selects the plot's marks (a positional/facet channel field or a
 """
 function update_data(id, table; name="source_0")
     id = _sanitize_id(id)
-    json = JSON.json(_rows_json(table))
+    json = _vl_json(_rows_json(table))
     h.script(Raw("AoV.updateData('$id', $json, '$name');"))
 end
 
@@ -541,7 +541,7 @@ Like [`update_data`](@ref), this inserts raw rows: refresh an AoV-lowered plot
 """
 function append_data(id, table; name="source_0", max_rows=nothing)
     id = _sanitize_id(id)
-    json = JSON.json(_rows_json(table))
+    json = _vl_json(_rows_json(table))
     h.script(Raw("AoV.appendData('$id', $json, '$name', $(something(max_rows, "null")));"))
 end
 
@@ -573,7 +573,7 @@ function update_spec(id, spec; auto_remap::Union{Nothing,NamedTuple}=nothing,
                      width=nothing, height=nothing, actions=false, fit_width=true)
     id = _sanitize_id(id)
     lowered = isnothing(auto_remap) ? spec : _auto_remap_lowering(spec; auto_remap...).vl
-    json = JSON.json(_embed_spec(lowered; width, height, fit_width))
+    json = _vl_json(_embed_spec(lowered; width, height, fit_width))
     h.script(Raw("AoV.updateSpec('$id', $json, {actions: $actions});"))
 end
 
