@@ -1061,11 +1061,31 @@ window.AoV = window.AoV || {
         }, function(err) { return restore().then(function() { throw err; }); });
     },
 
+    // A same-origin vendored <script src> / <link href> (`data-aov-vendor`,
+    // emitted by `vega_head(source=:vendor)`) as a promise of the inline
+    // <script> / <style> carrying its bytes, for a self-contained page. The
+    // copy keeps its marker, so a saved page exports again like an inline one.
+    _inlineVendored: function(el) {
+        var url = el.src || el.href, isScript = el.tagName === 'SCRIPT';
+        var mark = ' data-aov-vendor="' + el.getAttribute('data-aov-vendor').replace(/"/g, '&quot;') + '"';
+        return fetch(url).then(function(r) {
+            if (!r.ok) throw new Error('AoV.downloadPlotHtml: ' + url + ' answered HTTP ' + r.status);
+            return r.text();
+        }).then(function(text) {
+            // A literal closing tag in the bytes would end the inline element
+            // early; `<\/` reads the same as `</` inside JS and CSS strings.
+            // (This runtime is itself inlined, so it never spells that tag.)
+            return isScript ? '<script' + mark + '>' + text.replace(/<\/script/gi, '<\\/script') + '</' + 'script>'
+                : '<style' + mark + '>' + text.replace(/<\/style/gi, '<\\/style') + '</style>';
+        });
+    },
+
     // Public: download THIS card as a standalone .html file — no server
     // round-trip. Clones the card's live DOM (picker + plot + caption +
     // lazy shells), resets live-only UI state on the clone, and prepends
-    // a <head> scraped from the live document (Vega CDN scripts + AoV
-    // runtime + caption CSS), mirroring `to_html(::HTMX.Node)`.
+    // a <head> collected from the live document (Vega scripts + AoV
+    // runtime + caption CSS), mirroring `to_html(::HTMX.Node)`. Returns a
+    // promise that settles once the file is handed to the browser.
     downloadPlotHtml: function(id, filenameBase) {
         filenameBase = filenameBase || id;
         var anchor = document.getElementById(id);
@@ -1118,25 +1138,31 @@ window.AoV = window.AoV || {
             });
         }
 
-        // <head> pieces, scraped from the live document: the same Vega CDN
-        // scripts, runtime, and caption CSS the live page runs.
+        // <head> pieces, in document order: the same Vega scripts, runtime,
+        // page settings and caption CSS/JS the live page runs. CDN tags stay
+        // tags; vendored files (`data-aov-vendor`) end up inline — fetched
+        // when loaded by URL — so the saved file needs neither this server
+        // nor a CDN.
+        var self = this;
         var headParts = [];
-        document.querySelectorAll('script[src]').forEach(function(s) {
-            var src = s.getAttribute('src') || '';
-            if (/\/vega(-lite|-embed)?@/.test(src)) headParts.push(s.outerHTML);
-        });
-        document.querySelectorAll('script:not([src])').forEach(function(s) {
-            var t = s.textContent || '';
-            if (t.indexOf('window.AoV = window.AoV ||') !== -1 ||
-                t.indexOf('window.AoV = Object.assign(window.AoV') !== -1 ||
-                t.indexOf('function sortTable(') !== -1) {
-                headParts.push(s.outerHTML);
-            }
-        });
-        document.querySelectorAll('style').forEach(function(s) {
-            var t = s.textContent || '';
-            if (t.indexOf('aov-data-preview') !== -1 || t.indexOf('caption-actions') !== -1) {
-                headParts.push(s.outerHTML);
+        document.querySelectorAll('script, style, link[data-aov-vendor]').forEach(function(s) {
+            if (s.hasAttribute('data-aov-vendor')) {
+                // Vendored by URL: fetch the bytes; already inline: copy as is.
+                headParts.push(s.hasAttribute('src') || s.hasAttribute('href') ? self._inlineVendored(s) : s.outerHTML);
+            } else if (s.tagName === 'SCRIPT' && s.hasAttribute('src')) {
+                if (/\/vega(-lite|-embed)?@/.test(s.getAttribute('src') || '')) headParts.push(s.outerHTML);
+            } else if (s.tagName === 'SCRIPT') {
+                var t = s.textContent || '';
+                if (t.indexOf('window.AoV = window.AoV ||') !== -1 ||
+                    t.indexOf('window.AoV = Object.assign(window.AoV') !== -1 ||
+                    t.indexOf('function sortTable(') !== -1) {
+                    headParts.push(s.outerHTML);
+                }
+            } else {
+                var c = s.textContent || '';
+                if (c.indexOf('aov-data-preview') !== -1 || c.indexOf('caption-actions') !== -1) {
+                    headParts.push(s.outerHTML);
+                }
             }
         });
 
@@ -1146,12 +1172,14 @@ window.AoV = window.AoV || {
         else if (document.title) title = document.title;
         title = title.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
-        var page = '<!DOCTYPE html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n' +
-            '<title>' + title + '</title>\n' +
-            '<style>body{font-family:system-ui,sans-serif;margin:1rem}</style>\n' +
-            headParts.join('\n') + '\n</head>\n<body>\n' +
-            clone.outerHTML + '\n</body>\n</html>\n';
-        this._triggerDownload(page, filenameBase + '.html', 'text/html');
+        return Promise.all(headParts).then(function(parts) {
+            var page = '<!DOCTYPE html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n' +
+                '<title>' + title + '</title>\n' +
+                '<style>body{font-family:system-ui,sans-serif;margin:1rem}</style>\n' +
+                parts.join('\n') + '\n</head>\n<body>\n' +
+                clone.outerHTML + '\n</body>\n</html>\n';
+            self._triggerDownload(page, filenameBase + '.html', 'text/html');
+        });
     },
 
     // Public: render the plot's data as sortable HTML table(s) into `container`.

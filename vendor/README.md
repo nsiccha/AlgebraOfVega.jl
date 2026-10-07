@@ -30,6 +30,14 @@ Update recipe (bump the trio):
 
 `aov-runtime.js` (the `window.AoV.*` browser runtime) and `aov.css` (the head
 stylesheet) are AoV's own sources, not vendored third-party builds: edit them
-here directly. `vega_head` inlines both (`vega_runtime()` returns the runtime
-inline), so neither may contain a closing `script` / `style` tag; they are not
-hash-locked.
+here directly. They are the single source of both forms `vega_head` emits —
+inlined by default (`vega_runtime()` returns the runtime inline), and loaded
+by URL under `vega_head(source=:vendor, runtime=:linked)`, so a page carries a
+few hundred bytes of tags instead of ~96 KB the browser can cache.
+
+Every `source=:vendor` URL — the trio and, when linked, these two — is
+`<base>/<file>?v=<first 16 hex of the file's sha256>`, so the bytes behind one
+URL never change and an app may serve this directory with
+`Cache-Control: public, max-age=31536000, immutable`. Both files are inlined
+by default, so neither may contain a closing `script` / `style` tag (asserted
+in `test/items.jl`, "vega script source modes"); they are not hash-locked.

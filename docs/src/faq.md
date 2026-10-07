@@ -92,6 +92,8 @@ See the [API Reference](api.md#tidybayes-style-uncertainty-analyses) for the ful
 
 For offline use, AoV vendors the same builds under `vendor/`: `vega_head(; source=:vendor, base="/vendor")` emits same-origin tags (serve `vega_vendor_dir()` at `base` from your app), and `source=:inline` inlines the bytes. `to_html(...; source=:inline)` writes a standalone file that renders with no network at all.
 
+AoV's own runtime (`aov-runtime.js`) and stylesheet (`aov.css`), about 96 KB, are inlined into every page by default. With the vendor mount, `vega_head(; source=:vendor, base="/vendor", runtime=:linked)` loads them from that directory too, so each full page carries a few hundred bytes of tags that the browser caches. Every vendor URL ends in `?v=<content hash>`, which changes exactly when the file does, so the mount may use a far-future cache lifetime — with HTMXObjects: `staticfiles(vega_vendor_dir(), "vendor"; headers=["Cache-Control" => "public, max-age=31536000, immutable"])`. Page settings (`zoom`, `max_width`, `actions`, `theme`) stay a small inline script. A captioned plot's "⬇ HTML" download inlines the vendored files the page loaded, so the saved card still renders with no server and no CDN.
+
 ## "My spec doesn't render and I get no error"
 
 Vega-Lite is forgiving — it'll silently render a blank chart for a malformed spec. Two debugging moves:

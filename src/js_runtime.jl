@@ -24,8 +24,9 @@ VEGA_EMBED_SRI = "sha384-M+Ax7e/WFJpxSOF09HzI+Sj4wg9ottVd/uxmV2ItGGh02fLH28t2FAO
 const _VEGA_VENDOR_FILES = ("vega.min.js", "vega-lite.min.js", "vega-embed.min.js")
 
 # AoV's own browser assets, next to the trio: the `window.AoV.*` runtime and
-# the head stylesheet, kept as plain files so they are edited and served as
-# what they are.
+# the head stylesheet. These files are the single source of both forms — the
+# inline `<script>`/`<style>` (`runtime=:inline`) and the same-origin URLs
+# (`runtime=:linked`).
 const _AOV_RUNTIME_FILE = "aov-runtime.js"
 const _AOV_STYLE_FILE = "aov.css"
 
@@ -37,11 +38,34 @@ Vega/Vega-Lite/Vega-Embed builds (the exact-pinned trio `vega_head()` serves
 from CDN by default) plus AoV's own runtime (`aov-runtime.js`) and stylesheet
 (`aov.css`). Serve this directory from your app (e.g. mount it at `/vendor`
 with a static route) and pass `vega_head(; source=:vendor, base="/vendor")` to
-render plots with no CDN dependency.
+render plots with no CDN dependency — plus `runtime=:linked` to load AoV's
+runtime and stylesheet from it too, instead of inlining them in every page.
 """
 vega_vendor_dir() = normpath(joinpath(pkgdir(AlgebraOfVega), "vendor"))
 
-_vega_vendor_bytes(file) = read(joinpath(vega_vendor_dir(), file), String)
+# path => (mtime, bytes, version). Re-read when the file changes on disk, so
+# an edited runtime is picked up without a restart; the version is a content
+# hash, so a URL carrying it changes exactly when the bytes do.
+const _VENDOR_CACHE = Dict{String,Tuple{Float64,String,String}}()
+const _VENDOR_CACHE_LOCK = ReentrantLock()
+
+function _vendor_asset(file)
+    path = joinpath(vega_vendor_dir(), file)
+    mt = mtime(path)
+    lock(_VENDOR_CACHE_LOCK) do
+        hit = get(_VENDOR_CACHE, path, nothing)
+        !isnothing(hit) && hit[1] == mt && return hit
+        bytes = read(path, String)
+        _VENDOR_CACHE[path] = (mt, bytes, bytes2hex(sha256(bytes))[1:16])
+    end
+end
+
+_vega_vendor_bytes(file) = _vendor_asset(file)[2]
+
+# The same-origin URL of a vendored file, versioned by its content hash so an
+# app can serve `vega_vendor_dir()` with a far-future (`immutable`) cache
+# lifetime: the bytes behind one URL never change.
+_vendor_url(base, file) = "$(rstrip(base, '/'))/$file?v=$(_vendor_asset(file)[3])"
 
 _cdn_script(url, sri) =
     isnothing(sri) ? h.script(src=url) : h.script(src=url, integrity=sri, crossorigin="anonymous")
@@ -51,10 +75,12 @@ _cdn_script(url, sri) =
 
 The three Vega/Vega-Lite/Vega-Embed `<script>` nodes shared by `vega_head()`
 and `to_html`: `:cdn` (default) emits exact-pinned CDN tags with
-subresource integrity; `:vendor` emits same-origin `<base>/<file>` tags for an
-app serving `vega_vendor_dir()` at `base`; `:inline` inlines the vendored
-bytes for fully self-contained pages. Version overrides apply only to `:cdn` —
-the vendored bytes are fixed at the pinned trio.
+subresource integrity; `:vendor` emits same-origin, content-versioned
+`<base>/<file>?v=<hash>` tags for an app serving `vega_vendor_dir()` at
+`base`; `:inline` inlines the vendored bytes for fully self-contained pages.
+Version overrides apply only to `:cdn` — the vendored bytes are fixed at the
+pinned trio. Vendored tags (`:vendor` and `:inline`) carry `data-aov-vendor`,
+which tells `AoV.downloadPlotHtml` to carry their bytes into the saved file.
 """
 function _vega_script_nodes(; source::Symbol=:cdn, base::AbstractString="/vendor",
         vega_version=VEGA_VERSION, vegalite_version=VEGALITE_VERSION,
@@ -76,15 +102,30 @@ function _vega_script_nodes(; source::Symbol=:cdn, base::AbstractString="/vendor
                 "version overrides apply only to source=:cdn"))
         end
         if source === :vendor
-            root = rstrip(base, '/')
-            return [h.script(src="$root/$f") for f in _VEGA_VENDOR_FILES]
+            return [h.script(src=_vendor_url(base, f), data_aov_vendor=f) for f in _VEGA_VENDOR_FILES]
         else
-            return [h.script(Raw(_vega_vendor_bytes(f))) for f in _VEGA_VENDOR_FILES]
+            return [h.script(Raw(_vega_vendor_bytes(f)), data_aov_vendor=f) for f in _VEGA_VENDOR_FILES]
         end
     else
         throw(ArgumentError("source must be :cdn, :vendor, or :inline, got $source"))
     end
 end
+
+# AoV's own stylesheet + runtime nodes. AoV has no CDN of its own, so they
+# are inlined by default; `runtime=:linked` references the same files from the
+# vendor mount instead, so a page carries a few hundred bytes of tags rather
+# than ~96 KB that the browser can cache. `source` is validated by
+# `_vega_script_nodes`.
+_aov_asset_nodes(::Val{:inline}, source::Symbol, base::AbstractString) =
+    [h.style(Raw(_vega_vendor_bytes(_AOV_STYLE_FILE))), vega_runtime()]
+function _aov_asset_nodes(::Val{:linked}, source::Symbol, base::AbstractString)
+    source === :vendor || throw(ArgumentError("runtime=:linked loads AoV's runtime from the " *
+        "vendor mount, so it needs source=:vendor (serve vega_vendor_dir() at base); got source=:$source"))
+    [h.link(rel="stylesheet", href=_vendor_url(base, _AOV_STYLE_FILE), data_aov_vendor=_AOV_STYLE_FILE),
+        h.script(src=_vendor_url(base, _AOV_RUNTIME_FILE), data_aov_vendor=_AOV_RUNTIME_FILE)]
+end
+_aov_asset_nodes(::Val{R}, source::Symbol, base::AbstractString) where {R} =
+    throw(ArgumentError("runtime must be :inline or :linked, got $(repr(R))"))
 
 const _THEMES = (:host, :none)
 _check_theme(theme::Symbol) = theme in _THEMES ||
@@ -92,15 +133,25 @@ _check_theme(theme::Symbol) = theme in _THEMES ||
 _check_theme(theme) = throw(ArgumentError("theme must be a Symbol (:host or :none), got $(repr(theme))"))
 
 """
-    vega_head(; vega_version, vegalite_version, vega_embed_version, source, base, zoom, max_width, actions, theme)
+    vega_head(; vega_version, vegalite_version, vega_embed_version, source, base, runtime, zoom, max_width, actions, theme)
 
-Return a vector of `h.script`/`h.style` nodes to include in `htmx(; extra_head=vega_head())`.
+Return a vector of `h.script`/`h.style`/`h.link` nodes to include in `htmx(; extra_head=vega_head())`.
 
 `source` selects where the Vega/Vega-Lite/Vega-Embed scripts come from:
 `:cdn` (default) emits exact-pinned CDN tags with subresource integrity;
-`:vendor` emits same-origin `<base>/vega.min.js` tags — serve
-`vega_vendor_dir()` at `base` from your app; `:inline` inlines the vendored
-bytes. Version overrides apply only to `:cdn`.
+`:vendor` emits same-origin `<base>/vega.min.js?v=<content hash>` tags —
+serve `vega_vendor_dir()` at `base` from your app; `:inline` inlines the
+vendored bytes. Version overrides apply only to `:cdn`.
+
+`runtime` selects how AoV's own runtime and stylesheet (~96 KB) reach the
+page. `:inline` (default) inlines them. `:linked` — which needs
+`source=:vendor` — references `<base>/aov-runtime.js` and `<base>/aov.css`
+from the same mount instead, so the browser caches them rather than
+receiving them in every full page. Every `:vendor` URL carries a `?v=`
+content hash that changes exactly when the file's bytes do, so the mount may
+serve them with a far-future `immutable` cache lifetime. The page settings
+below (`zoom`, `max_width`, `actions`, `theme`) stay an inline per-page
+script either way.
 
 `zoom` uniformly scales all plots (chart area, fonts, axes, legend). Responsive plots
 are sized to `containerWidth / zoom` so they don't overflow their container.
@@ -127,6 +178,7 @@ function vega_head(;
     vega_embed_version=VEGA_EMBED_VERSION,
     source::Symbol=:cdn,
     base::AbstractString="/vendor",
+    runtime::Symbol=:inline,
     zoom=nothing,
     max_width=nothing,
     actions=nothing,
@@ -135,8 +187,7 @@ function vega_head(;
     _check_theme(theme)
     nodes = [
         _vega_script_nodes(; source, base, vega_version, vegalite_version, vega_embed_version)...,
-        h.style(Raw(_vega_vendor_bytes(_AOV_STYLE_FILE))),
-        vega_runtime(),
+        _aov_asset_nodes(Val(runtime), source, base)...,
     ]
     settings = Dict{String,Any}()
     !isnothing(zoom) && (settings["zoom"] = zoom)
@@ -276,7 +327,8 @@ end
     vega_runtime()
 
 Return a `h.script` node with the AlgebraOfVega JS runtime, inlined. Its
-source is the file `aov-runtime.js` in `vega_vendor_dir()`.
+source is the file `aov-runtime.js` in `vega_vendor_dir()`, which
+`vega_head(source=:vendor, runtime=:linked)` references by URL instead.
 Manages Vega views by ID and provides helpers for HTMX integration.
 
 Client-side API:

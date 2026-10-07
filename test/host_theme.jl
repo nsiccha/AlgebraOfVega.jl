@@ -40,7 +40,7 @@ with a Vega-Lite config for the chrome on a transparent background (theme
     @test own["config"]["style"]["aov-ink"]["color"] == "red"
 end
 
-@testitem "host theme follows the page in the browser" tags=[:theme, :browser, :regression, :auto_remap, :incremental] begin
+@testitem "host theme follows the page in the browser" setup=[AoVBrowserServer] tags=[:theme, :browser, :regression, :auto_remap, :incremental] begin
     using AlgebraOfVega, HTMXObjects, JSON
     @test !isnothing(Base.get_extension(AlgebraOfVega, :AlgebraOfVegaHTMXObjectsExt))
     html(x) = sprint(show, MIME"text/html"(), x)
@@ -75,27 +75,37 @@ end
                 vdraw(plain * config(theme=:none); id="theme-none"),
                 vdraw(plain * config(config=Dict("axis" => Dict("labelColor" => "#ff0000"))); id="theme-authored"),
                 vdraw(ink; id="theme-ink")]
-            runtime = join(html(n) for n in vega_head(source=:inline))
             style = "<style>body{color:rgb(30,40,50);background:rgb(250,250,250)}" *
                 "html[data-theme=dark] body{color:rgb(200,210,220);background:rgb(20,24,31)}</style>"
             payload = replace(JSON.json((; updates, palette)), "</" => "<\\/")
             driver = read(joinpath(@__DIR__, "host_theme.js"), String)
-            write(joinpath(dir, "test.html"), "<!doctype html><meta charset='utf-8'>" * style * runtime *
-                "<body>" * join(html(p) for p in page) *
-                "<script>window.AOV_FIXTURE=" * payload * ";</script><script>" * driver * "</script></body>")
-            output = read(pipeline(`$chrome --headless=new --no-sandbox --disable-gpu
-                --user-data-dir=$(joinpath(dir, "profile")) --window-size=1200,1400
-                --virtual-time-budget=20000 --dump-dom $("file://" * joinpath(dir, "test.html"))`,
-                stderr=joinpath(dir, "chrome.log")), String)
-            result = match(r"<pre id=\"aov-host-theme-results\">([^<]*)</pre>", output)
-            @test !isnothing(result)
-            if !isnothing(result)
+            body = "<body>" * join(html(p) for p in page) *
+                "<script>window.AOV_FIXTURE=" * payload * ";</script><script>" * driver * "</script></body>"
+            # The same page with the runtime inlined (a file:// page) and loaded
+            # by URL from a served `vega_vendor_dir()` (snag
+            # `cacheable-aov-ru-114438c0`): the runtime behaves identically.
+            for (source, runtime) in ((:inline, :inline), (:vendor, :linked))
+                head = join(html(n) for n in vega_head(; source, runtime, base="/vendor"))
+                write(joinpath(dir, "$source.html"), "<!doctype html><meta charset='utf-8'>" * style * head * body)
+            end
+            function run_page(url, source)
+                output = read(pipeline(`$chrome --headless=new --no-sandbox --disable-gpu
+                    --user-data-dir=$(joinpath(dir, "profile-$source")) --window-size=1200,1400
+                    --virtual-time-budget=20000 --dump-dom $url`,
+                    stderr=joinpath(dir, "chrome-$source.log")), String)
+                result = match(r"<pre id=\"aov-host-theme-results\">([^<]*)</pre>", output)
+                @test !isnothing(result)
+                isnothing(result) && return
                 report = JSON.parse(replace(result[1], "&quot;" => "\"", "&lt;" => "<",
                     "&gt;" => ">", "&amp;" => "&"))
                 @test report["checks"] >= 40
                 @test isempty(report["failures"])
-                @info "host theme browser checks" checks=report["checks"]
+                @info "host theme browser checks" source checks=report["checks"]
                 isempty(report["failures"]) || println(JSON.json(report["failures"]))
+            end
+            run_page("file://" * joinpath(dir, "inline.html"), :inline)
+            with_page_server(dir) do root
+                run_page(root * "/vendor.html", :vendor)
             end
         end
     end

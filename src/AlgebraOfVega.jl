@@ -13,6 +13,7 @@ using Makie: Scatter, Lines, ScatterLines, BarPlot, Heatmap, BoxPlot,
 import Makie
 using JSON, Tables, Statistics
 using Dates: TimeType
+using SHA: sha256
 using HTMX
 # `Raw` marks complete, trusted JS/CSS bytes. HTMX 1.0 escapes ordinary string
 # children (`&`, `"`, `'`, `<`, `>`), which mangles every `<script>`/`<style>`
