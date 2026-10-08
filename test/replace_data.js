@@ -102,10 +102,13 @@
         // full configured legend, including a currently absent series.
         id = 'rk-pinned';
         view = await ready(id);
+        const canvas = view.container().querySelector('canvas');
+        check(!!canvas, 'pinned remove: canvas renderer mounted');
         const pinnedB = view.scale('color')('B');
         send('pinned_remove_A');
         await view.runAsync();
         check(AoV.views[id] === view, 'pinned remove: same mounted view');
+        check(view.container().querySelector('canvas') === canvas, 'pinned remove: same canvas element');
         check(view.data('source_0').length === 5 && rowsOf(view, 'A').length === 0,
             'pinned remove: only A deleted');
         check(view.scale('color')('B') === pinnedB, 'pinned remove: B colour stable');

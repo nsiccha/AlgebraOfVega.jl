@@ -116,7 +116,7 @@ data change that brings a new group re-embeds once with that group's layers.
             driver = read(joinpath(@__DIR__, "replace_data.js"), String)
             write(joinpath(dir, "test.html"), "<!doctype html><meta charset='utf-8'>" * runtime *
                 "<script>const embed=vegaEmbed;vegaEmbed=(el,spec,opts)=>" *
-                "embed(el,spec,Object.assign({},opts,{renderer:'svg'}));</script>" *
+                "embed(el,spec,Object.assign({},opts,{renderer:el==='#rk-pinned'?'canvas':'svg'}));</script>" *
                 join(html(p) for p in page) *
                 "<script>window.AOV_FIXTURE=" * payload * ";</script><script>" * driver * "</script>")
             output = read(pipeline(`$chrome --headless=new --no-sandbox --disable-gpu
