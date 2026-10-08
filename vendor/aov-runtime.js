@@ -750,18 +750,47 @@ window.AoV = window.AoV || {
     // row whose `key` field values equal those of a row of `data` is
     // removed and `data` inserted, in one changeset; the rows of every
     // other group stay in the view untouched.
+    _keyToken: function(row, fields) {
+        return JSON.stringify(fields.map(function(f) { return row[f]; }));
+    },
+    _hasKeyFields: function(row, fields) {
+        return fields.every(function(f) { return Object.prototype.hasOwnProperty.call(row, f); });
+    },
     replaceData: function(id, data, key, name) {
         name = name || 'source_0';
         data = this._rowsFromColumns(data);
         var self = this, fields = [].concat(key);
-        var keyOf = function(r) { return JSON.stringify(fields.map(function(f) { return r[f]; })); };
         this.whenReady(id, function(view) {
             if (self._refuseRawRows('replaceData', id, view, name, data)) return;
-            var keys = new Set(data.map(keyOf));
-            var replaced = function(r) { return keys.has(keyOf(r)); };
+            var keys = new Set(data.map(function(r) { return self._keyToken(r, fields); }));
+            var replaced = function(r) {
+                return self._hasKeyFields(r, fields) && keys.has(self._keyToken(r, fields));
+            };
             var rows = self._currentRows(id, name).filter(function(r) { return !replaced(r); });
             self._applyRows(id, view, name, rows.concat(data),
                 vega.changeset().remove(replaced).insert(data));
+        });
+    },
+
+    // Remove one explicitly named group without shipping replacement rows.
+    // A missing key field is an error instead of a silent no-op (which would
+    // be easy to mistake for a successful removal from a lowered dataset).
+    removeData: function(id, values, key, name) {
+        name = name || 'source_0';
+        var self = this, fields = [].concat(key), token = JSON.stringify(values);
+        this.whenReady(id, function(view) {
+            var current = self._currentRows(id, name);
+            if (current.length && !current.some(function(r) { return self._hasKeyFields(r, fields); })) {
+                console.error('AoV.removeData: dataset "' + name + '" of plot "' + id +
+                    '" lacks key field(s) ' + fields.join(', ') + '. Data left unchanged.');
+                return;
+            }
+            var removed = function(r) {
+                return self._hasKeyFields(r, fields) && self._keyToken(r, fields) === token;
+            };
+            if (!current.some(removed)) return;
+            self._applyRows(id, view, name, current.filter(function(r) { return !removed(r); }),
+                vega.changeset().remove(removed));
         });
     },
 

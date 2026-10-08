@@ -78,6 +78,53 @@
         view = await ready(id, view);
         check(view.data('source_0').length === 10 && rowsOf(view, 'B').every(r => r.lower === 9) &&
             rowsOf(view, 'A').every(r => r.lower === -1), 'plain re-embed: replaced rows kept');
+        const colorB = view.scale('color')('B');
+        send('plain_missing_key');
+        check(errors.length === 1 && /removeData/.test(errors[0]) && /unknown/.test(errors[0]),
+            'remove missing key: explicit error');
+        check(view.data('source_0').length === 10, 'remove missing key: rows unchanged');
+        const plainKept = rowsOf(view, 'A');
+        send('plain_remove_B');
+        await view.runAsync();
+        check(AoV.views[id] === view, 'plain remove: same mounted view');
+        check(view.data('source_0').length === 5 && rowsOf(view, 'B').length === 0,
+            'plain remove: only B deleted');
+        check(rowsOf(view, 'A').every((r, i) => r === plainKept[i]),
+            'plain remove: A tuples untouched');
+        check(view.scale('color').domain().join() === 'A', 'plain remove: data-derived legend shrinks');
+        check(view.scale('color')('A') !== colorB, 'plain remove: data-derived colours can shift');
+        AoV._embed(id, AoV._origSpecs[id], AoV._embedOpts[id], true);
+        view = await ready(id, view);
+        check(view.data('source_0').length === 5 && !rowsOf(view, 'B').length,
+            'plain remove: deleted group stays gone after re-embed');
+
+        // A fixed colour domain preserves the series colour and keeps the
+        // full configured legend, including a currently absent series.
+        id = 'rk-pinned';
+        view = await ready(id);
+        const canvas = view.container().querySelector('canvas');
+        check(!!canvas, 'pinned remove: canvas renderer mounted');
+        const pinnedB = view.scale('color')('B');
+        send('pinned_remove_A');
+        await view.runAsync();
+        check(AoV.views[id] === view, 'pinned remove: same mounted view');
+        check(view.container().querySelector('canvas') === canvas, 'pinned remove: same canvas element');
+        check(view.data('source_0').length === 5 && rowsOf(view, 'A').length === 0,
+            'pinned remove: only A deleted');
+        check(view.scale('color')('B') === pinnedB, 'pinned remove: B colour stable');
+        check(view.scale('color').domain().join() === 'A,B', 'pinned remove: fixed legend retains both labels');
+        send('pinned_remove_B');
+        await view.runAsync();
+        check(AoV.views[id] === view && view.container().querySelector('canvas') === canvas,
+            'pinned remove last group: same canvas');
+        check(view.data('source_0').length === 0 && canvas.width > 0 && canvas.height > 0,
+            'pinned remove last group: empty plot stays drawable');
+        send('pinned_restore_B');
+        await view.runAsync();
+        check(AoV.views[id] === view && view.container().querySelector('canvas') === canvas,
+            'pinned restore: same canvas');
+        check(rowsOf(view, 'B').length === 5 && view.scale('color')('B') === pinnedB,
+            'pinned restore: B rows and colour restored');
 
         // --- Sent before its plot embedded: applied once ready.
         id = 'rk-queued';
@@ -123,6 +170,21 @@
         check(c.length === 10 && c.filter(r => r.panel === 'p1').every(r => r.lower === 7) &&
             c.filter(r => r.panel === 'p2').every(r => r.lower === 6), 'composite key: one panel replaced');
         check(drawn(view)['area:C'] === 10, 'composite key: C still drawn');
+        const ribbonKept = rowsOf(view, 'B');
+        send('ribbon_remove_Cp1');
+        await view.runAsync();
+        check(AoV.views[id] === view, 'ribbon composite remove: same mounted view');
+        check(rowsOf(view, 'C').length === 5 && rowsOf(view, 'C').every(r => r.panel === 'p2'),
+            'ribbon composite remove: one panel deleted');
+        check(rowsOf(view, 'B').every((r, i) => r === ribbonKept[i]),
+            'ribbon composite remove: B untouched');
+        send('ribbon_remove_C');
+        await view.runAsync();
+        check(AoV.views[id] === view && rowsOf(view, 'C').length === 0,
+            'ribbon remove: C deleted without re-embed');
+        check(view.scale('color').domain().join() === 'A,B', 'ribbon remove: legend drops C');
+        check(drawn(view)['area:A'] === 10 && drawn(view)['area:B'] === 10 && !drawn(view)['area:C'],
+            'ribbon remove: other bands stay drawn');
 
         // --- Empty coloured lineribbon: groups arrive one by one.
         id = 'rk-empty';
@@ -182,13 +244,13 @@
         check(d['area:A'] === 5 && d['area:B'] === 5 && !d['area:C'], 'layered ribbon new group: A and B kept, C not drawn');
         check(AoV._plotData(id).length === 15, 'layered ribbon new group: rows kept');
 
-        check(errors.length === 1, 'unexpected runtime errors: ' + errors.join('; '));
+        check(errors.length === 2, 'unexpected runtime errors: ' + errors.join('; '));
     } catch (error) {
         failures.push(error.stack);
     } finally {
         console.error = originalError;
         console.warn = originalWarn;
-        ['rk-plain', 'rk-queued', 'rk-ribbon', 'rk-empty', 'rk-interval', 'rk-layered'].forEach(id => AoV.dispose(id));
+        ['rk-plain', 'rk-pinned', 'rk-queued', 'rk-ribbon', 'rk-empty', 'rk-interval', 'rk-layered'].forEach(id => AoV.dispose(id));
     }
     const result = document.createElement('pre');
     result.id = 'aov-replace-data-results';

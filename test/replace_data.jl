@@ -18,7 +18,7 @@ dataset at all (`Unrecognized data set: source_0`). The group layers are now
 tagged `_lr_group` (an empty render emits `_lr_proto` template layers), and a
 data change that brings a new group re-embeds once with that group's layers.
 """
-@testitem "replace_data swaps one group's rows; new ribbon groups are drawn" tags=[:incremental, :browser, :regression] begin
+@testitem "keyed replacement and removal keep other groups mounted" tags=[:incremental, :browser, :regression] begin
     using AlgebraOfVega, JSON
     html(x) = sprint(show, MIME"text/html"(), x)
     script(x) = match(r"^<script>(.*)</script>$"s, html(x)).captures[1]
@@ -48,6 +48,16 @@ data change that brings a new group re-embeds once with that group's layers.
     # refused: an empty key would select every row (that is update_data)
     @test_throws ArgumentError replace_data("rk", t; key=Symbol[])
 
+    @test script(remove_data("rk", "B"; key=:scenario)) ==
+        "AoV.removeData('rk', [\"B\"], [\"scenario\"], 'source_0');"
+    @test script(remove_data("rk", ("B", "p1"); key=[:scenario, :panel])) ==
+        "AoV.removeData('rk', [\"B\",\"p1\"], [\"scenario\",\"panel\"], 'source_0');"
+    @test occursin("'other');", script(remove_data("rk", "B"; key=:scenario, name="other")))
+    @test_throws ArgumentError remove_data("rk", "B"; key=Symbol[])
+    @test_throws ArgumentError remove_data("rk", ("B",); key=:scenario)
+    @test_throws ArgumentError remove_data("rk", "B"; key=[:scenario, :panel])
+    @test_throws ArgumentError remove_data("rk", ("B",); key=[:scenario, :panel])
+
     # Lowering: group layers carry `_lr_group`; an empty coloured ribbon emits
     # its template layers instead of none.
     ribbon(tbl; kw...) = data(tbl) * mapping(:x, :y; color=:scenario, kw...) * lineribbon(bands=[:lower => :upper])
@@ -63,12 +73,21 @@ data change that brings a new group re-embeds once with that group's layers.
 
     band_lines(tbl) = data(tbl) * (mapping(:x, :lower, :upper; color=:scenario) * visual(Band) +
         mapping(:x, :y; color=:scenario) * visual(Lines)) * config(height=150)
+    pinned = band_lines(cat(rows("A"), rows("B"; off=3))) *
+        config(scales=scales(Color=(; categories=["A", "B"], palette=["#cc0000", "#0066cc"])))
     draws = (; v=randn(60), g=repeat(["a", "b", "c"], 20))
     updates = Dict(
         "plain_B" => script(replace_data("rk-plain", rows("B"; off=10); key=:scenario)),
+        "plain_remove_B" => script(remove_data("rk-plain", "B"; key=:scenario)),
+        "plain_missing_key" => script(remove_data("rk-plain", "B"; key=:unknown)),
         "ribbon_C1" => script(replace_data("rk-ribbon", rows("C"; off=6, panels=["p1", "p2"]); key=:scenario)),
         "ribbon_C2" => script(replace_data("rk-ribbon", rows("C"; off=7, panels=["p1", "p2"]); key=:scenario)),
         "ribbon_Cp1" => script(replace_data("rk-ribbon", rows("C"; off=8, panels=["p1"]); key=[:scenario, :panel])),
+        "ribbon_remove_Cp1" => script(remove_data("rk-ribbon", ("C", "p1"); key=[:scenario, :panel])),
+        "ribbon_remove_C" => script(remove_data("rk-ribbon", "C"; key=:scenario)),
+        "pinned_remove_A" => script(remove_data("rk-pinned", "A"; key=:scenario)),
+        "pinned_remove_B" => script(remove_data("rk-pinned", "B"; key=:scenario)),
+        "pinned_restore_B" => script(replace_data("rk-pinned", rows("B"; off=3); key=:scenario)),
         "empty_A" => script(replace_data("rk-empty", rows("A"); key=:scenario)),
         "empty_B" => script(replace_data("rk-empty", rows("B"; off=3); key=:scenario)),
         "empty_A2" => script(replace_data("rk-empty", rows("A"; off=1); key=:scenario)),
@@ -82,6 +101,7 @@ data change that brings a new group re-embeds once with that group's layers.
     else
         mktempdir(prefix="kb-replace-data-") do dir
             page = [vdraw(band_lines(cat(rows("A"), rows("B"; off=3))); id="rk-plain"),
+                vdraw(pinned; id="rk-pinned"),
                 vdraw(ribbon(cat(rows("A"; panels=["p1", "p2"]), rows("B"; off=3, panels=["p1", "p2"]));
                     col=:panel) * config(height=150); id="rk-ribbon"),
                 vdraw(ribbon(typed_empty) * config(height=150); id="rk-empty"),
@@ -98,7 +118,7 @@ data change that brings a new group re-embeds once with that group's layers.
             driver = read(joinpath(@__DIR__, "replace_data.js"), String)
             write(joinpath(dir, "test.html"), "<!doctype html><meta charset='utf-8'>" * runtime *
                 "<script>const embed=vegaEmbed;vegaEmbed=(el,spec,opts)=>" *
-                "embed(el,spec,Object.assign({},opts,{renderer:'svg'}));</script>" *
+                "embed(el,spec,Object.assign({},opts,{renderer:el==='#rk-pinned'?'canvas':'svg'}));</script>" *
                 join(html(p) for p in page) *
                 "<script>window.AOV_FIXTURE=" * payload * ";</script><script>" * driver * "</script>")
             output = read(pipeline(`$chrome --headless=new --no-sandbox --disable-gpu

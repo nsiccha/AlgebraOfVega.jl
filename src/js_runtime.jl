@@ -343,6 +343,8 @@ Client-side API:
 - `AoV.replaceData(id, data, key, name)` — replace the rows of the groups `data`
   carries (rows whose `key` field values match a row of `data`), keeping the
   other groups' rows
+- `AoV.removeData(id, values, key, name)` — remove one explicitly named keyed
+  group without replacement rows.
 - `data` is a row array or the columnar `{n, columns}` form `update_data` /
   `append_data` / `replace_data` send; `AoV.embed`/`AoV.updateSpec` expand
   inline datasets in that form too (`AoV._rowsFromColumns`)
