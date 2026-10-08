@@ -769,6 +769,42 @@ function _replace_key(key::AbstractVector)
 end
 
 """
+    remove_data(id, value; key, name="source_0")
+
+Remove one keyed group from an existing Vega view without replacing its other
+rows or re-embedding the plot. `value` is the value of the `key` column, or a
+tuple of values in the same order as a composite `key` vector:
+
+```julia
+remove_data("bands", "Scenario A"; key=:scenario)
+remove_data("bands", ("Scenario A", "panel 1"); key=[:scenario, :panel])
+```
+
+Like [`replace_data`](@ref), the change is queued until the view is ready and
+survives responsive re-embeds. The key names fields in the embedded dataset;
+if its rows lack them, the runtime reports an error and leaves the data alone.
+A data-derived colour domain and legend shrink when the last row of a colour
+group is removed. To keep surviving groups' colours stable across removals and
+later additions, pin the full `Color` scale with
+`config(scales=scales(Color=(; categories=all_groups, palette=colors)))`.
+That fixed domain also keeps every category in the Vega legend; render a
+separate selection legend if it should show enabled groups only.
+"""
+function remove_data(id, value; key, name="source_0")
+    id = _sanitize_id(id)
+    fields = _replace_key(key)
+    values = if length(fields) == 1
+        value isa Tuple && throw(ArgumentError("remove_data: a single-column `key` needs one value, not a tuple"))
+        [value]
+    elseif value isa Tuple && length(value) == length(fields)
+        collect(value)
+    else
+        throw(ArgumentError("remove_data: a composite `key` needs a tuple of $(length(fields)) values"))
+    end
+    h.script(Raw("AoV.removeData('$id', $(_vl_json(values)), $(_vl_json(fields)), '$name');"))
+end
+
+"""
     update_spec(id, spec; auto_remap=nothing, width, height, actions, fit_width)
 
 Return an `h.script` node that refreshes the existing plot `id` (created by
