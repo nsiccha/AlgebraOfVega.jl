@@ -113,6 +113,18 @@
             'pinned remove: only A deleted');
         check(view.scale('color')('B') === pinnedB, 'pinned remove: B colour stable');
         check(view.scale('color').domain().join() === 'A,B', 'pinned remove: fixed legend retains both labels');
+        send('pinned_remove_B');
+        await view.runAsync();
+        check(AoV.views[id] === view && view.container().querySelector('canvas') === canvas,
+            'pinned remove last group: same canvas');
+        check(view.data('source_0').length === 0 && canvas.width > 0 && canvas.height > 0,
+            'pinned remove last group: empty plot stays drawable');
+        send('pinned_restore_B');
+        await view.runAsync();
+        check(AoV.views[id] === view && view.container().querySelector('canvas') === canvas,
+            'pinned restore: same canvas');
+        check(rowsOf(view, 'B').length === 5 && view.scale('color')('B') === pinnedB,
+            'pinned restore: B rows and colour restored');
 
         // --- Sent before its plot embedded: applied once ready.
         id = 'rk-queued';

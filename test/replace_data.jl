@@ -86,6 +86,8 @@ data change that brings a new group re-embeds once with that group's layers.
         "ribbon_remove_Cp1" => script(remove_data("rk-ribbon", ("C", "p1"); key=[:scenario, :panel])),
         "ribbon_remove_C" => script(remove_data("rk-ribbon", "C"; key=:scenario)),
         "pinned_remove_A" => script(remove_data("rk-pinned", "A"; key=:scenario)),
+        "pinned_remove_B" => script(remove_data("rk-pinned", "B"; key=:scenario)),
+        "pinned_restore_B" => script(replace_data("rk-pinned", rows("B"; off=3); key=:scenario)),
         "empty_A" => script(replace_data("rk-empty", rows("A"); key=:scenario)),
         "empty_B" => script(replace_data("rk-empty", rows("B"; off=3); key=:scenario)),
         "empty_A2" => script(replace_data("rk-empty", rows("A"; off=1); key=:scenario)),
