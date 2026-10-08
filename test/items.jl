@@ -2408,9 +2408,9 @@ untouched.
     # The restore re-embed keeps appended rows and the original embed options.
     @test occursin("self._embedOpts[id] = opts", rt)
     @test occursin("self._embed(id, self._origSpecs[id], self._embedOpts[id], true)", rt)
-    # update_data, append_data and replace_data all restore: each applies its
+    # update_data, append_data, replace_data and remove_data all restore: each applies its
     # change through `_applyRows`, which fires the hook after the change.
-    @test count(line -> occursin("self._applyRows(id, view, name,", line), split(rt, "\n")) == 3
+    @test count(line -> occursin("self._applyRows(id, view, name,", line), split(rt, "\n")) == 4
     at = last(findfirst("_applyRows: function", rt))
     @test occursin("this._maybeRestoreLegends(id);", rt[at:last(findnext("this._dataChanged(id);", rt, at))])
 end
