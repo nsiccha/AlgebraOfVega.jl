@@ -11,19 +11,31 @@ tags — so a saved card from a `:vendor` or `:inline` page carried no Vega at
 all. Same-origin vendored files are now fetched and inlined, and inline
 vendored scripts copied, so the saved file renders with neither the server nor
 a CDN.
+
+Regression (snag `serve-a-page-tha-ebb4d298`): both pages are served through a
+text-substituting proxy — nginx `sub_filter '</head>' '<script>…</script></head>'`
+with `sub_filter_once off`, plus the `</body>` analogue analytics/livereload
+snippets use. It rewrites EVERY occurrence, and the inline runtime, inlined
+vega-embed and a data label all spelled those tags inside their `<script>`, so
+the injected `</script>` cut the element short and no plot rendered. Only the
+document's own tags may spell them now.
 """
 @testitem "standalone html export from inline and vendored pages" setup=[AoVBrowserServer] tags=[:standalone, :browser, :regression, :caption] begin
     using AlgebraOfVega, HTMXObjects, JSON
     @test !isnothing(Base.get_extension(AlgebraOfVega, :AlgebraOfVegaHTMXObjectsExt))
 
     states = ["passed", "failed"]
-    rows = (; value=collect(1.0:24.0), model=repeat(["m1", "m2", "m3", "m4"], inner=6),
+    label = "m4 </script></head></body>"
+    rows = (; value=collect(1.0:24.0), model=repeat(["m1", "m2", "m3", label], inner=6),
         state=repeat(states, inner=12), group=repeat(["g1", "g2"], 12))
     spec = data(rows) * mapping(:value => "Seconds"; y=:model => "Model", color=:state => "Outcome") *
         pointinterval(probs=[0.5]) * config(height=160)
     remap = (; dims=["state" => "Outcome", "group" => "Group"], pinned=:row)
     versions = [AlgebraOfVega.VEGA_VERSION, AlgebraOfVega.VEGALITE_VERSION, AlgebraOfVega.VEGA_EMBED_VERSION]
     driver = read(joinpath(@__DIR__, "standalone_export.js"), String)
+    # The proxy's rewrite; the driver applies the same pairs to the saved card.
+    sub_filter = ["</head>" => "<script>window.AOV_INJECTED_HEAD=(window.AOV_INJECTED_HEAD||0)+1</script></head>",
+        "</body>" => "<script>window.AOV_INJECTED_BODY=(window.AOV_INJECTED_BODY||0)+1</script></body>"]
 
     chrome = something(Sys.which("google-chrome"), Sys.which("chromium"), "")
     if isempty(chrome)
@@ -37,14 +49,17 @@ a CDN.
             for (source, runtime, by_url, saved_marked) in cases
                 page = to_html(spec, "Outcomes"; plot_id="export-plot", auto_remap=remap,
                     source, runtime, base="/vendor")
+                # The document's own tags are the only ones in the served text.
+                for tag in ("</head>", "</body>", "</html>")
+                    @test count(tag, page) == 1
+                end
                 payload = replace(JSON.json((; id="export-plot", byUrl=by_url, savedMarked=saved_marked,
-                    linked=runtime === :linked, versions)), "</" => "<\\/")
-                # The page's own closing tag: inlined vega-embed spells
-                # `</body>` inside a string, so only the last one is the page's.
+                    linked=runtime === :linked, versions, label,
+                    filter=[[tag, injected] for (tag, injected) in sub_filter])), "</" => "<\\/")
                 cut = first(findlast("</body>", page))
-                write(joinpath(dir, "$source-$runtime.html"), page[1:prevind(page, cut)] *
+                write(joinpath(dir, "$source-$runtime.html"), replace(page[1:prevind(page, cut)] *
                     "<script>window.AOV_FIXTURE=" * payload * ";</script><script>" * driver * "</script>" *
-                    page[cut:end])
+                    page[cut:end], sub_filter...))
             end
             with_page_server(dir) do root
                 for (source, runtime, by_url, _) in cases

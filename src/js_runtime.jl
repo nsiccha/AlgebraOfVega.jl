@@ -44,10 +44,11 @@ runtime and stylesheet from it too, instead of inlining them in every page.
 """
 vega_vendor_dir() = normpath(joinpath(pkgdir(AlgebraOfVega), "vendor"))
 
-# path => (mtime, bytes, version). Re-read when the file changes on disk, so
-# an edited runtime is picked up without a restart; the version is a content
-# hash, so a URL carrying it changes exactly when the bytes do.
-const _VENDOR_CACHE = Dict{String,Tuple{Float64,String,String}}()
+# path => (mtime, bytes, version, inline). Re-read when the file changes on
+# disk, so an edited runtime is picked up without a restart; the version is a
+# content hash, so a URL carrying it changes exactly when the bytes do; `inline`
+# is the text an inline element carries (`_inline_text`), computed once per read.
+const _VENDOR_CACHE = Dict{String,Tuple{Float64,String,String,String}}()
 const _VENDOR_CACHE_LOCK = ReentrantLock()
 
 function _vendor_asset(file)
@@ -57,11 +58,15 @@ function _vendor_asset(file)
         hit = get(_VENDOR_CACHE, path, nothing)
         !isnothing(hit) && hit[1] == mt && return hit
         bytes = read(path, String)
-        _VENDOR_CACHE[path] = (mt, bytes, bytes2hex(sha256(bytes))[1:16])
+        _VENDOR_CACHE[path] = (mt, bytes, bytes2hex(sha256(bytes))[1:16], _inline_text(bytes))
     end
 end
 
-_vega_vendor_bytes(file) = _vendor_asset(file)[2]
+# A vendored file as an inline `<script>`/`<style>` body. AoV's own runtime and
+# stylesheet never spell a closing tag, so theirs are the file's bytes; the
+# pinned vega-embed build spells `</head>`, `</body>`, `</html>` in template
+# literals, which this rewrites (the vendored-trio testitem pins those sites).
+_vega_vendor_inline(file) = _vendor_asset(file)[4]
 
 # The same-origin URL of a vendored file, versioned by its content hash so an
 # app can serve `vega_vendor_dir()` with a far-future (`immutable`) cache
@@ -78,7 +83,8 @@ The three Vega/Vega-Lite/Vega-Embed `<script>` nodes shared by `vega_head()`
 and `to_html`: `:cdn` (default) emits exact-pinned CDN tags with
 subresource integrity; `:vendor` emits same-origin, content-versioned
 `<base>/<file>?v=<hash>` tags for an app serving `vega_vendor_dir()` at
-`base`; `:inline` inlines the vendored bytes for fully self-contained pages.
+`base`; `:inline` inlines the vendored bytes for fully self-contained pages,
+closing tags written as `<\\/` (`_inline_text`).
 Version overrides apply only to `:cdn` — the vendored bytes are fixed at the
 pinned trio. Vendored tags (`:vendor` and `:inline`) carry `data-aov-vendor`,
 which tells `AoV.downloadPlotHtml` to carry their bytes into the saved file.
@@ -105,7 +111,7 @@ function _vega_script_nodes(; source::Symbol=:cdn, base::AbstractString="/vendor
         if source === :vendor
             return [h.script(src=_vendor_url(base, f), data_aov_vendor=f) for f in _VEGA_VENDOR_FILES]
         else
-            return [h.script(Raw(_vega_vendor_bytes(f)), data_aov_vendor=f) for f in _VEGA_VENDOR_FILES]
+            return [h.script(Raw(_vega_vendor_inline(f)), data_aov_vendor=f) for f in _VEGA_VENDOR_FILES]
         end
     else
         throw(ArgumentError("source must be :cdn, :vendor, or :inline, got $source"))
@@ -118,7 +124,7 @@ end
 # than ~96 KB that the browser can cache. `source` is validated by
 # `_vega_script_nodes`.
 _aov_asset_nodes(::Val{:inline}, source::Symbol, base::AbstractString) =
-    [h.style(Raw(_vega_vendor_bytes(_AOV_STYLE_FILE))), vega_runtime()]
+    [h.style(Raw(_vega_vendor_inline(_AOV_STYLE_FILE))), vega_runtime()]
 function _aov_asset_nodes(::Val{:linked}, source::Symbol, base::AbstractString)
     source === :vendor || throw(ArgumentError("runtime=:linked loads AoV's runtime from the " *
         "vendor mount, so it needs source=:vendor (serve vega_vendor_dir() at base); got source=:$source"))
@@ -196,8 +202,8 @@ function vega_head(;
     !isnothing(actions) && (settings["defaultActions"] = actions)
     theme === :host || (settings["theme"] = string(theme))
     if !isempty(settings)
-        !isnothing(zoom) && push!(nodes, h.style(Raw(".vega-embed { zoom: $zoom; }")))
-        push!(nodes, h.script(Raw("window.AoV = Object.assign(window.AoV || {}, $(_vl_json(settings)));")))
+        !isnothing(zoom) && push!(nodes, _inline_style(".vega-embed { zoom: $zoom; }"))
+        push!(nodes, _inline_script("window.AoV = Object.assign(window.AoV || {}, $(_vl_json(settings)));"))
     end
     nodes
 end
@@ -238,7 +244,7 @@ function vega_controls(; zoom=true, actions=true)
         ))
         # Use a stylesheet to hide .vega-actions — works even for elements created later.
         # When defaultActions is already true (from vega_head), start with checkbox checked and sheet disabled.
-        push!(children, h.script(Raw("""
+        push!(children, _inline_script("""
             (function() {
                 if (!document.getElementById('aov-actions-hide')) {
                     var s = document.createElement('style');
@@ -252,7 +258,7 @@ function vega_controls(; zoom=true, actions=true)
                 var cb = document.querySelector('.aov-actions-toggle');
                 if (cb) cb.checked = !!show;
             })();
-        """)))
+        """))
     end
     h.div(; class="aov-context-bar")(children...)
 end
@@ -391,4 +397,4 @@ container itself, so single-view plots fill their container on any page —
 without it vega-embed's `display: inline-block` shrink-wraps the element and
 the view measures 0px wide wherever no page stylesheet widens it.
 """
-vega_runtime() = h.script(Raw(_vega_vendor_bytes(_AOV_RUNTIME_FILE)))
+vega_runtime() = h.script(Raw(_vega_vendor_inline(_AOV_RUNTIME_FILE)))

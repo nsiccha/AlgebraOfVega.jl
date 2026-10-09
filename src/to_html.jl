@@ -18,7 +18,7 @@ function to_html(spec; id=nothing, width=nothing, height=nothing,
     """
     <div id="$id"></div>
     $scripts
-    <script>vegaEmbed('#$id', $json, {actions: false}).catch(console.error);</script>
+    <script>$(_inline_text("vegaEmbed('#$id', $json, {actions: false}).catch(console.error);"))</script>
     """
 end
 

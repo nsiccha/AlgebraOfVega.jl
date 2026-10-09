@@ -3626,14 +3626,16 @@ URL carries `?v=<content hash>`, which changes exactly when the file does.
     @test html(vega_runtime()) == "<script>" * runtime_bytes * "</script>"
     @test occursin("<style>" * style_bytes * "</style>", dflt)
     @test occursin("<script>" * runtime_bytes * "</script>", dflt)
-    # Both are inlined by :cdn/:inline, so neither may close its element early.
-    @test !occursin(r"</script"i, runtime_bytes)
-    @test !occursin(r"</style"i, style_bytes)
+    # Both are inlined by :cdn/:inline, so neither spells a closing tag that
+    # ends its element early or that a proxy rewrites (`_inline_text`).
+    @test !occursin(AlgebraOfVega._INLINE_CLOSING_TAG, runtime_bytes)
+    @test !occursin(AlgebraOfVega._INLINE_CLOSING_TAG, style_bytes)
 
-    # Inline mode: the vendored bytes, in full, and no external scripts.
+    # Inline mode: the vendored bytes, in full (closing tags written `<\/`),
+    # and no external scripts.
     inlined = head(; source=:inline)
     for f in ("vega.min.js", "vega-lite.min.js", "vega-embed.min.js")
-        @test occursin(read(joinpath(dir, f), String), inlined)
+        @test occursin(AlgebraOfVega._inline_text(read(joinpath(dir, f), String)), inlined)
     end
     @test !occursin("cdn.jsdelivr.net", inlined)
     @test !occursin("<script src=", inlined)
@@ -3666,4 +3668,77 @@ URL carries `?v=<content hash>`, which changes exactly when the file does.
     @test_throws ArgumentError vega_head(; source=:vendor, vega_embed_version="6.0.0")
     @test_throws ArgumentError vega_head(; source=:bogus)
     @test_throws ArgumentError to_html(spec; source=:bogus)
+end
+
+"""
+Every inline `<script>`/`<style>` body AoV emits is free of the closing tags
+that end the element early (`</script`, `</style`) or that a text-substituting
+proxy rewrites (`</head>`, `</body>`, `</html>` — nginx `sub_filter` with
+`sub_filter_once off`, injected analytics/livereload snippets): a match splices
+markup into the middle of the script and every plot on the page dies (snag
+`serve-a-page-tha-ebb4d298`). `_inline_text` writes them as `<\\/` — the same
+JS/CSS string value — and leaves any other `</` alone, because a bare `</` can
+be a regex's `<` and its closing `/` (vega's `.replace(/</g, …)`). The
+standalone-export browser item serves real pages through such a filter.
+"""
+@testitem "inline script bodies never spell a closing tag" setup=[AoVTestImports] tags=[:standalone, :regression] begin
+    rule = AlgebraOfVega._inline_text
+    closers(s) = [lowercase(m.match) for m in eachmatch(r"</(?:script|style|head|body|html)\b"i, s)]
+    html(x) = sprint(show, MIME"text/html"(), x)
+
+    # The rule: those five tag names in any case, nothing else; idempotent.
+    @test rule("a</script>b</HEAD></Body ></html>c</style>") ==
+        "a<\\/script>b<\\/HEAD><\\/Body ><\\/html>c<\\/style>"
+    for kept in ("x.replace(/</g, '&lt;')", "'</div>'", "</header>", "</scriptx", "a <\\/head>")
+        @test rule(kept) == kept
+    end
+    @test rule(rule("</script></head>")) == rule("</script></head>")
+
+    # The pinned trio: only vega-embed spells such tags, once each, inside the
+    # two template literals of its source-view page, where `<\/` is the same
+    # string. A trio bump must re-check every rewritten site: inside a
+    # `String.raw` template or a bare comparison it would change meaning.
+    dir = vega_vendor_dir()
+    for f in ("vega.min.js", "vega-lite.min.js", "vega-embed.min.js")
+        bytes = read(joinpath(dir, f), String)
+        @test closers(bytes) == (f == "vega-embed.min.js" ? ["</head", "</body", "</html"] : String[])
+        @test !occursin("String.raw", bytes)
+        inline = AlgebraOfVega._vega_vendor_inline(f)
+        @test isempty(closers(inline))
+        @test ncodeunits(inline) == ncodeunits(bytes) + length(closers(bytes))
+    end
+    embed = read(joinpath(dir, "vega-embed.min.js"), String)
+    @test occursin("`<html><head>\${t}</head><body><pre><code class=\"json\">`", embed)
+    @test occursin("`</code></pre>\${n}</body></html>`", embed)
+
+    # Spec and data JSON: a value spelling those tags crosses as `<\/`, so a
+    # fragment carries only its elements' own closers.
+    label = "m </script></head></body></html>"
+    rows = (; x=[1.0, 2.0], y=[3.0, 4.0], g=["a", label])
+    spec = data(rows) * mapping(:x, :y; color=:g) * visual(Scatter)
+    fragments = [
+        to_node(spec; id="tag-plot"),
+        update_spec("tag-plot", spec),
+        update_data("tag-plot", rows),
+        append_data("tag-plot", rows),
+        replace_data("tag-plot", rows; key=:g),
+        remove_data("tag-plot", label; key=:g),
+        caption_action_inject(HTMX.h.span(), "acts.title = '</script></head>';"),
+    ]
+    for frag in html.(fragments)
+        @test count(r"<script\b"i, frag) == count(r"</script>"i, frag) >= 1
+        @test !occursin(r"</(?:head|body|html)\b"i, frag)
+        @test occursin("<\\/script><\\/head>", frag)
+    end
+    @test occursin("<\\/script><\\/head>", to_html(spec))
+
+    # Whole pages, in every head mode: each document tag exactly once.
+    for (source, runtime) in ((:cdn, :inline), (:vendor, :inline), (:vendor, :linked), (:inline, :inline))
+        page = to_html(to_node(spec; id="tag-plot"); source, runtime)
+        for tag in ("</head>", "</body>", "</html>")
+            @test count(tag, page) == 1
+        end
+    end
+    page = to_html(to_node(spec; id="tag-plot"); source=:vendor, runtime=:inline)
+    @test occursin("<script>" * read(joinpath(dir, "aov-runtime.js"), String) * "</script>", page)
 end

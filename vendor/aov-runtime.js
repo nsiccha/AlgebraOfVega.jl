@@ -1361,11 +1361,15 @@ window.AoV = window.AoV || {
             if (!r.ok) throw new Error('AoV.downloadPlotHtml: ' + url + ' answered HTTP ' + r.status);
             return r.text();
         }).then(function(text) {
-            // A literal closing tag in the bytes would end the inline element
-            // early; `<\/` reads the same as `</` inside JS and CSS strings.
-            // (This runtime is itself inlined, so it never spells that tag.)
-            return isScript ? '<script' + mark + '>' + text.replace(/<\/script/gi, '<\\/script') + '</' + 'script>'
-                : '<style' + mark + '>' + text.replace(/<\/style/gi, '<\\/style') + '</style>';
+            // Inline element text must not spell a closing tag that ends the
+            // element early or that a text-substituting proxy keys on — the
+            // rule of the Julia side's `_inline_text`: `<\/` reads the same as
+            // `</` inside JS and CSS strings, and only `</` before those tag
+            // names is rewritten (a bare `</` can be a regex's `<` and its `/`).
+            // This runtime is itself inlined, so it never spells such a tag.
+            var inline = text.replace(/<\/(?=(?:script|style|head|body|html)\b)/gi, '<\\/');
+            return isScript ? '<script' + mark + '>' + inline + '<\/script>'
+                : '<style' + mark + '>' + inline + '<\/style>';
         });
     },
 
@@ -1463,10 +1467,10 @@ window.AoV = window.AoV || {
 
         return Promise.all(headParts).then(function(parts) {
             var page = '<!DOCTYPE html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n' +
-                '<title>' + title + '</title>\n' +
-                '<style>body{font-family:system-ui,sans-serif;margin:1rem}</style>\n' +
-                parts.join('\n') + '\n</head>\n<body>\n' +
-                clone.outerHTML + '\n</body>\n</html>\n';
+                '<title>' + title + '<\/title>\n' +
+                '<style>body{font-family:system-ui,sans-serif;margin:1rem}<\/style>\n' +
+                parts.join('\n') + '\n<\/head>\n<body>\n' +
+                clone.outerHTML + '\n<\/body>\n<\/html>\n';
             self._triggerDownload(page, filenameBase + '.html', 'text/html');
         });
     },

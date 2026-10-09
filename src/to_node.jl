@@ -442,7 +442,7 @@ function to_node(spec; id=nothing, width=nothing, height=nothing, actions=false,
 
     h.div(; class="aov-plot-area")(
         h.div(; id=id, class="u-w-full"),
-        h.script(Raw("AoV.embed('$id', $json, $embed_opts).then(function(){$signal_js});")),
+        _inline_script("AoV.embed('$id', $json, $embed_opts).then(function(){$signal_js});"),
         # Markdown-only; emits zero bytes of HTML. Without it a `?plain` read of
         # a figure-only route is an empty body — see `PlotSummary`.
         PlotSummary(plot_summary_md(vl; id=id)),
@@ -517,7 +517,7 @@ places or selects the plot's marks (a positional/facet channel field or a
 """
 function update_data(id, table; name="source_0")
     id = _sanitize_id(id)
-    h.script(Raw("AoV.updateData('$id', $(_rows_payload(table)), '$name');"))
+    _inline_script("AoV.updateData('$id', $(_rows_payload(table)), '$name');")
 end
 
 # --- Columnar wire format -------------------------------------------------
@@ -721,7 +721,7 @@ Like [`update_data`](@ref), this inserts raw rows: refresh an AoV-lowered plot
 """
 function append_data(id, table; name="source_0", max_rows=nothing)
     id = _sanitize_id(id)
-    h.script(Raw("AoV.appendData('$id', $(_rows_payload(table)), '$name', $(something(max_rows, "null")));"))
+    _inline_script("AoV.appendData('$id', $(_rows_payload(table)), '$name', $(something(max_rows, "null")));")
 end
 
 """
@@ -759,7 +759,7 @@ function replace_data(id, table; key, name="source_0")
     absent = setdiff(fields, columns)
     isempty(absent) || throw(ArgumentError("replace_data: key column(s) $(join(absent, ", ")) " *
         "not in the table; it has $(join(columns, ", "))"))
-    h.script(Raw("AoV.replaceData('$id', $(_rows_payload(table)), $(_vl_json(fields)), '$name');"))
+    _inline_script("AoV.replaceData('$id', $(_rows_payload(table)), $(_vl_json(fields)), '$name');")
 end
 
 _replace_key(key::Union{Symbol,AbstractString}) = [string(key)]
@@ -801,7 +801,7 @@ function remove_data(id, value; key, name="source_0")
     else
         throw(ArgumentError("remove_data: a composite `key` needs a tuple of $(length(fields)) values"))
     end
-    h.script(Raw("AoV.removeData('$id', $(_vl_json(values)), $(_vl_json(fields)), '$name');"))
+    _inline_script("AoV.removeData('$id', $(_vl_json(values)), $(_vl_json(fields)), '$name');")
 end
 
 """
@@ -833,7 +833,7 @@ function update_spec(id, spec; auto_remap::Union{Nothing,NamedTuple}=nothing,
     id = _sanitize_id(id)
     lowered = isnothing(auto_remap) ? spec : _auto_remap_lowering(spec; auto_remap...).vl
     json = _vl_json(_wire_spec(_embed_spec(lowered; width, height, fit_width)))
-    h.script(Raw("AoV.updateSpec('$id', $json, {actions: $actions});"))
+    _inline_script("AoV.updateSpec('$id', $json, {actions: $actions});")
 end
 
 _CHANNEL_LABELS = Dict("color" => "Color", "row" => "Row", "column" => "Column", "detail" => "Ungrouped", "off" => "Pooled")

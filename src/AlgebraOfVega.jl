@@ -17,8 +17,25 @@ using SHA: sha256
 using HTMX
 # `Raw` marks complete, trusted JS/CSS bytes. HTMX 1.0 escapes ordinary string
 # children (`&`, `"`, `'`, `<`, `>`), which mangles every `<script>`/`<style>`
-# body AoV emits — so every such child MUST be wrapped in `Raw(...)`.
+# body AoV emits — so every such child MUST be wrapped in `Raw(...)`, through
+# `_inline_script` / `_inline_style` below.
 import HTMX: h, Raw
+
+# Text inside an inline `<script>`/`<style>` must not spell a closing tag that
+# ends the element early (`</script`, `</style`) or that a text-substituting
+# proxy keys on (`</head>`, `</body>`, `</html>`: nginx `sub_filter`, injected
+# analytics or livereload snippets rewrite every occurrence, splicing markup
+# into the middle of the script). `<\/` reads as `</` in JS and CSS strings,
+# template literals, regexes and comments, so a `</` before one of those tag
+# names is written that way — and only there: a bare `</` can be a regex's `<`
+# and its closing `/`, as in vega's `.replace(/</g, …)`. Every inline body AoV
+# emits — its runtime, the vendored builds, spec and data JSON — goes through
+# this rule (snag `serve-a-page-tha-ebb4d298`); the runtime applies the same
+# one when it inlines files into a saved page (`AoV._inlineVendored`).
+const _INLINE_CLOSING_TAG = r"</(?=(?:script|style|head|body|html)\b)"i
+_inline_text(s::AbstractString) = replace(s, _INLINE_CLOSING_TAG => "<\\/")
+_inline_script(js::AbstractString) = h.script(Raw(_inline_text(js)))
+_inline_style(css::AbstractString) = h.style(Raw(_inline_text(css)))
 
 include("tic.jl")
 
