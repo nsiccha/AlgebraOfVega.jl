@@ -25,6 +25,21 @@ Update recipe (bump the trio):
 3. Update `VEGA_VERSION` / `VEGALITE_VERSION` / `VEGA_EMBED_VERSION` and the
    `*_SRI` (sha384) constants in `src/js_runtime.jl`.
 4. Update the sha256 lock in `test/items.jl` ("vendored vega trio" testitem).
+5. Re-check the closing tags `source=:inline` rewrites ("inline script bodies
+   never spell a closing tag" testitem): every `</script`, `</style`,
+   `</head`, `</body` and `</html` in the new builds must sit in a string,
+   template literal, regex or comment (never `String.raw`), where `<\/` reads
+   the same. 6.29.0's vega-embed has three, in its source-view page template.
+
+## Inline elements and closing tags
+
+Inlined bytes are written through `_inline_text` (`src/AlgebraOfVega.jl`):
+`</` before `script`, `style`, `head`, `body` or `html` becomes `<\/`. The
+first two would end the element early; the document-level three are what
+text-substituting proxies key on (nginx `sub_filter '</head>' …` with
+`sub_filter_once off`, injected analytics/livereload snippets), and such a
+filter rewrites every occurrence, including one inside a script. The vendored
+builds stay pristine; only their inline copy differs, at those sites.
 
 ## AoV's own runtime and stylesheet
 
@@ -39,5 +54,6 @@ Every `source=:vendor` URL — the trio and, when linked, these two — is
 `<base>/<file>?v=<first 16 hex of the file's sha256>`, so the bytes behind one
 URL never change and an app may serve this directory with
 `Cache-Control: public, max-age=31536000, immutable`. Both files are inlined
-by default, so neither may contain a closing `script` / `style` tag (asserted
-in `test/items.jl`, "vega script source modes"); they are not hash-locked.
+by default, byte for byte, so neither may spell a closing `script` / `style` /
+`head` / `body` / `html` tag — write `<\/` in string literals (asserted in
+`test/items.jl`, "vega script source modes"); they are not hash-locked.

@@ -810,7 +810,7 @@ function mapping_controls(id, resolved::NamedTuple; table=nothing, spec=nothing)
     fixed_js_str = _vl_json(fixed_js)
     channels_json = _vl_json(all_ch_strs)
 
-    js = h.script(Raw("""
+    js = _inline_script("""
     var _aovPin_$(js_id)_current = '$(pinned_str)';
 
     function _aovPin_$(js_id)(newPin) {
@@ -1012,7 +1012,7 @@ function mapping_controls(id, resolved::NamedTuple; table=nothing, spec=nothing)
         });
         if (restored) _aovRemap_$(js_id)('');
     })();
-    """))
+    """)
 
     hint = h.small(; class="u-text-muted u-mb-1")(
         "Assign dimensions to channels (multi-select). ",

@@ -577,7 +577,7 @@ function explorer_controls_html(datasets_or_table; default_ds="penguins", onchan
 <div id="ex-filter-pills" class="u-flex u-flex-wrap u-mb-2"></div>
 <div id="explorer-plot" class="aov-plot-area"></div>""" *
     (let init = _explorer_init_script(defaults)
-        isempty(init) ? "" : "<script>$init</script>"
+        isempty(init) ? "" : "<script>$(_inline_text(init))</script>"
     end)
 end
 
@@ -725,7 +725,7 @@ function explorer_widget(datasets_or_table; default_ds="penguins",
         ) : "",
 
         # Inline script with data + logic
-        h.script(Raw(
+        _inline_script(
             explorer_data_init_js(datasets; namespace="AoV.") *
             explorer_js(; namespace="AoV.", plot_selector="#explorer-plot", spec_selector=spec_selector, width=width, height=height) *
             _filter_init_js(_resolve_filter_include(default_filter_include, datasets[default_ds]), "AoV.") * """
@@ -737,14 +737,14 @@ function explorer_widget(datasets_or_table; default_ds="penguins",
 
             AoV.explorerUpdate();
             """
-        )),
+        ),
 
         # Optional defaults-init script: pre-populates dropdowns from a
         # caller-supplied `defaults=(; x, y, color, row, col, group, mark, filter)`
         # NamedTuple, then re-runs `AoV.explorerUpdate()`. Emitted only when
         # at least one forwardable key is non-empty.
         (let init = _explorer_init_script(defaults)
-            isempty(init) ? "" : h.script(Raw(init))
+            isempty(init) ? "" : _inline_script(init)
         end),
     )
 end

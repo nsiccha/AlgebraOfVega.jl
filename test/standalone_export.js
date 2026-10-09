@@ -33,8 +33,21 @@
         return overflow;
     };
 
+    // The proxy in front of both pages (see the Julia item); this driver is
+    // served through it too, so it spells closing tags as `<\/`.
+    const subFilter = text => fixture.filter.reduce((t, [tag, injected]) => t.split(tag).join(injected), text);
+    const occurrences = (text, tag) => text.split(tag).length - 1;
+    const labelled = win => (win.AoV._plotData(id) || []).some(r => Object.values(r).includes(fixture.label));
+
     try {
         const live = await ready(window);
+        // The `<\/body>` injection follows this driver; let the parser reach it.
+        if (document.readyState === 'loading') {
+            await new Promise(resolve => document.addEventListener('DOMContentLoaded', resolve, {once: true}));
+        }
+        check(window.AOV_INJECTED_HEAD === 1 && window.AOV_INJECTED_BODY === 1, 'live page: proxy injections ran ' +
+            window.AOV_INJECTED_HEAD + '/' + window.AOV_INJECTED_BODY + ' times, expected 1/1');
+        check(labelled(window), 'live page: no row labelled ' + fixture.label);
         const byUrl = document.querySelectorAll('[data-aov-vendor][src], [data-aov-vendor][href]').length;
         check(byUrl === fixture.byUrl, 'assets loaded by URL: ' + byUrl + ', expected ' + fixture.byUrl);
         // (Split so this driver never carries the runtime's own marker,
@@ -71,16 +84,21 @@
         check(doc.querySelectorAll('link').length === 0, 'saved page links a stylesheet');
         const marked = doc.querySelectorAll('script[data-aov-vendor], style[data-aov-vendor]').length;
         check(marked === fixture.savedMarked, 'saved page: ' + marked + ' vendored assets, expected ' + fixture.savedMarked);
+        for (const tag of ['<\/head>', '<\/body>', '<\/html>']) {
+            check(occurrences(page, tag) === 1, 'saved page spells ' + tag + ' ' + occurrences(page, tag) + ' times');
+        }
 
         // Render the saved file in isolation: everything it runs is inline.
         const frame = document.createElement('iframe');
         frame.style.width = '1000px';
         frame.style.height = '800px';
         const loaded = new Promise(resolve => frame.addEventListener('load', resolve, {once: true}));
-        frame.srcdoc = page;
+        frame.srcdoc = subFilter(page);
         document.body.append(frame);
         await loaded;
         const win = frame.contentWindow;
+        check(win.AOV_INJECTED_HEAD === 1 && win.AOV_INJECTED_BODY === 1, 'saved page: proxy injections ran ' +
+            win.AOV_INJECTED_HEAD + '/' + win.AOV_INJECTED_BODY + ' times, expected 1/1');
         check(win.vega && win.vega.version === fixture.versions[0], 'saved page: vega ' + (win.vega && win.vega.version));
         check(win.vegaLite && win.vegaLite.version === fixture.versions[1], 'saved page: vega-lite ' + (win.vegaLite && win.vegaLite.version));
         check(win.vegaEmbed && win.vegaEmbed.version === fixture.versions[2], 'saved page: vega-embed ' + (win.vegaEmbed && win.vegaEmbed.version));
@@ -90,6 +108,7 @@
         check(win.AoV._plotData(id).length === AoV._plotData(id).length, 'saved page: rows ' +
             win.AoV._plotData(id).length + ' vs ' + AoV._plotData(id).length);
         check(legend(view) === 'failed,passed', 'saved page legend ' + legend(view));
+        check(labelled(win), 'saved page: no row labelled ' + fixture.label);
         // The picker still re-facets inside the saved file.
         win.AoV.remapEncoding(id, {color: 'group'});
         const remapped = await ready(win, view);

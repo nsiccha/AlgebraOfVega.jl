@@ -45,7 +45,7 @@ inside `(function(acts){ … })(acts)`, so an early `return` in it exits only
 the action while the `sc.remove()` cleanup still runs.
 """
 function caption_action_inject(rv, action_js::AbstractString)
-    h.div(rv, h.script(Raw("""
+    h.div(rv, _inline_script("""
         (function(){
             var sc = document.currentScript;
             var fig = sc.closest('figure.captioned') || sc.parentElement;
@@ -60,7 +60,7 @@ function caption_action_inject(rv, action_js::AbstractString)
             (function(acts){ $(action_js) })(acts);
             sc.remove();
         })();
-    """)))
+    """))
 end
 
 # The Share-button action element, as `action_js` for `caption_action_inject`.
@@ -151,7 +151,7 @@ function summary_share_button(url::AbstractString)
         h.button("🔗"; type="button", class="btn-tiny secondary outline",
             title="Copy a shareable link to this view", aria_label="Copy shareable link",
             data_url=clean_share_url(url)),
-        h.script(Raw("""
+        _inline_script("""
             (function(){
                 var sc=document.currentScript, btn=sc.previousElementSibling;
                 btn.addEventListener('click', function(e){
@@ -164,6 +164,6 @@ function summary_share_button(url::AbstractString)
                 });
                 sc.remove();
             })();
-        """)),
+        """),
     )
 end
