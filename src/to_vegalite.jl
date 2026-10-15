@@ -926,9 +926,18 @@ function _per_column_y_hconcat!(spec::Dict, ycols::Dict)
         # of the lowering is shape-uniform.
         enc = _as_dict(get(spec, "encoding", nothing))
         if !isnothing(enc) && haskey(enc, "column")
+            # Every view-level key moves into the view: the concat below keeps
+            # only figure-level keys, so one left on top is silently dropped.
+            # `_aovLegend` is the legend pass's undo record; without it a
+            # re-run (the positional `Scales` form) could not clear its first
+            # pass. Per-cell width/height belong on the operator's inner spec.
             unit = Dict{String,Any}()
-            for k in ("mark", "encoding", "transform", "params")
-                haskey(spec, k) && (unit[k] = spec[k])
+            for k in ("mark", "encoding", "transform", "params", "projection", "_aovLegend")
+                haskey(spec, k) && (unit[k] = pop!(spec, k))
+            end
+            inner = Dict{String,Any}("layer" => Any[unit])
+            for k in ("width", "height")
+                haskey(spec, k) && (inner[k] = pop!(spec, k))
             end
             uenc = _as_dict(unit["encoding"])
             facet = Dict{String,Any}()
@@ -936,14 +945,8 @@ function _per_column_y_hconcat!(spec::Dict, ycols::Dict)
             haskey(uenc, "row") && (facet["row"] = uenc["row"])
             delete!(uenc, "column")
             delete!(uenc, "row")
-            delete!(enc, "column")
-            delete!(enc, "row")
-            isempty(enc) && delete!(spec, "encoding")
             spec["facet"] = facet
-            spec["spec"] = Dict{String,Any}("layer" => Any[unit])
-            delete!(spec, "mark")
-            delete!(spec, "transform")
-            delete!(spec, "params")
+            spec["spec"] = inner
             haskey(spec, "data") || (spec["data"] = Dict{String,Any}("values" => Any[]))
         else
             error("AlgebraOfVega: per-column Y scales (`scales(Y=(; scale=Dict(...)))`) need a faceted spec with a column facet; this spec has no facet.")

@@ -45,13 +45,19 @@
     }
 
     try {
-        const ids = ['pc-single', 'pc-layered', 'pc-picker'];
+        const ids = ['pc-single', 'pc-layered', 'pc-positional', 'pc-picker'];
         let view;
         for (const id of ids) {
             view = await ready(id);
             figure(id, view, 'embed');
             check(rowLabels(view).length === 0, id + ': unexpected row headers ' + JSON.stringify(rowLabels(view)));
         }
+        // The positional-Scales figure keeps its colour and its legend selection.
+        view = AoV.views['pc-positional'];
+        check(uniq(points(view).map(i => i.fill)).length === 2,
+            'pc-positional: scatter fills ' + JSON.stringify(uniq(points(view).map(i => i.fill))));
+        check(Object.keys(view.getState().signals).some(k => k.startsWith('legend_selection')),
+            'pc-positional: no legend selection signal');
 
         // Picker remaps re-lower the figure to valid specs.
         const id = 'pc-picker';

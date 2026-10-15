@@ -2666,8 +2666,8 @@ embedded.
         @test vl["title"]["text"] == "p"
         @test haskey(vl, "data")
         @test vl["_aov"]["nFacetCols"] == 2
-        # the second-positional Scales form lowers to the same shape
-        check_children(to_vegalite(base, ysc); unlinked)
+        # the second-positional Scales form lowers identically
+        @test to_vegalite(base, ysc) == vl
     end
 
     # The column field still partitions the figure, so a layer without it is
@@ -2680,6 +2680,43 @@ embedded.
     _, _, rvl = AlgebraOfVega._auto_remap_parts("percol-col-only", layered * unlink * config(scales=ysc);
         dims=["g" => "Group"], fixed=Dict(:column => "p"), pinned=:detail)
     check_children(rvl; unlinked=true)
+end
+
+"""
+`to_vegalite(spec, scales(...))` re-runs the legend pass after the per-column
+lowering, which needs the first pass's `_aovLegend` record on each unit. The
+single-layer (encoding-facet) normalization used to copy only mark / encoding /
+transform / params into the view, so the record was lost: the re-run could not
+clear its first pass, leaving a duplicated `legend_selection` param and a stale
+highlight. The same allow-list silently dropped `config(width=, height=)`.
+"""
+@testitem "per-column Y scales: positional and config Scales forms lower identically" setup=[AoVTestImports] tags=[:translation, :config, :regression] begin
+    pts = (; x=[1.0, 2, 3, 1, 2, 3], y=[1.5, 2.5, 2.5, 1.0, 2.0, 3.5],
+           g=["a", "b", "a", "b", "a", "b"], p=repeat(["P1", "P2"], inner=3),
+           r=repeat(["R1", "R2"], 3))
+    ysc = scales(Y=(; scale=Dict("P1" => log10)))
+    units(vl) = AlgebraOfVega._legend_units!(Any[], vl)
+    legend_params(vl) = [p for info in units(vl) for p in get(info.unit, "params", Any[])
+                         if get(p, "bind", nothing) == "legend"]
+    for row in (true, false), layered in (false, true), sized in (false, true)
+        m = row ? mapping(:x, :y; col=:p, row=:r, color=:g) : mapping(:x, :y; col=:p, color=:g)
+        spec = layered ? data(pts) * m * visual(Lines) + data(pts) * m * visual(Scatter) :
+               data(pts) * m * visual(Scatter)
+        sized && (spec = spec * config(width=90, height=120))
+        vl = to_vegalite(spec * config(scales=ysc))
+        @test to_vegalite(spec, ysc) == vl
+        # one legend-bound selection, owned by one unit, every unit undoable
+        @test length(legend_params(vl)) == 1
+        @test all(info -> haskey(info.unit, "_aovLegend"), units(vl))
+        before = deepcopy(vl)
+        AlgebraOfVega._add_auto_legend_interactivity!(vl)
+        @test vl == before  # a re-run clears its own pass instead of accumulating
+        # per-cell size reaches every column view's inner spec
+        for ch in vl["hconcat"]
+            @test get(ch["spec"], "width", nothing) == (sized ? 90 : nothing)
+            @test get(ch["spec"], "height", nothing) == (sized ? 120 : nothing)
+        end
+    end
 end
 
 """
