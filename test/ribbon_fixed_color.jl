@@ -118,3 +118,63 @@ end
     # Without a fixed colour the rebuilt layers stay uncoloured, as before.
     @test all(l -> isnothing(static_color(l)), static_layers(band_ribbon(precomputed[1])))
 end
+
+@testitem "fixed ribbon colour in the browser" tags=[:regression, :browser, :theme, :auto_remap] begin
+    using AlgebraOfVega, HTMXObjects, JSON
+    @test !isnothing(Base.get_extension(AlgebraOfVega, :AlgebraOfVegaHTMXObjectsExt))
+    html(x) = sprint(show, MIME"text/html"(), x)
+
+    xs = [1.0, 2.0, 3.0]
+    ribbon_rows = (; x=xs, y=[1.0, 2.0, 3.0], lo=[0.5, 1.0, 2.0], hi=[2.0, 3.0, 4.0])
+    ribbon_spec(c) = data(ribbon_rows) * mapping(:x, :y) * lineribbon(bands=[:lo => :hi]) *
+        visual(; color=c) * config(height=120)
+    # A ribbon layered with a scatter the reader may colour by `g`.
+    points = (; x=repeat(xs, 2), y=[1.5, 2.5, 2.5, 1.0, 2.0, 3.5], g=repeat(["a", "b"], 3))
+    layered(c) = (data(ribbon_rows) * mapping(:x, :y) * lineribbon(bands=[:lo => :hi]) * visual(; color=c) +
+        data(points) * mapping(:x, :y) * visual(Scatter)) * config(height=120)
+    # The same in a per-column-scale (hconcat) figure: one log-y column.
+    n = 3 * 4
+    grid = (; p=repeat(["P1", "P2"], inner=3, outer=2), r=repeat(["R1", "R2"], inner=6))
+    concat_ribbon = merge((; x=repeat(xs, 4), y=repeat([1.0, 2.0, 3.0], 4),
+        lo=repeat([0.5, 1.0, 2.0], 4), hi=repeat([2.0, 3.0, 4.0], 4)), grid)
+    concat_points = merge((; x=repeat(xs, 4), y=repeat([1.5, 2.5, 2.5], 4), g=repeat(["a", "b"], n ÷ 2)), grid)
+    concat(c) = (data(concat_ribbon) * mapping(:x, :y; col=:p, row=:r) * lineribbon(bands=[:lo => :hi]) *
+        visual(; color=c) + data(concat_points) * mapping(:x, :y; col=:p, row=:r) * visual(Scatter)) *
+        config(height=100, scales=scales(Y=(; scale=Dict("P1" => log10))))
+    @test haskey(to_vegalite(concat("black")), "hconcat")
+    picker = (; dims=["g" => "Group"], pinned=:detail)
+    concat_picker = (; dims=["g" => "Group"], pinned=:detail, fixed=Dict(:column => "p", :row => "r"))
+
+    chrome = something(Sys.which("google-chrome"), Sys.which("chromium"), "")
+    if isempty(chrome)
+        @test_skip "headless Chrome is not installed"
+    else
+        mktempdir(prefix="kb-ribbon-color-") do dir
+            page = [vdraw(ribbon_spec(:ink); id="rf-ink"), vdraw(ribbon_spec("black"); id="rf-black"),
+                auto_remap_node("rf-picker-ink", layered(:ink); picker...),
+                auto_remap_node("rf-picker-black", layered("black"); picker...),
+                auto_remap_node("rf-concat-ink", concat(:ink); concat_picker...),
+                auto_remap_node("rf-concat-black", concat("black"); concat_picker...)]
+            style = "<style>body{color:rgb(30,40,50);background:rgb(250,250,250)}" *
+                "html[data-theme=dark] body{color:rgb(200,210,220);background:rgb(20,24,31)}</style>"
+            head = join(html(n) for n in vega_head(; source=:inline))
+            driver = read(joinpath(@__DIR__, "ribbon_fixed_color.js"), String)
+            write(joinpath(dir, "page.html"), "<!doctype html><meta charset='utf-8'>" * style * head *
+                "<body>" * join(html(p) for p in page) * "<script>" * driver * "</script></body>")
+            output = read(pipeline(`$chrome --headless=new --no-sandbox --disable-gpu
+                --user-data-dir=$(joinpath(dir, "profile")) --window-size=1200,1400
+                --virtual-time-budget=20000 --dump-dom $("file://" * joinpath(dir, "page.html"))`,
+                stderr=joinpath(dir, "chrome.log")), String)
+            result = match(r"<pre id=\"aov-ribbon-color-results\">([^<]*)</pre>", output)
+            @test !isnothing(result)
+            if !isnothing(result)
+                report = JSON.parse(replace(result[1], "&quot;" => "\"", "&lt;" => "<",
+                    "&gt;" => ">", "&amp;" => "&"))
+                @test report["checks"] >= 28
+                @test isempty(report["failures"])
+                @info "fixed ribbon colour browser checks" checks=report["checks"]
+                isempty(report["failures"]) || println(JSON.json(report["failures"]))
+            end
+        end
+    end
+end
