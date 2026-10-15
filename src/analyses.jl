@@ -74,6 +74,14 @@ vertical intervals, to choose a dodge field directly:
 
     data(draws) * mapping(:value, y=:parameter, color=:dose, dodge_y=:model) *
         pointinterval()
+
+A fixed colour colours every interval rule in place of the per-category palette
+colour; the median point keeps its white fill and dark ring. `color=:ink`
+follows the page's light/dark foreground. A `color=` mapping wins over it, as
+for plain marks. Other `visual` attributes are not applied (the rules keep
+their graduated widths) and are reported with a warning.
+
+    data(draws) * mapping(:value, y=:parameter) * pointinterval() * visual(; color="black")
 """
 function pointinterval(; probs=[0.95, 0.8, 0.5], point=:median, bands=nothing,
                         detail=Symbol[], orientation::Symbol=:horizontal)
@@ -88,7 +96,8 @@ end
     gradient_interval(; probs=[0.95, 0.8, 0.5], point=:median, orientation=:horizontal)
 
 Nested credible intervals with uniform width and varying opacity + a point estimate.
-Color and `dodge_y`/`dodge_x` mappings follow `pointinterval` semantics.
+Color and `dodge_y`/`dodge_x` mappings, and a fixed `visual(; color=…)`, follow
+`pointinterval` semantics.
 
     data(draws) * mapping(:value, y=:parameter) * gradient_interval()
     data(draws) * mapping(:parameter, :value) * gradient_interval(orientation=:vertical)
@@ -159,7 +168,9 @@ end
     dotinterval(; probs=[0.95, 0.5], n_dots=50, point=:median, orientation=:horizontal)
 
 Quantile dotplot with nested interval overlay.
-Color and `dodge_y`/`dodge_x` mappings follow `pointinterval` semantics.
+Color and `dodge_y`/`dodge_x` mappings follow `pointinterval` semantics. A fixed
+`visual(; color=…)` colours the dots as well as the rules (replacing the rules'
+default ink).
 
     data(draws) * mapping(:value, y=:parameter) * dotinterval()
     data(draws) * mapping(:parameter, :value) * dotinterval(orientation=:vertical)

@@ -41,9 +41,11 @@ facet headers, titles and unencoded text in the CSS `color` the plot element
 inherits, on a transparent background, so a plot inside a dark Pico page (or a
 dark card) reads as part of it. Palettes and literal mark colours stay fixed.
 For a fixed line or point that should use the page's foreground ink, write
-`visual(Lines; color=:ink)` (or use another mark type, or a ribbon:
-`lineribbon(...) * visual(; color=:ink)`). The same spec uses the
-active Makie theme's text colour with `sdraw`; PNG/SVG browser downloads use
+`visual(Lines; color=:ink)` (or use another mark type, a ribbon —
+`lineribbon(...) * visual(; color=:ink)` — or an interval analysis:
+`pointinterval() * visual(; color=:ink)`). The same spec uses the
+active Makie theme's text colour with `sdraw` (where the analysis has a static
+lowering); PNG/SVG browser downloads use
 the page's colour and background. When the page switches theme
 (`prefers-color-scheme`, or a `class` / `data-theme` / `style` change on
 `<html>` or `<body>`) the plots re-render in place, keeping the channel-picker
@@ -92,6 +94,12 @@ All three take a fixed colour the way a plain mark does —
 `lineribbon(bands=…) * visual(; color="black")` (or `color=:ink`) colours every
 band and the median line. A `color=` mapping wins over it; other `visual`
 attributes are not applied to ribbons and log a warning.
+
+The interval analyses take a fixed colour the same way:
+`pointinterval() * visual(; color="black")` (also `bands=`,
+`gradient_interval()` and `dotinterval()`) colours every interval rule — and
+`dotinterval`'s dots — in place of the per-category palette colour, while the
+median point stays white with a dark ring. A `color=` mapping wins here too.
 
 See the [API Reference](api.md#tidybayes-style-uncertainty-analyses) for the full docstring set and the [Gallery](gallery.md) for worked examples.
 
