@@ -1338,9 +1338,11 @@ function to_vegalite(v::VegaSpec; interactive::Bool=true)
         haskey(props, :axis) && _apply_axis_sugar!(spec, props[:axis])
         for (k, val) in props
             sk = string(k)
-            # Deep-merge encoding so config adds to (not overwrites) auto-generated channels
+            # Deep-merge encoding so config adds to (not overwrites) auto-generated
+            # channels. Merge a copy: the spec is extended in place by later passes,
+            # and the same `Config` lowers again on every re-render.
             if sk == "encoding" && !isnothing(_as_dict(val))
-                _merge_encoding_config!(spec, val)
+                _merge_encoding_config!(spec, _owned_copy(val))
             elseif sk in ("width", "height") && haskey(spec, "spec")
                 # For faceted specs, width/height go into the inner spec
                 spec["spec"][sk] = val
@@ -1387,7 +1389,7 @@ function to_vegalite(v::VegaSpec; interactive::Bool=true)
                 # no-truncate `labelLimit` defaults (and any `font_scale` sizes),
                 # so a wholesale replace would silently drop them — re-enabling
                 # truncation just because the user set some unrelated config key.
-                _deep_merge_dict!(get!(spec, "config", Dict{String,Any}()), _as_dict(val))
+                _deep_merge_dict!(get!(spec, "config", Dict{String,Any}()), _owned_copy(val))
             else
                 spec[sk] = val
             end

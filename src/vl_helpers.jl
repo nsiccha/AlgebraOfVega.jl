@@ -81,10 +81,13 @@ Create a `Config` with Vega-Lite properties. Common options:
 
 - `width`, `height`, `title` — spec dimensions and title
 - `encoding` — deep-merged with auto-generated encodings (add aggregate, scale, axis, etc.).
+  A `Dict` or the equivalent NamedTuple spelling: `encoding=(; x=(; scale=(; type="log")))`.
   On one summand of a `+` sum it applies to that summand's layers only
   (`a * config(encoding=E) + b`, e.g. a tooltip for `a`'s marks); apply it to the
   whole sum, `(a + b) * config(encoding=E)`, to reach every layer. `row`/`column`/`facet`
   overrides always configure the shared facet.
+- `config` — raw Vega-Lite top-level `config` (a `Dict` or NamedTuple), deep-merged into
+  AoV's defaults rather than replacing them
 - `params`, `transform` — VL interactivity parameters and data transforms
 - `select` — field(s) for client-side dropdown filtering (e.g. `select=:origin`)
 - `scales` — an AoG `scales(...)` object, mirroring `draw(spec, scales(...))`. Currently
@@ -105,7 +108,23 @@ Create a `Config` with Vega-Lite properties. Common options:
 
 Config is applied to a spec via `*`: `data(df) * mapping(:x, :y) * visual(Scatter) * config(width=500)`.
 """
-config(; kwargs...) = Config(Dict{Symbol,Any}(pairs(kwargs)...))
+function config(; kwargs...)
+    props = Dict{Symbol,Any}(pairs(kwargs)...)
+    for key in _VL_OBJECT_PROPS
+        haskey(props, key) && (props[key] = _lower_vl_object(key, props[key]))
+    end
+    Config(props)
+end
+
+# The config properties AoV deep-merges into the Vega-Lite object it generated.
+# Each is lowered once, here, to an owned `Dict{String,Any}`, so the `*`/`+`
+# config merges, summand scoping, `to_vegalite` and `sdraw` all see one shape
+# whether the caller wrote a Dict or a NamedTuple. Anything else would replace
+# the generated object wholesale, so it fails here instead.
+const _VL_OBJECT_PROPS = (:encoding, :config)
+_lower_vl_object(_, obj::Union{AbstractDict,NamedTuple}) = _owned_copy(obj)
+_lower_vl_object(key, obj) = throw(ArgumentError(
+    "AlgebraOfVega: `config($key=…)` takes a Dict or NamedTuple of Vega-Lite properties, got $(typeof(obj))."))
 
 struct VegaSpec
     drawable::Any  # AoG Layer, Layers, or AbstractAlgebraic
@@ -131,12 +150,15 @@ Equivalent to `drawable * config(; kwargs...)`.
 vlspec(drawable; kwargs...) = VegaSpec(drawable, isempty(kwargs) ? nothing : config(; kwargs...))
 
 # A copy of a caller's override that AoV owns and may extend in place: every
-# nested dict becomes a fresh `Dict{String,Any}` and every vector a fresh
-# `Vector{Any}`. A concretely typed caller dict (`Dict("type" => "log")` is a
-# `Dict{String,String}`) could not take the `zero=false` a later pass adds, and
-# the caller's own values are never aliased.
-_owned_copy(d::AbstractDict) = Dict{String,Any}(string(k) => _owned_copy(v) for (k, v) in d)
+# nested dict or NamedTuple becomes a fresh `Dict{String,Any}`, every vector a
+# fresh `Vector{Any}`, and every Symbol the string JSON writes for it. A
+# concretely typed caller dict (`Dict("type" => "log")` is a `Dict{String,String}`)
+# could not take the `zero=false` a later pass adds, and the caller's own values
+# are never aliased.
+_owned_copy(d::Union{AbstractDict,NamedTuple}) =
+    Dict{String,Any}(string(k) => _owned_copy(v) for (k, v) in pairs(d))
 _owned_copy(v::AbstractVector) = Any[_owned_copy(x) for x in v]
+_owned_copy(s::Symbol) = string(s)
 _owned_copy(x) = deepcopy(x)
 
 # Merge two `encoding` override dicts into a fresh, owned one: channel by channel,

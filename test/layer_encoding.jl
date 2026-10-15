@@ -167,9 +167,11 @@ end
     # Same channel: the later term wins.
     later = to_vegalite(base * tooltip_cfg * config(encoding=Dict(:tooltip => tip("value"))))
     @test tooltip_fields(later) == ["value"]
-    # Merging never mutates the caller's dicts.
+    # Merging never mutates the caller's dicts, nor the config's own lowered copy
+    # (`config` stores the override with string keys).
     @test sort_enc == Dict("y" => Dict("sort" => "descending"))
-    @test tooltip_cfg.properties[:encoding] == Dict(:tooltip => tooltip)
+    @test tooltip == tip("group", "label")
+    @test tooltip_cfg.properties[:encoding] == Dict("tooltip" => tooltip)
 end
 
 @testitem "a summand's scale type still sets the shared static axis" setup=[AoVLayerEncodingFixtures] tags=[:translation, :config, :static] begin
