@@ -108,7 +108,25 @@ function _plain_layer_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
     spec
 end
 
-function layers_to_vl(layers::AlgebraOfGraphics.Layers)
+# Merge each AoG layer's own encoding override (`VegaSpec.layer_encodings`, set
+# when a summand of a `+` sum carried `config(encoding=…)`) into the Vega-Lite
+# units that layer lowered to — and into no other layer's. `units[i]` lists the
+# unit dicts layer `i` contributed. Each unit gets its own owned copy of the
+# override, which the later default passes (`_apply_no_zero_default!`, …) extend.
+function _apply_layer_encodings!(units::AbstractVector, layer_encodings::AbstractVector)
+    isempty(layer_encodings) && return
+    length(layer_encodings) == length(units) || error(
+        "AlgebraOfVega: $(length(layer_encodings)) per-layer encoding overrides " *
+        "for a drawable with $(length(units)) layers.")
+    for (us, enc) in zip(units, layer_encodings)
+        isnothing(enc) && continue
+        for u in us
+            _merge_encoding_config!(u, _owned_copy(enc))
+        end
+    end
+end
+
+function layers_to_vl(layers::AlgebraOfGraphics.Layers; layer_encodings::AbstractVector=Any[])
     # Check if any layer is faceted density (density with y group) — needs special handling
     has_faceted_density = false
     facet_field = nothing
@@ -130,7 +148,8 @@ function layers_to_vl(layers::AlgebraOfGraphics.Layers)
     end
 
     if has_faceted_density && !isnothing(facet_field)
-        return _faceted_layers_to_vl(layers, facet_field, shared_table, shared_data)
+        return _faceted_layers_to_vl(layers, facet_field, shared_table, shared_data;
+            layer_encodings)
     end
 
     # Check if any layer is an analysis type (produces own summarized data)
@@ -144,9 +163,11 @@ function layers_to_vl(layers::AlgebraOfGraphics.Layers)
 
     outer_facet = Dict{String,Any}()
     layer_specs = Dict{String,Any}[]
+    units = Vector{Dict{String,Any}}[]
 
     for layer in layers.layers
         ls = layer_to_vl(layer; is_sublayer=true)
+        n_before = length(layer_specs)
 
         if haskey(ls, "facet")
             # Faceted analysis spec — lift facet, flatten inner sublayers with their data
@@ -182,6 +203,7 @@ function layers_to_vl(layers::AlgebraOfGraphics.Layers)
             end
             push!(layer_specs, ls)
         end
+        push!(units, layer_specs[n_before+1:end])
     end
 
     # Also collect facet from regular layer encodings (col=/row= → column/row channels,
@@ -265,6 +287,7 @@ function layers_to_vl(layers::AlgebraOfGraphics.Layers)
         _harmonize_axis_types!(layer_specs)
         spec["layer"] = layer_specs
     end
+    _apply_layer_encodings!(units, layer_encodings)
 
     spec
 end
@@ -319,9 +342,11 @@ function _harmonize_axis_types!(layer_specs::Vector{Dict{String,Any}})
     layer_specs
 end
 
-function _faceted_layers_to_vl(layers, facet_field, shared_table, shared_data)
+function _faceted_layers_to_vl(layers, facet_field, shared_table, shared_data;
+        layer_encodings::AbstractVector=Any[])
     # For density + pointinterval combos: facet by group field, inner spec has layers
     inner_layers = Dict{String,Any}[]
+    units = Vector{Dict{String,Any}}[]
 
     # Check if we have visual layers alongside density (raincloud-style) — need range scaling
     has_visual_layers = any(l -> begin
@@ -329,6 +354,7 @@ function _faceted_layers_to_vl(layers, facet_field, shared_table, shared_data)
     end, layers.layers)
 
     for layer in layers.layers
+        n_before = length(inner_layers)
         dens = extract_transformation(layer, AlgebraOfGraphics.DensityAnalysis)
         if !isnothing(dens)
             # Density sublayer (unfaceted version)
@@ -421,7 +447,9 @@ function _faceted_layers_to_vl(layers, facet_field, shared_table, shared_data)
                 end
             end
         end
+        push!(units, inner_layers[n_before+1:end])
     end
+    _apply_layer_encodings!(units, layer_encodings)
 
     spec = Dict{String,Any}(
         "\$schema" => VL_SCHEMA,

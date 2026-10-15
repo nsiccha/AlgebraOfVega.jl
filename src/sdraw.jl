@@ -54,12 +54,18 @@ _is_faceted(drawable::AlgebraOfGraphics.Layer) =
 _is_faceted(drawable::AlgebraOfGraphics.Layers) = any(_is_faceted, drawable.layers)
 _is_faceted(_) = false
 
-function _draw_kwargs(cfg::Union{Config,Nothing}; faceted=false)
+function _draw_kwargs(cfg::Union{Config,Nothing}; faceted=false, layer_encodings=Any[])
     figure_kw = Dict{Symbol,Any}()
     facet_kw = Dict{Symbol,Any}()
     axis_kw = Dict{Symbol,Any}()
     scales_obj = nothing
-    isnothing(cfg) && return (; figure=NamedTuple(), facet=NamedTuple(), axis=NamedTuple(), scales=nothing)
+    # A summand's encoding override (`VegaSpec.layer_encodings`) is per layer, but
+    # a scale type in it sets the axis every layer shares — Vega-Lite merges it
+    # into the shared scale the same way.
+    for enc in layer_encodings
+        _apply_log_scales!(axis_kw, _as_dict(enc))
+    end
+    isnothing(cfg) && return (; figure=NamedTuple(), facet=NamedTuple(), axis=NamedTuple(axis_kw), scales=nothing)
     props = cfg.properties
     if !faceted
         w = get(props, :width, nothing)
@@ -331,7 +337,8 @@ Requires a Makie backend (e.g. CairoMakie) to be loaded. Returns the result of
 function sdraw!(position, spec)
     drawable, cfg = _extract_drawable(spec)
     drawable = _convert_drawable(drawable)
-    kw = _draw_kwargs(cfg; faceted=_is_faceted(drawable))
+    kw = _draw_kwargs(cfg; faceted=_is_faceted(drawable),
+        layer_encodings=_spec_layer_encodings(spec))
     isnothing(kw.scales) ?
         AlgebraOfGraphics.draw!(position, drawable; facet=kw.facet, axis=kw.axis) :
         AlgebraOfGraphics.draw!(position, drawable, kw.scales; facet=kw.facet, axis=kw.axis)
@@ -346,7 +353,8 @@ Returns the path. Extra `kwargs` are passed to `Makie.save`.
 function sdraw_file(spec, path::AbstractString; kwargs...)
     drawable, cfg = _extract_drawable(spec)
     drawable = _convert_drawable(drawable)
-    kw = _draw_kwargs(cfg; faceted=_is_faceted(drawable))
+    kw = _draw_kwargs(cfg; faceted=_is_faceted(drawable),
+        layer_encodings=_spec_layer_encodings(spec))
     fg = isnothing(kw.scales) ?
         AlgebraOfGraphics.draw(drawable; figure=kw.figure, facet=kw.facet, axis=kw.axis) :
         AlgebraOfGraphics.draw(drawable, kw.scales; figure=kw.figure, facet=kw.facet, axis=kw.axis)

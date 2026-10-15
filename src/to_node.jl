@@ -1124,10 +1124,11 @@ AoG drawable → layers and collects each layer's unwrapped `.data`. Skips
 `nothing` and `Pregrouped` layers. Multi-layer specs (e.g. `dose_layer + spec`)
 all contribute — uniqueness of a dim is taken across any layer that has it.
 """
-_spec_drawable(s::VegaSpec) = s.drawable
-_spec_drawable(s) = s
-
-_wrap_with_config(spec::VegaSpec, drawable) = VegaSpec(drawable, spec.config)
+# `drawable` must have the same layers, in the same order, as `spec`'s own
+# drawable (the picker rebuilds layers one-for-one), so per-layer overrides stay
+# attached to the layer they were authored on.
+_wrap_with_config(spec::VegaSpec, drawable) =
+    VegaSpec(drawable, spec.config, spec.layer_encodings)
 _wrap_with_config(_, drawable) = drawable
 
 _layer_iter(d::AlgebraOfGraphics.Layers) = d.layers
