@@ -58,10 +58,13 @@ _interval_axes(orientation::Symbol) = orientation === :vertical ?
     (value_axis="y", value2_axis="y2", group_axis="x", offset_key="xOffset") :
     (value_axis="x", value2_axis="x2", group_axis="y", offset_key="yOffset")
 
+# Without a colour mapping each group is coloured by its group field (legend
+# hidden); `group_color=false` (a fixed analysis colour) leaves the colour to the
+# mark, since an encoding would beat a mark property.
 function _add_group_color_encoding!(enc, group_field, color_field, group_axis::String, offset_key::String;
                                       group_label=nothing, color_label=nothing, show_axis_title=true,
                                       group_sort=nothing, color_sort=nothing,
-                                      offset_field=nothing, offset_sort=nothing)
+                                      offset_field=nothing, offset_sort=nothing, group_color::Bool=true)
     if !isnothing(group_field)
         g_enc = Dict{String,Any}("field" => group_field, "type" => "nominal")
         !show_axis_title && (g_enc["axis"] = Dict{String,Any}("title" => nothing))
@@ -74,7 +77,7 @@ function _add_group_color_encoding!(enc, group_field, color_field, group_axis::S
         !isnothing(color_label) && color_label != color_field && (color_enc["title"] = color_label)
         !isnothing(color_sort) && (color_enc["sort"] = color_sort)
         enc["color"] = color_enc
-    elseif !isnothing(group_field)
+    elseif group_color && !isnothing(group_field)
         c_enc = Dict{String,Any}("field" => group_field, "type" => "nominal", "legend" => nothing)
         !isnothing(group_sort) && (c_enc["sort"] = group_sort)
         enc["color"] = c_enc
@@ -85,6 +88,15 @@ function _add_group_color_encoding!(enc, group_field, color_field, group_axis::S
         enc[offset_key] = off_enc
     end
     enc
+end
+
+# A fixed `visual(; color=…)` on an interval analysis colours its rules (and
+# `dotinterval`'s dots) instead of the per-group fallback colour; the median
+# point keeps its white fill and dark ring. A colour mapping wins, as it does for
+# plain marks and ribbons (`_ribbon_to_vl`).
+function _interval_fixed_mark(layer::AlgebraOfGraphics.Layer, analysis::AbstractString, color_field)
+    fixed_color = _analysis_fixed_color(layer, analysis)
+    isnothing(color_field) ? _fixed_color_mark_props(fixed_color) : Dict{String,Any}()
 end
 
 function _interval_point_layer(group_field, group_axis::String, offset_key::String;
@@ -179,6 +191,7 @@ function analysis_to_vl(a::PointIntervalAnalysis, layer::AlgebraOfGraphics.Layer
     summary = compute_interval_summary(table, value_field, group_field, a.probs, a.point; color_field, facet_fields, detail_fields=detail_strs)
     offset_field, offset_sort = _interval_offset(summary, group_field, color_field, facet_fields,
                                                  dodge_field, dodge_sort, color_sort)
+    fixed_mark = _interval_fixed_mark(layer, "pointinterval()", color_field)
 
     sorted_probs = sort(a.probs, rev=true)
     stroke_widths = length(sorted_probs) == 1 ? [8.0] : range(1.5, 8, length=length(sorted_probs))
@@ -191,9 +204,10 @@ function analysis_to_vl(a::PointIntervalAnalysis, layer::AlgebraOfGraphics.Layer
         )
         _add_group_color_encoding!(enc, group_field, color_field, ax.group_axis, ax.offset_key;
                                     group_label, color_label, show_axis_title=false,
-                                    group_sort, color_sort, offset_field, offset_sort)
+                                    group_sort, color_sort, offset_field, offset_sort,
+                                    group_color=isempty(fixed_mark))
         push!(layers, Dict{String,Any}(
-            "mark" => Dict{String,Any}("type" => "rule", "strokeWidth" => stroke_widths[i]),
+            "mark" => merge(Dict{String,Any}("type" => "rule", "strokeWidth" => stroke_widths[i]), fixed_mark),
             "encoding" => enc,
         ))
     end
@@ -229,6 +243,7 @@ function analysis_to_vl(a::PrecomputedIntervalAnalysis, layer::AlgebraOfGraphics
     summary = table_to_rows(table)
     offset_field, offset_sort = _interval_offset(summary, group_field, color_field, facet_fields,
                                                  dodge_field, dodge_sort, color_sort)
+    fixed_mark = _interval_fixed_mark(layer, "pointinterval()", color_field)
     stroke_widths = length(a.bands) == 1 ? [8.0] : range(1.5, 8, length=length(a.bands))
 
     layers = Dict{String,Any}[]
@@ -240,9 +255,10 @@ function analysis_to_vl(a::PrecomputedIntervalAnalysis, layer::AlgebraOfGraphics
         )
         _add_group_color_encoding!(enc, group_field, color_field, ax.group_axis, ax.offset_key;
                                     group_label, color_label, show_axis_title=false,
-                                    group_sort, color_sort, offset_field, offset_sort)
+                                    group_sort, color_sort, offset_field, offset_sort,
+                                    group_color=isempty(fixed_mark))
         push!(layers, Dict{String,Any}(
-            "mark" => Dict{String,Any}("type" => "rule", "strokeWidth" => stroke_widths[i]),
+            "mark" => merge(Dict{String,Any}("type" => "rule", "strokeWidth" => stroke_widths[i]), fixed_mark),
             "encoding" => enc,
         ))
     end
@@ -282,6 +298,7 @@ function analysis_to_vl(a::GradientIntervalAnalysis, layer::AlgebraOfGraphics.La
     summary = compute_interval_summary(table, value_field, group_field, a.probs, a.point; color_field, facet_fields, detail_fields=detail_strs)
     offset_field, offset_sort = _interval_offset(summary, group_field, color_field, facet_fields,
                                                  dodge_field, dodge_sort, color_sort)
+    fixed_mark = _interval_fixed_mark(layer, "gradient_interval()", color_field)
 
     sorted_probs = sort(a.probs, rev=true)
     opacities = range(0.2, 0.7, length=length(sorted_probs))
@@ -295,9 +312,10 @@ function analysis_to_vl(a::GradientIntervalAnalysis, layer::AlgebraOfGraphics.La
         )
         _add_group_color_encoding!(enc, group_field, color_field, ax.group_axis, ax.offset_key;
                                     group_label, color_label, show_axis_title=false,
-                                    group_sort, color_sort, offset_field, offset_sort)
+                                    group_sort, color_sort, offset_field, offset_sort,
+                                    group_color=isempty(fixed_mark))
         push!(layers, Dict{String,Any}(
-            "mark" => Dict{String,Any}("type" => "rule", "strokeWidth" => 14),
+            "mark" => merge(Dict{String,Any}("type" => "rule", "strokeWidth" => 14), fixed_mark),
             "encoding" => enc,
         ))
     end
@@ -628,6 +646,8 @@ function analysis_to_vl(a::DotIntervalAnalysis, layer::AlgebraOfGraphics.Layer; 
     summary = compute_interval_summary(table, value_field, group_field, a.probs, a.point; color_field, facet_fields, detail_fields=detail_strs)
     offset_field, offset_sort = _interval_offset(summary, group_field, color_field, facet_fields,
                                                  dodge_field, dodge_sort, color_sort)
+    # A fixed colour paints the dots and the rules, replacing the rules' default ink.
+    fixed_mark = _interval_fixed_mark(layer, "dotinterval()", color_field)
 
     # Dot layer
     dot_enc = Dict{String,Any}(
@@ -637,12 +657,13 @@ function analysis_to_vl(a::DotIntervalAnalysis, layer::AlgebraOfGraphics.Layer; 
     )
     _add_group_color_encoding!(dot_enc, group_field, color_field, ax.group_axis, ax.offset_key;
                                 group_label, color_label, show_axis_title=false,
-                                group_sort, color_sort, offset_field, offset_sort)
+                                group_sort, color_sort, offset_field, offset_sort,
+                                group_color=isempty(fixed_mark))
 
     layers = Dict{String,Any}[
         Dict{String,Any}(
             "data" => Dict{String,Any}("values" => dot_rows),
-            "mark" => Dict{String,Any}("type" => "circle", "opacity" => 0.6, "size" => 30),
+            "mark" => merge(Dict{String,Any}("type" => "circle", "opacity" => 0.6, "size" => 30), fixed_mark),
             "encoding" => dot_enc,
         )
     ]
@@ -658,9 +679,10 @@ function analysis_to_vl(a::DotIntervalAnalysis, layer::AlgebraOfGraphics.Layer; 
         )
         _add_group_color_encoding!(enc, group_field, color_field, ax.group_axis, ax.offset_key;
                                     group_label, color_label, group_sort, color_sort,
-                                    offset_field, offset_sort)
+                                    offset_field, offset_sort, group_color=isempty(fixed_mark))
+        rule_color = isempty(fixed_mark) ? Dict{String,Any}("style" => _AOV_INK) : fixed_mark
         push!(interval_layers, Dict{String,Any}(
-            "mark" => Dict{String,Any}("type" => "rule", "strokeWidth" => stroke_widths[i], "style" => _AOV_INK),
+            "mark" => merge(Dict{String,Any}("type" => "rule", "strokeWidth" => stroke_widths[i]), rule_color),
             "encoding" => enc,
         ))
     end

@@ -888,7 +888,9 @@ missing (row, column) combo (diagonal range corners —
 `_pad_sparse_hconcat_rows!`), so every view facets the same full row domain —
 a cell without data renders empty, never packed. Only children whose column
 received pads carry the hidden bounds sublayer; complete children keep their
-exact unpadded shape (snag `per-column-y-pad-0c9e8b2a`).
+exact unpadded shape (snag `per-column-y-pad-0c9e8b2a`). Without a row facet
+each child facets its one filtered column value through a headerless column
+facet, so it stays a facet view.
 
 `ycols` maps column VALUES (as they appear in the data) to VL `scale` dicts
 (from `_scales_column_y_scales`). Unlisted columns keep the shared encoding's
@@ -1007,6 +1009,14 @@ function _per_column_y_hconcat!(spec::Dict, ycols::Dict)
             rd = deepcopy(rowdef)
             i > 1 && (rd["header"] = nothing)
             child["facet"] = Dict{String,Any}("row" => rd)
+        else
+            # No row facet: a headerless column facet over the already-filtered
+            # column (one cell) keeps the child a facet view — a `spec` with
+            # no `facet` beside it is not valid Vega-Lite — so every consumer,
+            # including a picker row remap, sees one child shape.
+            child["facet"] = Dict{String,Any}("column" => Dict{String,Any}(
+                "field" => colfield, "type" => get(coldef, "type", "nominal"),
+                "header" => nothing))
         end
         child_inner = deepcopy(inner)
         if any(p -> isequal(p, v), padded_cols)
