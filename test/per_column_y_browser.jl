@@ -18,6 +18,10 @@ using TestItemRunner
     layered = (data(pts) * mapping(:x, :y; col=:p) * visual(Lines) +
                data(pts) * mapping(:x, :y; col=:p) * visual(Scatter)) * sc
     @test all(s -> haskey(to_vegalite(s), "hconcat"), (single, layered))
+    # The second-positional Scales form of the single-layer figure (its legend
+    # pass runs twice; see the items.jl parity item).
+    positional = to_vegalite(data(pts) * mapping(:x, :y; col=:p, color=:g) * visual(Scatter) *
+                             config(height=120), scales(Y=(; scale=Dict("P1" => log10))))
 
     chrome = something(Sys.which("google-chrome"), Sys.which("chromium"), "")
     if isempty(chrome)
@@ -25,6 +29,7 @@ using TestItemRunner
     else
         mktempdir(prefix="kb-per-column-y-") do dir
             page = [vdraw(single; id="pc-single"), vdraw(layered; id="pc-layered"),
+                vdraw(positional; id="pc-positional"),
                 auto_remap_node("pc-picker", layered;
                     dims=["g" => "Group", "r" => "Run"], fixed=Dict(:column => "p"), pinned=:detail)]
             head = join(html(n) for n in vega_head(; source=:inline))
@@ -40,7 +45,7 @@ using TestItemRunner
             if !isnothing(result)
                 report = JSON.parse(replace(result[1], "&quot;" => "\"", "&lt;" => "<",
                     "&gt;" => ">", "&amp;" => "&"))
-                @test report["checks"] >= 18
+                @test report["checks"] >= 23
                 @test isempty(report["failures"])
                 @info "col-only per-column Y browser checks" checks=report["checks"]
                 isempty(report["failures"]) || println(JSON.json(report["failures"]))
