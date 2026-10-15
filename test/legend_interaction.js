@@ -86,6 +86,12 @@
                             container.id + ': filtering changed selected mark opacity');
                     }
                     await click(container, view, 'B', true);
+                    // A re-embed between the clicks replaces the view, so the
+                    // checks below would read a stale one; name that cause.
+                    if (path !== 'direct') {
+                        check(AoV.views[container.id] === view,
+                            container.id + ': view re-embedded mid-interaction');
+                    }
                     const multi = view.data('legend_selection_store');
                     check(multi.some(t => t.values[0] === 'A') && multi.some(t => t.values[0] === 'B'),
                         container.id + ': shift selection failed');

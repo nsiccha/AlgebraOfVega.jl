@@ -419,7 +419,10 @@ Requires vega/vega-lite/vega-embed scripts to be loaded (use `vega_head()` in pa
 - `signals`: vector of signal→HTMX wirings. Each entry is a NamedTuple or Dict:
   `(signal="brush", url="/on_brush", target="#detail")` or with optional `swap`, `debounce`.
 - `fit_width`: when `true` (default) set `width: "container"` for single-view specs and
-  apply numeric responsive widths for layered/faceted specs.
+  apply numeric responsive widths for layered/faceted specs. An explicit `width`
+  (kwarg or `config(width=…)`) or `fit_width=false` keeps the authored width: the
+  runtime then neither resizes the plot to its container nor re-embeds it when
+  the container resizes.
 """
 function to_node(spec; id=nothing, width=nothing, height=nothing, actions=false, signals=nothing, fit_width=true)
     vl = _embed_spec(spec; width, height, fit_width)
@@ -450,7 +453,10 @@ function to_node(spec; id=nothing, width=nothing, height=nothing, actions=false,
 end
 
 # The Vega-Lite dict `to_node`/`update_spec` embed: `spec` with the width/height
-# overrides and the responsive-sizing defaults applied.
+# overrides and the responsive-sizing defaults applied. A spec the runtime should
+# size to its container carries `_aov.fitWidth = true`; that key, not the mere
+# presence of `_aov` (which also holds legend, theme and ribbon metadata), is
+# what the runtime's `_fitSized` reads.
 function _embed_spec(spec; width=nothing, height=nothing, fit_width=true)
     vl = _as_vl_dict(spec)
     !isnothing(width) && (vl["width"] = width)
@@ -459,7 +465,12 @@ function _embed_spec(spec; width=nothing, height=nothing, fit_width=true)
     has_explicit_width = !isnothing(_as_number(get(vl, "width", nothing)))
     inner_spec = _as_dict(get(vl, "spec", nothing))
     has_explicit_inner_width = !isnothing(inner_spec) && haskey(inner_spec, "width")
-    if fit_width && !has_explicit_width && !has_explicit_inner_width && !haskey(vl, "hconcat") && !haskey(vl, "vconcat")
+    fit = fit_width && !has_explicit_width && !has_explicit_inner_width
+    if fit && haskey(vl, "hconcat") && haskey(something(_as_dict(get(vl, "_aov", nothing)), Dict()), "nFacetCols")
+        # Per-column-Y concat (`to_vegalite` already stored its column count):
+        # the runtime sizes every child from the container.
+        vl["_aov"] = _aov_hint_with(vl, "fitWidth" => true)
+    elseif fit && !haskey(vl, "hconcat") && !haskey(vl, "vconcat")
         # Detect faceting: explicit facet key, nested spec, or row/column encoding channels
         is_faceted = haskey(vl, "facet") || haskey(vl, "spec") || _has_encoding_facet(vl)
         is_layered = haskey(vl, "layer") || is_faceted || haskey(vl, "concat")
@@ -476,7 +487,7 @@ function _embed_spec(spec; width=nothing, height=nothing, fit_width=true)
             # Copy first: _as_vl_dict is a shallow copy, so the nested Dict (when
             # the caller passed a Dict) is still the caller's.
             n_facet_cols = _count_facet_cols(vl)
-            vl["_aov"] = _aov_hint_with(vl, "nFacetCols" => n_facet_cols)
+            vl["_aov"] = _aov_hint_with(vl, "nFacetCols" => n_facet_cols, "fitWidth" => true)
             inner = vl["spec"]
             if !haskey(inner, "width")
                 inner["width"] = 400  # fallback, JS overrides
@@ -487,8 +498,8 @@ function _embed_spec(spec; width=nothing, height=nothing, fit_width=true)
             # carry the column count: VL sizes top-level width PER CELL there,
             # so the JS must divide (see _count_encoding_facet_cols).
             n_enc_cols = _count_encoding_facet_cols(vl)
-            vl["_aov"] = isnothing(n_enc_cols) ? _aov_hint_with(vl) :
-                _aov_hint_with(vl, "nFacetCols" => n_enc_cols)
+            vl["_aov"] = isnothing(n_enc_cols) ? _aov_hint_with(vl, "fitWidth" => true) :
+                _aov_hint_with(vl, "nFacetCols" => n_enc_cols, "fitWidth" => true)
             if !haskey(vl, "width")
                 vl["width"] = 400  # fallback, JS overrides
             end
