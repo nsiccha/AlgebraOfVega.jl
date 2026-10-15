@@ -30,7 +30,23 @@ window.AoV = window.AoV || {
         '_embedOpts', '_observers', '_computedWidths', '_corrections', '_correctedRegime',
         '_cur', '_pickers', '_mappings', '_themeKeys', '_reembeds'],
 
+    // Whether the runtime sizes this spec to its container: Julia's
+    // `_embed_spec` marks a responsive layered/faceted/per-column spec with
+    // `_aov.fitWidth`; a single view keeps VL's `width: "container"`. `_aov`
+    // alone is no sizing marker: it also carries legend, theme and ribbon
+    // metadata, and a plot with an authored width (`width=`, `fit_width=false`)
+    // keeps that width and is never re-embedded on resize.
+    _fitSized: function(spec) {
+        return !!(spec && spec._aov && (spec._aov.fitWidth || spec.width === 'container'));
+    },
+
     _applyResponsiveWidth: function(id, spec) {
+        if (!this._fitSized(spec)) {
+            // A fixed-width embed leaves no sizing record behind: the post-embed
+            // correction must not resize it from a previous responsive embed.
+            if (this._computedWidths) delete this._computedWidths[id];
+            return spec;
+        }
         var el = document.getElementById(id);
         if (!el) return spec;
         var containerWidth = el.parentElement ? el.parentElement.clientWidth : null;
@@ -472,7 +488,7 @@ window.AoV = window.AoV || {
                     if (newWidth === lastWidth || newWidth < 50) return;
                     lastWidth = newWidth;
                     clearTimeout(timer);
-                    timer = setTimeout(function() { doEmbed(); }, 200);
+                    timer = setTimeout(function() { self._resizeReembed(id); }, 200);
                 });
                 ro.observe(el.parentElement);
                 // Clean up on element removal
@@ -486,6 +502,17 @@ window.AoV = window.AoV || {
         // spec (picker assignment, update_spec data) and live rows carry over.
         self._reembeds[id] = doEmbed;
         return doEmbed();
+    },
+
+    // A plot's container changed width: re-embed it at the new width when it is
+    // container-sized. A fixed-width plot is left alone — a re-embed would only
+    // replace its view and drop its legend selection. Reads the current spec, so
+    // a remap can turn a plot responsive or back. Returns whether it re-embedded.
+    _resizeReembed: function(id) {
+        var cur = this._cur[id], again = this._reembeds[id];
+        if (!cur || !again || !this._fitSized(cur.spec)) return false;
+        again();
+        return true;
     },
 
     // --- Host theme ---
@@ -2053,6 +2080,9 @@ window.AoV = window.AoV || {
         // Helper: wrap a non-faceted spec into faceted structure
         function wrapFaceted() {
             if (isFaceted) return;
+            // A container-sized plot stays container-sized in facets; one with an
+            // authored width keeps it as its cell width.
+            var responsive = !!((spec._aov && spec._aov.fitWidth) || spec.width === 'container');
             if (spec.layer) {
                 spec.spec = {layer: spec.layer};
                 delete spec.layer;
@@ -2076,6 +2106,7 @@ window.AoV = window.AoV || {
             delete spec.autosize;
             // Add _aov hint for responsive faceted sizing
             spec._aov = spec._aov || {};
+            if (responsive) spec._aov.fitWidth = true;
             isFaceted = true;
             layers = spec.spec.layer || [spec.spec];
         }
@@ -2097,10 +2128,13 @@ window.AoV = window.AoV || {
             delete spec.spec;
             delete spec.facet;
             if (!spec.layer) {
-                // Single-view: use VL native responsive width
-                spec.width = 'container';
-                spec.autosize = {type: 'fit', contains: 'padding'};
-                delete spec._aov;
+                if (spec._aov && spec._aov.fitWidth) {
+                    // Single-view: use VL native responsive width
+                    spec.width = 'container';
+                    spec.autosize = {type: 'fit', contains: 'padding'};
+                    delete spec._aov;
+                }
+                // An authored width came back from the cell above.
             } else {
                 // Layered: use _aov marker for JS responsive sizing
                 // (preserve keys such as maxWidth).

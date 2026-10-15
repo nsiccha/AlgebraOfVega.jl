@@ -144,8 +144,8 @@ The group dropdown maps to Vega-Lite's `detail` encoding channel, which groups d
 - `width`: plot width for non-faceted specs (integer or "container")
 - `height`: plot height for non-faceted specs
 
-Faceted specs are marked with the `_aov` responsive hint (column count, or an empty
-marker for row-only facets) and embedded through `AoV.embed` when the AoV runtime
+Faceted specs are marked with the `_aov` responsive hint (`fitWidth`, plus the column
+count for column facets) and embedded through `AoV.embed` when the AoV runtime
 is present, so they get the same container-fit sizing, `max_width` cap, and
 resize handling as `to_node` plots. Without the runtime (or when `plot_selector`
 is not a plain `#id`), the spec embeds via raw `vegaEmbed` with the client-side
@@ -382,7 +382,7 @@ function explorer_js(; namespace="", plot_selector="#explorer-plot", spec_select
                         } else {
                             cellWidth = Math.max(250, availWidth - 60);
                         }
-                        var aovHint = facetCol ? {nFacetCols: nCols} : {};
+                        var aovHint = facetCol ? {nFacetCols: nCols, fitWidth: true} : {fitWidth: true};
                         spec = {data: {values: summaryData}, facet: facet, spec: {layer: layers, width: cellWidth, height: 200}, _aov: aovHint};
                         if (indepX || indepY) {
                             var resolve = {scale: {}, axis: {}};
@@ -408,7 +408,7 @@ function explorer_js(; namespace="", plot_selector="#explorer-plot", spec_select
                     } else {
                         cellWidth = Math.max(250, availWidth - 60);
                     }
-                    var aovHint = facetCol ? {nFacetCols: nCols} : {};
+                    var aovHint = facetCol ? {nFacetCols: nCols, fitWidth: true} : {fitWidth: true};
                     spec = {
                         data: {values: data},
                         facet: facet,
@@ -1006,7 +1006,7 @@ function write_explorer_assets(dir, datasets_or_table; width="container", height
         } else {
           cellWidth = Math.max(250, availWidth - 60);
         }
-        var aovHint = facetCol ? {nFacetCols: nCols} : {};
+        var aovHint = facetCol ? {nFacetCols: nCols, fitWidth: true} : {fitWidth: true};
         spec = {data: {values: summaryData}, facet: facet, spec: {layer: layers, width: cellWidth, height: 200}, _aov: aovHint};
         if (indepX || indepY) {
           var resolve = {scale: {}, axis: {}};
@@ -1032,7 +1032,7 @@ function write_explorer_assets(dir, datasets_or_table; width="container", height
       } else {
         cellWidth = Math.max(250, availWidth - 60);
       }
-      var aovHint = facetCol ? {nFacetCols: nCols} : {};
+      var aovHint = facetCol ? {nFacetCols: nCols, fitWidth: true} : {fitWidth: true};
       spec = {data: {values: data}, facet: facet, spec: {mark: mark, encoding: encoding, width: cellWidth, height: 200}, _aov: aovHint};
       if (indepX || indepY) {
         var resolve = {scale: {}, axis: {}};
