@@ -135,8 +135,13 @@ _labeled_aog_field(field::AbstractString, label::AbstractString) =
 function _ribbon_to_aog(summary_nt::NamedTuple, x_sym::Symbol, median_sym::Symbol,
     band_syms::Vector{Tuple{Symbol,Symbol}};
     show_line::Bool=true, color_kw=Dict{Symbol,Any}(), facet_kw=Dict{Symbol,Any}(),
-    x_label::AbstractString=string(x_sym), y_label::AbstractString=string(median_sym))
+    x_label::AbstractString=string(x_sym), y_label::AbstractString=string(median_sym),
+    fixed_color=nothing)
     opacities = length(band_syms) == 1 ? [0.4] : range(0.2, 0.6, length=length(band_syms))
+    # A fixed `visual(; color=…)` colours the bands and the median line; a colour
+    # mapping wins, as on the Vega-Lite path (`_ribbon_to_vl`).
+    fixed_kw = (isnothing(fixed_color) || !isempty(color_kw)) ? (;) :
+        (; color=_static_color(fixed_color))
     x_sel = _labeled_aog_field(string(x_sym), x_label)
     median_sel = _labeled_aog_field(string(median_sym), y_label)
     result = nothing
@@ -144,13 +149,13 @@ function _ribbon_to_aog(summary_nt::NamedTuple, x_sym::Symbol, median_sym::Symbo
         band_layer = data(summary_nt) *
             mapping(x_sel, _labeled_aog_field(string(lo_sym), y_label),
                 _labeled_aog_field(string(hi_sym), y_label); color_kw..., facet_kw...) *
-            visual(Band; alpha=opacities[i])
+            visual(Band; alpha=opacities[i], fixed_kw...)
         result = isnothing(result) ? band_layer : result + band_layer
     end
     if show_line
         line_layer = data(summary_nt) *
             mapping(x_sel, median_sel; color_kw..., facet_kw...) *
-            visual(Lines)
+            visual(Lines; fixed_kw...)
         result = isnothing(result) ? line_layer : result + line_layer
     end
     result
@@ -198,7 +203,8 @@ function _lineribbon_to_aog(a::LineRibbonAnalysis, layer::AlgebraOfGraphics.Laye
     band_syms = Tuple{Symbol,Symbol}[(Symbol(_vl_prob_field("lo", p)), Symbol(_vl_prob_field("hi", p))) for p in sorted_probs]
 
     _ribbon_to_aog(summary_nt, Symbol(x_field), Symbol("__median__"), band_syms;
-        show_line=a.show_line, color_kw, facet_kw, x_label, y_label)
+        show_line=a.show_line, color_kw, facet_kw, x_label, y_label,
+        fixed_color=_analysis_fixed_color(layer, _ribbon_name(a)))
 end
 
 function _precomputed_ribbon_to_aog(a::PrecomputedRibbonAnalysis, layer::AlgebraOfGraphics.Layer)
@@ -213,7 +219,8 @@ function _precomputed_ribbon_to_aog(a::PrecomputedRibbonAnalysis, layer::Algebra
     band_syms = Tuple{Symbol,Symbol}[(first(b), last(b)) for b in a.bands]
 
     _ribbon_to_aog(summary_nt, Symbol(x_field), Symbol(median_col), band_syms;
-        show_line=a.show_line, color_kw, facet_kw, x_label, y_label)
+        show_line=a.show_line, color_kw, facet_kw, x_label, y_label,
+        fixed_color=_analysis_fixed_color(layer, _ribbon_name(a)))
 end
 
 """
@@ -233,9 +240,7 @@ function _fix_visual_attrs(layer::AlgebraOfGraphics.Layer)
     attrs = Dict(pairs(vis.attributes))
     changed = false
     if get(attrs, :color, nothing) === :ink
-        # Static output has no CSS host. Use the active Makie theme's text
-        # colour, which follows light/dark themes and is readable on exports.
-        attrs[:color] = Makie.to_value(Makie.theme(:textcolor; default=:black))
+        attrs[:color] = _static_color(:ink)
         changed = true
     end
     if haskey(attrs, :size) && !haskey(attrs, :markersize)
@@ -264,6 +269,12 @@ function _fix_visual_attrs(layer::AlgebraOfGraphics.Layer)
     new_t = _swap_visual(layer.transformation, new_vis)
     AlgebraOfGraphics.Layer(new_t, layer.data, layer.positional, layer.named)
 end
+
+# Static output has no CSS host, so the theme-following `:ink` becomes the
+# active Makie theme's text colour, which follows light/dark themes and is
+# readable on exports. Any other colour is already a Makie colour.
+_static_color(color) = color === :ink ?
+    Makie.to_value(Makie.theme(:textcolor; default=:black)) : color
 
 _to_linestyle(v::AbstractVector{<:Real}) = Makie.Linestyle(collect(Float64, v))
 _to_linestyle(v) = v

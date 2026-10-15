@@ -256,3 +256,24 @@ function visual_attrs_to_mark_props(vis::AlgebraOfGraphics.Visual)
     end
     props
 end
+
+# A fixed `visual(; color=…)` on an analysis that draws several marks of its own
+# (`lineribbon`/`ribbon`: band areas, the median line, single-x glyph rules)
+# colours all of them, on both renderers. Returns the authored colour value
+# (a literal, or `:ink`), or `nothing` when the layer's visual sets none. The
+# analysis owns every other mark property (graduated band opacities, line and
+# rule widths), so any other visual attribute is reported rather than
+# silently dropped.
+function _analysis_fixed_color(layer::AlgebraOfGraphics.Layer, analysis::AbstractString)
+    vis = extract_visual(layer)
+    isnothing(vis) && return nothing
+    ignored = [k for k in keys(vis.attributes) if k !== :color]
+    isempty(ignored) || @warn "AlgebraOfVega: $analysis applies only a fixed `color` from `visual(...)`; ignoring $(join(("`$k`" for k in ignored), ", "))." maxlog=1
+    haskey(vis.attributes, :color) ? vis.attributes[:color] : nothing
+end
+
+# The Vega-Lite mark properties of a fixed analysis colour: the same lowering as
+# a plain mark's `visual(...; color=…)` (`:ink` becomes the theme-ink style).
+_fixed_color_mark_props(::Nothing) = Dict{String,Any}()
+_fixed_color_mark_props(color) =
+    visual_attrs_to_mark_props(AlgebraOfGraphics.Visual(; color))

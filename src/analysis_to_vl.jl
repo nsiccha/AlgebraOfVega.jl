@@ -340,9 +340,11 @@ end
 # color so they don't stack on the same x. `filter_expr` (a VL predicate string)
 # scopes these layers to just the single-x rows when overlaid on a normal ribbon —
 # so multi-x groups keep their area/line and only single-x groups get the glyph.
-# (decisions `1ipps5p`, `1liuv2o`.)
+# A fixed ribbon colour (`fixed_mark`) colours the rules; the median point keeps
+# its white fill and dark ring. (decisions `1ipps5p`, `1liuv2o`.)
 function _ribbon_glyph_layers(x_field, x_label, y_label, median_col, band_cols;
-        color_field=nothing, color_label=nothing, filter_expr=nothing)
+        color_field=nothing, color_label=nothing, filter_expr=nothing,
+        fixed_mark::Dict{String,Any}=Dict{String,Any}())
     stroke_widths = length(band_cols) == 1 ? [8.0] : range(1.5, 8, length=length(band_cols))
     x_enc() = let e = Dict{String,Any}("field" => x_field, "type" => "quantitative")
         x_label != x_field && (e["title"] = x_label); e
@@ -361,7 +363,8 @@ function _ribbon_glyph_layers(x_field, x_label, y_label, median_col, band_cols;
             enc["color"] = c
             enc["xOffset"] = Dict{String,Any}("field" => color_field, "type" => "nominal")
         end
-        l = Dict{String,Any}("mark" => Dict{String,Any}("type" => "rule", "strokeWidth" => stroke_widths[i]), "encoding" => enc)
+        mark = merge(Dict{String,Any}("type" => "rule", "strokeWidth" => stroke_widths[i]), fixed_mark)
+        l = Dict{String,Any}("mark" => mark, "encoding" => enc)
         isnothing(filter_expr) || (l["transform"] = _ft())
         push!(layers, l)
     end
@@ -410,9 +413,14 @@ function _ribbon_to_vl(
     detail_fields::Vector{String}=String[],
     facet=nothing, show_line::Bool=true, is_sublayer::Bool=false,
     band_labels::Union{Vector{String},Nothing}=nothing,
-    single_x_glyph::Bool=true, facet_fields::Vector{String}=String[]
+    single_x_glyph::Bool=true, facet_fields::Vector{String}=String[],
+    fixed_color=nothing
 )
     summary_data = Dict{String,Any}("values" => summary)
+    # A fixed `visual(; color=…)` colours every ribbon mark. A colour mapping
+    # wins, as it does for plain marks (Vega-Lite encoding over mark property,
+    # AoG mapping over visual attribute), so a coloured ribbon is unchanged.
+    fixed_mark = isnothing(color_field) ? _fixed_color_mark_props(fixed_color) : Dict{String,Any}()
     # range(...; length=1) rejects distinct endpoints, so a single band
     # gets a fixed mid-gradient opacity (mirrors the stroke_widths idiom
     # in _interval_to_vl above). Two-or-more bands keep the gradient.
@@ -442,7 +450,7 @@ function _ribbon_to_vl(
             "y2" => Dict{String,Any}("field" => hi_col),
         )
         !isnothing(detail_enc) && (enc["detail"] = deepcopy(detail_enc))
-        mark = Dict{String,Any}("type" => "area", "opacity" => opacities[i], "line" => false)
+        mark = merge(Dict{String,Any}("type" => "area", "opacity" => opacities[i], "line" => false), fixed_mark)
         push!(template_layers, Dict{String,Any}("mark" => mark, "encoding" => enc, "_lr_layer" => true))
     end
     if show_line
@@ -453,7 +461,7 @@ function _ribbon_to_vl(
             "y" => Dict{String,Any}("field" => median_col, "type" => "quantitative", "title" => y_label),
         )
         !isnothing(detail_enc) && (line_enc["detail"] = deepcopy(detail_enc))
-        line_mark = Dict{String,Any}("type" => "line", "strokeWidth" => 2)
+        line_mark = merge(Dict{String,Any}("type" => "line", "strokeWidth" => 2), fixed_mark)
         push!(template_layers, Dict{String,Any}("mark" => line_mark, "encoding" => line_enc, "_lr_layer" => true))
     end
 
@@ -503,7 +511,7 @@ function _ribbon_to_vl(
         append!(group_fields, detail_fields)
         if _mark_single_x_groups!(summary, x_field, group_fields)
             append!(layers, _ribbon_glyph_layers(x_field, x_label, y_label, median_col, band_cols;
-                color_field, color_label, filter_expr="datum.__single_x__"))
+                color_field, color_label, filter_expr="datum.__single_x__", fixed_mark))
         end
     end
 
@@ -520,6 +528,9 @@ function _ribbon_to_vl(
     _wrap_with_facet!(spec, facet)
     spec
 end
+
+# The user-facing constructor name, for messages about a ribbon layer.
+_ribbon_name(a) = a.show_line ? "lineribbon()" : "ribbon()"
 
 function analysis_to_vl(a::LineRibbonAnalysis, layer::AlgebraOfGraphics.Layer; is_sublayer=false)
     table = extract_data(layer)
@@ -542,7 +553,8 @@ function analysis_to_vl(a::LineRibbonAnalysis, layer::AlgebraOfGraphics.Layer; i
     _ribbon_to_vl(summary, x_field, x_label, y_label, "__median__", band_cols;
         color_field, color_label, detail_fields=detail_strs,
         facet, show_line=a.show_line, is_sublayer, band_labels,
-        single_x_glyph=a.single_x_glyph, facet_fields)
+        single_x_glyph=a.single_x_glyph, facet_fields,
+        fixed_color=_analysis_fixed_color(layer, _ribbon_name(a)))
 end
 
 function analysis_to_vl(a::PrecomputedRibbonAnalysis, layer::AlgebraOfGraphics.Layer; is_sublayer=false)
@@ -572,7 +584,8 @@ function analysis_to_vl(a::PrecomputedRibbonAnalysis, layer::AlgebraOfGraphics.L
     _ribbon_to_vl(summary, x_field, x_label, y_label, median_col, band_cols;
         color_field, color_label, detail_fields=detail_strs,
         facet, show_line=a.show_line, is_sublayer,
-        single_x_glyph=a.single_x_glyph, facet_fields)
+        single_x_glyph=a.single_x_glyph, facet_fields,
+        fixed_color=_analysis_fixed_color(layer, _ribbon_name(a)))
 end
 
 function analysis_to_vl(a::DotIntervalAnalysis, layer::AlgebraOfGraphics.Layer; is_sublayer=false)

@@ -1785,6 +1785,18 @@ window.AoV = window.AoV || {
         return enc;
     },
 
+    // Whether a layer was given a fixed colour (`visual(...; color=...)`):
+    // a literal mark colour, or AoV's theme-following ink style
+    // (`color=:ink`). A colour remap leaves such layers alone, as the
+    // server-side picker does (`_visual_static_channels`).
+    _fixedMarkColor: function(l) {
+        var mark = l && l.mark;
+        if (!mark || typeof mark !== 'object') return false;
+        var style = mark.style;
+        return !!mark.color || style === 'aov-ink' ||
+            (Array.isArray(style) && style.indexOf('aov-ink') !== -1);
+    },
+
     // The spec `remapEncoding` embeds: the stored original with `mapping`
     // applied. Embeds nothing.
     _remappedSpec: function(id, mapping) {
@@ -1820,7 +1832,7 @@ window.AoV = window.AoV || {
                 spec.hconcat.forEach(function(child) {
                     if (!child || !child.spec || !Array.isArray(child.spec.layer)) return;
                     child.spec.layer.forEach(function(l) {
-                        if (!l || !l.encoding || l._keep_color) return;
+                        if (!l || !l.encoding || l._keep_color || self._fixedMarkColor(l)) return;
                         if (cfC) {
                             l.encoding.color = self._remappedColor(l.encoding.color, cfC, _fieldTitleC(cfC));
                         } else {
@@ -2001,14 +2013,13 @@ window.AoV = window.AoV || {
                 layers = allLayers;
             } else {
                 // Non-lineribbon: standard color remapping. Skip layers
-                // whose mark statically sets `color` — those layers were
-                // intentionally given a fixed color (e.g. black observation
-                // scatters) and should not be data-driven by the picker.
+                // given a fixed colour (a literal or `:ink`, `_fixedMarkColor`)
+                // — e.g. black observation scatters or a theme-ink ribbon —
+                // which should not be data-driven by the picker.
                 layers.forEach(function(l) {
                     if (!l.encoding) return;
                     if (l._keep_color) return;  // layer-fixed color (field outside remappable dims)
-                    var staticColor = l.mark && typeof l.mark === 'object' && l.mark.color;
-                    if (staticColor) return;
+                    if (self._fixedMarkColor(l)) return;
                     if (cf) {
                         l.encoding.color = self._remappedColor(l.encoding.color, cf, _fieldTitle(cf));
                     } else {
