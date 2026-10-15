@@ -59,6 +59,8 @@ config(encoding=Dict("y" => Dict("aggregate" => "mean")))
 config(encoding=Dict("x" => Dict("scale" => Dict("type" => "log"))))
 ```
 
+The NamedTuple spelling is equivalent and lowers to the same Dict: `config(encoding=(; x=(; scale=(; type="log"))))`. Raw `config(config=...)` (a Dict or NamedTuple) is deep-merged the same way into AoV's default Vega-Lite `config`.
+
 Successive `config(encoding=...)` terms merge the same way, channel by channel; on the same key the later term wins.
 
 ### Per-layer overrides

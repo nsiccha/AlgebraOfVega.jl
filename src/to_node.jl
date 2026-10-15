@@ -39,10 +39,11 @@ function _facet_fields(vl::Dict)
     fields = String[]
     _push_channel_fields!(fields, get(vl, "facet", nothing), ("row", "column"))
     _push_channel_fields!(fields, get(vl, "encoding", nothing), ("row", "column"))
-    # Per-column-Y concat: every child facet view carries the row facet (and
-    # its sublayers the encodings); the column facet became a child filter, so
-    # collect each child's fields too — a layer missing any of them must still
-    # broadcast across every facet value or the child filters drop its rows.
+    # Per-column-Y concat: every child facet view carries the headerless
+    # column facet (beside its column filter) and any row facet, and its
+    # sublayers the encodings, so collect each child's fields too — a layer
+    # missing any of them must still broadcast across every facet value or
+    # the child filters drop its rows.
     children = _as_vec(get(vl, "hconcat", nothing))
     if children !== nothing
         for child in children

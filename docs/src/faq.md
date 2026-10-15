@@ -76,7 +76,9 @@ config(encoding = (;
 ))
 ```
 
-If the override doesn't take effect, the most likely cause is a typo in a channel name or a Symbol-vs-String mismatch — the merge is exact.
+The `Dict` spelling is equivalent: `config(encoding = Dict("x" => Dict("scale" => Dict("type" => "log"))))`. Keys may be Symbols or Strings, and Symbol values such as `field=:x` become the strings Vega-Lite reads. Raw `config(config = (; …))` is deep-merged the same way into AoV's default Vega-Lite config. Any other value (a string, `nothing`, …) is rejected by `config(...)` with an `ArgumentError`.
+
+If the override doesn't take effect, the most likely cause is a typo in a channel or property name — names must match Vega-Lite's exactly.
 
 ## When to use `pregrouped()`
 

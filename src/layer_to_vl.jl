@@ -51,14 +51,7 @@ function _plain_layer_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
 
     # Visual / mark (default to Scatter like AoG)
     vis = extract_visual(layer)
-    if !isnothing(vis)
-        mark_type = plottype_to_mark(vis.plottype)
-        extra_props = merge(plottype_to_mark_props(vis.plottype), visual_attrs_to_mark_props(vis))
-        spec["mark"] = isempty(extra_props) ? mark_type :
-            merge(Dict{String,Any}("type" => mark_type), extra_props)
-    else
-        spec["mark"] = "point"
-    end
+    spec["mark"] = isnothing(vis) ? "point" : _visual_mark(vis)
 
     # Encoding from positional + named
     encoding = Dict{String,Any}()
@@ -423,9 +416,7 @@ function _faceted_layers_to_vl(layers, facet_field, shared_table, shared_data;
                 x_field = length(layer.positional) >= 1 ? _field_name(layer.positional[1]) : "value"
                 vis = extract_visual(layer)
                 if !isnothing(vis)
-                    mark_type = plottype_to_mark(vis.plottype)
-                    mark_props = merge(plottype_to_mark_props(vis.plottype), visual_attrs_to_mark_props(vis))
-                    mark = isempty(mark_props) ? mark_type : merge(Dict{String,Any}("type" => mark_type), mark_props)
+                    mark = _visual_mark(vis)
 
                     enc = Dict{String,Any}(
                         "x" => Dict{String,Any}("field" => x_field, "type" => "quantitative"),
