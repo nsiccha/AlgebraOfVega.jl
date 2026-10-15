@@ -79,8 +79,10 @@ const _AOV_INK = "aov-ink"
 const _AOV_INK_COLOR = "#333"
 _uses_style(x, name) = false
 _uses_style(v::AbstractVector, name) = any(x -> _uses_style(x, name), v)
-_uses_style(d::AbstractDict, name) = get(d, "style", nothing) == name ||
+_uses_style(d::AbstractDict, name) = _uses_style_name(get(d, "style", nothing), name) ||
     any(((k, x),) -> k != "data" && k != "datasets" && _uses_style(x, name), d)
+_uses_style_name(style, name) = style == name
+_uses_style_name(styles::AbstractVector, name) = name in styles
 _apply_ink_default!(_) = nothing
 function _apply_ink_default!(spec::Dict)
     _uses_style(spec, _AOV_INK) || return spec

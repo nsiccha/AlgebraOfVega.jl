@@ -217,13 +217,18 @@ function visual_attrs_to_mark_props(vis::AlgebraOfGraphics.Visual)
     # Only a true Scatter becomes a Vega point mark, where `size` is an area.
     # (ScatterLines lowers to a line mark, where `size` is a stroke width.)
     scatter = vis.plottype <: Scatter
+    theme_ink = false
     for (k, v) in pairs(vis.attributes)
         sk = string(k)
         # Map Makie attribute names to Vega mark properties
         if k === :opacity || k === :fillOpacity
             props["opacity"] = v
         elseif k === :color
-            props["color"] = string(v)
+            if v === :ink
+                theme_ink = true
+            else
+                props["color"] = string(v)
+            end
         elseif k === :strokecolor
             props["stroke"] = string(v)
         elseif k === :strokeDash || k === :linestyle
@@ -240,6 +245,14 @@ function visual_attrs_to_mark_props(vis::AlgebraOfGraphics.Visual)
         else
             props[sk] = v
         end
+    end
+    if theme_ink
+        # A named style lets the host runtime resolve the inherited CSS colour
+        # at embed time. Keep any caller-authored styles, with ink last so the
+        # explicit `color=:ink` choice wins over their colour defaults.
+        styles = get(props, "style", nothing)
+        props["style"] = isnothing(styles) ? _AOV_INK :
+            vcat(styles isa AbstractVector ? string.(styles) : [string(styles)], [_AOV_INK])
     end
     props
 end

@@ -9,7 +9,7 @@
     const fixture = window.AOV_FIXTURE;
     const send = name => (0, eval)(fixture.updates[name]);
     const LIGHT = 'rgba(30,40,50,1)', DARK = 'rgba(200,210,220,1)';
-    const themed = ['theme-picker', 'theme-live', 'theme-authored', 'theme-ink'];
+    const themed = ['theme-picker', 'theme-live', 'theme-authored', 'theme-ink', 'theme-line-ink', 'theme-point-ink', 'theme-line-black'];
     async function ready(id, previous) {
         for (let i = 0; i < 300; i++) {
             const view = AoV.views[id];
@@ -30,6 +30,8 @@
     const fills = (view, r) => [...new Set(role(view, r).map(i => i.fill))];
     const rules = view => items(view, i => i.mark?.marktype === 'rule' && i.datum && i.datum.state !== undefined);
     const inkRules = view => items(view, i => i.mark?.marktype === 'rule' && i.datum && i.datum.lo_0_95_ !== undefined);
+    const lineStrokes = view => items(view, i => i.mark?.marktype === 'line' && i.stroke !== undefined).map(i => i.stroke);
+    const pointFills = view => items(view, i => i.mark?.marktype === 'symbol' && i.fill !== undefined).map(i => i.fill);
     const legendLabels = view => role(view, 'legend-label').map(i => i.text).sort().join(',');
 
     function chrome(id, view, text, label) {
@@ -81,6 +83,12 @@
         check(legendLabels(views['theme-picker']) === 'failed,passed', 'light: legend ' + legendLabels(views['theme-picker']));
         const ink = inkRules(views['theme-ink']);
         check(ink.length > 0 && ink.every(r => r.stroke === LIGHT), 'light: aov-ink rules ' + JSON.stringify(ink.map(r => r.stroke)));
+        check(lineStrokes(views['theme-line-ink']).length > 0 && lineStrokes(views['theme-line-ink']).every(c => c === LIGHT),
+            'light: fixed ink line ' + JSON.stringify(lineStrokes(views['theme-line-ink'])));
+        check(pointFills(views['theme-point-ink']).length > 0 && pointFills(views['theme-point-ink']).every(c => c === LIGHT),
+            'light: fixed ink points ' + JSON.stringify(pointFills(views['theme-point-ink'])));
+        check(lineStrokes(views['theme-line-black']).length > 0 && lineStrokes(views['theme-line-black']).every(c => c === 'black'),
+            'light: fixed black line ' + JSON.stringify(lineStrokes(views['theme-line-black'])));
         // Authored config wins key by key: axis labels stay red, titles follow the host.
         check(fills(views['theme-authored'], 'axis-label').join() === '#ff0000', 'authored axis labelColor overridden: ' +
             JSON.stringify(fills(views['theme-authored'], 'axis-label')));
@@ -91,6 +99,10 @@
         check(!('theme-none' in AoV._themeKeys), 'theme none: recorded as themed');
 
         // No change, no re-embed.
+        // More plot fixtures can leave a prior resize/fit callback queued;
+        // measure refreshTheme only after that initial layout has settled.
+        await new Promise(resolve => setTimeout(resolve, 500));
+        views['theme-picker'] = await ready('theme-picker');
         AoV.refreshTheme();
         for (let i = 0; i < 30; i++) await pause();
         check(AoV.views['theme-picker'] === views['theme-picker'], 'refreshTheme re-embedded an unchanged plot');
@@ -112,6 +124,12 @@
         check(legendLabels(views['theme-picker']) === 'g1,g2', 'dark: picker assignment lost: ' + legendLabels(views['theme-picker']));
         check(views['theme-live'].data('source_0').length === 3, 'dark: streamed rows lost');
         check(inkRules(views['theme-ink']).every(r => r.stroke === DARK), 'dark: aov-ink rules not host-coloured');
+        check(lineStrokes(views['theme-line-ink']).length > 0 && lineStrokes(views['theme-line-ink']).every(c => c === DARK),
+            'dark: fixed ink line ' + JSON.stringify(lineStrokes(views['theme-line-ink'])));
+        check(pointFills(views['theme-point-ink']).length > 0 && pointFills(views['theme-point-ink']).every(c => c === DARK),
+            'dark: fixed ink points ' + JSON.stringify(pointFills(views['theme-point-ink'])));
+        check(lineStrokes(views['theme-line-black']).length > 0 && lineStrokes(views['theme-line-black']).every(c => c === 'black'),
+            'dark: fixed black line changed ' + JSON.stringify(lineStrokes(views['theme-line-black'])));
         // Back to the authored colour field: the palette survives the theme.
         const remapped = AoV.views['theme-picker'];
         AoV.remapEncoding('theme-picker', {color: 'state'});
@@ -132,6 +150,10 @@
         const svgText = await (await fetch(svg)).text();
         check(svgText.includes('rgb(20,24,31)') && svgText.includes(DARK),
             'svg export lacks host background or text colour: ' + svgText.slice(0, 400));
+        const inkSvg = await AoV.plotImageURL('theme-line-ink', 'svg');
+        const inkSvgText = await (await fetch(inkSvg)).text();
+        check(inkSvgText.includes('rgb(20,24,31)') && inkSvgText.includes(DARK),
+            'ink line SVG export lacks dark background or ink');
         const plainPng = await AoV.plotImageURL('theme-none', 'png');
         check(JSON.stringify((await pixel(plainPng, 1, 1)).slice(0, 3)) === '[255,255,255]', 'theme none png background changed');
 
