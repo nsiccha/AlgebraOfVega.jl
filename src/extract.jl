@@ -224,6 +224,8 @@ function visual_attrs_to_mark_props(vis::AlgebraOfGraphics.Visual)
             props["opacity"] = v
         elseif k === :color
             props["color"] = string(v)
+        elseif k === :strokecolor
+            props["stroke"] = string(v)
         elseif k === :strokeDash || k === :linestyle
             dash = _linestyle_to_strokedash(v)
             isnothing(dash) || (props["strokeDash"] = dash)
@@ -233,7 +235,7 @@ function visual_attrs_to_mark_props(vis::AlgebraOfGraphics.Visual)
             props["size"] = (scatter && v isa Real) ? _markersize_to_vl_size(v) : v
         elseif k === :size
             props["size"] = v
-        elseif k === :strokeWidth || k === :linewidth
+        elseif k === :strokeWidth || k === :linewidth || k === :strokewidth
             props["strokeWidth"] = v
         else
             props[sk] = v
