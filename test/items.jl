@@ -528,6 +528,42 @@ anything else passes through as its string form; the data-driven
     @test attrs[:marker] === :cross
 end
 
+"""
+Fixed Makie Scatter outline attributes must use Vega-Lite mark-property names.
+The VL-spelled workaround produces the same interactive mark, while Makie
+spellings remain intact for the static path. Data-driven stroke remains an
+encoding rather than a fixed mark property.
+"""
+@testitem "fixed Scatter outline lowers to Vega stroke" setup=[AoVTestImports] tags=[:translation, :regression] begin
+    df = (; x=[1.0, 2.0], y=[2.0, 3.0], group=["a", "b"])
+    spec = data(df) * mapping(:x, :y) *
+           visual(Scatter; filled=true, strokecolor="black", strokewidth=1)
+    mark = to_vegalite(spec; interactive=false)["mark"]
+    @test mark["type"] == "point"
+    @test mark["stroke"] == "black"
+    @test mark["strokeWidth"] == 1
+    @test !haskey(mark, "strokecolor")
+    @test !haskey(mark, "strokewidth")
+
+    vl_spelled = data(df) * mapping(:x, :y) *
+                 visual(Scatter; filled=true, stroke="black", strokeWidth=1)
+    @test mark == to_vegalite(vl_spelled; interactive=false)["mark"]
+    symbol_color = data(df) * mapping(:x, :y) *
+                   visual(Scatter; strokecolor=:black)
+    @test to_vegalite(symbol_color)["mark"]["stroke"] == "black"
+
+    mapped = data(df) * mapping(:x, :y; strokecolor=:group) * visual(Scatter)
+    mapped_vl = to_vegalite(mapped)
+    @test mapped_vl["encoding"]["stroke"]["field"] == "group"
+    @test !haskey(mapped_vl["mark"], "stroke")
+
+    layer = spec isa AlgebraOfGraphics.Layer ? spec : only(spec.layers)
+    static_attrs = Dict(pairs(AlgebraOfVega.extract_visual(
+        AlgebraOfVega._fix_visual_attrs(layer)).attributes))
+    @test static_attrs[:strokecolor] == "black"
+    @test static_attrs[:strokewidth] == 1
+end
+
 @testitem "Band lowers to an unstacked absolute range" setup=[AoVTestImports] tags=[:translation, :regression] begin
     rows = (; x=[1.0, 2.0, 3.0, 1.0, 2.0, 3.0],
               lo=[0.1, 0.2, 0.3, 0.5, 0.6, 0.7],
