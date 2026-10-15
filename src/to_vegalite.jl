@@ -877,6 +877,12 @@ function _merge_pad_condition!(enc::Dict, channel::String)
     return
 end
 
+# Whether a VL `resolve` gives the y scale its own domain per facet cell.
+_independent_y(resolve::Dict) = _independent_y_scale(get(resolve, "scale", nothing))
+_independent_y(_) = false
+_independent_y_scale(scale::Dict) = get(scale, "y", nothing) == "independent"
+_independent_y_scale(_) = false
+
 """Re-lower a single-facet spec into an `hconcat` of per-column facet views so
 every column-facet VALUE can carry its own Y scale type.
 
@@ -888,9 +894,10 @@ missing (row, column) combo (diagonal range corners —
 `_pad_sparse_hconcat_rows!`), so every view facets the same full row domain —
 a cell without data renders empty, never packed. Only children whose column
 received pads carry the hidden bounds sublayer; complete children keep their
-exact unpadded shape (snag `per-column-y-pad-0c9e8b2a`). Without a row facet
-each child facets its one filtered column value through a headerless column
-facet, so it stays a facet view.
+exact unpadded shape (snag `per-column-y-pad-0c9e8b2a`). Each child also
+facets its one filtered column value through a headerless column facet, so it
+is a facet view with or without a row facet and keeps the column field as a
+declared partition (cross-source broadcast, picker row remaps).
 
 `ycols` maps column VALUES (as they appear in the data) to VL `scale` dicts
 (from `_scales_column_y_scales`). Unlisted columns keep the shared encoding's
@@ -1001,6 +1008,15 @@ function _per_column_y_hconcat!(spec::Dict, ycols::Dict)
     children = Any[]
     for (i, v) in enumerate(colvals)
         child = Dict{String,Any}()
+        # Every child facets its already-filtered column value (one cell)
+        # through a headerless column facet, so it is a facet view with or
+        # without a row facet (a `spec` with no `facet` beside it is not valid
+        # Vega-Lite), and the column field stays a declared partition: the
+        # cross-source broadcast replicates a layer that lacks it across every
+        # column, and a picker row-clear leaves the valid col-only shape.
+        child["facet"] = Dict{String,Any}("column" => Dict{String,Any}(
+            "field" => colfield, "type" => get(coldef, "type", "nominal"),
+            "header" => nothing))
         # The row facet moves into each view; later views drop the row header
         # (labels would repeat per column — never-truncate never-means-repeat).
         # Suppression is sound: padding above keeps every child's row domain
@@ -1008,15 +1024,7 @@ function _per_column_y_hconcat!(spec::Dict, ycols::Dict)
         if !isnothing(rowdef)
             rd = deepcopy(rowdef)
             i > 1 && (rd["header"] = nothing)
-            child["facet"] = Dict{String,Any}("row" => rd)
-        else
-            # No row facet: a headerless column facet over the already-filtered
-            # column (one cell) keeps the child a facet view — a `spec` with
-            # no `facet` beside it is not valid Vega-Lite — so every consumer,
-            # including a picker row remap, sees one child shape.
-            child["facet"] = Dict{String,Any}("column" => Dict{String,Any}(
-                "field" => colfield, "type" => get(coldef, "type", "nominal"),
-                "header" => nothing))
+            child["facet"]["row"] = rd
         end
         child_inner = deepcopy(inner)
         if any(p -> isequal(p, v), padded_cols)
@@ -1044,6 +1052,13 @@ function _per_column_y_hconcat!(spec::Dict, ycols::Dict)
         child["transform"] = ctransforms
         if !isnothing(resolve)
             child["resolve"] = deepcopy(resolve)
+        end
+        # Vega-Lite lays a row-only facet with an independent y scale out
+        # unaligned (`align: "none"`), but defaults a row × column facet to
+        # `"all"`, which re-spaces the row bands to the tallest axis extent.
+        # Pin the row-only layout so the column facet changes no pixel.
+        if !isnothing(rowdef) && _independent_y(resolve)
+            child["align"] = "none"
         end
         if !labels_off
             ct = Dict{String,Any}("text" => _vl_header_label(v),

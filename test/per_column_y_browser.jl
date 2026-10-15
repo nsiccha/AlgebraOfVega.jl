@@ -1,11 +1,16 @@
 using TestItemRunner
 
-# A per-column Y scale figure with `col=` but no `row=` embeds, through `vdraw`
-# and through the channel picker, with each column's own Y scale type, and the
-# picker can add and remove a row facet. Before, every hconcat child was a
-# `spec` with no `facet` beside it, which Vega-Lite rejects as an invalid
-# specification, so the figure never embedded.
-@testitem "col-only per-column Y scales render in the browser" tags=[:regression, :browser, :translation, :auto_remap] begin
+# Per-column Y scale figures embed, through `vdraw` and through the channel
+# picker, with each column's own Y scale type.
+# - `col=` but no `row=`: the picker can add and remove a row facet. Before,
+#   every hconcat child was a `spec` with no `facet` beside it, which Vega-Lite
+#   rejects as an invalid specification, so the figure never embedded.
+# - `row=` and `col=`: a reference layer without the column field reaches every
+#   cell, and the picker can clear and restore the row facet. Before, the
+#   row×col children faceted only by row, so the cross-source broadcast never
+#   replicated the reference rows across columns (0 hlines drawn), and a
+#   row-clear left `facet: {}` beside `spec` (a TypeError, no re-embed).
+@testitem "per-column Y scales render in the browser" tags=[:regression, :browser, :translation, :auto_remap] begin
     using AlgebraOfVega, HTMXObjects, JSON
     @test !isnothing(Base.get_extension(AlgebraOfVega, :AlgebraOfVegaHTMXObjectsExt))
     html(x) = sprint(show, MIME"text/html"(), x)
@@ -17,7 +22,13 @@ using TestItemRunner
     single = data(pts) * mapping(:x, :y; col=:p, color=:g) * visual(Scatter) * sc
     layered = (data(pts) * mapping(:x, :y; col=:p) * visual(Lines) +
                data(pts) * mapping(:x, :y; col=:p) * visual(Scatter)) * sc
-    @test all(s -> haskey(to_vegalite(s), "hconcat"), (single, layered))
+    # Row × column, with a reference line that has neither facet field.
+    ref = data((; y0=[2.0])) * mapping(:y0) * visual(HLines)
+    rowcol_ref = (data(pts) * mapping(:x, :y; col=:p, row=:r) * visual(Scatter) + ref) * sc
+    colonly_ref = (data(pts) * mapping(:x, :y; col=:p) * visual(Scatter) + ref) * sc
+    rowcol = (data(pts) * mapping(:x, :y; col=:p, row=:r) * visual(Lines) +
+              data(pts) * mapping(:x, :y; col=:p, row=:r) * visual(Scatter)) * sc
+    @test all(s -> haskey(to_vegalite(s), "hconcat"), (single, layered, rowcol_ref, colonly_ref, rowcol))
 
     chrome = something(Sys.which("google-chrome"), Sys.which("chromium"), "")
     if isempty(chrome)
@@ -26,7 +37,10 @@ using TestItemRunner
         mktempdir(prefix="kb-per-column-y-") do dir
             page = [vdraw(single; id="pc-single"), vdraw(layered; id="pc-layered"),
                 auto_remap_node("pc-picker", layered;
-                    dims=["g" => "Group", "r" => "Run"], fixed=Dict(:column => "p"), pinned=:detail)]
+                    dims=["g" => "Group", "r" => "Run"], fixed=Dict(:column => "p"), pinned=:detail),
+                vdraw(rowcol_ref; id="pc-rowcol-ref"), vdraw(colonly_ref; id="pc-colonly-ref"),
+                auto_remap_node("pc-rowcol-picker", rowcol;
+                    dims=["g" => "Group", "r" => "Run"], fixed=Dict(:column => "p"), pinned=:detail, row="r")]
             head = join(html(n) for n in vega_head(; source=:inline))
             driver = read(joinpath(@__DIR__, "per_column_y_browser.js"), String)
             write(joinpath(dir, "page.html"), "<!doctype html><meta charset='utf-8'>" * head *
@@ -40,9 +54,9 @@ using TestItemRunner
             if !isnothing(result)
                 report = JSON.parse(replace(result[1], "&quot;" => "\"", "&lt;" => "<",
                     "&gt;" => ">", "&amp;" => "&"))
-                @test report["checks"] >= 18
+                @test report["checks"] >= 36
                 @test isempty(report["failures"])
-                @info "col-only per-column Y browser checks" checks=report["checks"]
+                @info "per-column Y browser checks" checks=report["checks"]
                 isempty(report["failures"]) || println(JSON.json(report["failures"]))
             end
         end
