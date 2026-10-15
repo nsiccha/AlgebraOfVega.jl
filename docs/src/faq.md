@@ -41,7 +41,8 @@ facet headers, titles and unencoded text in the CSS `color` the plot element
 inherits, on a transparent background, so a plot inside a dark Pico page (or a
 dark card) reads as part of it. Palettes and literal mark colours stay fixed.
 For a fixed line or point that should use the page's foreground ink, write
-`visual(Lines; color=:ink)` (or use another mark type). The same spec uses the
+`visual(Lines; color=:ink)` (or use another mark type, or a ribbon:
+`lineribbon(...) * visual(; color=:ink)`). The same spec uses the
 active Makie theme's text colour with `sdraw`; PNG/SVG browser downloads use
 the page's colour and background. When the page switches theme
 (`prefers-color-scheme`, or a `class` / `data-theme` / `style` change on
@@ -86,6 +87,11 @@ AoG's `pregrouped(xs, ys, ...)` is the right hook when your data is already in n
 | Long-format draws (one row per draw × x) | `lineribbon` — computes intervals from draws |
 | Long-format draws + you want only the band (no centre line) | `ribbon` |
 | Precomputed `lo`/`hi` columns | `lineribbon(...; bands=[:lo50 => :hi50, :lo95 => :hi95])` (or `ribbon(...; bands=…)`) — `bands` is a vector of `lo => hi` Pairs of column names; skips the draw-based estimator |
+
+All three take a fixed colour the way a plain mark does —
+`lineribbon(bands=…) * visual(; color="black")` (or `color=:ink`) colours every
+band and the median line. A `color=` mapping wins over it; other `visual`
+attributes are not applied to ribbons and log a warning.
 
 See the [API Reference](api.md#tidybayes-style-uncertainty-analyses) for the full docstring set and the [Gallery](gallery.md) for worked examples.
 

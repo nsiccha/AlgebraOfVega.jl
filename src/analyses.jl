@@ -118,6 +118,15 @@ outermost first.
 single x value (where an area/line would render nothing) is instead drawn as a
 vertical pointinterval glyph (rule-bands + a stroked median point) so it stays
 visible. Set `false` to opt out (single-x groups revert to invisible area/line).
+
+A fixed colour colours every band, the median line and the single-x glyph
+rules, on `vdraw` and `sdraw` alike; `color=:ink` follows the page's light/dark
+foreground (the Makie theme's text colour under `sdraw`). A `color=` mapping
+wins over it, as for plain marks. Other `visual` attributes are not applied
+(the bands keep their graduated opacities) and are reported with a warning.
+
+    data(summary) * mapping(:x, :median) *
+        lineribbon(bands=[:q025 => :q975, :q25 => :q75]) * visual(; color="black")
 """
 function lineribbon(; probs=[0.95, 0.8, 0.5], bands=nothing, detail=Symbol[], single_x_glyph=true)
     if !isnothing(bands)
@@ -133,7 +142,7 @@ end
 
 Uncertainty ribbons (area marks) without a median line.
 Same as `lineribbon` but omits the central line. Accepts the same `bands`
-kwarg for pre-aggregated data.
+kwarg for pre-aggregated data, and a fixed `visual(; color=…)` the same way.
 
     data(preds) * mapping(:x, :y, group=:draw) * ribbon()
     data(summary) * mapping(:x, :median) * ribbon(bands=[:q025 => :q975])
