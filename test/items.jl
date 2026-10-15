@@ -2719,6 +2719,64 @@ highlight. The same allow-list silently dropped `config(width=, height=)`.
     end
 end
 
+"""
+With `row=` and `col=`, each hconcat child carries the same headerless column
+facet beside its row facet, so the column field stays a declared partition.
+Before, row×col children faceted only by row: the cross-source broadcast never
+replicated a layer without the column field (a reference `HLines` vanished from
+every column), and a picker row-clear left `facet: {}` beside `spec`.
+"""
+@testitem "per-column Y row×col children keep the column partition" setup=[AoVTestImports] tags=[:translation, :config, :auto_remap, :regression] begin
+    pts = (; x=repeat([1.0, 2, 3], 4), y=[1.5, 2.5, 2.5, 1.0, 2.0, 3.5, 2.0, 3.0, 4.0, 1.5, 2.5, 3.0],
+           g=repeat(["a", "b"], 6), p=repeat(["P1", "P2"], inner=3, outer=2), r=repeat(["R1", "R2"], inner=6))
+    ysc = config(scales=scales(Y=(; scale=Dict("P1" => log10))))
+    colcell = Dict("field" => "p", "type" => "nominal", "header" => nothing)
+    function check_children(vl)
+        children = vl["hconcat"]
+        @test length(children) == 2
+        for (i, ch) in enumerate(children)
+            @test ch["facet"]["column"] == colcell
+            @test ch["facet"]["row"]["field"] == "r"
+            # only the first view keeps the row header
+            @test (get(ch["facet"]["row"], "header", missing) === nothing) == (i > 1)
+        end
+        @test [ch["transform"][1]["filter"] for ch in children] ==
+              ["datum.p === 'P1'", "datum.p === 'P2'"]
+    end
+
+    # A reference line without either facet field is broadcast to every
+    # (row, column) cell, as in the facet form.
+    fig = (data(pts) * mapping(:x, :y; col=:p, row=:r) * visual(Scatter) +
+           data((; y0=[2.0])) * mapping(:y0) * visual(HLines)) * ysc
+    vl = to_vegalite(fig)
+    check_children(vl)
+    # Vega-Lite would align a row × column facet's rows (`align: "all"`) where
+    # the row-only facet with an independent y left them unaligned, so the
+    # children pin the row-only layout; linked y already used `"all"`.
+    @test all(ch -> !haskey(ch, "align"), vl["hconcat"])
+    uvl = to_vegalite(fig * config(facet=(; linkyaxes=:none)))
+    check_children(uvl)
+    @test [ch["align"] for ch in uvl["hconcat"]] == ["none", "none"]
+    @test issubset(["r", "p"], AlgebraOfVega._facet_fields(vl))
+    AlgebraOfVega._broadcast_cross_source_layers!(vl)
+    refs = [v for v in vl["data"]["values"] if haskey(v, "y0")]
+    @test sort([(v["r"], v["p"]) for v in refs]) ==
+          [("R1", "P1"), ("R1", "P2"), ("R2", "P1"), ("R2", "P2")]
+
+    # The channel picker lowers an authored row facet to the same shape, and
+    # removing the row facet (what the runtime's row-clear does to each child)
+    # leaves the valid col-only child.
+    layered = data(pts) * mapping(:x, :y; col=:p, row=:r) * visual(Lines) +
+              data(pts) * mapping(:x, :y; col=:p, row=:r) * visual(Scatter)
+    _, _, rvl = AlgebraOfVega._auto_remap_parts("percol-rowcol", layered * ysc;
+        dims=["g" => "Group", "r" => "Run"], fixed=Dict(:column => "p"), pinned=:detail, row="r")
+    check_children(rvl)
+    for ch in rvl["hconcat"]
+        delete!(ch["facet"], "row")
+        @test ch["facet"] == Dict("column" => colcell)
+    end
+end
+
 @testitem "per-column Y scales survive auto_remap" setup=[AoVTestImports] tags=[:auto_remap, :translation, :regression] begin
     rows = vcat(
         [Dict("t" => t, "val" => 10.0^t, "lo" => 10.0^t - 1, "hi" => 10.0^t + 1,
