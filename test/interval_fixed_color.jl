@@ -113,3 +113,57 @@ end
         @test_logs to_vegalite(spec)
     end
 end
+
+@testitem "fixed interval colour in the browser" tags=[:regression, :browser, :theme, :auto_remap] begin
+    using AlgebraOfVega, HTMXObjects, JSON
+    @test !isnothing(Base.get_extension(AlgebraOfVega, :AlgebraOfVegaHTMXObjectsExt))
+    html(x) = sprint(show, MIME"text/html"(), x)
+
+    draws = (; v=collect(1.0:60.0), g=repeat(["a", "b", "c"], 20))
+    summary = (; m=[2.0, 5.0, 8.0], lo=[1.0, 4.0, 7.0], hi=[3.0, 6.0, 9.0], g=["a", "b", "c"])
+    interval_spec(a, c) = data(draws) * mapping(:v; y=:g) * a * visual(; color=c) * config(height=120)
+    bands_spec(c) = data(summary) * mapping(:m; y=:g) * pointinterval(bands=[:lo => :hi]) *
+        visual(; color=c) * config(height=120)
+    # An interval layered with a scatter the reader may colour by `h`.
+    points = (; v=[1.5, 20.5, 40.5, 10.5, 30.5, 50.5], g=["a", "b", "c", "a", "b", "c"], h=repeat(["x", "y"], inner=3))
+    layered(c) = (data(draws) * mapping(:v; y=:g) * pointinterval() * visual(; color=c) +
+        data(points) * mapping(:v, :g) * visual(Scatter)) * config(height=120)
+    picker = (; dims=["h" => "H"], pinned=:detail)
+
+    chrome = something(Sys.which("google-chrome"), Sys.which("chromium"), "")
+    if isempty(chrome)
+        @test_skip "headless Chrome is not installed"
+    else
+        mktempdir(prefix="kb-interval-color-") do dir
+            page = [vdraw(interval_spec(pointinterval(), :ink); id="iv-point-ink"),
+                vdraw(interval_spec(pointinterval(), "black"); id="iv-point-black"),
+                vdraw(bands_spec("black"); id="iv-bands-black"),
+                vdraw(interval_spec(gradient_interval(), :ink); id="iv-gradient-ink"),
+                vdraw(interval_spec(gradient_interval(), "black"); id="iv-gradient-black"),
+                vdraw(interval_spec(dotinterval(), :ink); id="iv-dot-ink"),
+                vdraw(interval_spec(dotinterval(), "black"); id="iv-dot-black"),
+                auto_remap_node("iv-picker-ink", layered(:ink); picker...),
+                auto_remap_node("iv-picker-black", layered("black"); picker...)]
+            style = "<style>body{color:rgb(30,40,50);background:rgb(250,250,250)}" *
+                "html[data-theme=dark] body{color:rgb(200,210,220);background:rgb(20,24,31)}</style>"
+            head = join(html(n) for n in vega_head(; source=:inline))
+            driver = read(joinpath(@__DIR__, "interval_fixed_color.js"), String)
+            write(joinpath(dir, "page.html"), "<!doctype html><meta charset='utf-8'>" * style * head *
+                "<body>" * join(html(p) for p in page) * "<script>" * driver * "</script></body>")
+            output = read(pipeline(`$chrome --headless=new --no-sandbox --disable-gpu
+                --user-data-dir=$(joinpath(dir, "profile")) --window-size=1200,2400
+                --virtual-time-budget=20000 --dump-dom $("file://" * joinpath(dir, "page.html"))`,
+                stderr=joinpath(dir, "chrome.log")), String)
+            result = match(r"<pre id=\"aov-interval-color-results\">([^<]*)</pre>", output)
+            @test !isnothing(result)
+            if !isnothing(result)
+                report = JSON.parse(replace(result[1], "&quot;" => "\"", "&lt;" => "<",
+                    "&gt;" => ">", "&amp;" => "&"))
+                @test report["checks"] >= 48
+                @test isempty(report["failures"])
+                @info "fixed interval colour browser checks" checks=report["checks"]
+                isempty(report["failures"]) || println(JSON.json(report["failures"]))
+            end
+        end
+    end
+end
