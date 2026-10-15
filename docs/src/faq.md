@@ -39,8 +39,11 @@ receive automatic legend selections.
 Plots follow the page's light/dark choice. The runtime draws axes, legends,
 facet headers, titles and unencoded text in the CSS `color` the plot element
 inherits, on a transparent background, so a plot inside a dark Pico page (or a
-dark card) reads as part of it. Mark colours — palettes, `scales(Color=...)`,
-`visual(...; color=...)` — are unchanged. When the page switches theme
+dark card) reads as part of it. Palettes and literal mark colours stay fixed.
+For a fixed line or point that should use the page's foreground ink, write
+`visual(Lines; color=:ink)` (or use another mark type). The same spec uses the
+active Makie theme's text colour with `sdraw`; PNG/SVG browser downloads use
+the page's colour and background. When the page switches theme
 (`prefers-color-scheme`, or a `class` / `data-theme` / `style` change on
 `<html>` or `<body>`) the plots re-render in place, keeping the channel-picker
 assignment, `update_spec` data and streamed rows. After switching a theme some

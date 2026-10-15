@@ -173,8 +173,9 @@ default) draws axes, legends, facet headers, titles and unencoded text in the
 CSS `color` each plot element inherits, on a transparent background, and
 re-renders the plots when the page's colour scheme changes (a
 `prefers-color-scheme` change, or a `class` / `data-theme` / `style` change on
-`<html>` or `<body>`). Mark colours (palettes, `visual(...; color=...)`) are
-unchanged, and a spec's own `config(config=Dict(...))` values still win. PNG/SVG
+`<html>` or `<body>`). Authored palette and literal mark colours are unchanged;
+`visual(...; color=:ink)` uses the plot's inherited foreground colour instead.
+A spec's own `config(config=Dict(...))` values still win. PNG/SVG
 downloads of such a plot are painted on the page background behind it. `:none`
 keeps Vega's own defaults (white background, black text). A per-plot
 `config(theme=...)` overrides this page-level value for that plot.

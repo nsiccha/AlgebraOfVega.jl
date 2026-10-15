@@ -226,6 +226,12 @@ function _fix_visual_attrs(layer::AlgebraOfGraphics.Layer)
     isnothing(vis) && return layer
     attrs = Dict(pairs(vis.attributes))
     changed = false
+    if get(attrs, :color, nothing) === :ink
+        # Static output has no CSS host. Use the active Makie theme's text
+        # colour, which follows light/dark themes and is readable on exports.
+        attrs[:color] = Makie.to_value(Makie.theme(:textcolor; default=:black))
+        changed = true
+    end
     if haskey(attrs, :size) && !haskey(attrs, :markersize)
         v = pop!(attrs, :size)
         # Only a true Scatter takes a marker size; other marks keep the value.
