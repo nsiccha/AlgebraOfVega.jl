@@ -31,7 +31,44 @@ function plottype_to_mark_props(T::Type)
     Dict{String,Any}()
 end
 
-_COMPOSITE_MARKS = Set(["boxplot", "errorbar", "errorband"])
+"""
+Vega-Lite composite mark → the parts it draws, each with whether Vega-Lite
+draws it by default (its `config.<mark>.<part>` default).
+"""
+_COMPOSITE_PARTS = Dict{String,Vector{Pair{String,Bool}}}(
+    "errorbar" => ["rule" => true, "ticks" => false],
+    "errorband" => ["band" => true, "borders" => false],
+    "boxplot" => ["box" => true, "median" => true, "outliers" => true, "rule" => true, "ticks" => false],
+)
+
+_COMPOSITE_MARKS = Set(keys(_COMPOSITE_PARTS))
+
+# Vega-Lite drops a composite mark's own `style`: each part it draws gets the
+# style `"<mark>-<part>"` (or the part's own), and only `color`, `opacity` and
+# `clip` carry over from the composite. So a style on a composite —
+# `visual(Rangebars; color=:ink)`'s `aov-ink` — moves onto every drawn part,
+# after the part's style so it wins, and the composite keeps none. A part
+# switched off (`false`/`nothing`) stays off, and one left at its default is
+# styled only when Vega-Lite draws it by default.
+_style_composite_parts(mark) = mark
+function _style_composite_parts(mark::Dict)
+    parts = get(_COMPOSITE_PARTS, _mark_type(mark), nothing)
+    (isnothing(parts) || !haskey(mark, "style")) && return mark
+    out = copy(mark)
+    styles = _style_list(pop!(out, "style"))
+    for (part, drawn) in parts
+        p = get(out, part, drawn)
+        (isnothing(p) || p === false) && continue
+        props = p === true ? Dict{String,Any}() :
+            Dict{String,Any}(string(k) => v for (k, v) in pairs(p))
+        props["style"] = vcat(_style_list(get(props, "style", "$(_mark_type(mark))-$part")), styles)
+        out[part] = props
+    end
+    out
+end
+
+_style_list(style::AbstractVector) = string.(style)
+_style_list(style) = [string(style)]
 
 _mark_type(m::String) = m
 _mark_type(m::Dict) = get(m, "type", "")
