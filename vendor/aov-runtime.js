@@ -1787,14 +1787,18 @@ window.AoV = window.AoV || {
 
     // Whether a layer was given a fixed colour (`visual(...; color=...)`):
     // a literal mark colour, or AoV's theme-following ink style
-    // (`color=:ink`). A colour remap leaves such layers alone, as the
+    // (`color=:ink`), which a composite mark (errorbar, boxplot) carries
+    // on its drawn parts. A colour remap leaves such layers alone, as the
     // server-side picker does (`_visual_static_channels`).
     _fixedMarkColor: function(l) {
         var mark = l && l.mark;
         if (!mark || typeof mark !== 'object') return false;
-        var style = mark.style;
-        return !!mark.color || style === 'aov-ink' ||
-            (Array.isArray(style) && style.indexOf('aov-ink') !== -1);
+        var ink = function(m) {
+            var style = m && typeof m === 'object' ? m.style : undefined;
+            return style === 'aov-ink' || (Array.isArray(style) && style.indexOf('aov-ink') !== -1);
+        };
+        return !!mark.color || ink(mark) ||
+            Object.keys(mark).some(function(k) { return ink(mark[k]); });
     },
 
     // The spec `remapEncoding` embeds: the stored original with `mapping`

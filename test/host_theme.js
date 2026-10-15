@@ -9,7 +9,8 @@
     const fixture = window.AOV_FIXTURE;
     const send = name => (0, eval)(fixture.updates[name]);
     const LIGHT = 'rgba(30,40,50,1)', DARK = 'rgba(200,210,220,1)';
-    const themed = ['theme-picker', 'theme-live', 'theme-authored', 'theme-ink', 'theme-line-ink', 'theme-point-ink', 'theme-line-black'];
+    const themed = ['theme-picker', 'theme-live', 'theme-authored', 'theme-ink', 'theme-line-ink', 'theme-point-ink', 'theme-line-black',
+        'theme-bars-ink', 'theme-box-ink', 'theme-bars-black'];
     async function ready(id, previous) {
         for (let i = 0; i < 300; i++) {
             const view = AoV.views[id];
@@ -32,6 +33,21 @@
     const inkRules = view => items(view, i => i.mark?.marktype === 'rule' && i.datum && i.datum.lo_0_95_ !== undefined);
     const lineStrokes = view => items(view, i => i.mark?.marktype === 'line' && i.stroke !== undefined).map(i => i.stroke);
     const pointFills = view => items(view, i => i.mark?.marktype === 'symbol' && i.fill !== undefined).map(i => i.fill);
+    const dataItems = (view, type) => items(view, i => i.mark?.marktype === type && i.mark?.role === 'mark' && i.datum);
+    const ruleStrokes = view => dataItems(view, 'rule').map(i => i.stroke);
+    const rectFills = view => [...new Set(dataItems(view, 'rect').map(i => i.fill))].sort();
+    // Composite marks (errorbar, boxplot) with `color=:ink` draw every part in
+    // the host ink, as a literal colour would; the boxplot median stays white.
+    function compositeInk(views, ink, label) {
+        const bars = ruleStrokes(views['theme-bars-ink']);
+        check(bars.length === 3 && bars.every(c => c === ink), label + ': fixed ink Rangebars ' + JSON.stringify(bars));
+        const box = ruleStrokes(views['theme-box-ink']);
+        check(box.length > 0 && box.every(c => c === ink), label + ': fixed ink BoxPlot rules ' + JSON.stringify(box));
+        check(JSON.stringify(rectFills(views['theme-box-ink'])) === JSON.stringify([ink, 'white'].sort()),
+            label + ': fixed ink BoxPlot box/median ' + JSON.stringify(rectFills(views['theme-box-ink'])));
+        const black = ruleStrokes(views['theme-bars-black']);
+        check(black.length === 3 && black.every(c => c === 'black'), label + ': fixed black Rangebars ' + JSON.stringify(black));
+    }
     const legendLabels = view => role(view, 'legend-label').map(i => i.text).sort().join(',');
 
     function chrome(id, view, text, label) {
@@ -89,6 +105,12 @@
             'light: fixed ink points ' + JSON.stringify(pointFills(views['theme-point-ink'])));
         check(lineStrokes(views['theme-line-black']).length > 0 && lineStrokes(views['theme-line-black']).every(c => c === 'black'),
             'light: fixed black line ' + JSON.stringify(lineStrokes(views['theme-line-black'])));
+        compositeInk(views, LIGHT, 'light');
+        // A colour remap leaves a fixed-ink composite alone: its ink sits on the parts.
+        check(AoV._fixedMarkColor({mark: {type: 'errorbar', rule: {style: ['errorbar-rule', 'aov-ink']}}}),
+            'fixed ink errorbar not recognised as fixed colour');
+        check(!AoV._fixedMarkColor({mark: {type: 'errorbar', rule: {style: ['errorbar-rule']}}}),
+            'unstyled errorbar recognised as fixed colour');
         // Authored config wins key by key: axis labels stay red, titles follow the host.
         check(fills(views['theme-authored'], 'axis-label').join() === '#ff0000', 'authored axis labelColor overridden: ' +
             JSON.stringify(fills(views['theme-authored'], 'axis-label')));
@@ -130,6 +152,7 @@
             'dark: fixed ink points ' + JSON.stringify(pointFills(views['theme-point-ink'])));
         check(lineStrokes(views['theme-line-black']).length > 0 && lineStrokes(views['theme-line-black']).every(c => c === 'black'),
             'dark: fixed black line changed ' + JSON.stringify(lineStrokes(views['theme-line-black'])));
+        compositeInk(views, DARK, 'dark');
         // Back to the authored colour field: the palette survives the theme.
         const remapped = AoV.views['theme-picker'];
         AoV.remapEncoding('theme-picker', {color: 'state'});
@@ -171,6 +194,7 @@
         // And back.
         views = await switchTheme(false);
         for (const id of ['theme-picker', 'theme-live', 'theme-ink']) chrome(id, views[id], LIGHT, 'back to light');
+        compositeInk(views, LIGHT, 'back to light');
         check(views['theme-live'].data('source_0').length === 3, 'light again: streamed rows lost');
         palette(views['theme-picker'], 'light again');
 

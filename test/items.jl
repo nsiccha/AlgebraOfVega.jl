@@ -2617,6 +2617,71 @@ end
     @test_throws ErrorException to_vegalite(spec2)
 end
 
+"""
+With `col=` but no `row=`, each hconcat child facets its one filtered column
+value through a headerless column facet, so it is a facet view like the
+row×column children. Before, every child was a `spec` with no `facet` beside
+it, which Vega-Lite rejects as an invalid specification, so the figure never
+embedded.
+"""
+@testitem "per-column Y scales with col= but no row= emit valid hconcat children" setup=[AoVTestImports] tags=[:translation, :config, :auto_remap, :regression] begin
+    pts = (; x=[1.0, 2, 3, 1, 2, 3], y=[1.5, 2.5, 2.5, 1.0, 2.0, 3.5],
+           g=["a", "b", "a", "b", "a", "b"], p=repeat(["P1", "P2"], inner=3))
+    ysc = scales(Y=(; scale=Dict("P1" => log10)))
+    unlink = config(facet=(; linkyaxes=:none))
+    # Vega-Lite accepts a `spec` only beside a `facet` operator.
+    spec_without_facet(d) = d isa AbstractDict ?
+        (haskey(d, "spec") && !haskey(d, "facet")) || any(spec_without_facet, values(d)) :
+        d isa AbstractVector && any(spec_without_facet, d)
+    ytypes(ch) = unique(get(get(l["encoding"]["y"], "scale", Dict()), "type", "linear")
+                        for l in ch["spec"]["layer"] if haskey(get(l, "encoding", Dict()), "y"))
+    function check_children(vl; unlinked)
+        children = vl["hconcat"]
+        @test length(children) == 2
+        @test !spec_without_facet(vl)
+        for ch in children
+            @test collect(keys(ch["facet"])) == ["column"]
+            @test ch["facet"]["column"]["field"] == "p"
+            @test ch["facet"]["column"]["header"] === nothing
+            # the facet-level resolve keeps its meaning inside the facet view
+            @test get(ch, "resolve", nothing) ==
+                  (unlinked ? Dict("scale" => Dict("y" => "independent")) : nothing)
+        end
+        @test [ch["transform"][1]["filter"] for ch in children] ==
+              ["datum.p === 'P1'", "datum.p === 'P2'"]
+        @test ytypes(children[1]) == ["log"]
+        @test ytypes(children[2]) == ["linear"]
+    end
+
+    # Single-layer (encoding-level facet) and `+`-layered (operator facet),
+    # with linked and unlinked y axes.
+    single = data(pts) * mapping(:x, :y; col=:p, color=:g) * visual(Scatter)
+    layered = data(pts) * mapping(:x, :y; col=:p) * visual(Lines) +
+              data(pts) * mapping(:x, :y; col=:p, color=:g) * visual(Scatter)
+    for spec in (single, layered), unlinked in (false, true)
+        base = unlinked ? spec * unlink : spec
+        vl = to_vegalite(base * config(scales=ysc))
+        check_children(vl; unlinked)
+        @test [ch["title"]["text"] for ch in vl["hconcat"]] == ["P1", "P2"]
+        @test vl["title"]["text"] == "p"
+        @test haskey(vl, "data")
+        @test vl["_aov"]["nFacetCols"] == 2
+        # the second-positional Scales form lowers to the same shape
+        check_children(to_vegalite(base, ysc); unlinked)
+    end
+
+    # The column field still partitions the figure, so a layer without it is
+    # broadcast across every column, as in the facet form.
+    vl = to_vegalite(layered * config(scales=ysc))
+    @test "p" in AlgebraOfVega._facet_fields(vl)
+    @test AlgebraOfVega.plot_size(vl).width > AlgebraOfVega.plot_size(vl["hconcat"][1]).width
+
+    # The channel picker re-lowers to the same valid shape.
+    _, _, rvl = AlgebraOfVega._auto_remap_parts("percol-col-only", layered * unlink * config(scales=ysc);
+        dims=["g" => "Group"], fixed=Dict(:column => "p"), pinned=:detail)
+    check_children(rvl; unlinked=true)
+end
+
 @testitem "per-column Y scales survive auto_remap" setup=[AoVTestImports] tags=[:auto_remap, :translation, :regression] begin
     rows = vcat(
         [Dict("t" => t, "val" => 10.0^t, "lo" => 10.0^t - 1, "hi" => 10.0^t + 1,
