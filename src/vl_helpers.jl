@@ -80,7 +80,11 @@ end
 Create a `Config` with Vega-Lite properties. Common options:
 
 - `width`, `height`, `title` — spec dimensions and title
-- `encoding` — deep-merged with auto-generated encodings (add aggregate, scale, axis, etc.)
+- `encoding` — deep-merged with auto-generated encodings (add aggregate, scale, axis, etc.).
+  On one summand of a `+` sum it applies to that summand's layers only
+  (`a * config(encoding=E) + b`, e.g. a tooltip for `a`'s marks); apply it to the
+  whole sum, `(a + b) * config(encoding=E)`, to reach every layer. `row`/`column`/`facet`
+  overrides always configure the shared facet.
 - `params`, `transform` — VL interactivity parameters and data transforms
 - `select` — field(s) for client-side dropdown filtering (e.g. `select=:origin`)
 - `scales` — an AoG `scales(...)` object, mirroring `draw(spec, scales(...))`. Currently
@@ -106,7 +110,17 @@ config(; kwargs...) = Config(Dict{Symbol,Any}(pairs(kwargs)...))
 struct VegaSpec
     drawable::Any  # AoG Layer, Layers, or AbstractAlgebraic
     config::Union{Config, Nothing}
+    # Per-layer `config(encoding=…)` overrides that summands carried into a `+`
+    # sum, aligned with the drawable's layers (`nothing` = no override for that
+    # layer). Empty when no summand carried one. See `_summand_parts`.
+    layer_encodings::Vector{Any}
 end
+VegaSpec(drawable, config) = VegaSpec(drawable, config, Any[])
+
+_spec_drawable(s::VegaSpec) = s.drawable
+_spec_drawable(s) = s
+_spec_layer_encodings(s::VegaSpec) = s.layer_encodings
+_spec_layer_encodings(_) = Any[]
 
 """
     vlspec(drawable; kwargs...)
@@ -116,12 +130,33 @@ Equivalent to `drawable * config(; kwargs...)`.
 """
 vlspec(drawable; kwargs...) = VegaSpec(drawable, isempty(kwargs) ? nothing : config(; kwargs...))
 
-# Merge two configs, later-wins on key conflict (plain `merge` semantics).
-# Shared by `*` and `+` so config accumulates the same way under both.
+# A copy of a caller's override that AoV owns and may extend in place: every
+# nested dict becomes a fresh `Dict{String,Any}` and every vector a fresh
+# `Vector{Any}`. A concretely typed caller dict (`Dict("type" => "log")` is a
+# `Dict{String,String}`) could not take the `zero=false` a later pass adds, and
+# the caller's own values are never aliased.
+_owned_copy(d::AbstractDict) = Dict{String,Any}(string(k) => _owned_copy(v) for (k, v) in d)
+_owned_copy(v::AbstractVector) = Any[_owned_copy(x) for x in v]
+_owned_copy(x) = deepcopy(x)
+
+# Merge two `encoding` override dicts into a fresh, owned one: channel by channel,
+# the later (`b`) wins on conflict, nested dicts merge key by key (as
+# `_merge_encoding_config!` merges an override into a generated encoding).
+_merge_encodings(::Nothing, b::Dict) = _owned_copy(b)
+_merge_encodings(a::Dict, b::Dict) = _deep_merge_dict!(_owned_copy(a), _owned_copy(b))
+
+# Merge two configs, later-wins on key conflict. Shared by `*` and `+` so config
+# accumulates the same way under both. `encoding` dicts merge per channel instead
+# of replacing each other: `spec * config(encoding=Dict(:tooltip => …)) *
+# config(encoding=Dict("y" => Dict("sort" => …)))` keeps the tooltip.
 function _merge_configs(a::Union{Config,Nothing}, b::Union{Config,Nothing})
     isnothing(a) && return b
     isnothing(b) && return a
-    Config(merge(a.properties, b.properties))
+    props = merge(a.properties, b.properties)
+    ea = _as_dict(get(a.properties, :encoding, nothing))
+    eb = _as_dict(get(b.properties, :encoding, nothing))
+    !isnothing(ea) && !isnothing(eb) && (props[:encoding] = _merge_encodings(ea, eb))
+    Config(props)
 end
 
 # Composition: AoG drawable * Config → VegaSpec
@@ -134,10 +169,63 @@ Base.:*(c::Config, a::AlgebraOfGraphics.AbstractAlgebraic) = VegaSpec(a, c)
 # didn't fire either, because the clobbered props never reached `to_vegalite`).
 # Later-wins, matching `+`/`merge`. Left operand comes first in the expression,
 # so the right one takes precedence.
-Base.:*(v::VegaSpec, c::Config) = VegaSpec(v.drawable, _merge_configs(v.config, c))
-Base.:*(c::Config, v::VegaSpec) = VegaSpec(v.drawable, _merge_configs(c, v.config))
+Base.:*(v::VegaSpec, c::Config) = VegaSpec(v.drawable, _merge_configs(v.config, c), v.layer_encodings)
+Base.:*(c::Config, v::VegaSpec) = VegaSpec(v.drawable, _merge_configs(c, v.config), v.layer_encodings)
 
-# Combine VegaSpecs: unwrap drawables, merge configs
-Base.:+(a::VegaSpec, b::VegaSpec) = VegaSpec(a.drawable + b.drawable, _merge_configs(a.config, b.config))
-Base.:+(a::VegaSpec, b::AlgebraOfGraphics.AbstractAlgebraic) = VegaSpec(a.drawable + b, a.config)
-Base.:+(a::AlgebraOfGraphics.AbstractAlgebraic, b::VegaSpec) = VegaSpec(a + b.drawable, b.config)
+# Facet channels configure the one facet operator every layer shares, so a
+# summand's override of them stays spec-level.
+const _FACET_ENCODING_CHANNELS = ("row", "column", "facet")
+_summand_scoped_channel(ch::AbstractString) = !(ch in _FACET_ENCODING_CHANNELS)
+
+_n_layers(::AlgebraOfGraphics.Layer) = 1
+_n_layers(l::AlgebraOfGraphics.Layers) = length(l.layers)
+
+_layer_encodings(v::VegaSpec) = isempty(v.layer_encodings) ?
+    Any[nothing for _ in 1:_n_layers(v.drawable)] : copy(v.layer_encodings)
+_layer_encodings(a) = Any[nothing for _ in 1:_n_layers(a)]
+
+_summand_config(v::VegaSpec) = v.config
+_summand_config(_) = nothing
+
+"""
+    _summand_parts(summand) -> (config, layer_encodings)
+
+Split one summand of a `+` sum. `a * config(encoding=E) + b` scopes `E` to `a`:
+`*` binds tighter than `+`, exactly as `a * visual(...) + b` styles only `a`.
+The summand's `encoding` channels become per-layer overrides of ITS layers (on
+top of any it already carried); facet channels and every other config property
+(`width`, `title`, `scales`, `params`, …) describe the whole view and stay on the
+sum's spec-level config. `(a + b) * config(encoding=E)` still applies `E` to
+every layer.
+"""
+function _summand_parts(s)
+    encs = _layer_encodings(s)
+    cfg = _summand_config(s)
+    isnothing(cfg) && return (cfg, encs)
+    enc = _as_dict(get(cfg.properties, :encoding, nothing))
+    isnothing(enc) && return (cfg, encs)
+    scoped = Dict{String,Any}()
+    shared = Dict{String,Any}()
+    for (k, val) in enc
+        ch = string(k)
+        (_summand_scoped_channel(ch) ? scoped : shared)[ch] = val
+    end
+    isempty(scoped) && return (cfg, encs)
+    props = copy(cfg.properties)
+    isempty(shared) ? delete!(props, :encoding) : (props[:encoding] = shared)
+    (Config(props), Any[_merge_encodings(e, scoped) for e in encs])
+end
+
+function _sum_specs(a, b)
+    ca, ea = _summand_parts(a)
+    cb, eb = _summand_parts(b)
+    encs = vcat(ea, eb)
+    VegaSpec(_spec_drawable(a) + _spec_drawable(b), _merge_configs(ca, cb),
+        all(isnothing, encs) ? Any[] : encs)
+end
+
+# Combine VegaSpecs: unwrap drawables, merge view-level configs, keep each
+# summand's encoding overrides on its own layers.
+Base.:+(a::VegaSpec, b::VegaSpec) = _sum_specs(a, b)
+Base.:+(a::VegaSpec, b::AlgebraOfGraphics.AbstractAlgebraic) = _sum_specs(a, b)
+Base.:+(a::AlgebraOfGraphics.AbstractAlgebraic, b::VegaSpec) = _sum_specs(a, b)

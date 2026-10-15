@@ -20,9 +20,18 @@ end
 # Lower the drawable before config and automatic interaction are applied. Bare
 # drawables and configured specs share the same finalization path; adding params
 # here would make generated selections look user-authored during config lowering.
+#
+# `layer_encodings` are the per-layer overrides summands carried into a `+` sum
+# (`VegaSpec.layer_encodings`); each is merged into its own layer's units here,
+# before the spec-level config, so a whole-spec `config(encoding=…)` still wins.
 _base_vegalite(drawable) = to_vegalite(drawable; interactive=false)
-function _base_vegalite(layer::AlgebraOfGraphics.Layer)
+_base_vegalite(drawable, layer_encodings::AbstractVector) = isempty(layer_encodings) ?
+    _base_vegalite(drawable) :
+    throw(ArgumentError("AlgebraOfVega: per-layer encoding overrides need a Layer/Layers drawable, got $(typeof(drawable))."))
+function _base_vegalite(layer::AlgebraOfGraphics.Layer, layer_encodings::AbstractVector=Any[])
     spec = layer_to_vl(layer)
+    # One layer: its units are the whole spec.
+    _apply_layer_encodings!([[spec]], layer_encodings)
     _apply_no_zero_default!(spec)
     _apply_no_truncate_default!(spec)
     _apply_ink_default!(spec)
@@ -30,8 +39,8 @@ function _base_vegalite(layer::AlgebraOfGraphics.Layer)
     spec
 end
 
-function _base_vegalite(layers::AlgebraOfGraphics.Layers)
-    spec = layers_to_vl(layers)
+function _base_vegalite(layers::AlgebraOfGraphics.Layers, layer_encodings::AbstractVector=Any[])
+    spec = layers_to_vl(layers; layer_encodings)
     _apply_no_zero_default!(spec)
     _apply_no_truncate_default!(spec)
     _apply_ink_default!(spec)
@@ -1301,7 +1310,7 @@ _select_field_list(s::Symbol) = [s]
 _select_field_list(v) = v
 
 function to_vegalite(v::VegaSpec; interactive::Bool=true)
-    spec = _base_vegalite(v.drawable)
+    spec = _base_vegalite(v.drawable, v.layer_encodings)
     select_fields = nothing
     col_yscales = nothing
     if !isnothing(v.config)

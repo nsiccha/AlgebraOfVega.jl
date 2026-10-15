@@ -59,6 +59,22 @@ config(encoding=Dict("y" => Dict("aggregate" => "mean")))
 config(encoding=Dict("x" => Dict("scale" => Dict("type" => "log"))))
 ```
 
+Successive `config(encoding=...)` terms merge the same way, channel by channel; on the same key the later term wins.
+
+### Per-layer overrides
+
+An encoding override multiplied onto one summand of a `+` sum applies to that summand's layers only, just as `a * visual(...) + b` styles only `a`. Multiply it onto the whole sum to reach every layer:
+
+```julia
+# The observed marks get their own tooltip; the posterior keeps its automatic one.
+posterior + observed * config(encoding=Dict(:tooltip => [Dict("field" => "label")]))
+
+# Every layer gets the tooltip.
+(posterior + observed) * config(encoding=Dict(:tooltip => [Dict("field" => "label")]))
+```
+
+`row`/`column`/`facet` overrides always configure the one facet every layer shares, and every other `config` property (`width`, `title`, `scales`, `params`, …) describes the whole figure whichever summand carries it. Scales, axes and legends are still shared between layers: Vega-Lite merges a per-layer scale override into the shared scale.
+
 ## Confidence bands
 
 Vega-Lite's native `errorband` requires multiple observations per x value, which typical scatter data doesn't have. When `interval=:confidence` is set on `linear()` or `smooth()`, the CI is computed in Julia:
