@@ -49,11 +49,10 @@ function _facet_fields(vl::Dict)
             cd = _as_dict(child)
             isnothing(cd) && continue
             _push_channel_fields!(fields, get(cd, "facet", nothing), ("row", "column"))
-            clayers = _as_dict(get(cd, "spec", nothing))
-            if !isnothing(clayers)
-                for l in _as_vec(get(clayers, "layer", nothing))
-                    _push_channel_fields!(fields, get(l, "encoding", nothing), ("row", "column"))
-                end
+            # Col-only children are the hoisted layer spec (no "spec" wrapper).
+            clayers = something(_as_dict(get(cd, "spec", nothing)), cd)
+            for l in something(_as_vec(get(clayers, "layer", nothing)), ())
+                _push_channel_fields!(fields, get(l, "encoding", nothing), ("row", "column"))
             end
         end
     end

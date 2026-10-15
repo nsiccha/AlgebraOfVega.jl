@@ -662,9 +662,10 @@ function _tag_keep_color_layers!(vl::Dict, keep_color_fields::Set{String})
         for child in _as_vec(vl["hconcat"])
             cd = _as_dict(child)
             isnothing(cd) && continue
-            inner = _as_dict(get(cd, "spec", nothing))
-            isnothing(inner) && continue
-            for l in _as_vec(get(inner, "layer", nothing))
+            # Row-faceted children nest their layers under "spec"; col-only
+            # children are the hoisted layer spec itself.
+            inner = something(_as_dict(get(cd, "spec", nothing)), cd)
+            for l in something(_as_vec(get(inner, "layer", nothing)), ())
                 _tag_keep_color_layer!(l, keep_color_fields)
             end
         end
