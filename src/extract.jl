@@ -58,13 +58,7 @@ function pregrouped_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
 
     # Visual / mark
     vis = extract_visual(layer)
-    mark_type = !isnothing(vis) ? plottype_to_mark(vis.plottype) : "boxplot"
-    extra_props = !isnothing(vis) ? merge(plottype_to_mark_props(vis.plottype), visual_attrs_to_mark_props(vis)) : Dict{String,Any}()
-    mark = if isempty(extra_props)
-        mark_type
-    else
-        merge(Dict{String,Any}("type" => mark_type), extra_props)
-    end
+    mark = isnothing(vis) ? "boxplot" : _visual_mark(vis)
 
     # Encoding
     encoding = Dict{String,Any}()
@@ -255,6 +249,16 @@ function visual_attrs_to_mark_props(vis::AlgebraOfGraphics.Visual)
             vcat(styles isa AbstractVector ? string.(styles) : [string(styles)], [_AOV_INK])
     end
     props
+end
+
+# The Vega-Lite mark of a plain layer's `visual(...)`: the bare mark string when
+# nothing qualifies it, else the mark dict with its plot-type defaults and
+# visual attributes (a composite mark's style moved onto its drawn parts).
+function _visual_mark(vis::AlgebraOfGraphics.Visual)
+    mark_type = plottype_to_mark(vis.plottype)
+    props = merge(plottype_to_mark_props(vis.plottype), visual_attrs_to_mark_props(vis))
+    isempty(props) && return mark_type
+    _style_composite_parts(merge(Dict{String,Any}("type" => mark_type), props))
 end
 
 # A fixed `visual(; color=…)` on an analysis that draws several marks of its own
