@@ -220,7 +220,7 @@
         } else {
           cellWidth = Math.max(250, availWidth - 60);
         }
-        var aovHint = facetCol ? {nFacetCols: nCols} : {};
+        var aovHint = facetCol ? {nFacetCols: nCols, fitWidth: true} : {fitWidth: true};
         spec = {data: {values: summaryData}, facet: facet, spec: {layer: layers, width: cellWidth, height: 200}, _aov: aovHint};
         if (indepX || indepY) {
           var resolve = {scale: {}, axis: {}};
@@ -246,7 +246,7 @@
       } else {
         cellWidth = Math.max(250, availWidth - 60);
       }
-      var aovHint = facetCol ? {nFacetCols: nCols} : {};
+      var aovHint = facetCol ? {nFacetCols: nCols, fitWidth: true} : {fitWidth: true};
       spec = {data: {values: data}, facet: facet, spec: {mark: mark, encoding: encoding, width: cellWidth, height: 200}, _aov: aovHint};
       if (indepX || indepY) {
         var resolve = {scale: {}, axis: {}};
