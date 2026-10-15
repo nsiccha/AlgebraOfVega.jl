@@ -13,6 +13,7 @@ with a Vega-Lite config for the chrome on a transparent background (theme
 """
 @testitem "host theme lowering and options" tags=[:theme, :regression] begin
     using AlgebraOfVega, JSON
+    import Makie
     html(x) = sprint(show, MIME"text/html"(), x)
     head(; kw...) = join(html(n) for n in vega_head(; kw...))
 
@@ -38,6 +39,24 @@ with a Vega-Lite config for the chrome on a transparent background (theme
     own = to_vegalite(data(rows) * mapping(:value) * dotinterval() *
         config(config=Dict("style" => Dict("aov-ink" => Dict("color" => "red")))))
     @test own["config"]["style"]["aov-ink"]["color"] == "red"
+
+    # Public fixed-mark ink uses the same theme style as AoV's interval rules.
+    line = data((; x=[1, 2], y=[2, 3])) * mapping(:x, :y) * visual(Lines; color=:ink)
+    vl = to_vegalite(line)
+    @test vl["mark"]["style"] == "aov-ink"
+    @test !haskey(vl["mark"], "color")
+    @test vl["config"]["style"]["aov-ink"]["color"] == "#333"
+    @test to_vegalite(data((; x=[1, 2], y=[2, 3])) * mapping(:x, :y) *
+        visual(Lines; color="black"))["mark"]["color"] == "black"
+    styled = to_vegalite(data((; x=[1, 2], y=[2, 3])) * mapping(:x, :y) *
+        visual(Lines; color=:ink, style="other"))
+    @test styled["mark"]["style"] == ["other", "aov-ink"]
+    @test styled["config"]["style"]["aov-ink"]["color"] == "#333"
+    @test AlgebraOfVega.extract_visual(line).attributes[:color] === :ink
+    Makie.with_theme(Makie.theme_black()) do
+        fixed = AlgebraOfVega._fix_visual_attrs(line)
+        @test AlgebraOfVega.extract_visual(fixed).attributes[:color] == :white
+    end
 end
 
 @testitem "host theme follows the page in the browser" setup=[AoVBrowserServer] tags=[:theme, :browser, :regression, :auto_remap, :incremental] begin
@@ -60,6 +79,10 @@ end
     plain = data((; x=[1.0, 2.0, 3.0], y=[3.0, 1.0, 2.0])) * mapping(:x, :y) * visual(Scatter) *
         config(height=120)
     ink = data((; value=collect(1.0:30.0))) * mapping(:value) * dotinterval() * config(height=120)
+    line_rows = (; x=[1.0, 2.0, 3.0], y=[1.0, 3.0, 2.0])
+    ink_line = data(line_rows) * mapping(:x, :y) * visual(Lines; color=:ink, linewidth=3) * config(height=120)
+    ink_point = data(line_rows) * mapping(:x, :y) * visual(Scatter; color=:ink, filled=true) * config(height=120)
+    black_line = data(line_rows) * mapping(:x, :y) * visual(Lines; color="black", linewidth=3) * config(height=120)
 
     updates = Dict(
         "append" => script(append_data("theme-live", (; x=[1.0, 2.0, 3.0], y=[1.0, 4.0, 9.0]))),
@@ -74,7 +97,10 @@ end
                 vdraw(live; id="theme-live"),
                 vdraw(plain * config(theme=:none); id="theme-none"),
                 vdraw(plain * config(config=Dict("axis" => Dict("labelColor" => "#ff0000"))); id="theme-authored"),
-                vdraw(ink; id="theme-ink")]
+                vdraw(ink; id="theme-ink"),
+                vdraw(ink_line; id="theme-line-ink"),
+                vdraw(ink_point; id="theme-point-ink"),
+                vdraw(black_line; id="theme-line-black")]
             style = "<style>body{color:rgb(30,40,50);background:rgb(250,250,250)}" *
                 "html[data-theme=dark] body{color:rgb(200,210,220);background:rgb(20,24,31)}</style>"
             payload = replace(JSON.json((; updates, palette)), "</" => "<\\/")
