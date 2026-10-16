@@ -252,10 +252,16 @@ window.AoV = window.AoV || {
     },
 
     // The primitive units of a spec, each with the data and encoding it
-    // inherits from its ancestors.
+    // inherits from its ancestors and its colour-legend scope. Vega-Lite merges
+    // the legends of a shared colour scale whatever fields its units colour
+    // by; an independent colour scale or legend gives each child its own.
     _legendUnits: function(spec) {
-        var units = [];
-        function visit(node, data, encoding) {
+        var units = [], scopes = 1;
+        function independent(node) {
+            var r = node.resolve || {};
+            return ['scale', 'legend'].some(function(k) { return !!r[k] && r[k].color === 'independent'; });
+        }
+        function visit(node, data, encoding, scope) {
             if (!node) return;
             data = node.data || data;
             encoding = Object.assign({}, encoding, node.encoding || {});
@@ -263,10 +269,11 @@ window.AoV = window.AoV || {
             ['layer', 'hconcat', 'vconcat', 'concat'].forEach(function(k) {
                 children = children.concat(node[k] || []);
             });
-            if (children.length) children.forEach(function(c) { visit(c, data, encoding); });
-            else if (node.mark) units.push({unit:node, data:data, encoding:encoding});
+            var split = independent(node);
+            if (children.length) children.forEach(function(c) { visit(c, data, encoding, split ? ++scopes : scope); });
+            else if (node.mark) units.push({unit:node, data:data, encoding:encoding, scope:scope});
         }
-        visit(spec, null, {});
+        visit(spec, null, {}, 1);
         return units;
     },
     // Undo what _refreshLegendSelections added to a spec's units.
@@ -297,24 +304,51 @@ window.AoV = window.AoV || {
     // Refresh ONLY AoV-generated legend selections after channel remapping.
     // Units may have been cloned by ribbon reconstruction or facet/concat
     // lowering. Restore their recorded opacity/filter before electing one
-    // owner per field; explicit user params and encodings survive unchanged.
+    // owner per colour legend; explicit user params and encodings survive
+    // unchanged. Mirrors `_add_auto_legend_interactivity!` (to_vegalite.jl).
     _refreshLegendSelections: function(spec) {
         var mode = spec._aov && spec._aov.legendInteraction;
         if (!mode) return;
         this._stripLegendSelections(spec);
         var units = this._legendUnits(spec);
-        var owners = Object.create(null), fields = [];
+        var legends = Object.create(null), order = [];
         function composite(u) {
             var m = typeof u.mark === 'string' ? u.mark : u.mark.type;
             return ['boxplot', 'errorbar', 'errorband'].indexOf(m) !== -1;
         }
-        units.forEach(function(info) {
+        function legendField(info) {
             var c = info.encoding.color;
             if (composite(info.unit) || !c || !c.field ||
                 ['nominal', 'ordinal'].indexOf(c.type) === -1 || c.legend === null || c.scale === null ||
-                c.aggregate || c.bin || c.timeUnit) return;
-            if (!owners[c.field]) { owners[c.field] = info.unit; fields.push(c.field); }
+                c.aggregate || c.bin || c.timeUnit) return null;
+            return String(c.field);
+        }
+        // Vega-Lite names a merged legend after its first field, so each
+        // legend's selection projects that field, owned by its first unit.
+        units.forEach(function(info) {
+            var f = legendField(info);
+            if (f === null) return;
+            var legend = legends[info.scope];
+            if (!legend) { legend = legends[info.scope] = {owner:info.unit, fields:[]}; order.push(info.scope); }
+            if (legend.fields.indexOf(f) === -1) legend.fields.push(f);
         });
+        function selName(s) {
+            var i = order.indexOf(s);
+            return i ? 'legend_selection_' + (i+1) : 'legend_selection';
+        }
+        // Clicked entries are stored under the legend's bound field; another
+        // field of a merged legend uses Vega-Lite's own legend-entry test.
+        function legendTest(s, tested) {
+            var name = selName(s), bound = legends[s].fields[0];
+            var valid = tested.map(function(f) { return 'isValid(datum[' + JSON.stringify(f) + '])'; });
+            var selected = name + '[' + JSON.stringify(bound) + ']';
+            return {or:[valid.length === 1 ? '!' + valid[0] : '!(' + valid.join(' || ') + ')'].concat(
+                tested.map(function(f) {
+                    return f === bound ? {param:name, empty:true} :
+                        '!length(data(' + JSON.stringify(name + '_store') + ')) || (' + selected +
+                        ' && indexof(' + selected + ', datum[' + JSON.stringify(f) + ']) >= 0)';
+                }))};
+        }
         function hasField(v, field) {
             return v && typeof v === 'object' && (v.field === field ||
                 Object.keys(v).some(function(k) { return hasField(v[k], field); }));
@@ -323,12 +357,20 @@ window.AoV = window.AoV || {
             var u = info.unit;
             if (composite(u)) return;
             var rows = info.data && info.data.values || [];
-            var member = fields.filter(function(f) {
+            function carries(f) {
                 return hasField(info.encoding, f) || rows.some(function(r) {
                     return Object.prototype.hasOwnProperty.call(r, f);
                 });
+            }
+            // A unit coloured by a legend's field answers to that field alone.
+            var own = legendField(info);
+            var tests = [];
+            order.forEach(function(s) {
+                var fields = legends[s].fields;
+                var tested = info.scope === s && fields.indexOf(own) !== -1 ? [own] : fields.filter(carries);
+                if (tested.length) tests.push({scope:s, fields:tested});
             });
-            if (!member.length) return;
+            if (!tests.length) return;
             var enc = Object.assign({}, info.encoding);
             u.encoding = enc;
             var meta = {params:[], dimmed:false, filtered:false,
@@ -350,14 +392,14 @@ window.AoV = window.AoV || {
                     meta.domain = {unionWith:domain};
                 }
             }
-            var predicate = {and:member.map(function(f) {
-                var i = fields.indexOf(f), name = i ? 'legend_selection_' + (i+1) : 'legend_selection';
-                if (owners[f] === u) {
-                    u.params = (u.params || []).concat([{name:name, select:{type:'point', fields:[f]}, bind:'legend'}]);
-                    meta.params.push(name);
-                }
-                return {or:['!isValid(datum[' + JSON.stringify(f) + '])', {param:name, empty:true}]};
-            })};
+            tests.forEach(function(t) {
+                if (legends[t.scope].owner !== u) return;
+                var name = selName(t.scope);
+                u.params = (u.params || []).concat([{name:name,
+                    select:{type:'point', fields:[legends[t.scope].fields[0]]}, bind:'legend'}]);
+                meta.params.push(name);
+            });
+            var predicate = {and:tests.map(function(t) { return legendTest(t.scope, t.fields); })};
             if (mode === 'filter') {
                 meta.filtered = true;
                 u.transform = meta.transform.concat([{filter:predicate}]);
