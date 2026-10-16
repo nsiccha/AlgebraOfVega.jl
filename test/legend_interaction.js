@@ -134,6 +134,105 @@
             }
         }
     }
+    // The runtime re-derives legend selections after remaps/updates; it must
+    // rebuild exactly what the Julia lowering emitted.
+    const canon = value => JSON.stringify(value, (key, x) =>
+        x && typeof x === 'object' && !Array.isArray(x) ?
+            Object.fromEntries(Object.keys(x).sort().map(k => [k, x[k]])) : x);
+    const lowered = Object.assign({independent: independentFixture},
+        ...Object.entries(fixtures).map(([name, spec]) => ({[name]: spec})),
+        ...Object.entries(mergedFixtures).map(([name, f]) => ({[name]: f.spec})));
+    for (const [name, spec] of Object.entries(lowered)) {
+        const copy = structuredClone(spec);
+        AoV._refreshLegendSelections(copy);
+        check(canon(copy) === canon(spec), name + ': runtime legend refresh differs from the Julia lowering');
+    }
+    // Layers colouring by different fields share Vega-Lite's merged colour
+    // legend (snag `legend-selection-0bea9abd`): every entry highlights the
+    // series coloured by it, whichever field that is. Lines colour by `group`.
+    function series(view, pointField) {
+        const out = [];
+        function walk(item) {
+            const type = item.mark?.marktype, d = item.datum;
+            const value = !d ? undefined : type === 'line' ? d.group : type === 'symbol' ? d[pointField] : undefined;
+            if (value !== undefined) out.push({value, type, opacity: item.opacity ?? 1});
+            (item.items || []).forEach(walk);
+        }
+        walk(view.scenegraph().root);
+        return out;
+    }
+    // `lit` maps a mark type to the values left undimmed (null: all of them).
+    function expectLit(container, view, pointField, lit, label) {
+        const marks = series(view, pointField);
+        check(['A', 'B'].every(v => marks.some(m => m.type === 'line' && m.value === v)) &&
+            ['C', 'D'].every(v => marks.some(m => m.type === 'symbol' && m.value === v)),
+            container.id + ': ' + label + ': series missing');
+        for (const m of marks) {
+            const on = lit[m.type] === null || lit[m.type].includes(m.value);
+            check(on ? m.opacity > 0.15 + 1e-9 : m.opacity <= 0.15 + 1e-9,
+                container.id + ': ' + label + ': ' + m.type + ' ' + m.value + ' opacity ' + m.opacity);
+        }
+    }
+    const both = values => ({line: values, symbol: values});
+    async function mount(id, spec, path) {
+        const container = path === 'caption' ? document.getElementById(id) : document.createElement('div');
+        container.id = id;
+        if (path !== 'caption') document.body.append(container);
+        const options = {renderer: 'svg', actions: false};
+        if (path === 'direct') return [container, (await vegaEmbed(container, spec, options)).view];
+        if (path === 'runtime') await AoV.embed(container.id, spec, options);
+        else for (let i = 0; i < 100 && !AoV.views[container.id]; i++) await pause();
+        return [container, AoV.views[container.id]];
+    }
+    const release = (path, id, view) => path === 'direct' ? view?.finalize() : AoV.dispose(id);
+    for (const [name, {spec, pointField}] of Object.entries(mergedFixtures)) {
+        for (const path of ['direct', 'runtime', 'caption']) {
+            const id = ['merged', name, path].join('-');
+            let view;
+            try {
+                let container;
+                [container, view] = await mount(id, spec, path);
+                check(!!view, id + ': embed failed');
+                expectLit(container, view, pointField, both(null), 'initial');
+                await click(container, view, 'C');
+                check(view.data('legend_selection_store').some(t => t.values[0] === 'C'),
+                    id + ': second-field entry not stored');
+                expectLit(container, view, pointField, both(['C']), 'click C');
+                await click(container, view, 'A');
+                expectLit(container, view, pointField, both(['A']), 'click A');
+                await click(container, view, 'D', true);
+                expectLit(container, view, pointField, both(['A', 'D']), 'shift-click D');
+                await clear(container, view);
+                expectLit(container, view, pointField, both(null), 'clear');
+            } catch (error) {
+                failures.push(id + ': ' + error.stack);
+            } finally {
+                release(path, id, view);
+            }
+        }
+    }
+    // Independent colour scales draw a legend each, listing only their own
+    // field's entries, and keep one selection each.
+    for (const path of ['direct', 'runtime']) {
+        const id = ['independent', path].join('-');
+        let view;
+        try {
+            let container;
+            [container, view] = await mount(id, independentFixture, path);
+            check(container.querySelectorAll('.role-legend').length === 2, id + ': expected two legends');
+            await click(container, view, 'C');
+            check(view.data('legend_selection_2_store').some(t => t.values[0] === 'C'),
+                id + ': independent legend entry not stored');
+            expectLit(container, view, 'kind', {line: null, symbol: ['C']}, 'click C');
+            await clear(container, view);
+            await click(container, view, 'A');
+            expectLit(container, view, 'kind', {line: ['A'], symbol: null}, 'click A');
+        } catch (error) {
+            failures.push(id + ': ' + error.stack);
+        } finally {
+            release(path, id, view);
+        }
+    }
     const result = document.createElement('pre');
     result.id = 'aov-legend-results';
     result.textContent = JSON.stringify({checks, failures});

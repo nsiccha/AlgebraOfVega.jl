@@ -20,8 +20,30 @@ using TestItemRunner
         "hconcat" => data(rows) * mapping(:x, :y; color=:group, col=:panel, row=:row) *
             (visual(Scatter) + visual(Lines)) *
             config(scales=scales(Y=(; scale=Dict("Q" => log10)))))
-    default_specs = Dict(k => AlgebraOfVega._embed_spec(v; width=180, height=120, fit_width=false)
-        for (k, v) in fixtures)
+    # Layers colouring by DIFFERENT fields share Vega-Lite's one colour scale,
+    # so their legends merge into one (snag `legend-selection-0bea9abd`). Each
+    # entry is `(drawable, point colour field)`; the lines colour by `group`.
+    line_rows = (; x=repeat([1., 2., 3.], 4), y=collect(1.:12.),
+        group=repeat(["A", "B"], inner=3, outer=2), panel=repeat(["P", "Q"], inner=6))
+    point_rows = (; x=repeat([1.5, 2.5], 4), y=collect(1.:8.),
+        kind=repeat(["C", "D"], inner=2, outer=2), panel=repeat(["P", "Q"], inner=4))
+    palette = config(scales=scales(Color=(; categories=["A", "B", "C", "D"],
+        palette=["black", "#d55e00", "#0072b2", "#e69f00"])))
+    merged_fixtures = Dict(
+        "merged" => (data(line_rows) * mapping(:x, :y; color=:group) * visual(Lines) +
+            data(point_rows) * mapping(:x, :y; color=:kind) * visual(Scatter), "kind"),
+        "merged_facet" => ((data(line_rows) * mapping(:x, :y; color=:group, col=:panel) * visual(Lines) +
+            data(point_rows) * mapping(:x, :y; color=:kind, col=:panel) * visual(Scatter)) * palette, "kind"),
+        # Every row carries both fields: each layer answers to its own colour.
+        "merged_rows" => (base * visual(Lines) +
+            data(rows) * mapping(:x, :y; color=:other) * visual(Scatter), "other"))
+    # An explicit independent colour scale keeps one legend, listing only its
+    # own field's entries, and one selection per layer.
+    independent = merged_fixtures["merged"][1] *
+        config(resolve=Dict("scale" => Dict("color" => "independent")))
+    embed(v) = AlgebraOfVega._embed_spec(v; width=180, height=120, fit_width=false)
+    merged_specs = Dict(k => embed(v) for (k, (v, _)) in merged_fixtures)
+    default_specs = Dict(k => embed(v) for (k, v) in fixtures)
     specs = deepcopy(default_specs)
     foreach(s -> AlgebraOfVega._add_auto_legend_interactivity!(s; mode=:highlight), values(specs))
     units(s) = AlgebraOfVega._legend_units!(Any[], s)
@@ -88,14 +110,21 @@ end
     composite = to_vegalite(data(rows) * mapping(:group, :y; color=:group) * visual(BoxPlot) * config())
     @test isempty(legend_params(composite))
 
-    # Separate categorical fields get distinct selection stores, and field-less
-    # reference rows retain their visibility when a group is selected.
+    # Categorical fields sharing a colour scale share Vega-Lite's merged legend,
+    # hence one selection bound to its first field (snag
+    # `legend-selection-0bea9abd`: a second selection had no legend to bind).
+    # An independent colour legend gets its own selection store.
     raw = Dict{String,Any}("data" => Dict("values" => [Dict("x" => 1, "g" => "A", "h" => "C")]),
         "layer" => [Dict{String,Any}("mark" => "point", "encoding" => Dict{String,Any}("color" =>
             Dict("field" => f, "type" => "nominal"))) for f in ["g", "h"]])
     AlgebraOfVega._add_auto_legend_interactivity!(raw)
-    @test [p["name"] for p in legend_params(raw)] == ["legend_selection", "legend_selection_2"]
-    @test [p["select"]["fields"] for p in legend_params(raw)] == [["g"], ["h"]]
+    @test [p["name"] for p in legend_params(raw)] == ["legend_selection"]
+    @test [p["select"]["fields"] for p in legend_params(raw)] == [["g"]]
+    split = deepcopy(raw)
+    split["resolve"] = Dict("legend" => Dict("color" => "independent"))
+    AlgebraOfVega._add_auto_legend_interactivity!(split)
+    @test [p["name"] for p in legend_params(split)] == ["legend_selection", "legend_selection_2"]
+    @test [p["select"]["fields"] for p in legend_params(split)] == [["g"], ["h"]]
     AlgebraOfVega._add_auto_legend_interactivity!(raw; mode=:filter)
     @test all(info -> info.encoding["color"]["scale"]["domain"] isa Dict, units(raw))
     filter_spec = deepcopy(specs["layered"])
@@ -106,6 +135,40 @@ end
     original = deepcopy(filter_spec)
     AlgebraOfVega._add_auto_legend_interactivity!(filter_spec; mode=:filter)
     @test filter_spec == original
+end
+
+@testitem "fields sharing one colour legend share one selection" setup=[AoVLegendFixtures] tags=[:translation, :regression] begin
+    # Regression (snag `legend-selection-0bea9abd`): two layers colouring by
+    # different fields got one legend-bound selection per field, but Vega-Lite
+    # merges their legends and binds only the first field's selection, so the
+    # other field's entries highlighted nothing.
+    for (name, spec) in merged_specs
+        pfield = merged_fixtures[name][2]
+        ps = legend_params(spec)
+        @test length(ps) == 1
+        @test only(ps)["name"] == "legend_selection"
+        @test only(ps)["select"]["fields"] == ["group"]
+        for info in units(spec)
+            field = info.encoding["color"]["field"]
+            @test field in ("group", pfield)
+            # Each layer answers to its own colour field, also when its rows
+            # carry the other one (`merged_rows`).
+            test = only(info.unit["encoding"]["opacity"]["condition"]["test"]["and"])
+            @test test["or"][1] == "!isValid(datum[\"$field\"])"
+            @test length(test["or"]) == 2
+            @test test["or"][2] == (field == "group" ?
+                Dict("param" => "legend_selection", "empty" => true) :
+                "!length(data(\"legend_selection_store\")) || (legend_selection[\"group\"] && " *
+                    "indexof(legend_selection[\"group\"], datum[\"$pfield\"]) >= 0)")
+        end
+        before = deepcopy(spec)
+        AlgebraOfVega._add_auto_legend_interactivity!(spec)
+        @test spec == before
+    end
+    spec = embed(independent)
+    @test spec["resolve"]["scale"]["color"] == "independent"
+    @test [p["name"] for p in legend_params(spec)] == ["legend_selection", "legend_selection_2"]
+    @test [p["select"]["fields"] for p in legend_params(spec)] == [["group"], ["kind"]]
 end
 
 @testitem "legend clicks render and remap with the vendored runtime" setup=[AoVLegendFixtures] tags=[:translation, :browser, :regression] begin
@@ -120,13 +183,19 @@ end
             foreach(s -> AlgebraOfVega._add_auto_legend_interactivity!(s; mode=:filter), values(filter_specs))
             runtime = join(sprint(show, MIME"text/html"(), n) for n in vega_head(source=:inline))
             driver = read(joinpath(@__DIR__, "legend_interaction.js"), String)
-            cards = join(sprint(show, MIME"text/html"(), with_plot_caption(
-                vdraw(v; id="highlight-" * k * "-caption", width=180, height=120, fit_width=false),
-                "Series"; plot_id="highlight-" * k * "-caption")) for (k, v) in fixtures)
+            card(prefix, k, v) = sprint(show, MIME"text/html"(), with_plot_caption(
+                vdraw(v; id=prefix * "-" * k * "-caption", width=180, height=120, fit_width=false),
+                "Series"; plot_id=prefix * "-" * k * "-caption"))
+            cards = join(card("highlight", k, v) for (k, v) in fixtures) *
+                join(card("merged", k, v) for (k, (v, _)) in merged_fixtures)
+            merged = Dict(k => Dict("spec" => merged_specs[k], "pointField" => f)
+                for (k, (_, f)) in merged_fixtures)
             html = "<!doctype html><meta charset='utf-8'>" * runtime *
                 "<body><script>const originalEmbed=vegaEmbed;vegaEmbed=(el,spec,opts)=>" *
                 "originalEmbed(el,spec,Object.assign({},opts,{renderer:'svg'}));</script>" * cards * "<script>" *
                 "const fixtures=" * JSON.json(specs) * ";const filterFixtures=" * JSON.json(filter_specs) *
+                ";const mergedFixtures=" * JSON.json(merged) *
+                ";const independentFixture=" * JSON.json(embed(independent)) *
                 ";" * driver * "</script></body>"
             path = joinpath(dir, "test.html")
             write(path, html)

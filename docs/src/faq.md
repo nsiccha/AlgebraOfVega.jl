@@ -26,8 +26,13 @@ adds another group, and clicking blank plot space clears the selection.
 
 This works with layer-local color encodings, facets, uncertainty bands and
 intervals, and per-column scale layouts, in live plots and standalone HTML.
-Layers and facets sharing a color field share one selection. The channel picker
-rebuilds that selection when color changes.
+Layers and facets sharing a color field share one selection. Layers that color
+by *different* fields share one color scale, so Vega-Lite draws one merged
+legend for them (titled e.g. "Vessel, Observation"); each of its entries
+highlights the marks colored by that entry, whichever field they color by. An
+explicit independent color scale (`resolve`) draws a legend per layer, and each
+of those selects its own field. The channel picker rebuilds the selection when
+color changes.
 
 `interactive=false` disables automatic interaction. Explicit Vega-Lite `params`
 remain authoritative, as do conditional or data-driven opacity encodings.

@@ -1522,9 +1522,22 @@ end
 
 const _AUTO_LEGEND_MODE = :highlight
 
-# Walk composition nodes, carrying inherited data/encoding into each unit.
-# The units belong to the fresh lowering output; caller tables remain read-only.
-function _legend_units!(out, node::Dict; data=nothing, encoding=Dict{String,Any}())
+# Vega-Lite shares one colour scale across a composition and merges the legends
+# of a shared scale into one, whatever fields its units colour by. An explicit
+# independent colour scale or legend gives each child its own legend.
+function _independent_color(node::Dict)
+    resolve = something(_as_dict(get(node, "resolve", nothing)), Dict())
+    any(("scale", "legend")) do key
+        part = _as_dict(get(resolve, key, nothing))
+        !isnothing(part) && get(part, "color", nothing) == "independent"
+    end
+end
+
+# Walk composition nodes, carrying inherited data/encoding into each unit and
+# numbering its colour-legend scope. The units belong to the fresh lowering
+# output; caller tables remain read-only.
+function _legend_units!(out, node::Dict; data=nothing, encoding=Dict{String,Any}(),
+        scope=1, scopes=Ref(1))
     data = get(node, "data", data)
     enc = merge(encoding, get(node, "encoding", Dict{String,Any}()))
     children = Any[]
@@ -1533,10 +1546,12 @@ function _legend_units!(out, node::Dict; data=nothing, encoding=Dict{String,Any}
         append!(children, get(node, key, Any[]))
     end
     if isempty(children)
-        haskey(node, "mark") && push!(out, (; unit=node, data, encoding=enc))
+        haskey(node, "mark") && push!(out, (; unit=node, data, encoding=enc, scope))
     else
+        split = _independent_color(node)
         for child in children
-            _legend_units!(out, child; data, encoding=enc)
+            _legend_units!(out, child; data, encoding=enc, scopes,
+                scope=split ? (scopes[] += 1) : scope)
         end
     end
     out
@@ -1584,11 +1599,32 @@ _legend_has_field(value::AbstractDict, field) =
     get(value, "field", nothing) == field || any(v -> _legend_has_field(v, field), values(value))
 _legend_has_field(value::AbstractVector, field) = any(v -> _legend_has_field(v, field), value)
 
-function _legend_predicate(names, fields)
-    Dict{String,Any}("and" => Any[Dict{String,Any}("or" => Any[
-        "!isValid(datum[" * _vl_json(field) * "])" ,
-        Dict{String,Any}("param" => name, "empty" => true)])
-        for (name, field) in zip(names, fields)])
+# The categorical field a unit draws a colour legend for, or `nothing`.
+function _legend_color_field(info)
+    _is_composite_mark(info.unit) && return nothing
+    color = _as_dict(get(info.encoding, "color", nothing))
+    isnothing(color) && return nothing
+    get(color, "type", "") in ("nominal", "ordinal") || return nothing
+    haskey(color, "field") || return nothing
+    any(k -> haskey(color, k), ("aggregate", "bin", "timeUnit")) && return nothing
+    get(color, "legend", true) === nothing && return nothing
+    get(color, "scale", true) === nothing && return nothing
+    string(color["field"])
+end
+
+# A datum passes one legend's test when nothing is selected, when it has none of
+# the tested fields, or when a tested field holds a selected entry. The legend
+# stores clicked entries under its bound (first) field; another field of a
+# merged legend is tested with Vega-Lite's own legend-entry expression.
+function _legend_test(name, bound, fields)
+    valid = ["isValid(datum[" * _vl_json(f) * "])" for f in fields]
+    absent = length(valid) == 1 ? "!" * only(valid) : "!(" * join(valid, " || ") * ")"
+    selected = name * "[" * _vl_json(bound) * "]"
+    Dict{String,Any}("or" => Any[absent; [f == bound ?
+        Dict{String,Any}("param" => name, "empty" => true) :
+        "!length(data(" * _vl_json(name * "_store") * ")) || (" * selected *
+            " && indexof(" * selected * ", datum[" * _vl_json(f) * "]) >= 0)"
+        for f in fields]])
 end
 
 function _apply_legend_response!(::Val{:highlight}, unit, enc, predicate, meta)
@@ -1609,38 +1645,43 @@ function _apply_legend_response!(::Val{:filter}, unit, enc, predicate, meta)
 end
 
 function _add_auto_legend_interactivity!(spec::Dict; mode=_AUTO_LEGEND_MODE)
-    # One owner per categorical color field, including layer-local encodings.
-    # A unit-owned selection binds the shared legend without VL cloning tuple
-    # signals into every sibling layer. Its global predicate spans all facets.
+    # One selection per colour legend. Vega-Lite names a merged legend after its
+    # first field, so the selection projects that field and is owned by the
+    # first unit colouring by it. A unit-owned selection binds the shared legend
+    # without VL cloning tuple signals into every sibling layer. Its global
+    # predicate spans all facets.
     units = _legend_units!(Any[], spec)
     foreach(info -> _clear_auto_legend!(info.unit), units)
     units = _legend_units!(Any[], spec)
-    owners = Dict{String,Any}()
-    fields = String[]
+    legends = Dict{Int,Any}()
+    order = Int[]
     for info in units
-        _is_composite_mark(info.unit) && continue
-        color = _as_dict(get(info.encoding, "color", nothing))
-        isnothing(color) && continue
-        get(color, "type", "") in ("nominal", "ordinal") || continue
-        haskey(color, "field") || continue
-        any(k -> haskey(color, k), ("aggregate", "bin", "timeUnit")) && continue
-        get(color, "legend", true) === nothing && continue
-        get(color, "scale", true) === nothing && continue
-        field = string(color["field"])
-        haskey(owners, field) && continue
-        owners[field] = info.unit
-        push!(fields, field)
+        field = _legend_color_field(info)
+        isnothing(field) && continue
+        legend = get!(legends, info.scope) do
+            push!(order, info.scope)
+            (; owner=info.unit, fields=String[])
+        end
+        field in legend.fields || push!(legend.fields, field)
     end
-    isempty(fields) && return spec
-    names = [i == 1 ? "legend_selection" : "legend_selection_$i" for i in eachindex(fields)]
+    isempty(order) && return spec
+    names = Dict(s => i == 1 ? "legend_selection" : "legend_selection_$i" for (i, s) in enumerate(order))
     get!(spec, "_aov", Dict{String,Any}())["legendInteraction"] = string(mode)
     for info in units
         unit = info.unit
         _is_composite_mark(unit) && continue
         rows = isnothing(info.data) ? Any[] : get(info.data, "values", Any[])
-        member = [i for i in eachindex(fields) if _legend_has_field(info.encoding, fields[i]) ||
-            any(row -> row isa AbstractDict && haskey(row, fields[i]), rows)]
-        isempty(member) && continue
+        carries(f) = _legend_has_field(info.encoding, f) ||
+            any(row -> row isa AbstractDict && haskey(row, f), rows)
+        # A unit coloured by a legend's field answers to that field alone.
+        own = _legend_color_field(info)
+        tests = Any[]
+        for s in order
+            fields = legends[s].fields
+            tested = info.scope == s && own in fields ? [own] : filter(carries, fields)
+            isempty(tested) || push!(tests, (s, tested))
+        end
+        isempty(tests) && continue
         enc = Dict{String,Any}(info.encoding)
         unit["encoding"] = enc
         meta = Dict{String,Any}("params" => String[], "dimmed" => false, "filtered" => false,
@@ -1665,15 +1706,16 @@ function _add_auto_legend_interactivity!(spec::Dict; mode=_AUTO_LEGEND_MODE)
                 meta["domain"] = deepcopy(generated_domain)
             end
         end
-        for i in member
-            owners[fields[i]] === unit || continue
-            push!(get!(unit, "params", Any[]), Dict{String,Any}("name" => names[i],
-                "select" => Dict{String,Any}("type" => "point", "fields" => [fields[i]]),
+        for (s, _) in tests
+            legends[s].owner === unit || continue
+            push!(get!(unit, "params", Any[]), Dict{String,Any}("name" => names[s],
+                "select" => Dict{String,Any}("type" => "point", "fields" => [first(legends[s].fields)]),
                 "bind" => "legend"))
-            push!(meta["params"], names[i])
+            push!(meta["params"], names[s])
         end
-        _apply_legend_response!(Val(mode), unit, enc,
-            _legend_predicate(names[member], fields[member]), meta)
+        predicate = Dict{String,Any}("and" => Any[
+            _legend_test(names[s], first(legends[s].fields), tested) for (s, tested) in tests])
+        _apply_legend_response!(Val(mode), unit, enc, predicate, meta)
     end
     spec
 end
