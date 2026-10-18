@@ -9,6 +9,7 @@ _ANALYSIS_TYPES = Type[
     AlgebraOfGraphics.LinearAnalysis,
     AlgebraOfGraphics.SmoothAnalysis,
     AlgebraOfGraphics.HistogramAnalysis,
+    GeoShapeAnalysis,
 ]
 
 """Find the dispatch key for a layer: an analysis object, Val(:ecdf), or nothing (plain layer)."""
@@ -29,6 +30,7 @@ _layer_to_vl(::AlgebraOfGraphics.LinearAnalysis, layer; kw...) = linear_to_vl(la
 _layer_to_vl(::AlgebraOfGraphics.SmoothAnalysis, layer; kw...) = smooth_to_vl(layer; kw...)
 _layer_to_vl(::AlgebraOfGraphics.HistogramAnalysis, layer; kw...) = histogram_to_vl(layer; kw...)
 _layer_to_vl(::Val{:ecdf}, layer; kw...) = ecdf_to_vl(layer; kw...)
+_layer_to_vl(::GeoShapeAnalysis, layer; kw...) = geoshape_to_vl(layer; kw...)
 _layer_to_vl(::Nothing, layer; kw...) = _plain_layer_to_vl(layer; kw...)
 
 function layer_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
@@ -146,7 +148,9 @@ function layers_to_vl(layers::AlgebraOfGraphics.Layers; layer_encodings::Abstrac
     end
 
     # Check if any layer is an analysis type (produces own summarized data)
-    has_analysis = any(l -> !isnothing(extract_transformation(l, TidybayesAnalysis)), layers.layers)
+    # or a geoshape (carries its own geometry data source, joined by lookup)
+    has_analysis = any(l -> !isnothing(extract_transformation(l, TidybayesAnalysis)) ||
+        !isnothing(extract_transformation(l, GeoShapeAnalysis)), layers.layers)
 
     spec = Dict{String,Any}("\$schema" => VL_SCHEMA)
     # Only share data at top level when no analysis layers are present

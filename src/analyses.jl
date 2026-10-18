@@ -178,6 +178,80 @@ default ink).
 dotinterval(; probs=[0.95, 0.5], n_dots=50, point=:median, detail=Symbol[], orientation::Symbol=:horizontal) =
     Layer(transformation=DotIntervalAnalysis(Float64.(probs), n_dots, point, Symbol.(detail), orientation))
 
+# --- Geoshape / choropleth ---
+
+struct GeoShapeAnalysis
+    geometry::Any
+    key::Any
+    projection::Any
+end
+
+"""
+    geoshape(geometry; key=nothing, projection=:mercator)
+
+Choropleth polygons: fill GeoJSON region shapes by a data column joined on a
+shared key. The geometry source owns the polygons; the layer's `data(...)`
+table owns the values; the emitted Vega-Lite spec joins them with a `lookup`
+transform and draws the VL `geoshape` mark — there are no x/y axes.
+
+`geometry` is a GeoJSON source in one of three forms: a URL string (fetched
+by the browser), a parsed FeatureCollection `Dict`, or a vector of Feature
+`Dict`s. `key` names the join field: a single name used on both sides
+(`key=:AGS` — the geometry's feature property and the table column), a
+`data_column => geo_property` pair when the two sides spell it differently,
+or omitted, in which case the mapping's single positional is the key
+(`mapping(:AGS; color=:effect)`). `projection` is a Vega-Lite projection:
+a symbol/string type name (`:mercator`, `:albers`, …), a Dict/NamedTuple of
+projection properties, or `nothing` to emit no projection.
+
+    data(effects) * mapping(:AGS; color=:effect) *
+        geoshape("https://example.invalid/districts.geojson")
+
+    data(effects) * mapping(:AGS; color=:effect => "Posterior effect") *
+        geoshape(geojson_dict; projection=:mercator) |> vdraw
+
+`mapping` supplies `color=` (and optionally `strokecolor=`); a fixed border
+goes through `visual(; stroke="white", strokeWidth=0.5)`. Faceting with
+`col=`/`row=`/`layout=` draws one small-multiple map per panel. This is a
+Vega-Lite-only plot type: the static `sdraw` path refuses it loudly, and a
+mounted map refreshes with `update_spec` (its values ride the lookup
+transform, not the geometry dataset). The channel picker keeps its x/y
+channels disabled for a geoshape layer, as for the interval analyses.
+"""
+function geoshape(geometry; key=nothing, projection=:mercator)
+    _check_geoshape_geometry(geometry)
+    _check_geoshape_key(key)
+    _check_geoshape_projection(projection)
+    Layer(transformation=GeoShapeAnalysis(geometry, key, projection))
+end
+
+_check_geoshape_geometry(g::AbstractString) =
+    isempty(g) && throw(ArgumentError("geoshape: geometry URL must not be empty."))
+function _check_geoshape_geometry(g::AbstractDict)
+    (haskey(g, "features") || haskey(g, :features)) || throw(ArgumentError(
+        "geoshape: a Dict geometry must be a GeoJSON FeatureCollection (no \"features\" key found)."))
+end
+function _check_geoshape_geometry(g::AbstractVector)
+    isempty(g) && throw(ArgumentError("geoshape: geometry feature vector must not be empty."))
+    all(f -> f isa AbstractDict, g) || throw(ArgumentError(
+        "geoshape: a vector geometry must hold GeoJSON Feature Dicts."))
+end
+_check_geoshape_geometry(g) = throw(ArgumentError(
+    "geoshape: geometry must be a GeoJSON URL string, a FeatureCollection Dict, or a vector of Feature Dicts; got $(typeof(g))."))
+
+_check_geoshape_key(::Nothing) = nothing
+_check_geoshape_key(::Union{Symbol,AbstractString}) = nothing
+_check_geoshape_key(k::Pair) =
+    (first(k) isa Union{Symbol,AbstractString} && last(k) isa Union{Symbol,AbstractString}) ||
+    throw(ArgumentError("geoshape: a pair `key` must be `data_column => geo_property` with symbol/string sides."))
+_check_geoshape_key(k) = throw(ArgumentError(
+    "geoshape: `key` must be a column name, a `data_column => geo_property` pair, or omitted; got $(typeof(k))."))
+
+_check_geoshape_projection(::Nothing) = nothing
+_check_geoshape_projection(::Union{Symbol,AbstractString,AbstractDict,NamedTuple}) = nothing
+_check_geoshape_projection(p) = throw(ArgumentError(
+    "geoshape: `projection` must be a projection type name, a Dict/NamedTuple of Vega-Lite projection properties, or `nothing`; got $(typeof(p))."))
+
 # Direct hit on `T` — dispatches over the value's type rather than `isa`.
 _find_part(::Type, _) = nothing
 _find_part(::Type{T}, t::T) where {T} = t
