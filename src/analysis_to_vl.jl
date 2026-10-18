@@ -1543,3 +1543,95 @@ function _ecdf_partition_groups(table, x_field::AbstractString,
     end
     degen, normal
 end
+
+# --- Geoshape / choropleth emitter ---
+
+_geoshape_data(g::AbstractString) = Dict{String,Any}("url" => g,
+    "format" => Dict{String,Any}("type" => "json", "property" => "features"))
+_geoshape_data(g::AbstractDict) = Dict{String,Any}("values" => _owned_copy(g),
+    "format" => Dict{String,Any}("property" => "features"))
+_geoshape_data(g::AbstractVector) = Dict{String,Any}("values" => _owned_copy(g))
+
+_geoshape_projection(::Nothing) = nothing
+_geoshape_projection(p::Union{Symbol,AbstractString}) = Dict{String,Any}("type" => string(p))
+_geoshape_projection(p::Union{AbstractDict,NamedTuple}) = _owned_copy(p)
+
+function _geoshape_keys(a::GeoShapeAnalysis, layer, table)
+    data_key, geo_key = if isnothing(a.key)
+        length(layer.positional) == 1 || throw(ArgumentError(
+            "geoshape: name the join key — either `mapping(<key>; …)` with one positional, or `geoshape(geo; key=:AGS)`."))
+        k = _field_name(layer.positional[1])
+        (k, k)
+    elseif a.key isa Pair
+        (string(first(a.key)), string(last(a.key)))
+    else
+        k = string(a.key)
+        (k, k)
+    end
+    Symbol(data_key) in Tables.columnnames(table) || throw(ArgumentError(
+        "geoshape: the data table has no key column \"$data_key\" (columns: $(join(Tables.columnnames(table), ", ")))."))
+    (data_key, geo_key)
+end
+
+function geoshape_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer::Bool=false)
+    a = extract_transformation(layer, GeoShapeAnalysis)
+    table = extract_data(layer)
+    isnothing(table) && throw(ArgumentError(
+        "geoshape: the layer needs a `data(...)` table holding the join key and the mapped value columns."))
+    length(layer.positional) > 1 && throw(ArgumentError(
+        "geoshape: a geoshape has no x/y channels, so the mapping takes at most one positional (the join key); got $(length(layer.positional))."))
+    data_key, geo_key = _geoshape_keys(a, layer, table)
+    for name in keys(layer.named)
+        name in (:color, :strokecolor, :col, :row, :layout) || throw(ArgumentError(
+            "geoshape: mapping channel `$name` is not supported on a geoshape; use `color=`, `strokecolor=`, or a `col=`/`row=`/`layout=` facet."))
+    end
+
+    encoding = Dict{String,Any}()
+    fields = String[]
+    for (name, ch) in ((:color, "color"), (:strokecolor, "stroke"))
+        haskey(layer.named, name) || continue
+        sel = layer.named[name]
+        f = _field_name(sel)
+        Symbol(f) in Tables.columnnames(table) || throw(ArgumentError(
+            "geoshape: the data table has no column \"$f\" mapped to `$name` (columns: $(join(Tables.columnnames(table), ", ")))."))
+        enc = selector_to_field(sel)
+        enc["type"] = vl_type(Tables.getcolumn(table, Symbol(f)))
+        encoding[ch] = enc
+        f in fields || push!(fields, f)
+    end
+
+    # GeoJSON Feature tuples keep their key under `properties`, so the
+    # lookup must address that path — a bare key misses every feature and
+    # Vega-Lite's invalid-value filter then drops the whole map.
+    geo_field = startswith(geo_key, "properties.") ? geo_key : "properties." * geo_key
+    spec = Dict{String,Any}("data" => _geoshape_data(a.geometry))
+    if !isempty(fields)
+        spec["transform"] = [Dict{String,Any}("lookup" => geo_field,
+            "from" => Dict{String,Any}("data" => data_to_vl(table),
+                "key" => data_key, "fields" => fields))]
+    end
+    proj = _geoshape_projection(a.projection)
+    isnothing(proj) || (spec["projection"] = proj)
+
+    vis = extract_visual(layer)
+    props = isnothing(vis) ? Dict{String,Any}() : visual_attrs_to_mark_props(vis)
+    if haskey(props, "color")
+        props["fill"] = pop!(props, "color")
+    end
+    spec["mark"] = isempty(props) ? "geoshape" :
+        merge(Dict{String,Any}("type" => "geoshape"), props)
+
+    tooltip = [Dict{String,Any}("field" => geo_field, "title" => data_key,
+        "type" => vl_type(Tables.getcolumn(table, Symbol(data_key))))]
+    for f in fields
+        f == data_key && continue
+        push!(tooltip, Dict{String,Any}("field" => f,
+            "type" => vl_type(Tables.getcolumn(table, Symbol(f)))))
+    end
+    encoding["tooltip"] = tooltip
+    spec["encoding"] = encoding
+
+    facet, _ = _extract_facet_info(layer)
+    _wrap_with_facet!(spec, facet)
+    spec
+end
