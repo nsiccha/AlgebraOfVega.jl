@@ -13,6 +13,7 @@
     window.vegaEmbed = function (selector, spec, opts) {
         const id = selector.slice(1);
         embeds[id] = (embeds[id] || 0) + 1;
+        if (embeds[id] === 21) failures.push(id + ': unbounded re-embed loop (stopped at 20 embeds)');
         if (embeds[id] > 20) return Promise.reject(new Error(id + ': unbounded re-embed loop'));
         return embed(selector, spec, opts);
     };
