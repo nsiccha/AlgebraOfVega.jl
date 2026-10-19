@@ -1552,6 +1552,9 @@ _geoshape_data(g::AbstractDict) = Dict{String,Any}("values" => _owned_copy(g),
     "format" => Dict{String,Any}("property" => "features"))
 _geoshape_data(g::AbstractVector) = Dict{String,Any}("values" => _owned_copy(g))
 
+# The field a table row's looked-up GeoJSON Feature lands in (the `shape` channel).
+const _GEOSHAPE_FIELD = "__geometry__"
+
 _geoshape_projection(::Nothing) = nothing
 _geoshape_projection(p::Union{Symbol,AbstractString}) = Dict{String,Any}("type" => string(p))
 _geoshape_projection(p::Union{AbstractDict,NamedTuple}) = _owned_copy(p)
@@ -1600,16 +1603,19 @@ function geoshape_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer::Bool=false)
         f in fields || push!(fields, f)
     end
 
-    # GeoJSON Feature tuples keep their key under `properties`, so the
-    # lookup must address that path — a bare key misses every feature and
-    # Vega-Lite's invalid-value filter then drops the whole map.
+    # The table drives the layer and each row looks up its Feature, so a
+    # `col=`/`row=`/`layout=` facet partitions rows that carry the facet field
+    # (one map per level). Driving it from the geometry instead faceted
+    # Features that lack the field and joined one row per key: a single
+    # panel. GeoJSON Feature tuples keep their key under `properties`, so the
+    # lookup key addresses that path — a bare key matches no feature.
     geo_field = startswith(geo_key, "properties.") ? geo_key : "properties." * geo_key
-    spec = Dict{String,Any}("data" => _geoshape_data(a.geometry))
-    if !isempty(fields)
-        spec["transform"] = [Dict{String,Any}("lookup" => geo_field,
-            "from" => Dict{String,Any}("data" => data_to_vl(table),
-                "key" => data_key, "fields" => fields))]
-    end
+    spec = Dict{String,Any}("data" => data_to_vl(table),
+        "transform" => [Dict{String,Any}("lookup" => data_key,
+            "from" => Dict{String,Any}("data" => _geoshape_data(a.geometry),
+                "key" => geo_field),
+            "as" => _GEOSHAPE_FIELD)])
+    encoding["shape"] = Dict{String,Any}("field" => _GEOSHAPE_FIELD, "type" => "geojson")
     proj = _geoshape_projection(a.projection)
     isnothing(proj) || (spec["projection"] = proj)
 
@@ -1621,7 +1627,7 @@ function geoshape_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer::Bool=false)
     spec["mark"] = isempty(props) ? "geoshape" :
         merge(Dict{String,Any}("type" => "geoshape"), props)
 
-    tooltip = [Dict{String,Any}("field" => geo_field, "title" => data_key,
+    tooltip = [Dict{String,Any}("field" => data_key,
         "type" => vl_type(Tables.getcolumn(table, Symbol(data_key))))]
     for f in fields
         f == data_key && continue

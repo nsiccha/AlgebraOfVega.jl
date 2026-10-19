@@ -191,8 +191,10 @@ end
 
 Choropleth polygons: fill GeoJSON region shapes by a data column joined on a
 shared key. The geometry source owns the polygons; the layer's `data(...)`
-table owns the values; the emitted Vega-Lite spec joins them with a `lookup`
-transform and draws the VL `geoshape` mark — there are no x/y axes.
+table owns the values; the emitted Vega-Lite spec looks up each table row's
+feature with a `lookup` transform and draws the VL `geoshape` mark — there are
+no x/y axes. A row whose key matches no feature, and a feature no row matches,
+are not drawn.
 
 `geometry` is a GeoJSON source in one of three forms: a URL string (fetched
 by the browser), a parsed FeatureCollection `Dict`, or a vector of Feature
@@ -212,10 +214,10 @@ projection properties, or `nothing` to emit no projection.
 
 `mapping` supplies `color=` (and optionally `strokecolor=`); a fixed border
 goes through `visual(; stroke="white", strokeWidth=0.5)`. Faceting with
-`col=`/`row=`/`layout=` draws one small-multiple map per panel. This is a
-Vega-Lite-only plot type: the static `sdraw` path refuses it loudly, and a
-mounted map refreshes with `update_spec` (its values ride the lookup
-transform, not the geometry dataset). The channel picker keeps its x/y
+`col=`/`row=`/`layout=` draws one small-multiple map per panel, each filled
+from that panel's rows. This is a Vega-Lite-only plot type: the static
+`sdraw` path refuses it loudly, and a mounted map refreshes with
+`update_spec`. The channel picker keeps its x/y
 channels disabled for a geoshape layer, as for the interval analyses.
 """
 function geoshape(geometry; key=nothing, projection=:mercator)
