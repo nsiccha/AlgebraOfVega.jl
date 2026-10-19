@@ -19,7 +19,7 @@ AoG Layer → check transformation chain for known analyses:
       positional args   → x/y encoding channels
       named args        → color/size/shape/etc channels
       infer_types!()    → quantitative/nominal/ordinal
-      auto-tooltip      → from all mapped fields
+      auto-tooltip      → from all mapped fields, in channel order (x, y, …, color, …)
   → config properties merged on top (encoding deep-merged per channel)
 ```
 

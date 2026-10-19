@@ -59,11 +59,25 @@ function _vl_tooltip_entry!(tt, enc::Dict)
     push!(tt, entry)
 end
 
-"""Collect tooltip fields from an encoding dict (all channels that have a "field" key)."""
+# Channels are listed in this order when present; anything else follows
+# alphabetically. Generated tooltips and plot summaries sort by it rather than
+# iterating an encoding `Dict`, whose order is its hash order and differs
+# between Julia versions (1.10 lists `x` before `y`, 1.13 `y` before `x`).
+const _CHANNEL_ORDER = ("x", "y", "x2", "y2", "xOffset", "yOffset",
+    "theta", "theta2", "radius", "radius2", "color", "fill", "stroke",
+    "opacity", "fillOpacity", "strokeOpacity", "strokeWidth", "strokeDash",
+    "size", "shape", "angle", "detail", "order", "row", "column", "facet",
+    "text", "tooltip", "href", "key", "url")
+
+_channel_sort_key(ch) = let name = string(ch)
+    (something(findfirst(==(name), _CHANNEL_ORDER), length(_CHANNEL_ORDER) + 1), name)
+end
+
+"""Collect tooltip fields from an encoding dict (all channels that have a "field" key), in channel order."""
 function vl_tooltips(encoding)
     tt = Dict{String,Any}[]
-    for (_, enc) in encoding
-        _vl_tooltip_entry!(tt, enc)
+    for ch in sort!(collect(keys(encoding)); by=_channel_sort_key)
+        _vl_tooltip_entry!(tt, encoding[ch])
     end
     tt
 end
