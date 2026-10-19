@@ -212,14 +212,6 @@ end
 Base.show(::IO, ::MIME"text/html", ::PlotSummary) = nothing
 Base.show(io::IO, ::MIME"text/markdown", s::PlotSummary) = print(io, s.text)
 
-# Channels are listed in this order when present; anything else follows
-# alphabetically, so the summary table is stable across runs.
-const _MD_CHANNEL_ORDER = ("x", "y", "x2", "y2", "xOffset", "yOffset",
-    "theta", "theta2", "radius", "radius2", "color", "fill", "stroke",
-    "opacity", "fillOpacity", "strokeOpacity", "strokeWidth", "strokeDash",
-    "size", "shape", "angle", "detail", "order", "row", "column", "facet",
-    "text", "tooltip", "href", "key", "url")
-
 # Bounds: a summary must stay short enough to read at a glance, and must mark
 # every elision so it never reads as the complete value.
 const _MD_MAX_CHANNELS = 12
@@ -336,8 +328,8 @@ function plot_summary_md(vl::Dict; id=nothing)
         push!(seen, key)
         push!(channels, key => def)
     end
-    rank(ch) = something(findfirst(==(ch), _MD_CHANNEL_ORDER), length(_MD_CHANNEL_ORDER) + 1)
-    sort!(channels; by=p -> (rank(p.first), p.first))
+    # Channel order (`_CHANNEL_ORDER`), so the summary table is stable across runs.
+    sort!(channels; by=p -> _channel_sort_key(p.first))
 
     rows = sum(d -> get(d, "values", nothing) isa AbstractVector ? length(d["values"]) : 0, datas; init=0)
     cols = 0

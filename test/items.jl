@@ -1089,7 +1089,9 @@ end
 """
 The low-level Vega-Lite helpers: `vl_enc` builds an encoding dict (dropping
 `nothing` fields), `vl_mark` returns a bare string or a props dict, and
-`vl_tooltips` collects the field-bearing channels.
+`vl_tooltips` collects the field-bearing channels in channel order (x, y, …,
+color, …; unlisted channels alphabetically), never in the encoding `Dict`'s
+hash order, which differs between Julia versions.
 """
 @testitem "VL helpers" setup=[AoVTestImports] tags=[:translation] begin
     # vl_enc
@@ -1118,11 +1120,13 @@ The low-level Vega-Lite helpers: `vl_enc` builds an encoding dict (dropping
         "y" => Dict{String,Any}("field" => "mpg", "type" => "quantitative"),
         "color" => Dict{String,Any}("field" => "origin", "type" => "nominal"),
         "opacity" => Dict{String,Any}("value" => 0.5),  # no field → skipped
+        "y2" => Dict{String,Any}("field" => "mpg_hi"),
+        "zz" => Dict{String,Any}("field" => "unlisted_z"),
+        "aa" => Dict{String,Any}("field" => "unlisted_a"),
     )
     tt = AlgebraOfVega.vl_tooltips(encoding)
-    @test length(tt) == 3
-    fields = Set(d["field"] for d in tt)
-    @test fields == Set(["hp", "mpg", "origin"])
+    @test [d["field"] for d in tt] == ["hp", "mpg", "mpg_hi", "origin", "unlisted_a", "unlisted_z"]
+    @test tt[1]["type"] == "quantitative" && !haskey(tt[3], "type")
 end
 
 """
