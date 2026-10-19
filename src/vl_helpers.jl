@@ -63,7 +63,8 @@ end
 # alphabetically. Generated tooltips and plot summaries sort by it rather than
 # iterating an encoding `Dict`, whose order is its hash order and differs
 # between Julia versions (1.10 lists `x` before `y`, 1.13 `y` before `x`).
-const _CHANNEL_ORDER = ("x", "y", "x2", "y2", "xOffset", "yOffset",
+const _CHANNEL_ORDER = ("x", "y", "x2", "y2", "longitude", "latitude",
+    "longitude2", "latitude2", "xOffset", "yOffset",
     "theta", "theta2", "radius", "radius2", "color", "fill", "stroke",
     "opacity", "fillOpacity", "strokeOpacity", "strokeWidth", "strokeDash",
     "size", "shape", "angle", "detail", "order", "row", "column", "facet",
