@@ -92,10 +92,11 @@ function _broadcast_cross_source_layers!(vl::Dict)
 
     # Find the data object whose `values` carry the merged rows. May be at the
     # outer spec or, for faceted layouts, at `spec.spec.data`.
+    owner = vl
     data_obj = _data_with_values(_as_dict(get(vl, "data", nothing)))
     if isnothing(data_obj)
         inner = _as_dict(get(vl, "spec", nothing))
-        isnothing(inner) || (data_obj = _data_with_values(_as_dict(get(inner, "data", nothing))))
+        isnothing(inner) || (owner = inner; data_obj = _data_with_values(_as_dict(get(inner, "data", nothing))))
     end
     isnothing(data_obj) && return vl
     vals = _as_vec(data_obj["values"])
@@ -116,7 +117,17 @@ function _broadcast_cross_source_layers!(vl::Dict)
         end
         vals = new_vals
     end
+    # `vl` is `_embed_spec`'s shallow copy, so its nested `data`/`spec` dicts may
+    # still be the caller's: replace them with written copies, never write in place.
+    data_obj = copy(data_obj)
     data_obj["values"] = vals
+    if owner === vl
+        vl["data"] = data_obj
+    else
+        owner = copy(owner)
+        owner["data"] = data_obj
+        vl["spec"] = owner
+    end
     vl
 end
 
@@ -481,9 +492,11 @@ function _embed_spec(spec; width=nothing, height=nothing, fit_width=true)
             # the caller passed a Dict) is still the caller's.
             n_facet_cols = _count_facet_cols(vl)
             vl["_aov"] = _aov_hint_with(vl, "nFacetCols" => n_facet_cols, "fitWidth" => true)
-            inner = vl["spec"]
-            if !haskey(inner, "width")
+            if !haskey(vl["spec"], "width")
+                # Same for the inner spec: write the fallback into a copy.
+                inner = copy(vl["spec"])
                 inner["width"] = 400  # fallback, JS overrides
+                vl["spec"] = inner
             end
         else
             # Layered/composite: mark for responsive JS resizing (same _aov
