@@ -39,13 +39,15 @@
         if (found.length !== 1) throw new Error(what + ': expected one scenegraph item, found ' + found.length);
         return found[0];
     }
-    // Click at view coordinates (x, y), as a pointer would.
+    // Click at view coordinates (x, y), as a pointer would. Vega maps a pointer
+    // through the view origin PLUS its padding; `view.origin()` alone lands a
+    // padding short, which misses a small mark such as a point.
     function clickAt(id, x, y) {
         const view = AoV.views[id];
         const canvas = document.querySelector('#' + id + ' canvas');
-        const rect = canvas.getBoundingClientRect(), origin = view.origin();
-        const opts = {bubbles: true, cancelable: true, clientX: rect.left + origin[0] + x,
-            clientY: rect.top + origin[1] + y, pointerId: 1, isPrimary: true, pointerType: 'mouse'};
+        const rect = canvas.getBoundingClientRect(), origin = view.origin(), pad = view.padding();
+        const opts = {bubbles: true, cancelable: true, clientX: rect.left + origin[0] + pad.left + x,
+            clientY: rect.top + origin[1] + pad.top + y, pointerId: 1, isPrimary: true, pointerType: 'mouse'};
         canvas.dispatchEvent(new PointerEvent('pointermove', opts));
         canvas.dispatchEvent(new PointerEvent('pointerdown', opts));
         canvas.dispatchEvent(new PointerEvent('pointerup', opts));
@@ -87,13 +89,25 @@
         check(got && got.length === 0, 'scatter: an axis-label click dispatched ' + (got && got.length) + ' events');
 
         // A resize re-embed replaces the view; the new one reports clicks, once.
-        // (Point b again: a sits on the plot's corner, where Vega's own picker
-        // returns no item, so no tooltip or click can reach it.)
+        // Point a sits on the plot's corner, and the click still reaches it.
         check(AoV._resizeReembed('mc-scatter'), 'scatter: not re-embedded on resize');
         view = await ready('mc-scatter', view);
-        got = clicked('mc-scatter', one(view, 'scatter point b after re-embed', isRow('g', 'b')));
-        check(got.length === 1 && got[0].detail.datum.g === 'b',
+        got = clicked('mc-scatter', one(view, 'scatter point a after re-embed', isRow('g', 'a')));
+        check(got.length === 1 && got[0].detail.datum.g === 'a',
             'scatter after re-embed: ' + JSON.stringify(got.map(e => e.detail.datum)));
+
+        // Lon/lat points drawn on a map: a point reports its own row, and the
+        // open part of a district reports the district's row.
+        view = await ready('mc-mappts');
+        for (const name of ['kita-A', 'kita-B']) {
+            got = clicked('mc-mappts', one(view, 'map point ' + name, item => isRow('name', name)(item) && item.mark.marktype === 'symbol'));
+            check(got.length === 1 && got[0].detail.datum.name === name,
+                'map point ' + name + ': ' + JSON.stringify(got.map(e => e.detail.datum)));
+        }
+        const district = one(view, 'district 01003', item => item.mark.marktype === 'shape' && item.datum.AGS === '01003');
+        got = clicked('mc-mappts', district);
+        check(got.length === 1 && got[0].detail.datum.AGS === '01003',
+            'map district under no point: ' + JSON.stringify(got.map(e => e.detail.datum)));
 
         // A map region carries its table row (AoV's geoshape is table-driven).
         view = await ready('mc-map');
