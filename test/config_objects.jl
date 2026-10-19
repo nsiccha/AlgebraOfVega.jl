@@ -90,3 +90,87 @@ end
     @test tooltip_fields(again["encoding"]) == ["x"]
     @test again["config"]["legend"]["symbolType"] == ["circle"]
 end
+
+# Successive config terms merge their object-valued properties instead of the
+# later term replacing the earlier one wholesale: a chart composed as
+# `spec * config(config=…legend/mark…) * config(config=…locale/axisX…)` kept only
+# the second raw config, so the legend moved back to the right and the pointer
+# cursor disappeared (snag `composed-a-chart-b50ca220`). The same held for the
+# AoG-mirror `facet`, `axis` and `scales` properties; only `encoding` merged.
+@testitem "successive config(config=…) terms deep-merge" setup=[AoVConfigObjectFixtures] tags=[:translation, :config, :regression] begin
+    styled = config(config = Dict("legend" => Dict("orient" => "bottom", "titleLimit" => 0),
+                                  "mark" => Dict("cursor" => "pointer")))
+    shared = config(config = Dict("locale" => Dict("number" => Dict("decimal" => ",")),
+                                  "axisX" => Dict("labelAngle" => 0)))
+    vl = to_vegalite(base * styled * shared)
+    @test vl["config"]["legend"]["orient"] == "bottom"
+    @test vl["config"]["legend"]["titleLimit"] == 0
+    @test vl["config"]["mark"]["cursor"] == "pointer"
+    @test vl["config"]["locale"]["number"]["decimal"] == ","
+    @test vl["config"]["axisX"]["labelAngle"] == 0
+    for guide in ("legend", "axis", "header")   # AoV's no-truncate defaults survive
+        @test vl["config"][guide]["labelLimit"] == 0
+    end
+    # Exactly one config term carrying both objects.
+    @test vl == to_vegalite(base * config(config = Dict(
+        "legend" => Dict("orient" => "bottom", "titleLimit" => 0),
+        "mark" => Dict("cursor" => "pointer"),
+        "locale" => Dict("number" => Dict("decimal" => ",")),
+        "axisX" => Dict("labelAngle" => 0))))
+    # The later term wins a conflicting key; sibling keys of the earlier term stay.
+    later = to_vegalite(base * styled * config(config = (; legend = (; orient = "top"))))
+    @test later["config"]["legend"]["orient"] == "top"
+    @test later["config"]["legend"]["titleLimit"] == 0
+    # `config(…) * spec`: the spec's own config comes later, so it wins.
+    left = to_vegalite(config(config = (; legend = (; orient = "top"))) * (base * styled))
+    @test left["config"]["legend"]["orient"] == "bottom"
+    # A `+` sum merges its summands' raw configs the same way.
+    lines = data(rows) * mapping(:x, :y) * visual(Lines)
+    summed = to_vegalite((base * styled) + (lines * shared))
+    @test summed["config"]["mark"]["cursor"] == "pointer"
+    @test summed["config"]["axisX"]["labelAngle"] == 0
+    # Merging leaves both terms as they were: each still lowers alone.
+    @test to_vegalite(base * styled)["config"]["legend"] ==
+        Dict("orient" => "bottom", "titleLimit" => 0, "labelLimit" => 0)
+    @test !haskey(to_vegalite(base * shared)["config"], "mark")
+end
+
+@testitem "successive facet, axis and scales terms merge" setup=[AoVConfigObjectFixtures] tags=[:translation, :config, :regression] begin
+    faceted = data(rows) * mapping(:x, :y; col=:group) * visual(Scatter)
+    linked = to_vegalite(faceted * config(facet = (; linkxaxes = :none)) *
+        config(facet = (; linkyaxes = :none)))
+    @test linked["resolve"]["scale"] == Dict("x" => "independent", "y" => "independent")
+    limited = to_vegalite(base * config(axis = (; limits = ((1, 100), nothing))) *
+        config(axis = (; clamp = true)))
+    @test limited["encoding"]["x"]["scale"]["domain"] == [1, 100]
+    @test limited["encoding"]["x"]["scale"]["clamp"] == true
+    coloured = data(rows) * mapping(:x, :y; color=:group) * visual(Scatter)
+    palette = config(scales = scales(Color = (; palette = ["red", "blue"], categories = ["a", "b"])))
+    vl = to_vegalite(coloured * config(scales = scales(Y = (; scale = log10))) * palette *
+        config(scales = scales(Y = (; nice = false))))
+    @test vl["encoding"]["y"]["scale"]["type"] == "log"
+    @test vl["encoding"]["y"]["scale"]["nice"] == false
+    @test vl["encoding"]["color"]["scale"]["range"] == ["red", "blue"]
+    @test vl["encoding"]["color"]["scale"]["domain"] == ["a", "b"]
+    # Exactly one `scales(...)` carrying every setting.
+    @test vl == to_vegalite(coloured * config(scales = scales(Y = (; scale = log10, nice = false),
+        Color = (; palette = ["red", "blue"], categories = ["a", "b"]))))
+    # The later term wins a conflicting key.
+    relinear = to_vegalite(coloured * config(scales = scales(Y = (; scale = log10))) *
+        config(scales = scales(Y = (; scale = identity))))
+    @test get(relinear["encoding"]["y"]["scale"], "type", "linear") == "linear"
+    # The static path reads the merged settings too.
+    kw = AlgebraOfVega._draw_kwargs((faceted * config(facet = (; linkxaxes = :none)) *
+        config(facet = (; linkyaxes = :none), scales = scales(Y = (; scale = log10)))).config; faceted=true)
+    @test kw.facet == (; linkxaxes = :none, linkyaxes = :none)
+    @test kw.scales isa AlgebraOfGraphics.Scales
+    @test kw.scales.dict[:Y][:scale] === log10
+end
+
+@testitem "non-object config properties take the later term's value" setup=[AoVConfigObjectFixtures] tags=[:translation, :config] begin
+    vl = to_vegalite(base * config(width = 100, title = "first", transform = [Dict("filter" => "datum.x > 1")]) *
+        config(width = 200, title = "second", transform = [Dict("filter" => "datum.x > 2")]))
+    @test vl["width"] == 200
+    @test vl["title"] == "second"
+    @test vl["transform"] == [Dict("filter" => "datum.x > 2")]
+end
