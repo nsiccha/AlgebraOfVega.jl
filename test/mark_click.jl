@@ -24,6 +24,8 @@ using TestItemRunner
     geojson = Dict{String,Any}("type" => "FeatureCollection", "features" => [
         Dict{String,Any}("type" => "Feature", "properties" => Dict{String,Any}("AGS" => a),
             "geometry" => square(Float64(i))) for (i, a) in enumerate(ags)])
+    # Lon/lat points inside districts 01001 and 01002, none inside 01003.
+    kitas = (; lon=[1.5, 2.5], lat=[0.5, 0.5], name=["kita-A", "kita-B"])
     bars = (; k=["a", "b", "c"], v=[1.0, 2.0, 4.0])
     panels = (; k=repeat(["a", "b"], 2), v=[1.0, 2.0, 3.0, 4.0], panel=repeat(["1", "2"], inner=2))
     zero_y = config(scales=scales(Y=(; zero=true)))
@@ -39,7 +41,10 @@ using TestItemRunner
                 vdraw(data(bars) * mapping(:k, :v) * visual(BarPlot) * zero_y *
                     config(width=240, height=160); id="mc-bars"),
                 vdraw(data(panels) * mapping(:k, :v; col=:panel) * visual(BarPlot) * zero_y *
-                    config(width=160, height=160); id="mc-facet")]
+                    config(width=160, height=160); id="mc-facet"),
+                vdraw((data((; AGS=ags, effect=[-0.4, 0.1, 0.7])) * mapping(:AGS; color=:effect) *
+                    geoshape(geojson) + data(kitas) * mapping(:lon, :lat) * visual(Scatter)) *
+                    config(width=300, height=100); id="mc-mappts")]
             head = join(html(n) for n in vega_head(; source=:inline))
             driver = read(joinpath(@__DIR__, "mark_click.js"), String)
             write(joinpath(dir, "page.html"), "<!doctype html><meta charset='utf-8'>" * head *
@@ -53,7 +58,7 @@ using TestItemRunner
             if !isnothing(result)
                 report = JSON.parse(replace(result[1], "&quot;" => "\"", "&lt;" => "<",
                     "&gt;" => ">", "&amp;" => "&"))
-                @test report["checks"] >= 15
+                @test report["checks"] >= 19
                 @test isempty(report["failures"])
                 @info "mark click browser checks" checks=report["checks"]
                 isempty(report["failures"]) || println(JSON.json(report["failures"]))
