@@ -64,9 +64,10 @@ function caption_action_inject(rv, action_js::AbstractString)
 end
 
 # The Share-button action element, as `action_js` for `caption_action_inject`.
-function _share_button_action_js(url::AbstractString, label::AbstractString)
+function _share_button_action_js(url::AbstractString, label::AbstractString, texts::PlotTexts)
     clean = _js_squote(clean_share_url(url))
     lab = _js_squote(label)
+    copied = _js_squote(texts.copied)
     """
         var btn = document.createElement('button');
         btn.className = 'outline caption-action';
@@ -76,7 +77,7 @@ function _share_button_action_js(url::AbstractString, label::AbstractString)
         btn.addEventListener('click', function(){
             var full = new URL(this.dataset.url, window.location.href).href;
             navigator.clipboard.writeText(full).then(function(){
-                btn.textContent='Copied!';
+                btn.textContent='$(copied)';
                 setTimeout(function(){btn.textContent='$(lab)'},1500);
             });
         });
@@ -85,34 +86,38 @@ function _share_button_action_js(url::AbstractString, label::AbstractString)
 end
 
 """
-    caption_share_button(url; label="Share") -> Node
+    caption_share_button(url; texts=plot_texts(), label=texts.share) -> Node
 
 A first-class caption-row Share button: copies the absolute card URL (see
-[`clean_share_url`](@ref)) to the clipboard and flashes `Copied!`. For use
-directly in a caption `actions` row (e.g. `with_plot_caption(...;
-share_url=...)`, which wires this for you).
+[`clean_share_url`](@ref)) to the clipboard and flashes `texts.copied`
+("Copied!"). For use directly in a caption `actions` row (e.g.
+`with_plot_caption(...; share_url=...)`, which wires this for you). `texts` is
+a [`PlotTexts`](@ref) (`plot_texts(:de)` for German).
 """
-function caption_share_button(url::AbstractString; label::AbstractString="Share")
+function caption_share_button(url::AbstractString; texts::PlotTexts=_EN_PLOT_TEXTS,
+                              label::AbstractString=texts.share)
     clean = clean_share_url(url)
     lab = _js_squote(label)
+    copied = _js_squote(texts.copied)
     h.button(label;
         type="button", class="outline caption-action",
         data_url=clean,
         onclick="var b=this;var full=new URL(b.dataset.url,window.location.href).href;" *
-                "navigator.clipboard.writeText(full).then(function(){b.textContent='Copied!';" *
+                "navigator.clipboard.writeText(full).then(function(){b.textContent='$(copied)';" *
                 "setTimeout(function(){b.textContent='$(lab)'},1500);});")
 end
 
 """
-    with_caption_share(rv, url; label="Share") -> Node
+    with_caption_share(rv, url; texts=plot_texts(), label=texts.share) -> Node
 
 Wrap the already-rendered `rv` so a Share button is injected into its
 caption-actions row (via [`caption_action_inject`](@ref)). Same clipboard
 semantics as [`caption_share_button`](@ref); use this form when the figure
 was rendered elsewhere and only needs the button added afterwards.
 """
-with_caption_share(rv, url::AbstractString; label::AbstractString="Share") =
-    caption_action_inject(rv, _share_button_action_js(url, label))
+with_caption_share(rv, url::AbstractString; texts::PlotTexts=_EN_PLOT_TEXTS,
+                   label::AbstractString=texts.share) =
+    caption_action_inject(rv, _share_button_action_js(url, label, texts))
 
 """
     with_caption_download(rv, url, label, filename) -> Node
@@ -137,19 +142,20 @@ function with_caption_download(rv, url::AbstractString, label::AbstractString, f
 end
 
 """
-    summary_share_button(url) -> Node
+    summary_share_button(url; texts=plot_texts()) -> Node
 
 A `🔗` share button for a `<summary>` line (e.g. a lazy `<details>` summary):
 copies the absolute URL (see [`clean_share_url`](@ref)) and flashes `✓`.
 `stopPropagation` keeps the click from toggling the enclosing `<details>`.
 Unlike [`with_caption_share`](@ref) this needs no `figure.captioned` — it is
-the summary-shaped sibling for bare summaries.
+the summary-shaped sibling for bare summaries. Its tooltip and accessible
+name are `texts.copy_link_hint` and `texts.copy_link`.
 """
-function summary_share_button(url::AbstractString)
+function summary_share_button(url::AbstractString; texts::PlotTexts=_EN_PLOT_TEXTS)
     h.span(; class="lazy-share")(
         " ",
         h.button("🔗"; type="button", class="btn-tiny secondary outline",
-            title="Copy a shareable link to this view", aria_label="Copy shareable link",
+            title=texts.copy_link_hint, aria_label=texts.copy_link,
             data_url=clean_share_url(url)),
         _inline_script("""
             (function(){

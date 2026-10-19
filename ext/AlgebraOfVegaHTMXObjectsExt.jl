@@ -2,14 +2,15 @@ module AlgebraOfVegaHTMXObjectsExt
 
 using AlgebraOfVega
 using HTMXObjects
-using HTMXObjects: CaptionSpec, with_caption, render_caption, render_table,
+using HTMXObjects: CaptionSpec, render_caption, render_table,
     caption_style, sortable_table_js
 using HTMX: h
 import Tables
 import Statistics
 import AlgebraOfVega: with_plot_caption, draws_summary_table, _sanitize_id,
                       _auto_summary_args, _auto_remap_parts, to_node, to_html,
-                      VegaSpec, caption_share_button, _vl_json
+                      VegaSpec, caption_share_button, _vl_json,
+                      PlotTexts, _EN_PLOT_TEXTS, _plot_text, _runtime_texts_attrs
 
 # HTMX 1.0 escapes attribute values itself (`&`, `"`, `'`, `<`, `>`), and the
 # HTML parser decodes them back before JS/`dataset` ever sees them — so JSON
@@ -28,7 +29,8 @@ _ci_str(s) = s
                       data_preview=true,
                       filename_base=nothing,
                       layer_labels=nothing,
-                      extra_actions=())
+                      extra_actions=(),
+                      texts=plot_texts())
 
 Wrap `plot_node` (the result of `to_node(spec; id=plot_id)` or
 `auto_remap_node(plot_id, spec; ...)`) in a `<figure>` with a caption header.
@@ -61,6 +63,12 @@ who don't want that should not set the VL title.
 - `layer_labels::Union{Nothing,Dict}=nothing`: map from raw `__src` value → human label,
   used both in download filenames and preview headings
 - `extra_actions`: iterable of additional action nodes for the caption header
+- `texts::PlotTexts=plot_texts()`: the words of the caption's "More" toggle,
+  the buttons, the data preview and its summary, and of a standalone HTML
+  download — `plot_texts(:de)` for a German page, with per-text overrides (see
+  [`plot_texts`](@ref)). The caption's own title, summary and long text are
+  `caption`'s. A non-English "More" needs HTMXObjects' `caption_texts`
+  (HTMXObjects `d344dfd` or later).
 """
 function with_plot_caption(plot_node, caption::CaptionSpec;
                             plot_id::AbstractString,
@@ -72,7 +80,8 @@ function with_plot_caption(plot_node, caption::CaptionSpec;
                             filename_base::Union{Nothing,AbstractString}=nothing,
                             layer_labels::Union{Nothing,AbstractDict}=nothing,
                             extra_actions=(),
-                            summary_table=nothing)
+                            summary_table=nothing,
+                            texts::PlotTexts=_EN_PLOT_TEXTS)
     plot_id = _sanitize_id(plot_id)
     fname = something(filename_base, plot_id)
     labels_js = isnothing(layer_labels) ? "{}" : _vl_json(Dict(string(k) => string(v) for (k, v) in layer_labels))
@@ -80,7 +89,7 @@ function with_plot_caption(plot_node, caption::CaptionSpec;
     actions = Any[]
     if data_download
         push!(actions,
-            h.button("⬇ CSV";
+            h.button(texts.csv;
                 type="button", class="outline caption-action",
                 onclick="AoV.downloadPlotData('$(plot_id)', '$(fname)', $(labels_js))"))
     end
@@ -88,14 +97,14 @@ function with_plot_caption(plot_node, caption::CaptionSpec;
         for fmt in images
             fmt_str = lowercase(String(fmt))
             push!(actions,
-                h.button("⬇ " * uppercase(fmt_str);
+                h.button(_plot_text(texts, :image; format=uppercase(fmt_str));
                     type="button", class="outline caption-action",
                     onclick="AoV.downloadPlotImage('$(plot_id)', '$(fmt_str)', '$(fname)')"))
         end
     end
     if html_download
         push!(actions,
-            h.button("⬇ HTML";
+            h.button(texts.html;
                 type="button", class="outline caption-action",
                 onclick="AoV.downloadPlotHtml('$(plot_id)', '$(fname)')"))
     end
@@ -103,10 +112,11 @@ function with_plot_caption(plot_node, caption::CaptionSpec;
         push!(actions, ea)
     end
     if !isnothing(share_url)
-        push!(actions, caption_share_button(share_url))
+        push!(actions, caption_share_button(share_url; texts))
     end
 
-    body = Any[render_caption(caption; actions=tuple(actions...)), plot_node]
+    body = Any[render_caption(caption; actions=tuple(actions...), _caption_texts_kw(texts)...),
+               _figure_children(plot_node)...]
 
     has_pretty = !isnothing(summary_table)
     if data_preview || has_pretty
@@ -114,12 +124,12 @@ function with_plot_caption(plot_node, caption::CaptionSpec;
         if has_pretty && data_preview
             details = h.details(; class="aov-data-preview", data_mode="pretty",
                                 ontoggle="if(this.open) AoV._lazyRenderDataView(this, 'pretty')")(
-                h.summary("Show data"),
+                h.summary(texts.show_data),
                 h.div(; role="group")(
-                    h.button("Pretty"; type="button", class="outline",
+                    h.button(texts.pretty; type="button", class="outline",
                         data_view="pretty", aria_pressed="true",
                         onclick="AoV.toggleDataView(this, 'pretty')"),
-                    h.button("Raw"; type="button", class="outline",
+                    h.button(texts.raw; type="button", class="outline",
                         data_view="raw",
                         onclick="AoV.toggleDataView(this, 'raw')"),
                 ),
@@ -134,25 +144,36 @@ function with_plot_caption(plot_node, caption::CaptionSpec;
         elseif has_pretty
             details = h.details(; class="aov-data-preview",
                                 ontoggle="if(this.open) AoV._lazyRenderDataView(this, 'pretty')")(
-                h.summary("Show summary"),
+                h.summary(texts.show_summary),
                 summary_table,
             )
             push!(body, details)
         else
             details = h.details(; class="aov-data-preview",
                                 ontoggle="if(this.open) AoV._lazyRenderDataView(this, 'raw')")(
-                h.summary("Show data"),
+                h.summary(texts.show_data),
                 h.div(; class="aov-data-raw-body", id=preview_id,
                       data_aov_plot_id=plot_id,
                       data_aov_labels=labels_js)(),
             )
             push!(body, details)
         end
-        h.figure(; class="captioned")(body...)
-    else
-        with_caption(caption, plot_node; actions=tuple(actions...))
     end
+    # The figure carries non-English `texts` for the runtime, which writes the
+    # preview contents and the HTML download's `lang` and title.
+    h.figure(; class="captioned", _runtime_texts_attrs(texts)...)(body...)
 end
+
+# The caption's own word ("More") is HTMXObjects' `caption_texts`, which
+# HTMXObjects has carried since `d344dfd`. English passes none, so a consumer
+# on an older HTMXObjects keeps rendering English captions.
+_caption_texts_kw(texts::PlotTexts) = texts.more == _EN_PLOT_TEXTS.more ? (;) :
+    (; texts=HTMXObjects.caption_texts(; more=texts.more))
+
+# A pre-rendered plot passed as a tuple of nodes is spliced in, as
+# `HTMXObjects.with_caption` does.
+_figure_children(plot_node) = (plot_node,)
+_figure_children(plot_node::Tuple) = plot_node
 
 # Convenience: also accept a NamedTuple/kwargs form so callers don't need to
 # import CaptionSpec just to label one plot.
@@ -180,6 +201,8 @@ builds the plot internally, and can:
   the default). Pass `summary_table=nothing` to disable, or an explicit node
   to bypass the lazy mechanism.
 
+`texts` (a [`PlotTexts`](@ref)) also sets the channel picker's labels.
+
 `summary_ci` controls which interval is shown: `:outer` (default — widest
 band, typically 95%), `:inner` (narrowest), or a `Float64` like `0.8` (closest
 prob match — auto path only). `summary_sigfigs` rounds cells to N significant
@@ -193,6 +216,7 @@ function with_plot_caption(spec::VegaSpec, caption::CaptionSpec;
                             summary_table=:auto,
                             summary_ci=:outer,
                             summary_sigfigs::Int=2,
+                            texts::PlotTexts=_EN_PLOT_TEXTS,
                             kwargs...)
     plot_id_s = _sanitize_id(plot_id)
 
@@ -200,7 +224,7 @@ function with_plot_caption(spec::VegaSpec, caption::CaptionSpec;
         nothing, to_node(spec; id=plot_id_s)
     else
         remap_kw = something(_as_nt_or_nothing(auto_remap), (;))
-        _auto_remap_parts(plot_id_s, spec; remap_kw...)
+        _auto_remap_parts(plot_id_s, spec; texts, remap_kw...)
     end
 
     resolved_summary = if summary_table === :auto
@@ -220,7 +244,7 @@ function with_plot_caption(spec::VegaSpec, caption::CaptionSpec;
             end
             if args.kind === :precomputed_ribbon
                 opts["point_col"] = args.point_col
-                opts["point_label"] = "Median"
+                opts["point_label"] = texts.median
                 opts["bands"] = [Any[lo, hi, label] for (lo, hi, label) in args.bands]
             end
             h.div(; class="aov-data-pretty-body",
@@ -233,7 +257,7 @@ function with_plot_caption(spec::VegaSpec, caption::CaptionSpec;
     end
 
     figure = with_plot_caption(plot_node, caption;
-        plot_id=plot_id_s, summary_table=resolved_summary, kwargs...)
+        plot_id=plot_id_s, summary_table=resolved_summary, texts, kwargs...)
 
     # `data-aov-fragment` marks the whole card (controls + figure) so the
     # client-side "⬇ HTML" download can clone exactly this subtree.
@@ -271,7 +295,8 @@ pre-rendered node instead; use it for `signals=`-wired nodes, which degrade
 silently offline (their `htmx.ajax` callback has no server).
 `source`, `base` and `runtime` select the `<head>` as in `vega_head`;
 `source=:inline` inlines AoV's vendored Vega builds, so the saved file renders
-with no network at all.
+with no network at all. `texts` (a [`PlotTexts`](@ref)) sets the card's
+words, as in `with_plot_caption`, and the page's `<html lang>`.
 """
 function to_html(spec::VegaSpec, caption::CaptionSpec;
                  plot_id::AbstractString,
@@ -282,10 +307,11 @@ function to_html(spec::VegaSpec, caption::CaptionSpec;
                  source::Symbol=:cdn,
                  base::AbstractString="/vendor",
                  runtime::Symbol=:inline,
+                 texts::PlotTexts=_EN_PLOT_TEXTS,
                  kwargs...)
     frag = with_plot_caption(spec, caption;
-        plot_id=plot_id, auto_remap=auto_remap, summary_table=summary_table, kwargs...)
-    to_html(frag; title=something(title, caption.title),
+        plot_id=plot_id, auto_remap=auto_remap, summary_table=summary_table, texts, kwargs...)
+    to_html(frag; title=something(title, caption.title), texts,
             head_extra=_caption_head_extra(head_extra), source=source, base=base, runtime=runtime)
 end
 
@@ -299,9 +325,10 @@ function to_html(plot_node, caption::CaptionSpec;
                  source::Symbol=:cdn,
                  base::AbstractString="/vendor",
                  runtime::Symbol=:inline,
+                 texts::PlotTexts=_EN_PLOT_TEXTS,
                  kwargs...)
-    figure = with_plot_caption(plot_node, caption; plot_id=plot_id, kwargs...)
-    to_html(figure; title=something(title, caption.title),
+    figure = with_plot_caption(plot_node, caption; plot_id=plot_id, texts, kwargs...)
+    to_html(figure; title=something(title, caption.title), texts,
             head_extra=_caption_head_extra(head_extra), source=source, base=base, runtime=runtime)
 end
 

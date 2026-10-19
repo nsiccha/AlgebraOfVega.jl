@@ -28,7 +28,7 @@ _html_escape(s::AbstractString) =
     replace(s, "&" => "&amp;", "<" => "&lt;", ">" => "&gt;", "\"" => "&quot;")
 
 """
-    to_html(node::HTMX.Node; title="AoV plot", head_extra="", source, base, runtime) -> String
+    to_html(node::HTMX.Node; texts=plot_texts(), title=texts.untitled, head_extra="", source, base, runtime) -> String
 
 Serialize a rendered plot node (e.g. `to_node`, `auto_remap_node`, or a
 `with_plot_caption` fragment) as ONE standalone `.html` document string:
@@ -47,8 +47,13 @@ the saved file keeps working with no server: picker re-facets, CSV/PNG/SVG
 download, caption/summary render. Only `signals=`-wired plots degrade (their
 `htmx.ajax` callback has no server), and they do so silently — see
 `signalToHtmx`.
+
+`texts` (a [`PlotTexts`](@ref)) sets the page's `<html lang>` and the title
+used when `title` is not given; pass the same value as the node's own
+`texts=` (`plot_texts(:de)` for a German page).
 """
-function to_html(node::HTMX.Node; title::AbstractString="AoV plot", head_extra::AbstractString="",
+function to_html(node::HTMX.Node; texts::PlotTexts=_EN_PLOT_TEXTS,
+        title::AbstractString=texts.untitled, head_extra::AbstractString="",
         source::Symbol=:cdn, base::AbstractString="/vendor", runtime::Symbol=:inline)
     head_io = IOBuffer()
     for n in vega_head(; source, base, runtime)
@@ -56,13 +61,14 @@ function to_html(node::HTMX.Node; title::AbstractString="AoV plot", head_extra::
     end
     head_html = String(take!(head_io)) * head_extra
     body_html = sprint(show, MIME"text/html"(), node)
-    _standalone_page(head_html, body_html; title=title)
+    _standalone_page(head_html, body_html; title, lang=texts.lang)
 end
 
-function _standalone_page(head_html::AbstractString, body_html::AbstractString; title::AbstractString="AoV plot")
+function _standalone_page(head_html::AbstractString, body_html::AbstractString;
+                          title::AbstractString, lang::AbstractString)
     """
     <!DOCTYPE html>
-    <html lang="en">
+    <html lang="$(_html_escape(lang))">
     <head>
     <meta charset="utf-8">
     <title>$(_html_escape(title))</title>

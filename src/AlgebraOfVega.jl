@@ -57,6 +57,7 @@ export vega_runtime, update_data, append_data, replace_data, remove_data, update
 export with_plot_caption, draws_summary_table
 export clean_share_url, caption_share_button, caption_action_inject,
     with_caption_share, with_caption_download, summary_share_button
+export PlotTexts, plot_texts
 export symlog
 
 """
@@ -143,6 +144,7 @@ include("datasets.jl")
 include("explorer.jl")
 
 include("vl_helpers.jl")
+include("plot_texts.jl")
 include("mark_mapping.jl")
 include("extract.jl")
 include("analyses.jl")

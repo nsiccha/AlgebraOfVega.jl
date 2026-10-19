@@ -26,6 +26,8 @@ resolution before rendering.
 - `table`: optional table for field validation
 - `spec`: optional AoG spec — if provided, validates that all dimension fields survive
   into the VL data (warns if a field was dropped during AoG summary)
+- `texts`: the [`PlotTexts`](@ref) whose channel labels the picker shows
+  (default English; `plot_texts(:de)` for German)
 
 ## Example
 
@@ -40,9 +42,10 @@ h.div()(
 
 For fully-automatic picker + plot construction, prefer [`auto_remap_node`](@ref).
 """
-function mapping_controls(id, dimensions::AbstractVector; table=nothing, spec=nothing, kwargs...)
+function mapping_controls(id, dimensions::AbstractVector; table=nothing, spec=nothing,
+                          texts::PlotTexts=_EN_PLOT_TEXTS, kwargs...)
     resolved = resolve_channels(dimensions; kwargs...)
-    mapping_controls(id, resolved; table, spec)
+    mapping_controls(id, resolved; table, spec, texts)
 end
 
 # === auto_remap_node ===========================================================
@@ -449,7 +452,7 @@ function _preserve_selector_modifiers(extra::NamedTuple, orig_named, keep_color_
 end
 
 """
-    auto_remap_node(plot_id, spec; dims, fixed=Dict(), pinned=:row, axes=false)
+    auto_remap_node(plot_id, spec; dims, fixed=Dict(), pinned=:row, axes=false, texts=plot_texts())
 
 Fully automatic interactive plot. Takes a "normal" AoG spec and produces an
 `h.div(picker, plot_node)`. The user does not call `resolve_channels`,
@@ -468,6 +471,8 @@ function does all of it.
   remappable. Same shape as in `resolve_channels`. Labels for fixed fields
   are picked up from `dims` if present, otherwise snake_case → Title Case.
 - **`pinned`** is the catch-all channel.
+- **`texts`** is the [`PlotTexts`](@ref) whose channel labels the picker
+  shows (default English; `plot_texts(:de)` for German).
 - **`axes=true`** opts in to X/Y axis channels in the picker. The layer's
   positional fields (`mapping(x, y, …)`) are automatically added to the
   picker's dim set — they become X/Y defaults AND are selectable on the
@@ -517,9 +522,9 @@ end
 
 # Same idea as `_remap_node_parts`: expose the (controls, plot_node) pair for
 # composition with `with_plot_caption` et al.
-function _auto_remap_parts(plot_id, spec; kwargs...)
+function _auto_remap_parts(plot_id, spec; texts::PlotTexts=_EN_PLOT_TEXTS, kwargs...)
     (; resolved, new_spec, vl) = _auto_remap_lowering(spec; kwargs...)
-    controls = isempty(resolved.dims) ? "" : mapping_controls(plot_id, resolved; spec=new_spec)
+    controls = isempty(resolved.dims) ? "" : mapping_controls(plot_id, resolved; spec=new_spec, texts)
     plot = to_node(vl; id=plot_id)
     (controls, plot, vl)
 end
@@ -682,7 +687,8 @@ function _tag_keep_color_layers!(vl::Dict, keep_color_fields::Set{String})
     end
 end
 
-function mapping_controls(id, resolved::NamedTuple; table=nothing, spec=nothing)
+function mapping_controls(id, resolved::NamedTuple; table=nothing, spec=nothing,
+                          texts::PlotTexts=_EN_PLOT_TEXTS)
     id = _sanitize_id(id)
     dims = resolved.dims
     defaults = resolved.defaults
@@ -741,7 +747,7 @@ function mapping_controls(id, resolved::NamedTuple; table=nothing, spec=nothing)
     sel_size = string(clamp(length(dims), 2, 4))
     selects = map(all_ui_channels) do ch
         ch_str = string(ch)
-        ch_label = get(_CHANNEL_LABELS, ch_str, uppercasefirst(ch_str))
+        ch_label = _channel_label(texts, ch_str)
         is_fixed = haskey(fixed_js, ch_str)
         is_pinned = !is_fixed && ch_str == pinned_str
         # x/y are single-select axis channels — no combo, no pin radio.
