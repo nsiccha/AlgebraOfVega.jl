@@ -5,8 +5,8 @@ The words AoV's own plot chrome shows: the caption's "More" toggle, the
 caption row's download and Share buttons, the "Show data" preview and its
 summary table, the channel picker's labels, and standalone HTML exports. Build one with [`plot_texts`](@ref) and
 pass it as `texts=` to `with_plot_caption`, `to_html`, [`auto_remap_node`](@ref),
-[`mapping_controls`](@ref), [`caption_share_button`](@ref),
-[`with_caption_share`](@ref) or [`summary_share_button`](@ref).
+[`mapping_controls`](@ref), `caption_share_button`, `with_caption_share` or
+`summary_share_button`.
 
 A text in braces is a placeholder AoV fills in: `image` takes `{format}`
 (`PNG`, `SVG`); `interval` takes `{point}` (the `median` text) and `{width}`
