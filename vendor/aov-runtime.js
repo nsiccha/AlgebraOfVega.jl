@@ -40,21 +40,46 @@ window.AoV = window.AoV || {
         return !!(spec && spec._aov && (spec._aov.fitWidth || spec.width === 'container'));
     },
 
-    _applyResponsiveWidth: function(id, spec) {
-        if (!this._fitSized(spec)) {
-            // A fixed-width embed leaves no sizing record behind: the post-embed
-            // correction must not resize it from a previous responsive embed.
-            if (this._computedWidths) delete this._computedWidths[id];
+    // The width el's container offers it, measured with el collapsed. A
+    // container that shrink-wraps its content (an auto-layout table cell, an
+    // inline-block, an auto grid/flex track) is widened by the plot it holds,
+    // so measuring it with the plot in place feeds each render's overshoot into
+    // the next one's budget. Collapsing only the width keeps the page height,
+    // so the forced layout cannot clamp the scroll position.
+    _offeredWidth: function(el) {
+        var parent = el.parentElement;
+        if (!parent) return null;
+        var width = el.style.width;
+        el.style.width = '0px';
+        var offered = parent.clientWidth;
+        el.style.width = width;
+        return offered;
+    },
+
+    // `budget` pins the sizing budget instead of measuring the container: the
+    // post-embed correction re-sizes for the budget it measured its overshoot
+    // against (see _fitCorrection).
+    _applyResponsiveWidth: function(id, spec, budget) {
+        // A fixed-width or unmeasurable embed leaves no sizing record behind:
+        // the post-embed correction must not resize it from a previous
+        // responsive embed.
+        var self = window.AoV || {};
+        var unsized = function() {
+            if (self._computedWidths) delete self._computedWidths[id];
             return spec;
-        }
+        };
+        if (!this._fitSized(spec)) return unsized();
         var el = document.getElementById(id);
-        if (!el) return spec;
-        var containerWidth = el.parentElement ? el.parentElement.clientWidth : null;
-        if (!containerWidth || containerWidth < 50) return spec;
-        var zoom = (window.AoV && window.AoV.zoom) ? window.AoV.zoom : 1;
-        containerWidth = Math.floor(containerWidth / zoom);
-        var maxWidth = (spec._aov && spec._aov.maxWidth) || (window.AoV && window.AoV.maxWidth) || Infinity;
-        containerWidth = Math.min(containerWidth, maxWidth);
+        if (!el) return unsized();
+        var containerWidth = budget;
+        if (containerWidth === undefined) {
+            containerWidth = this._offeredWidth(el);
+            if (!containerWidth || containerWidth < 50) return unsized();
+            var zoom = (window.AoV && window.AoV.zoom) ? window.AoV.zoom : 1;
+            containerWidth = Math.floor(containerWidth / zoom);
+            var maxWidth = (spec._aov && spec._aov.maxWidth) || (window.AoV && window.AoV.maxWidth) || Infinity;
+            containerWidth = Math.min(containerWidth, maxWidth);
+        }
         var padding = 30; // approximate VL padding
         var minCell = 100; // readable-minimum panel width; narrower viewports scroll in-frame (see .aov-plot-area)
 
@@ -91,7 +116,6 @@ window.AoV = window.AoV || {
         // A post-embed correction (_fitCorrection) overrides the computed
         // width while its regime still matches; a resize/remap starts a
         // fresh regime and recomputes from the container.
-        var self = window.AoV || {};
         var corr = (self._corrections || {})[id];
         var width = (corr && corr.regime === regime) ? corr.width : computed;
 
@@ -116,10 +140,14 @@ window.AoV = window.AoV || {
     // headers, per-panel axes, spacing, legends) varies per spec — so the
     // first paint can overshoot the budget it was sized for. Measure the
     // rendered canvas; if it overshoots, shrink the cells by the excess
-    // and re-embed once via reembed(). Bounded: at most one correction
+    // and re-embed once via reembed(budget). Bounded: at most one correction
     // per regime (budget/kind/columns/fields); a resize/remap opens a new
-    // regime. When cells already sit at the readable minimum there is
-    // nothing to shrink — the frame's in-frame scroll takes over.
+    // regime. The re-embed reuses the measured budget rather than measuring
+    // again: in a container that grows with its content the overshooting
+    // paint has already widened it, so a fresh measurement opened a new
+    // regime on every pass and the corrections never ended. When cells
+    // already sit at the readable minimum there is nothing to shrink — the
+    // frame's in-frame scroll takes over.
     _fitCorrection: function(id, reembed) {
         var self = window.AoV || {};
         var info = (self._computedWidths || {})[id];
@@ -141,7 +169,7 @@ window.AoV = window.AoV || {
         self._correctedRegime[id] = info.regime;
         self._corrections = self._corrections || {};
         self._corrections[id] = {regime: info.regime, width: newWidth};
-        reembed();
+        reembed(info.budget);
     },
 
     // ggplot-style "broadcast across all facet panels" pass.
@@ -479,11 +507,12 @@ window.AoV = window.AoV || {
             if (_capEl) _capEl.style.maxWidth = _cap + 'px';
         }
 
-        var doEmbed = function() {
+        // `budget` (the correction re-embed only) pins the sizing budget.
+        var doEmbed = function(budget) {
             // Superseded by a newer embed of this id, or disposed: a resize or
             // fit re-embed scheduled earlier must not resurrect the old spec.
             if (self._embedTok[id] !== tok) return Promise.resolve();
-            var s = self._applyResponsiveWidth(id, JSON.parse(JSON.stringify(cur.spec)));
+            var s = self._applyResponsiveWidth(id, JSON.parse(JSON.stringify(cur.spec)), budget);
             // Host theme, read now: a theme change re-runs this embed.
             var embedOpts = self._themedOpts(id, s, opts);
             // Replace (not leak) the previous view
@@ -514,7 +543,7 @@ window.AoV = window.AoV || {
                 pending.forEach(function(fn) { fn(view); });
                 // One bounded correction pass for JS-sized specs whose
                 // rendered chrome overshoots the computed budget.
-                self._fitCorrection(id, function() { doEmbed(); });
+                self._fitCorrection(id, function(budget) { doEmbed(budget); });
                 return result;
             }).catch(function(err) { settle(); self._console.error.call(console, '[' + id + ']', err); });
         };
