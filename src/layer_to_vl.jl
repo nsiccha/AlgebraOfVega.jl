@@ -44,8 +44,13 @@ function layer_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
     spec
 end
 
-"""Translate a plain (non-analysis, non-pregrouped) AoG layer to VL."""
-function _plain_layer_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
+"""Translate a plain (non-analysis, non-pregrouped) AoG layer to VL.
+
+`positional_channels` names the channels the layer's positionals lower to;
+by default they follow the plot type (`x`/`y`, `y` for `HLines`, …). A layer
+drawn on a map passes `["longitude", "latitude"]` (`_map_layer_to_vl`)."""
+function _plain_layer_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false,
+        positional_channels=nothing)
     spec = Dict{String,Any}()
 
     table = extract_data(layer)
@@ -59,7 +64,9 @@ function _plain_layer_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
     encoding = Dict{String,Any}()
 
     plot_type = !isnothing(vis) ? vis.plottype : Nothing
-    positional_channels = if !isnothing(vis) && plot_type <: HLines
+    positional_channels = if !isnothing(positional_channels)
+        positional_channels
+    elseif !isnothing(vis) && plot_type <: HLines
         ["y"]
     elseif !isnothing(vis) && plot_type <: VLines
         ["x"]
@@ -101,6 +108,89 @@ function _plain_layer_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
 
     !isempty(encoding) && (spec["encoding"] = encoding)
     spec
+end
+
+# --- Layers drawn on a geoshape map ---
+
+_is_geoshape_layer(layer) = !isnothing(extract_transformation(layer, GeoShapeAnalysis))
+
+# Vega-Lite marks that can stand at a longitude/latitude.
+const _MAP_MARKS = ("point", "circle", "square", "text", "line", "trail")
+
+_map_layer_kind(a) = "the $(nameof(typeof(a))) analysis"
+_map_layer_kind(::Val{:ecdf}) = "visual(ECDFPlot)"
+
+"""
+On a map figure (a `+` sum holding a `geoshape` layer) every other layer is
+drawn at geographic positions, as on an AlgebraOfGraphics/GeoMakie `GeoAxis`:
+its two positionals are longitude and latitude, and they lower to Vega-Lite's
+`longitude`/`latitude` channels instead of Cartesian `x`/`y`, which a map does
+not have. Only plain marks that can stand at a point qualify.
+"""
+function _map_layer_to_vl(layer::AlgebraOfGraphics.Layer)
+    is_pregrouped(layer) && throw(ArgumentError(
+        "geoshape: a layer drawn on a map needs a `data(...)` table with longitude/latitude columns; pregrouped data has none."))
+    handler = _layer_handler(layer)
+    isnothing(handler) || throw(ArgumentError(
+        "geoshape: a layer drawn on a map places its marks at longitude/latitude, so it must be a plain mark such as `visual(Scatter)`; $(_map_layer_kind(handler)) has no map form."))
+    n = length(layer.positional)
+    n in (0, 2) || throw(ArgumentError(
+        "geoshape: a layer drawn on a map takes two positionals, longitude then latitude — `mapping(:lon, :lat)`; got $n."))
+    spec = _plain_layer_to_vl(layer; is_sublayer=true, positional_channels=["longitude", "latitude"])
+    mark = _mark_type(spec["mark"])
+    mark in _MAP_MARKS || throw(ArgumentError(
+        "geoshape: a `$mark` mark cannot stand at a longitude/latitude on a map; use `visual(Scatter)`, `visual(Lines)` or `visual(Text)`."))
+    enc = get(spec, "encoding", Dict{String,Any}())
+    for ch in ("x", "y", "x2", "y2")
+        haskey(enc, ch) && throw(ArgumentError(
+            "geoshape: a map has no x/y axes, so a layer drawn on it cannot map `$ch`; place its marks with `mapping(:lon, :lat)`."))
+    end
+    for ch in ("longitude", "latitude")
+        e = get(enc, ch, nothing)
+        isnothing(e) && throw(ArgumentError(
+            "geoshape: a layer drawn on a map needs both coordinates — `mapping(:lon, :lat)`, longitude then latitude."))
+        get(e, "type", "quantitative") == "quantitative" || throw(ArgumentError(
+            "geoshape: the $ch column \"$(get(e, "field", ""))\" must hold numbers (degrees); it lowers to Vega-Lite type \"$(e["type"])\"."))
+    end
+    spec
+end
+
+# Every unit of a map figure draws through the geoshape's projection, which
+# Vega-Lite then fits to the polygons and the points together. Two geoshape
+# layers asking for different projections cannot share one map.
+function _share_map_projection!(layers, units)
+    projs = unique(u["projection"] for (l, us) in zip(layers, units)
+        if _is_geoshape_layer(l) for u in us if haskey(u, "projection"))
+    length(projs) > 1 && throw(ArgumentError(
+        "geoshape: the geoshape layers of one map must share a projection; got $(join((get(p, "type", "custom") for p in projs), ", "))."))
+    isempty(projs) && return
+    for (l, us) in zip(layers, units)
+        _is_geoshape_layer(l) && continue
+        for u in us
+            u["projection"] = _owned_copy(only(projs))
+        end
+    end
+end
+
+# Vega-Lite cannot compile a geoshape's `lookup` inside a layered facet: the
+# projection the layers share is fitted from outside the facet, and the fit
+# then names the lookup's dataset out of scope ("Undefined data set name:
+# child_layer_0_lookup_0", vega-lite 5.23). So a faceted map runs each
+# geoshape's lookup on the merged rows before the facet splits them. Each
+# lookup writes its own field, so two geoshapes keep their own features; rows
+# of the other layers match no feature, or carry one they never draw.
+function _hoist_geoshape_lookup!(spec::Dict, ls::Dict)
+    _mark_type(get(ls, "mark", nothing)) == "geoshape" || return
+    transforms = ls["transform"]
+    i = findfirst(t -> t isa AbstractDict && haskey(t, "lookup") &&
+        get(t, "as", nothing) == _GEOSHAPE_FIELD, transforms)
+    isnothing(i) && return
+    lookup = popat!(transforms, i)
+    hoisted = get!(spec, "transform", Any[])
+    field = "__geometry_$(count(t -> t isa AbstractDict && haskey(t, "lookup"), hoisted) + 1)__"
+    lookup["as"] = field
+    push!(hoisted, lookup)
+    ls["encoding"]["shape"]["field"] = field
 end
 
 # Merge each AoG layer's own encoding override (`VegaSpec.layer_encodings`, set
@@ -149,8 +239,9 @@ function layers_to_vl(layers::AlgebraOfGraphics.Layers; layer_encodings::Abstrac
 
     # Check if any layer is an analysis type (produces own summarized data)
     # or a geoshape (carries its own table, joined to the geometry by lookup)
-    has_analysis = any(l -> !isnothing(extract_transformation(l, TidybayesAnalysis)) ||
-        !isnothing(extract_transformation(l, GeoShapeAnalysis)), layers.layers)
+    map_figure = any(_is_geoshape_layer, layers.layers)
+    has_analysis = map_figure ||
+        any(l -> !isnothing(extract_transformation(l, TidybayesAnalysis)), layers.layers)
 
     spec = Dict{String,Any}("\$schema" => VL_SCHEMA)
     # Only share data at top level when no analysis layers are present
@@ -163,7 +254,8 @@ function layers_to_vl(layers::AlgebraOfGraphics.Layers; layer_encodings::Abstrac
     units = Vector{Dict{String,Any}}[]
 
     for layer in layers.layers
-        ls = layer_to_vl(layer; is_sublayer=true)
+        ls = map_figure && !_is_geoshape_layer(layer) ? _map_layer_to_vl(layer) :
+            layer_to_vl(layer; is_sublayer=true)
         n_before = length(layer_specs)
 
         if haskey(ls, "facet")
@@ -202,6 +294,7 @@ function layers_to_vl(layers::AlgebraOfGraphics.Layers; layer_encodings::Abstrac
         end
         push!(units, layer_specs[n_before+1:end])
     end
+    map_figure && _share_map_projection!(layers.layers, units)
 
     # Also collect facet from regular layer encodings (col=/row= → column/row channels,
     # layout= → the single-field `facet` wrap channel). VL compiles a `facet` channel
@@ -267,6 +360,7 @@ function layers_to_vl(layers::AlgebraOfGraphics.Layers; layer_encodings::Abstrac
             existing = get(ls, "transform", Dict{String,Any}[])
             pushfirst!(existing, Dict{String,Any}("filter" => "datum.__src === '$(tag)'"))
             ls["transform"] = existing
+            map_figure && _hoist_geoshape_lookup!(spec, ls)
         end
         # Strip column/row/facet from sublayer encodings — facet is at top level
         for ls in layer_specs

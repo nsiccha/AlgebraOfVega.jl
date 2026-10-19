@@ -215,7 +215,20 @@ projection properties, or `nothing` to emit no projection.
 `mapping` supplies `color=` (and optionally `strokecolor=`); a fixed border
 goes through `visual(; stroke="white", strokeWidth=0.5)`. Faceting with
 `col=`/`row=`/`layout=` draws one small-multiple map per panel, each filled
-from that panel's rows. This is a Vega-Lite-only plot type: the static
+from that panel's rows.
+
+Sum other layers onto the map to draw on it, as on an AlgebraOfGraphics
+`GeoAxis`: their two positionals are longitude then latitude (in degrees),
+drawn through the map's projection, which is fitted to the polygons and the
+marks together:
+
+    data(effects) * mapping(:AGS; color=:effect) * geoshape(geojson) +
+        data(sites) * mapping(:lon, :lat; color=:kind) * visual(Scatter)
+
+Such a layer takes plain point-like marks (`Scatter`, `Lines`, `Text`) with
+the usual named channels and tooltips; an analysis layer, an x/y channel, a
+mark that cannot stand at a point, or two geoshapes with different
+projections fail with an `ArgumentError`. This is a Vega-Lite-only plot type: the static
 `sdraw` path refuses it loudly, and a mounted map refreshes with
 `update_spec`. The channel picker keeps its x/y
 channels disabled for a geoshape layer, as for the interval analyses.
