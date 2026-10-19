@@ -853,8 +853,6 @@ function update_spec(id, spec; auto_remap::Union{Nothing,NamedTuple}=nothing,
     _inline_script("AoV.updateSpec('$id', $json, {actions: $actions});")
 end
 
-_CHANNEL_LABELS = Dict("color" => "Color", "row" => "Row", "column" => "Column", "detail" => "Ungrouped", "off" => "Pooled")
-
 """
     resolve_channels(dimensions; color_default, row_default, column_default, detail_default, pinned, fixed, channels)
 

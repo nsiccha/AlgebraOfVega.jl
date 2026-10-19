@@ -188,6 +188,16 @@ with_plot_caption
 draws_summary_table
 ```
 
+The words of a captioned plot's chrome (the caption's "More" toggle, its
+buttons, the data preview and the channel picker) come from `texts=`:
+`with_plot_caption(spec, caption; plot_id, texts=plot_texts(:de))` shows them in
+German, and keywords replace single words.
+
+```@docs
+plot_texts
+PlotTexts
+```
+
 ## Tidybayes-style uncertainty analyses
 
 ```@docs

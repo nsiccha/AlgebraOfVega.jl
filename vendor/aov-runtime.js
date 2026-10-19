@@ -1557,14 +1557,16 @@ window.AoV = window.AoV || {
             }
         });
 
-        var title = 'AoV plot';
+        var text = this._texts(anchor);
+        var title = text('untitled');
         var capTitle = clone.querySelector('figcaption .caption-header strong');
         if (capTitle && capTitle.textContent) title = capTitle.textContent;
         else if (document.title) title = document.title;
         title = title.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
         return Promise.all(headParts).then(function(parts) {
-            var page = '<!DOCTYPE html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n' +
+            var lang = text('lang').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+            var page = '<!DOCTYPE html>\n<html lang="' + lang + '">\n<head>\n<meta charset="utf-8">\n' +
                 '<title>' + title + '<\/title>\n' +
                 '<style>body{font-family:system-ui,sans-serif;margin:1rem}<\/style>\n' +
                 parts.join('\n') + '\n<\/head>\n<body>\n' +
@@ -1573,13 +1575,31 @@ window.AoV = window.AoV || {
         });
     },
 
+    // The words AoV writes into a plot's chrome, as `text(name, values)`. A
+    // captioned plot's figure carries non-English texts as `data-aov-texts`
+    // (`plot_texts`, src/plot_texts.jl); without that attribute they are
+    // English. LOCKSTEP: `_TEXTS_EN` is the English set of
+    // `_RUNTIME_TEXT_NAMES` in src/plot_texts.jl; test/plot_texts.jl pins them.
+    _TEXTS_EN: {"no_data": "(no data available)", "no_summary": "(no summary data available)", "median": "Median", "interval": "{point} [{width} credible interval]", "value": "value", "untitled": "AoV plot", "lang": "en"},
+    _texts: function(el) {
+        var host = el && el.closest ? el.closest('[data-aov-texts]') : null;
+        var texts = host ? JSON.parse(host.dataset.aovTexts) : {};
+        var en = this._TEXTS_EN;
+        return function(name, values) {
+            var t = texts[name] !== undefined ? texts[name] : en[name];
+            return t.replace(/\{([A-Za-z_]+)\}/g, function(m, k) {
+                return values && values[k] !== undefined ? String(values[k]) : m;
+            });
+        };
+    },
+
     // Public: render the plot's data as sortable HTML table(s) into `container`.
     // Builds lazily — call from the <details> "toggle" event.
     showPlotData: function(id, container, labels) {
         labels = labels || {};
         if (container.dataset.aovRendered === '1') return;
         var rows = this._plotData(id);
-        if (!rows) { container.textContent = '(no data available)'; container.dataset.aovRendered = '1'; return; }
+        if (!rows) { container.textContent = this._texts(container)('no_data'); container.dataset.aovRendered = '1'; return; }
         var groups = this._splitBySource(rows);
         container.innerHTML = '';
         var self = this;
@@ -1700,9 +1720,10 @@ window.AoV = window.AoV || {
     renderPrettySummary: function(id, container, opts) {
         opts = opts || {};
         if (container.dataset.aovRendered === '1') return;
+        var text = this._texts(container);
         var rows = this._plotData(id);
         if (!rows || !rows.length) {
-            container.textContent = '(no summary data available)';
+            container.textContent = text('no_summary');
             container.dataset.aovRendered = '1';
             return;
         }
@@ -1717,7 +1738,7 @@ window.AoV = window.AoV || {
                 heading.style.margin = '0.5rem 0 0.25rem';
                 container.appendChild(heading);
             }
-            var built = self._buildPrettyRows(g.rows, opts);
+            var built = self._buildPrettyRows(g.rows, opts, text);
             if (!built) {
                 container.appendChild(self._buildSortableTable(g.rows));
                 return;
@@ -1733,8 +1754,9 @@ window.AoV = window.AoV || {
         container.dataset.aovRendered = '1';
     },
 
-    _buildPrettyRows: function(rows, opts) {
+    _buildPrettyRows: function(rows, opts, text) {
         if (!rows || !rows.length) return null;
+        text = text || this._texts(null);
         var first = rows[0];
         var pointCol = opts.point_col ||
             ('__point__' in first ? '__point__' :
@@ -1789,8 +1811,8 @@ window.AoV = window.AoV || {
             if (typeof x !== 'number') return String(x);
             return parseFloat(x.toPrecision(sigfigs)).toString();
         };
-        var label = opts.value_label || 'value';
-        var pointLabel = opts.point_label || 'Median';
+        var label = opts.value_label || text('value');
+        var pointLabel = opts.point_label || text('median');
 
         var hidden = {};
         hidden[pointCol] = 1;
@@ -1827,7 +1849,9 @@ window.AoV = window.AoV || {
             return out;
         });
 
-        var caption = pointLabel + ' [' + pick.label + (pick.prob !== undefined ? ' credible interval' : '') + ']';
+        var caption = pick.prob !== undefined ?
+            text('interval', {point: pointLabel, width: pick.label}) :
+            pointLabel + ' [' + pick.label + ']';
         return {rows: built, cols: orderedCols, caption: caption};
     },
 
