@@ -360,6 +360,12 @@ Client-side API:
   inline datasets in that form too (`AoV._rowsFromColumns`)
 - `AoV.onSignal(id, signal, callback)` — listen to a Vega signal
 - Signal→HTMX wiring is set up automatically by `to_node(; signals=...)`
+- `aov:click` — a DOM event every plot element dispatches (bubbling) when the
+  reader clicks a data mark, on every view the runtime embeds for it;
+  `event.detail` is `{id, datum, event}`: the plot id, a copy of the clicked
+  mark's row, and the browser's mouse event. Legend, axis, title and empty-space
+  clicks send none. Listen with `document.addEventListener('aov:click', …)` or
+  htmx `hx-trigger="aov:click from:#<id>"`
 - `AoV.refreshTheme()` — re-render host-themed plots whose inherited text colour
   changed (automatic on `prefers-color-scheme` and `<html>`/`<body>` class,
   `data-theme` or `style` changes; call it after other theme switches)

@@ -537,6 +537,7 @@ window.AoV = window.AoV || {
                 (self._signals[id] || []).forEach(function(sig) {
                     self._attachSignal(view, sig.signal, sig.callback);
                 });
+                self._attachClick(id, view);
                 // Run anything queued before the view was ready (e.g. appendData)
                 var pending = self._pending[id] || [];
                 delete self._pending[id];
@@ -1328,6 +1329,28 @@ window.AoV = window.AoV || {
                 callback(name, value, view);
             });
         } catch (e) { console.warn('AoV: cannot listen to signal', signal, e); }
+    },
+
+    // A click on a data mark reaches app code as a bubbling `aov:click`
+    // event on the plot element, detail {id, datum, event}: listen with
+    // `document.addEventListener('aov:click', …)` or htmx
+    // `hx-trigger="aov:click from:#<id>"`. Every view this runtime embeds
+    // gets the listener, so it survives resize, picker, theme and
+    // update_spec re-embeds. Legend, axis and title items have their own
+    // roles, and an empty facet cell is a group ('scope'): none of them is
+    // reported. A nearest-point overlay item's datum is the scenegraph item
+    // of the point under it, whose own datum is the row.
+    _attachClick: function(id, view) {
+        var self = this;
+        view.addEventListener('click', function(event, item) {
+            if (!item || !item.mark || item.mark.role !== 'mark') return;
+            var datum = item.datum;
+            while (datum && datum.mark && datum.mark.marktype && datum.datum) datum = datum.datum;
+            var el = self._els[id];
+            if (!datum || !el) return;
+            el.dispatchEvent(new CustomEvent('aov:click', {bubbles: true,
+                detail: {id: id, datum: Object.assign({}, datum), event: event}}));
+        });
     },
 
     // --- Plot data download / inline preview ---
