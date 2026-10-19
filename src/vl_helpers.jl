@@ -121,6 +121,12 @@ Create a `Config` with Vega-Lite properties. Common options:
 - `independent_scales` — **deprecated**: use `facet=(; linkxaxes=:none, linkyaxes=:none)`.
 
 Config is applied to a spec via `*`: `data(df) * mapping(:x, :y) * visual(Scatter) * config(width=500)`.
+
+Successive terms accumulate: `spec * config(a...) * config(b...)` keeps every property of
+both. `encoding`, `config`, `facet`, `axis` and `scales` merge key by key (`encoding` and
+`config` recursively, `scales` scale by scale), with the later term winning on a
+conflicting key; any other property (`width`, `title`, `params`, `transform`, …) takes the
+later term's value.
 """
 function config(; kwargs...)
     props = Dict{Symbol,Any}(pairs(kwargs)...)
@@ -175,23 +181,42 @@ _owned_copy(v::AbstractVector) = Any[_owned_copy(x) for x in v]
 _owned_copy(s::Symbol) = string(s)
 _owned_copy(x) = deepcopy(x)
 
-# Merge two `encoding` override dicts into a fresh, owned one: channel by channel,
-# the later (`b`) wins on conflict, nested dicts merge key by key (as
-# `_merge_encoding_config!` merges an override into a generated encoding).
-_merge_encodings(::Nothing, b::Dict) = _owned_copy(b)
-_merge_encodings(a::Dict, b::Dict) = _deep_merge_dict!(_owned_copy(a), _owned_copy(b))
+# Merge two Vega-Lite object overrides (`encoding`, raw `config`) into a fresh,
+# owned one: key by key, the later (`b`) wins on conflict, nested dicts merge key
+# by key (as `_merge_encoding_config!` merges an override into a generated encoding).
+_merge_vl_objects(::Nothing, b::Dict) = _owned_copy(b)
+_merge_vl_objects(a::Dict, b::Dict) = _deep_merge_dict!(_owned_copy(a), _owned_copy(b))
+
+# The config properties that hold an object, which successive config terms MERGE
+# rather than the later replacing the earlier wholesale: the Vega-Lite objects
+# (recursively), the AoG `draw(; facet, axis)` keyword NamedTuples (key by key) and
+# the AoG `scales(...)` (scale by scale, then key by key). The later term wins on a
+# conflicting key. Every other property (`width`, `title`, `params`, `transform`,
+# raw Vega-Lite keys, …) takes the later term's value.
+const _MERGED_CONFIG_PROPS = (_VL_OBJECT_PROPS..., :facet, :axis, :scales)
+_merge_config_value(_, b) = b  # not two objects of one kind: the later term wins
+_merge_config_value(a::Dict, b::Dict) = _merge_vl_objects(a, b)
+_merge_config_value(a::NamedTuple, b::NamedTuple) = merge(a, b)
+function _merge_config_value(a::AlgebraOfGraphics.Scales, b::AlgebraOfGraphics.Scales)
+    scale_props(s, id) = haskey(s.dict, id) ? NamedTuple(pairs(s.dict[id])) : (;)
+    ids = unique!(Symbol[keys(a.dict)..., keys(b.dict)...])
+    AlgebraOfGraphics.scales(; (id => merge(scale_props(a, id), scale_props(b, id)) for id in ids)...)
+end
 
 # Merge two configs, later-wins on key conflict. Shared by `*` and `+` so config
-# accumulates the same way under both. `encoding` dicts merge per channel instead
-# of replacing each other: `spec * config(encoding=Dict(:tooltip => …)) *
-# config(encoding=Dict("y" => Dict("sort" => …)))` keeps the tooltip.
+# accumulates the same way under both. Object-valued properties merge instead of
+# replacing each other: `spec * config(encoding=Dict(:tooltip => …)) *
+# config(encoding=Dict("y" => Dict("sort" => …)))` keeps the tooltip, and
+# `spec * config(config=Dict("legend" => …)) * config(config=Dict("locale" => …))`
+# keeps the legend settings.
 function _merge_configs(a::Union{Config,Nothing}, b::Union{Config,Nothing})
     isnothing(a) && return b
     isnothing(b) && return a
     props = merge(a.properties, b.properties)
-    ea = _as_dict(get(a.properties, :encoding, nothing))
-    eb = _as_dict(get(b.properties, :encoding, nothing))
-    !isnothing(ea) && !isnothing(eb) && (props[:encoding] = _merge_encodings(ea, eb))
+    for k in _MERGED_CONFIG_PROPS
+        haskey(a.properties, k) && haskey(b.properties, k) &&
+            (props[k] = _merge_config_value(a.properties[k], b.properties[k]))
+    end
     Config(props)
 end
 
@@ -249,7 +274,7 @@ function _summand_parts(s)
     isempty(scoped) && return (cfg, encs)
     props = copy(cfg.properties)
     isempty(shared) ? delete!(props, :encoding) : (props[:encoding] = shared)
-    (Config(props), Any[_merge_encodings(e, scoped) for e in encs])
+    (Config(props), Any[_merge_vl_objects(e, scoped) for e in encs])
 end
 
 function _sum_specs(a, b)

@@ -61,7 +61,14 @@ config(encoding=Dict("x" => Dict("scale" => Dict("type" => "log"))))
 
 The NamedTuple spelling is equivalent and lowers to the same Dict: `config(encoding=(; x=(; scale=(; type="log"))))`. Raw `config(config=...)` (a Dict or NamedTuple) is deep-merged the same way into AoV's default Vega-Lite `config`.
 
-Successive `config(encoding=...)` terms merge the same way, channel by channel; on the same key the later term wins.
+Successive `config(encoding=...)` terms merge the same way, channel by channel; on the same key the later term wins. So do the other object-valued properties: successive `config(config=...)` terms deep-merge, `facet` and `axis` merge key by key, and `scales(...)` merge scale by scale and then key by key. A shared helper can therefore add its settings to a chart that already carries some:
+
+```julia
+spec * config(config=(; legend=(; orient="bottom"), mark=(; cursor="pointer"))) *
+    config(config=(; axisX=(; labelAngle=0)))   # keeps the legend and cursor settings
+```
+
+Any other property (`width`, `title`, `params`, `transform`, …) takes the later term's value.
 
 ### Per-layer overrides
 
