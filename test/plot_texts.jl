@@ -27,6 +27,9 @@ dashboard's captioned plots showed English buttons and "Show data").
     @test AlgebraOfVega._plot_text(de, :interval; point="Median", width="95%") ==
         "Median [95%-Kredibilitätsintervall]"
 
+    # refused: an unknown locale, text name or placeholder would otherwise
+    # render English or a literal "{fromat}" without any error (dev §1;
+    # design decision 2026-10-19T10-05-16-877-12u2fyk, option 1)
     @test_throws ArgumentError plot_texts(:fr)
     @test_throws ArgumentError plot_texts(:de; show_dta="x")
     @test_throws ArgumentError plot_texts(:de; image="⬇ {fromat}")
