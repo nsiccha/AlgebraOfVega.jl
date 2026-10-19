@@ -148,7 +148,7 @@ function layers_to_vl(layers::AlgebraOfGraphics.Layers; layer_encodings::Abstrac
     end
 
     # Check if any layer is an analysis type (produces own summarized data)
-    # or a geoshape (carries its own geometry data source, joined by lookup)
+    # or a geoshape (carries its own table, joined to the geometry by lookup)
     has_analysis = any(l -> !isnothing(extract_transformation(l, TidybayesAnalysis)) ||
         !isnothing(extract_transformation(l, GeoShapeAnalysis)), layers.layers)
 
