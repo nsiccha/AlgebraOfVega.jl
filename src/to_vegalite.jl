@@ -1,20 +1,31 @@
 # --- Public API: to_vegalite ---
 
 """
-    to_vegalite(spec; interactive=true) -> Dict{String,Any}
+    to_vegalite(spec; interactive=true, auto_remap=nothing) -> Dict{String,Any}
 
 Convert an AoG `Layer`, `Layers`, or `VegaSpec` to a Vega-Lite JSON dictionary.
 Handles all translation: mark types, encodings, statistical transforms, config merging,
 and, by default, auto-interactivity. Set `interactive=false` to suppress only the
 parameters generated automatically by AoV; explicit `config(params=...)` and
 `config(select=...)` remain in the output.
+
+For a plot rendered through the channel picker, pass the picker's keywords as
+`auto_remap` — the same `(; dims, fixed, pinned, off, …)` given to
+[`auto_remap_node`](@ref), `with_plot_caption(...; auto_remap=…)` or
+[`update_spec`](@ref). The result is the Vega-Lite that picker embeds before the
+reader changes anything (resolved channels, combined facet columns, broadcast
+facet fields), without building the picker controls or a plot node — e.g. for a
+JSON, markdown or static export of that figure. An already-lowered Vega-Lite
+`Dict` cannot be remapped: it no longer carries the layer tables.
 """
-function to_vegalite(layer::AlgebraOfGraphics.Layer; interactive::Bool=true)
-    to_vegalite(vlspec(layer); interactive)
+function to_vegalite(layer::AlgebraOfGraphics.Layer; interactive::Bool=true,
+                     auto_remap::Union{Nothing,NamedTuple}=nothing)
+    to_vegalite(vlspec(layer); interactive, auto_remap)
 end
 
-function to_vegalite(layers::AlgebraOfGraphics.Layers; interactive::Bool=true)
-    to_vegalite(vlspec(layers); interactive)
+function to_vegalite(layers::AlgebraOfGraphics.Layers; interactive::Bool=true,
+                     auto_remap::Union{Nothing,NamedTuple}=nothing)
+    to_vegalite(vlspec(layers); interactive, auto_remap)
 end
 
 # Lower the drawable before config and automatic interaction are applied. Bare
@@ -1339,7 +1350,9 @@ _independent_axes(val) = [string(v) for v in val]
 _select_field_list(s::Symbol) = [s]
 _select_field_list(v) = v
 
-function to_vegalite(v::VegaSpec; interactive::Bool=true)
+function to_vegalite(v::VegaSpec; interactive::Bool=true,
+                     auto_remap::Union{Nothing,NamedTuple}=nothing)
+    isnothing(auto_remap) || return _auto_remap_lowering(v; interactive, auto_remap...).vl
     spec = _base_vegalite(v.drawable, v.layer_encodings)
     select_fields = nothing
     col_yscales = nothing
@@ -1434,7 +1447,7 @@ function to_vegalite(v::VegaSpec; interactive::Bool=true)
 end
 
 """
-    to_vegalite(spec, scales; interactive=true) -> Dict{String,Any}
+    to_vegalite(spec, scales; interactive=true, auto_remap=nothing) -> Dict{String,Any}
 
 Mirror of `AlgebraOfGraphics.draw(spec, scales(...))`: lower `spec` (a `Layer`,
 `Layers`, or `VegaSpec`) to a Vega-Lite dict, then apply the AoG `Scales` override
@@ -1449,8 +1462,9 @@ only into colour encodings that carry a `field`, so a layer with a deliberate
 field-less colour (e.g. a `pointinterval()` median dot) is never given a bare,
 VL-dropped colour encoding.
 """
-function to_vegalite(v, sc::AlgebraOfGraphics.Scales; interactive::Bool=true)
-    spec = to_vegalite(v; interactive)
+function to_vegalite(v, sc::AlgebraOfGraphics.Scales; interactive::Bool=true,
+                     auto_remap::Union{Nothing,NamedTuple}=nothing)
+    spec = to_vegalite(v; interactive, auto_remap)
     _apply_scales_sugar!(spec, sc)
     col = _scales_column_y_scales(sc)
     isnothing(col) || _per_column_y_hconcat!(spec, col)
@@ -1848,4 +1862,7 @@ function add_auto_interactivity!(spec::Dict{String,Any})
 end
 
 # Also accept raw Dicts (passthrough)
-to_vegalite(d::Dict; interactive::Bool=true) = d
+function to_vegalite(d::Dict; interactive::Bool=true, auto_remap::Union{Nothing,NamedTuple}=nothing)
+    isnothing(auto_remap) || throw(ArgumentError("to_vegalite: `auto_remap` needs the plot spec (a Layer, Layers or VegaSpec with layer data), not an already-lowered Vega-Lite Dict — it no longer carries the layer tables the picker resolves channels from."))
+    d
+end

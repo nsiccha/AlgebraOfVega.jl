@@ -528,10 +528,12 @@ end
 # rebuilt spec (broadcast facet fields, combo columns, resolved mappings,
 # patched analysis detail) and its Vega-Lite dict. `update_spec(id, spec;
 # auto_remap=…)` re-lowers through this same function, so a refreshed figure's
-# datasets have exactly the first render's shape.
+# datasets have exactly the first render's shape; `to_vegalite(spec;
+# auto_remap=…)` returns its `vl`.
 function _auto_remap_lowering(spec; dims, fixed=Dict(), pinned::Symbol=:row,
                               axes::Bool=false, off=String[],
-                              color=nothing, row=nothing, column=nothing, detail=nothing)
+                              color=nothing, row=nothing, column=nothing, detail=nothing,
+                              interactive::Bool=true)
     layers = _spec_layers(spec)
     raw_dfs = [extract_data(l) for l in layers]
     any(isnothing, raw_dfs) && error("auto_remap_node: every layer must have associated data (no Pregrouped layers supported here)")
@@ -605,7 +607,7 @@ function _auto_remap_lowering(spec; dims, fixed=Dict(), pinned::Symbol=:row,
     new_spec = _wrap_with_config(spec, new_drawable)
 
     # Build VL, tag layers whose color field is layer-fixed so JS remapEncoding skips them.
-    vl = to_vegalite(new_spec)
+    vl = to_vegalite(new_spec; interactive)
     isempty(keep_color_fields) || _tag_keep_color_layers!(vl, keep_color_fields)
     # If the resolved spec is non-faceted (e.g. `:basename` had a single unique
     # value and got refined out of `dims`), strip top-level

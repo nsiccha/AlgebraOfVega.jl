@@ -1,12 +1,15 @@
 # --- Output ---
 
 """
-    to_json(spec; kwargs...) -> String
+    to_json(spec; interactive=true, auto_remap=nothing, kwargs...) -> String
 
 Convert a spec to a Vega-Lite JSON string. Non-finite floats (`NaN`, `±Inf`) are
-written as `null`, which Vega-Lite renders as a gap; `kwargs` pass through to `JSON.json`.
+written as `null`, which Vega-Lite renders as a gap. `interactive` and
+`auto_remap` select the lowering exactly as in [`to_vegalite`](@ref); the other
+`kwargs` pass through to `JSON.json`.
 """
-to_json(x; kwargs...) = _vl_json(to_vegalite(x); kwargs...)
+to_json(x; interactive::Bool=true, auto_remap::Union{Nothing,NamedTuple}=nothing, kwargs...) =
+    _vl_json(to_vegalite(x; interactive, auto_remap); kwargs...)
 
 # Exact pins, not major-only: a CDN-side release inside the major line used to
 # change rendering with zero repo diff. These are the latest in each major

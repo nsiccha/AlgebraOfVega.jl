@@ -49,7 +49,7 @@ vlspec
 | `vdraw(spec)`  | Alias for `to_node` — use when you want a "draw"-shaped name without clashing with AoG's `draw` |
 | `to_html(spec)`| A standalone HTML string with the Vega tags embedded (`source=:inline` for fully offline) |
 | `to_json(spec)`| Pretty-printed Vega-Lite JSON                                                       |
-| `to_vegalite(spec; interactive=true)` | Raw Vega-Lite spec as a `Dict{String,Any}`; pass `interactive=false` to omit AoV-generated parameters |
+| `to_vegalite(spec; interactive=true, auto_remap=nothing)` | Raw Vega-Lite spec as a `Dict{String,Any}`; pass `interactive=false` to omit AoV-generated parameters, and a channel-picker figure's `auto_remap` keywords to get the Vega-Lite that picker embeds |
 | `sdraw(spec, path; kwargs...)` | Save through AoG/Makie and return an `HTMX.Node` image pointing to `path` |
 | `sdraw_file(spec, path; kwargs...)` | Save through AoG/Makie and return `path`; keywords pass to `Makie.save` |
 | `sdraw!(position, spec)` | Draw into an existing Makie figure/layout position for static composition |
@@ -163,6 +163,12 @@ layers, encodings or size — re-embeds the plot in place. Raw rows that lack a
 field placing or selecting the plot's marks (e.g. a summary's `lo_*`/`hi_*`
 bounds or a merged dataset's `__src`) are refused with a console error and the
 plot is left unchanged.
+
+To export a channel-picker figure without the picker — as JSON, in a markdown
+report, or through a static Vega-Lite renderer — lower it with the same
+keywords: `to_vegalite(spec; auto_remap=remap)` (or `to_json(spec;
+auto_remap=remap)`) returns the Vega-Lite the picker embeds before the reader
+changes anything, without building the picker controls or a plot node.
 
 ## Dynamic dashboard helpers
 
