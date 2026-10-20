@@ -656,12 +656,15 @@ end""")),
     # === Captioned-plot demos ===
     # Bundled mount: three named variants own the per-variant data, and
     # the single route lives in the same scope. URLs: /captioned/<name>.
+    # Inside the bundle a bare `lineribbon` names the `lineribbon` demo
+    # (DynamicObjects forwards sibling names), so the mark is called as
+    # `AlgebraOfVega.lineribbon`.
     @include captioned = begin
         @include preagg = begin
             id            = "captioned-demo"
             the_spec      = data(_preaggregate(faceted_regression_predictions(), :x, :panel, :site)) *
                             mapping(:x, :median, color=:panel, row=:site) *
-                            lineribbon(bands=[:q025 => :q975, :q10 => :q90, :q25 => :q75]) *
+                            AlgebraOfVega.lineribbon(bands=[:q025 => :q975, :q10 => :q90, :q25 => :q75]) *
                             config(title="Captioned Pre-aggregated Lineribbon")
             caption = HTMXObjects.CaptionSpec(;
                 title = "Captioned pre-aggregated lineribbon",
@@ -706,7 +709,7 @@ end""")),
             id            = "captioned-lineribbon-demo"
             the_spec      = data(grouped_regression_predictions()) *
                             mapping(:x, :y, group=:draw, color=:group) *
-                            lineribbon() *
+                            AlgebraOfVega.lineribbon() *
                             config(width=500, height=350, title="Captioned raw-draws lineribbon")
             caption = HTMXObjects.CaptionSpec(;
                 title = "Captioned lineribbon (raw draws, auto-summary)",
