@@ -91,3 +91,51 @@ end
     @test length(cross["data"]["values"]) == 5
     @test length(AlgebraOfVega._embed_spec(cross)["data"]["values"]) == 6
 end
+
+# A `fixed=` facet field is as much a facet field as one the picker resolves:
+# the lowering broadcasts every layer that lacks it across its values. Before,
+# only the picker's row/column fields were broadcast, and the exported
+# Vega-Lite of a figure whose `fixed=` column only the ribbon carried left the
+# observation and dose rows outside every column; until `5586d26` that was
+# hidden by `to_node` broadcasting into `_auto_remap_parts(...)[3]` in place
+# (snag `facet-broadcast-44b6e163`).
+@testitem "to_vegalite(spec; auto_remap) broadcasts layers across fixed facet fields" setup=[AoVRemapLoweringFixtures] tags=[:auto_remap, :translation, :regression] begin
+    bases = ["CV", "In-sample"]
+    pred = (; subject=repeat(["S1", "S2"], inner=4), t=repeat([0.0, 24.0], 4),
+              basis=repeat(bases, inner=2, outer=2), median=fill(90.0, 8),
+              lo=fill(75.0, 8), hi=fill(105.0, 8))
+    obs = (; subject=["S1", "S2"], t=[24.0, 24.0], value=[91.0, 92.0])
+    dose = (; subject=["S1", "S2"], t=[1.0, 1.0])
+    figure() = data(pred) * mapping(:t, :median; row=:subject) * lineribbon(bands=[:lo => :hi]) +
+        data(obs) * mapping(:t, :value) * visual(Scatter) +
+        data(dose) * mapping(:t) * visual(VLines)
+    ar = (; dims=["subject" => "Subject", "basis" => "Prediction basis"],
+            fixed=Dict(:column => "basis"), pinned=:row)
+    rows(vl, has) = [r for r in canon(vl)["data"]["values"] if haskey(r, has)]
+
+    vl = to_vegalite(figure(); auto_remap=ar)
+    @test vl["facet"]["column"]["field"] == "basis"
+    # every observation and dose row stands once in each basis column
+    @test sort([(r["subject"], r["basis"]) for r in rows(vl, "value")]) ==
+          [(s, b) for s in ("S1", "S2") for b in bases]
+    dose_rows = [r for r in canon(vl)["data"]["values"] if !haskey(r, "value") && !haskey(r, "median")]
+    @test sort([(r["subject"], r["basis"]) for r in dose_rows]) ==
+          [(s, b) for s in ("S1", "S2") for b in bases]
+    # the embed has nothing left to broadcast, and lowering twice from the same
+    # spec gives the same Vega-Lite
+    @test canon(AlgebraOfVega._embed_spec(vl))["data"] == canon(vl)["data"]
+    @test canon(to_vegalite(figure(); auto_remap=ar)) == canon(vl)
+    @test canon(AlgebraOfVega._auto_remap_parts("fixed-bcast", figure(); ar...)[3]) == canon(vl)
+
+    # Several fixed fields on one channel facet by their combined column, which
+    # every layer carries after the broadcast.
+    pts = (; x=collect(1.0:8.0), y=collect(1.0:8.0), a=repeat(["A1", "A2"], 4), b=repeat(["B1", "B2"], inner=4))
+    combo = to_vegalite(data(pts) * mapping(:x, :y) * visual(Scatter) +
+                        data((; x=[4.5])) * mapping(:x) * visual(VLines);
+                        auto_remap=(; dims=["a" => "A", "b" => "B"], fixed=Dict(:column => ["a", "b"]), pinned=:row))
+    @test combo["facet"]["column"]["field"] == "__aov_column"
+    cvals = canon(combo)["data"]["values"]
+    @test all(r -> haskey(r, "__aov_column"), cvals)
+    @test sort([r["__aov_column"] for r in cvals if !haskey(r, "y")]) ==
+          ["A1 / B1", "A1 / B2", "A2 / B1", "A2 / B2"]
+end

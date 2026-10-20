@@ -213,9 +213,8 @@ _with_added_column(cols::NamedTuple, name::Symbol, vals) =
 # field is present (mirror of `apply_combo!`'s silent-skip semantics).
 function _with_combos(cols::NamedTuple, resolved)
     cur = cols
-    for (fields, combo_col) in ((resolved.color_fields,  :__aov_color),
-                                 (resolved.row_fields,    :__aov_row),
-                                 (resolved.column_fields, :__aov_column))
+    for (ch, combo_col) in ((:color, :__aov_color), (:row, :__aov_row), (:column, :__aov_column))
+        fields = _encoded_fields(resolved, ch)
         length(fields) <= 1 && continue
         syms = Symbol.(fields)
         all(s -> haskey(cur, s), syms) || continue
@@ -489,7 +488,8 @@ function does all of it.
 4. `refine_channels(resolved, dfs...)` — strips dims absent or single-valued
    across every layer.
 5. For each layer's df: cartesian-product broadcasts the df across the
-   union of unique values for every row/column field it doesn't have
+   union of unique values for every row/column field it doesn't have,
+   `fixed=` facet fields included
    (so partial-overlap layers like observation scatters land in every
    relevant pred panel), then `apply_combos!` builds `__aov_row`/etc.
    Color fields never broadcast: a layer missing the color field keeps
@@ -596,11 +596,12 @@ function _auto_remap_lowering(spec; dims, fixed=Dict(), pinned::Symbol=:row,
     resolved = refine_channels(resolved, dfs...)
 
     # Cartesian-product fill missing FACET fields, then build combo columns.
-    # Only row/column fields broadcast: every layer must appear in every
-    # facet panel. Color fields never broadcast — a layer missing the color
-    # field gets no color encoding (see _rebuild_layer) instead of k-1
-    # fabricated row copies that overpaint identical geometry.
-    facet_bcast = unique(vcat(resolved.row_fields, resolved.column_fields))
+    # Only row/column fields broadcast, the picker's and the `fixed=` ones
+    # alike: every layer must appear in every facet panel. Color fields never
+    # broadcast — a layer missing the color field gets no color encoding (see
+    # _rebuild_layer) instead of k-1 fabricated row copies that overpaint
+    # identical geometry.
+    facet_bcast = unique(vcat(_encoded_fields(resolved, :row), _encoded_fields(resolved, :column)))
     field_uniques = _global_field_uniques(dfs, facet_bcast)
     bcasted = [_broadcast_missing_fields(df, facet_bcast, field_uniques) for df in dfs]
     new_dfs = [_with_combos(df, resolved) for df in bcasted]
