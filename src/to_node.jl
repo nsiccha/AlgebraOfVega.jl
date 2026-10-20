@@ -1009,6 +1009,16 @@ function resolve_channels(dimensions;
        extra_assigned=extra_assigned_norm)
 end
 
+# The fields channel `ch` (`:color`, `:row` or `:column`) of a resolved figure
+# encodes: the picker's assignment, else the `fixed=` one. `color_fields` /
+# `row_fields` / `column_fields` hold only the former, so a fixed facet field
+# read from them alone is never broadcast or combined. `_rebuild_layer` merges
+# the picker kws over `fixed_kw`, so where both exist the picker's wins here too.
+function _encoded_fields(resolved, ch::Symbol)
+    fields = getproperty(resolved, Symbol(ch, :_fields))
+    isempty(fields) ? get(resolved.fixed, string(ch), String[]) : fields
+end
+
 """
     apply_combo!(df, fields, combo_col=:__aov_combo)
 
@@ -1041,9 +1051,9 @@ catch-all), call `refine_channels(resolved, dfs...)` before building the
 spec instead.
 """
 function apply_combos!(df, resolved)
-    apply_combo!(df, resolved.color_fields, :__aov_color)
-    apply_combo!(df, resolved.row_fields, :__aov_row)
-    apply_combo!(df, resolved.column_fields, :__aov_column)
+    apply_combo!(df, _encoded_fields(resolved, :color), :__aov_color)
+    apply_combo!(df, _encoded_fields(resolved, :row), :__aov_row)
+    apply_combo!(df, _encoded_fields(resolved, :column), :__aov_column)
     df
 end
 
