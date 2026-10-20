@@ -334,13 +334,19 @@ function analysis_to_vl(a::GradientIntervalAnalysis, layer::AlgebraOfGraphics.La
     spec
 end
 
-function _ribbon_tooltips(x_field, x_label, median_col, color_field, band_cols, band_labels)
+# A ribbon's x is a continuous axis, since its bands and line are drawn along it:
+# temporal for a date/time column (typed by `vl_type`, as on plain marks, so a
+# ribbon shares one time axis with a scatter of the same column), quantitative
+# otherwise.
+_ribbon_x_type(col) = vl_type(col) == "temporal" ? "temporal" : "quantitative"
+
+function _ribbon_tooltips(x_field, x_label, median_col, color_field, band_cols, band_labels; x_type::String)
     widest_lo, widest_hi = band_cols[1]
     widest_label = isnothing(band_labels) ? "" : band_labels[1]
     lo_title = widest_label == "" ? widest_lo : "$(widest_label) lo"
     hi_title = widest_label == "" ? widest_hi : "$(widest_label) hi"
     tt = Dict{String,Any}[
-        Dict{String,Any}("field" => x_field, "type" => "quantitative", "title" => x_label),
+        Dict{String,Any}("field" => x_field, "type" => x_type, "title" => x_label),
         Dict{String,Any}("field" => median_col, "type" => "quantitative", "title" => "median"),
     ]
     !isnothing(color_field) && push!(tt, Dict{String,Any}("field" => color_field, "type" => "nominal"))
@@ -361,10 +367,10 @@ end
 # A fixed ribbon colour (`fixed_mark`) colours the rules; the median point keeps
 # its white fill and dark ring. (decisions `1ipps5p`, `1liuv2o`.)
 function _ribbon_glyph_layers(x_field, x_label, y_label, median_col, band_cols;
-        color_field=nothing, color_label=nothing, filter_expr=nothing,
+        x_type::String, color_field=nothing, color_label=nothing, filter_expr=nothing,
         fixed_mark::Dict{String,Any}=Dict{String,Any}())
     stroke_widths = length(band_cols) == 1 ? [8.0] : range(1.5, 8, length=length(band_cols))
-    x_enc() = let e = Dict{String,Any}("field" => x_field, "type" => "quantitative")
+    x_enc() = let e = Dict{String,Any}("field" => x_field, "type" => x_type)
         x_label != x_field && (e["title"] = x_label); e
     end
     _ft() = Dict{String,Any}[Dict{String,Any}("filter" => filter_expr)]
@@ -426,6 +432,7 @@ function _ribbon_to_vl(
     x_field::String, x_label::String, y_label::String,
     median_col::String,
     band_cols::Vector{Tuple{String,String}};
+    x_type::String,
     color_field::Union{String,Nothing}=nothing,
     color_label::Union{String,Nothing}=nothing,
     detail_fields::Vector{String}=String[],
@@ -452,15 +459,16 @@ function _ribbon_to_vl(
         nothing
     end
 
-    # NOTE: x is emitted `quantitative` on every band (area) + line layer below, and we
-    # deliberately do NOT sort `summary` by x or set an `order`/`sort` — Vega-Lite orders a
-    # line/area mark's vertices by the continuous (quantitative) positional field by default.
+    # NOTE: x is emitted continuous (`x_type`: quantitative, or temporal for a date/time
+    # column) on every band (area) + line layer below, and we deliberately do NOT sort
+    # `summary` by x or set an `order`/`sort` — Vega-Lite orders a line/area mark's vertices
+    # by the continuous positional field by default (both types compile to the same x sort).
     # So `summary` row order is immaterial (compute path = Dict-order; bands= path = native
     # table order). Don't "fix" the unsorted summary or drop this reliance without adding an
     # explicit x `sort`, or lines scribble (verified fleet-wide + the TreeArrays interop, 2026-07).
     template_layers = Dict{String,Any}[]
     for (i, (lo_col, hi_col)) in enumerate(band_cols)
-        x_enc = Dict{String,Any}("field" => x_field, "type" => "quantitative")
+        x_enc = Dict{String,Any}("field" => x_field, "type" => x_type)
         x_label != x_field && (x_enc["title"] = x_label)
         enc = Dict{String,Any}(
             "x" => x_enc,
@@ -472,7 +480,7 @@ function _ribbon_to_vl(
         push!(template_layers, Dict{String,Any}("mark" => mark, "encoding" => enc, "_lr_layer" => true))
     end
     if show_line
-        line_x_enc = Dict{String,Any}("field" => x_field, "type" => "quantitative")
+        line_x_enc = Dict{String,Any}("field" => x_field, "type" => x_type)
         x_label != x_field && (line_x_enc["title"] = x_label)
         line_enc = Dict{String,Any}(
             "x" => line_x_enc,
@@ -529,11 +537,11 @@ function _ribbon_to_vl(
         append!(group_fields, detail_fields)
         if _mark_single_x_groups!(summary, x_field, group_fields)
             append!(layers, _ribbon_glyph_layers(x_field, x_label, y_label, median_col, band_cols;
-                color_field, color_label, filter_expr="datum.__single_x__", fixed_mark))
+                x_type, color_field, color_label, filter_expr="datum.__single_x__", fixed_mark))
         end
     end
 
-    _add_analysis_tooltips!(layers, _ribbon_tooltips(x_field, x_label, median_col, color_field, band_cols, band_labels))
+    _add_analysis_tooltips!(layers, _ribbon_tooltips(x_field, x_label, median_col, color_field, band_cols, band_labels; x_type))
 
     spec = Dict{String,Any}("data" => summary_data, "layer" => layers)
     if !isnothing(color_field)
@@ -569,6 +577,7 @@ function analysis_to_vl(a::LineRibbonAnalysis, layer::AlgebraOfGraphics.Layer; i
     band_labels = String["$(round(Int, p*100))%" for p in sorted_probs]
 
     _ribbon_to_vl(summary, x_field, x_label, y_label, "__median__", band_cols;
+        x_type=_ribbon_x_type(Tables.getcolumn(table, Symbol(x_field))),
         color_field, color_label, detail_fields=detail_strs,
         facet, show_line=a.show_line, is_sublayer, band_labels,
         single_x_glyph=a.single_x_glyph, facet_fields,
@@ -589,6 +598,7 @@ function analysis_to_vl(a::PrecomputedRibbonAnalysis, layer::AlgebraOfGraphics.L
     detail_strs = string.(a.detail_fields)
 
     col_names = Set(string.(Tables.columnnames(table)))
+    x_field in col_names || error("Pre-aggregated lineribbon: x column \"$x_field\" not found in table. Available: $(sort(collect(col_names)))")
     median_col in col_names || error("Pre-aggregated lineribbon: median column \"$median_col\" not found in table. Available: $(sort(collect(col_names)))")
     for (lo, hi) in a.bands
         los, his = string(lo), string(hi)
@@ -600,6 +610,7 @@ function analysis_to_vl(a::PrecomputedRibbonAnalysis, layer::AlgebraOfGraphics.L
     band_cols = Tuple{String,String}[(string(first(b)), string(last(b))) for b in a.bands]
 
     _ribbon_to_vl(summary, x_field, x_label, y_label, median_col, band_cols;
+        x_type=_ribbon_x_type(Tables.getcolumn(table, Symbol(x_field))),
         color_field, color_label, detail_fields=detail_strs,
         facet, show_line=a.show_line, is_sublayer,
         single_x_glyph=a.single_x_glyph, facet_fields,
