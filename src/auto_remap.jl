@@ -529,6 +529,25 @@ function _auto_remap_parts(plot_id, spec; texts::PlotTexts=_EN_PLOT_TEXTS, kwarg
     (controls, plot, vl)
 end
 
+_frame_field(_) = nothing
+_frame_field(v::VegaSpec) = isnothing(v.config) ? nothing :
+    let o = get(v.config.properties, :frame, nothing)
+        isnothing(o) ? nothing : o.field
+    end
+
+_fixed_field_names(fixed) = String[f for v in values(fixed) for f in (v isa AbstractVector ? string.(v) : [string(v)])]
+
+# A frame shows one value of its column at a time: as a picker dimension or a
+# fixed facet every panel but one would be empty.
+function _check_frame_not_remapped(spec, dims, fixed)
+    ff = _frame_field(spec)
+    isnothing(ff) && return
+    (ff in (_dim_first(d) for d in dims) || ff in _fixed_field_names(fixed)) && throw(ArgumentError(
+        "auto_remap: \"$ff\" is this figure's frame column (`config(frame=…)`), which shows one $ff at a time, " *
+        "so it cannot also be a picker dimension or a fixed facet. Remove it from `dims` and `fixed`."))
+    nothing
+end
+
 # The Vega-Lite lowering behind `auto_remap_node`: resolved channels, the
 # rebuilt spec (broadcast facet fields, combo columns, resolved mappings,
 # patched analysis detail) and its Vega-Lite dict. `update_spec(id, spec;
@@ -570,6 +589,7 @@ function _auto_remap_lowering(spec; dims, fixed=Dict(), pinned::Symbol=:row,
         dims
     end
     dim_fields = Set{String}(_dim_first(d) for d in effective_dims)
+    _check_frame_not_remapped(spec, dims, fixed)
     defaults = _layer_channel_defaults(layers)
     defaults = Dict(ch => filter(f -> f in dim_fields, fs) for (ch, fs) in defaults)
     for (ch, val) in [("color", color), ("row", row), ("column", column), ("detail", detail)]

@@ -3,7 +3,8 @@
 
 The words AoV's own plot chrome shows: the caption's "More" toggle, the
 caption row's download and Share buttons, the "Show data" preview and its
-summary table, the channel picker's labels, and standalone HTML exports. Build one with [`plot_texts`](@ref) and
+summary table, the channel picker's labels, a frame player's play/pause button
+(`config(frame=…)`), and standalone HTML exports. Build one with [`plot_texts`](@ref) and
 pass it as `texts=` to `with_plot_caption`, `to_html`, [`auto_remap_node`](@ref),
 [`mapping_controls`](@ref), `caption_share_button`, `with_caption_share` or
 `summary_share_button`.
@@ -37,6 +38,8 @@ struct PlotTexts
     pooled::String
     x::String
     y::String
+    play::String            # frame player (`config(frame=…)`): the play button's name
+    pause::String           # frame player: the button's name while playing
     untitled::String        # title of a standalone HTML page without a caption title
     lang::String            # `lang` of a standalone HTML page
 end
@@ -69,6 +72,8 @@ const _PLOT_TEXT_LOCALES = (
         pooled = "Pooled",
         x = "X",
         y = "Y",
+        play = "Play",
+        pause = "Pause",
         untitled = "AoV plot",
         lang = "en",
     ),
@@ -97,6 +102,8 @@ const _PLOT_TEXT_LOCALES = (
         pooled = "Zusammengefasst",
         x = "X",
         y = "Y",
+        play = "Abspielen",
+        pause = "Pause",
         untitled = "AoV-Grafik",
         lang = "de",
     ),
@@ -142,10 +149,10 @@ const _EN_PLOT_TEXTS = plot_texts(:en)
 _plot_text(texts::PlotTexts, name::Symbol; values...) =
     replace(getfield(texts, name), r"\{([A-Za-z_]+)\}" => m -> string(values[Symbol(m[2:end-1])]))
 
-# The texts the browser runtime writes itself (preview contents, the HTML
-# export). LOCKSTEP: `_TEXTS_EN` in `vendor/aov-runtime.js` holds their
+# The texts the browser runtime writes itself (preview contents, the frame
+# player, the HTML export). LOCKSTEP: `_TEXTS_EN` in `vendor/aov-runtime.js` holds their
 # English values; `test/plot_texts.jl` pins the two together.
-const _RUNTIME_TEXT_NAMES = (:no_data, :no_summary, :median, :interval, :value, :untitled, :lang)
+const _RUNTIME_TEXT_NAMES = (:no_data, :no_summary, :median, :interval, :value, :untitled, :lang, :play, :pause)
 
 _runtime_texts_json(texts::PlotTexts) =
     _vl_json(NamedTuple{_RUNTIME_TEXT_NAMES}(getfield.(Ref(texts), _RUNTIME_TEXT_NAMES)))
