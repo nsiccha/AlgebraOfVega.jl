@@ -17,6 +17,9 @@ window.AoV = window.AoV || {
     // channel-assignment builder, and the last applied remap mapping.
     _cur: {},
     _pickers: {},
+    // config(frame=…) players: the frames, the shown frame, play state and
+    // timer, and the controls element of each framed plot (see _frameSetup).
+    _frames: {},
     _mappings: {},
     // The host-theme config each plot was last embedded with (JSON), and
     // the re-embed that applies a changed one (see refreshTheme).
@@ -28,7 +31,7 @@ window.AoV = window.AoV || {
     _perPlotState: ['views', '_results', '_els', '_embedTok', '_gens', '_pending',
         '_signals', '_liveRows', '_specRows', '_origSpecs', '_droppedLegends',
         '_embedOpts', '_observers', '_computedWidths', '_corrections', '_correctedRegime',
-        '_cur', '_pickers', '_mappings', '_themeKeys', '_reembeds'],
+        '_cur', '_pickers', '_mappings', '_themeKeys', '_reembeds', '_frames'],
 
     // Whether the runtime sizes this spec to its container: Julia's
     // `_embed_spec` marks a responsive layered/faceted/per-column spec with
@@ -465,6 +468,8 @@ window.AoV = window.AoV || {
             delete self._liveRows[id];
             delete self._droppedLegends[id];
             delete self._mappings[id];
+            self._frameStop(id);
+            delete self._frames[id];
         } else if (!keepData) {
             delete self._liveRows[id];
         }
@@ -487,6 +492,9 @@ window.AoV = window.AoV || {
         // Held by reference so an in-place data swap (updateSpec) reaches
         // the resize/fit re-embeds this embed schedules.
         var cur = self._cur[id] = {spec: origSpec};
+        // config(frame=…): the player and its controls, and the scale domains
+        // every frame shares, computed once per spec before the first embed.
+        var framePlan = self._frameSetup(id, el, origSpec, opts);
 
         // width:"container" sizes the view from the embed element's own
         // width, and vega-embed makes that element display:inline-block,
@@ -509,12 +517,16 @@ window.AoV = window.AoV || {
 
         // `budget` (the correction re-embed only) pins the sizing budget.
         var doEmbed = function(budget) {
+            if (!framePlan) return embedNow(budget, null);
+            return framePlan.then(function(plan) { return embedNow(budget, plan); });
+        };
+        var embedNow = function(budget, plan) {
             // Superseded by a newer embed of this id, or disposed: a resize or
             // fit re-embed scheduled earlier must not resurrect the old spec.
             if (self._embedTok[id] !== tok) return Promise.resolve();
             var s = self._applyResponsiveWidth(id, JSON.parse(JSON.stringify(cur.spec)), budget);
             // Host theme, read now: a theme change re-runs this embed.
-            var embedOpts = self._themedOpts(id, s, opts);
+            var embedOpts = self._withFrame(id, self._themedOpts(id, s, opts), plan);
             // Replace (not leak) the previous view
             self._finalizeView(id);
             // Only the latest embed registers its view; one that resolves after
@@ -538,6 +550,7 @@ window.AoV = window.AoV || {
                     self._attachSignal(view, sig.signal, sig.callback);
                 });
                 self._attachClick(id, view);
+                self._frameSync(id, view);
                 // Run anything queued before the view was ready (e.g. appendData)
                 var pending = self._pending[id] || [];
                 delete self._pending[id];
@@ -726,6 +739,7 @@ window.AoV = window.AoV || {
     // embed still in flight is finalized when it resolves.
     dispose: function(id) {
         var self = this;
+        self._frameStop(id);
         self._finalizeView(id);
         if (self._observers && self._observers[id]) self._observers[id].disconnect();
         self._perPlotState.forEach(function(k) { if (self[k]) delete self[k][id]; });
@@ -754,7 +768,8 @@ window.AoV = window.AoV || {
         data = this._rowsFromColumns(data);
         var self = this;
         this.whenReady(id, function(view) {
-            if (self._refuseRawRows('updateData', id, view, name, data)) return;
+            if (self._refuseFramed('updateData', id) ||
+                    self._refuseRawRows('updateData', id, view, name, data)) return;
             self._applyRows(id, view, name, data,
                 vega.changeset().remove(function() { return true; }).insert(data));
         });
@@ -765,7 +780,8 @@ window.AoV = window.AoV || {
         data = this._rowsFromColumns(data);
         var self = this;
         this.whenReady(id, function(view) {
-            if (self._refuseRawRows('appendData', id, view, name, data)) return;
+            if (self._refuseFramed('appendData', id) ||
+                    self._refuseRawRows('appendData', id, view, name, data)) return;
             var rows = self._currentRows(id, name).concat(data);
             var trimmed = maxRows && rows.length > maxRows;
             if (trimmed) rows = rows.slice(rows.length - maxRows);
@@ -860,7 +876,8 @@ window.AoV = window.AoV || {
         data = this._rowsFromColumns(data);
         var self = this, fields = [].concat(key);
         this.whenReady(id, function(view) {
-            if (self._refuseRawRows('replaceData', id, view, name, data)) return;
+            if (self._refuseFramed('replaceData', id) ||
+                    self._refuseRawRows('replaceData', id, view, name, data)) return;
             var keys = new Set(data.map(function(r) { return self._keyToken(r, fields); }));
             var replaced = function(r) {
                 return self._hasKeyFields(r, fields) && keys.has(self._keyToken(r, fields));
@@ -878,6 +895,7 @@ window.AoV = window.AoV || {
         name = name || 'source_0';
         var self = this, fields = [].concat(key), token = JSON.stringify(values);
         this.whenReady(id, function(view) {
+            if (self._refuseFramed('removeData', id)) return;
             var current = self._currentRows(id, name);
             if (current.length && !current.some(function(r) { return self._hasKeyFields(r, fields); })) {
                 console.error('AoV.removeData: dataset "' + name + '" of plot "' + id +
@@ -1160,7 +1178,8 @@ window.AoV = window.AoV || {
             self._refreshLegendSelections(prepared);
             self._broadcastCrossSource(prepared);
             var cur = self._cur[id];
-            if (cur && !self._droppedLegends[id] &&
+            // A framed plot's fixed domains come from all its rows: re-embed.
+            if (cur && !self._droppedLegends[id] && !self._framed(prepared) && !self._framed(cur.spec) &&
                     self._structureKey(prepared) === self._structureKey(cur.spec) &&
                     self._swapData(id, view, prepared)) {
                 cur.spec = prepared;
@@ -1329,6 +1348,295 @@ window.AoV = window.AoV || {
                 callback(name, value, view);
             });
         } catch (e) { console.warn('AoV: cannot listen to signal', signal, e); }
+    },
+
+    // --- Frames: config(frame=…) (src/frame.jl) ---
+    // A framed spec carries `_aov.frame` = {field, values, temporal,
+    // interval (ms), loop, start} and a Vega-Lite parameter `aov_frame`, the
+    // shown frame's value, which the first transform of every unit filters
+    // on. The runtime owns the player: the play/pause button, slider and
+    // frame label after the plot, the timer, and the shown frame, kept per
+    // plot across re-embeds (resize, theme, picker, update_spec).
+    _FRAME_PARAM: 'aov_frame',
+    _framed: function(spec) { return !!(spec && spec._aov && spec._aov.frame); },
+    // Set up (or drop) the player for the spec an embed is about to show;
+    // returns the promise of its frame plan, or null for an unframed spec.
+    _frameSetup: function(id, el, spec, opts) {
+        var meta = spec && spec._aov && spec._aov.frame;
+        if (!meta) {
+            this._frameStop(id);
+            var old = this._frames[id];
+            if (old && old.box) old.box.remove();
+            delete this._frames[id];
+            return null;
+        }
+        var st = this._frames[id];
+        if (!st) {
+            st = this._frames[id] = {index: meta.start || 0, playing: false, timer: null, box: null};
+        } else if (st.values) {
+            // The same plot with a new spec: keep showing the same frame when
+            // it is still one.
+            var at = this._frameIndex(meta.values, st.values[st.index]);
+            st.index = at !== -1 ? at : Math.min(st.index, meta.values.length - 1);
+        }
+        st.values = meta.values;
+        st.meta = meta;
+        this._frameControls(id, el);
+        return this._framePlan(id, spec, opts);
+    },
+    _frameIndex: function(values, value) {
+        var key = JSON.stringify(value);
+        for (var i = 0; i < values.length; i++) if (JSON.stringify(values[i]) === key) return i;
+        return -1;
+    },
+    // The scale domains and map projection fits of all frames together. The
+    // compiled spec runs headless once per frame; each data-driven scale
+    // domain, and the features of each fitted projection, are unioned. So a
+    // colour means the same value in every frame, axes do not jump and a map
+    // keeps its framing, whatever the marks compute (stacked bars, Vega-Lite
+    // density or regression transforms). Resolves to null when it cannot be
+    // computed; the frames then re-fit their scales one by one.
+    _framePlan: function(id, spec, opts) {
+        var self = this, meta = spec._aov.frame, view = null, P = this._FRAME_PARAM;
+        function dataDriven(d) { return !!d && typeof d === 'object' && !Array.isArray(d) && !d.signal; }
+        function discrete(t) { return t === 'ordinal' || t === 'band' || t === 'point'; }
+        function token(v) { return v instanceof Date ? 'd' + v.getTime() : typeof v + ':' + v; }
+        // The values of `dom` not yet in `acc`, each inserted after its
+        // predecessor in `dom`: frames that order their values consistently
+        // merge in that order.
+        function merge(acc, dom) {
+            var keys = acc.map(token), at = -1;
+            dom.forEach(function(v) {
+                var i = keys.indexOf(token(v));
+                if (i === -1) { at++; acc.splice(at, 0, v); keys.splice(at, 0, token(v)); }
+                else at = i;
+            });
+            return acc;
+        }
+        return Promise.resolve().then(function() {
+            var s = JSON.parse(JSON.stringify(spec));
+            // Domains do not depend on the size; a headless view has no container.
+            delete s.autosize;
+            if (s.width === 'container') s.width = 400;
+            var vg = vegaLite.compile(s, {logger: vega.logger(vega.None)}).spec;
+            if (!(vg.signals || []).some(function(sig) { return sig.name === P; })) return null;
+            var scales = (vg.scales || []).filter(function(sc) { return dataDriven(sc.domain); });
+            var fitted = (vg.projections || []).map(function(p) { return !!(p.fit && p.fit.signal); });
+            vg.signals = vg.signals.concat((vg.projections || []).filter(function(p, j) { return fitted[j]; })
+                .map(function(p) { return {name: '__aov_frame_fit_' + vg.projections.indexOf(p), update: p.fit.signal}; }));
+            view = new vega.View(vega.parse(vg), {renderer: 'none', loader: opts && opts.loader || undefined});
+            var domains = {}, fits = fitted.map(function() { return {seen: new Set(), points: {}, features: []}; });
+            var collect = function() {
+                scales.forEach(function(sc) {
+                    var scale = view.scale(sc.name);
+                    if (!scale) return;
+                    var d = scale.domain(), acc = domains[sc.name];
+                    if (discrete(sc.type)) { domains[sc.name] = merge(acc || [], d); return; }
+                    if (d.length !== 2) return;
+                    var lo = +d[0], hi = +d[1];
+                    if (!isFinite(lo) || !isFinite(hi)) return;
+                    domains[sc.name] = acc ? [Math.min(acc[0], lo), Math.max(acc[1], hi)] : [lo, hi];
+                });
+                fitted.forEach(function(on, j) {
+                    if (!on) return;
+                    var f = fits[j];
+                    (function add(x) {
+                        if (!x) return;
+                        if (Array.isArray(x)) { x.forEach(add); return; }
+                        if (x.type === 'FeatureCollection') { (x.features || []).forEach(add); return; }
+                        if (f.seen.has(x)) return;
+                        f.seen.add(x);
+                        // Point features are rebuilt every run: one per position.
+                        if (x.geometry && x.geometry.type === 'Point') {
+                            var key = JSON.stringify(x.geometry.coordinates);
+                            if (f.points[key]) return;
+                            f.points[key] = true;
+                        }
+                        f.features.push(x);
+                    })(view.signal('__aov_frame_fit_' + j));
+                });
+            };
+            var i = 0;
+            var next = function() {
+                if (i >= meta.values.length) return;
+                view.signal(P, meta.values[i++]);
+                return view.runAsync().then(function() { collect(); return next(); });
+            };
+            return next().then(function() {
+                scales.forEach(function(sc) {
+                    var d = domains[sc.name];
+                    if (d && discrete(sc.type) && sc.domain.sort === true) d.sort(vega.ascending);
+                });
+                return {domains: domains, fits: fits.map(function(f) {
+                    return f.features.length ? {type: 'FeatureCollection', features: f.features} : null;
+                })};
+            });
+        }).catch(function(err) {
+            console.error('AoV: plot "' + id + '": could not compute the scales its frames share, so each frame fits its own:', err);
+            return null;
+        }).then(function(plan) {
+            if (view) view.finalize();
+            return plan;
+        });
+    },
+    // `opts` whose compiled spec shows the current frame with the plan's
+    // shared domains and projection fits.
+    _withFrame: function(id, opts, plan) {
+        var self = this, st = this._frames[id];
+        if (!st) return opts;
+        var patch = opts.patch;
+        return Object.assign({}, opts, {patch: function(vg) {
+            if (typeof patch === 'function') vg = patch(vg);
+            var value = st.values[st.index];
+            (vg.signals || []).forEach(function(sig) { if (sig.name === self._FRAME_PARAM) sig.value = value; });
+            if (!plan) return vg;
+            (vg.scales || []).forEach(function(sc) {
+                var d = plan.domains[sc.name];
+                if (d && sc.domain && typeof sc.domain === 'object' && !Array.isArray(sc.domain) && !sc.domain.signal) {
+                    sc.domain = d.slice();
+                }
+            });
+            (vg.projections || []).forEach(function(p, j) {
+                if (!plan.fits[j] || !(p.fit && p.fit.signal)) return;
+                var name = '__aov_frame_fit_' + j;
+                vg.signals = (vg.signals || []).concat([{name: name, value: plan.fits[j]}]);
+                p.fit = {signal: name};
+            });
+            return vg;
+        }});
+    },
+    // A view embedded while the shown frame changed (a click during an
+    // embed) catches up with it.
+    _frameSync: function(id, view) {
+        var st = this._frames[id];
+        if (!st) return;
+        var want = st.values[st.index];
+        try {
+            if (JSON.stringify(view.signal(this._FRAME_PARAM)) !== JSON.stringify(want)) {
+                view.signal(this._FRAME_PARAM, want);
+                view.runAsync();
+            }
+        } catch (e) { console.error('[' + id + '] frame', e); }
+    },
+    // The player after the plot (after its scroll frame, so it never scrolls
+    // away with a wide plot). One element per plot id, reused by a same-id
+    // re-render; its listeners look the plot up by id.
+    _frameControls: function(id, el) {
+        var self = this, st = this._frames[id];
+        var host = el && el.parentElement && el.parentElement.classList.contains('aov-plot-area') ? el.parentElement : el;
+        if (!host || !host.parentNode) return;
+        var box = host.nextElementSibling;
+        if (!box || box.getAttribute('data-aov-frame-for') !== id) {
+            box = document.createElement('div');
+            box.className = 'aov-frame';
+            box.setAttribute('data-aov-frame-for', id);
+            // The layout also holds on runtime-only pages, which load no aov.css.
+            box.style.display = 'flex';
+            box.style.alignItems = 'center';
+            box.style.gap = '0.5em';
+            var play = document.createElement('button');
+            play.type = 'button';
+            play.className = 'aov-frame-play';
+            var slider = document.createElement('input');
+            slider.type = 'range';
+            slider.className = 'aov-frame-slider';
+            slider.min = '0';
+            slider.step = '1';
+            var out = document.createElement('output');
+            out.className = 'aov-frame-value';
+            box.appendChild(play);
+            box.appendChild(slider);
+            box.appendChild(out);
+            play.addEventListener('click', function() {
+                var cur = self._frames[id];
+                if (cur && cur.playing) self.pauseFrames(id); else self.playFrames(id);
+            });
+            slider.addEventListener('input', function() {
+                var index = +slider.value;
+                self.pauseFrames(id);
+                self.setFrame(id, index);
+            });
+            host.insertAdjacentElement('afterend', box);
+        }
+        st.box = box;
+        var range = box.querySelector('.aov-frame-slider');
+        range.max = String(st.values.length - 1);
+        range.setAttribute('aria-label', st.meta.field);
+        this._frameRender(id);
+    },
+    // A frame value as the player shows it: a midnight timestamp as its date.
+    _frameLabel: function(v) {
+        var m = typeof v === 'string' && /^(\d{4}-\d{2}-\d{2})T00:00(:00(\.0+)?)?$/.exec(v);
+        return m ? m[1] : String(v);
+    },
+    _frameRender: function(id) {
+        var st = this._frames[id];
+        if (!st || !st.box) return;
+        var text = this._texts(st.box), word = text(st.playing ? 'pause' : 'play');
+        var play = st.box.querySelector('.aov-frame-play');
+        var range = st.box.querySelector('.aov-frame-slider');
+        var out = st.box.querySelector('.aov-frame-value');
+        play.textContent = st.playing ? '⏸︎' : '▶︎';
+        play.setAttribute('aria-label', word);
+        play.title = word;
+        var label = this._frameLabel(st.values[st.index]);
+        range.value = String(st.index);
+        range.setAttribute('aria-valuetext', label);
+        out.textContent = label;
+    },
+    // Public: show frame `index` (0-based) of framed plot `id`.
+    setFrame: function(id, index) {
+        var st = this._frames[id];
+        if (!st) return Promise.resolve();
+        st.index = Math.max(0, Math.min(st.values.length - 1, Math.round(+index) || 0));
+        this._frameRender(id);
+        var view = this.views[id];
+        if (!view) return Promise.resolve();
+        try { view.signal(this._FRAME_PARAM, st.values[st.index]); }
+        catch (e) { console.error('[' + id + '] frame', e); return Promise.resolve(); }
+        return view.runAsync();
+    },
+    // Public: step through the frames, one every `interval` ms; from the
+    // last frame, play starts over at the first. Without `loop` it stops
+    // on the last frame.
+    playFrames: function(id) {
+        var self = this, st = this._frames[id];
+        if (!st || st.playing) return;
+        st.playing = true;
+        if (st.index >= st.values.length - 1) self.setFrame(id, 0); else self._frameRender(id);
+        var tick = function() {
+            if (self._frames[id] !== st || !st.playing) return;
+            var next = st.index + 1;
+            if (next >= st.values.length) {
+                if (!st.meta.loop) { self.pauseFrames(id); return; }
+                next = 0;
+            }
+            var again = function() {
+                if (self._frames[id] === st && st.playing) st.timer = setTimeout(tick, st.meta.interval);
+            };
+            self.setFrame(id, next).then(again, again);
+        };
+        st.timer = setTimeout(tick, st.meta.interval);
+    },
+    // Public: stop playing; the shown frame stays.
+    pauseFrames: function(id) {
+        this._frameStop(id);
+        this._frameRender(id);
+    },
+    _frameStop: function(id) {
+        var st = this._frames[id];
+        if (!st) return;
+        st.playing = false;
+        if (st.timer) clearTimeout(st.timer);
+        st.timer = null;
+    },
+    _refuseFramed: function(fn, id) {
+        var cur = this._cur[id];
+        if (!cur || !this._framed(cur.spec)) return false;
+        console.error('AoV.' + fn + ': plot "' + id + '" is a frame animation (config(frame=…)), whose ' +
+            'frames and shared scales come from all of its rows, so rows cannot be changed in place: send ' +
+            'update_spec(id, spec) with the new rows instead. Data left unchanged.');
+        return true;
     },
 
     // A click on a data mark reaches app code as a bubbling `aov:click`
@@ -1511,6 +1819,8 @@ window.AoV = window.AoV || {
         // Live-rendered view output: the fresh page re-embeds from the spec.
         var plotEl = clone.querySelector('#' + id);
         if (plotEl) plotEl.innerHTML = '';
+        // Frame players: the fresh page's embed builds its own controls.
+        clone.querySelectorAll('[data-aov-frame-for]').forEach(function(c) { c.remove(); });
         // Lazy data shells: drop rendered bodies; the fresh page re-renders lazily.
         clone.querySelectorAll('.aov-data-raw-body[data-aov-plot-id], .aov-data-pretty-body[data-aov-plot-id]').forEach(function(b) {
             b.innerHTML = '';
@@ -1603,7 +1913,7 @@ window.AoV = window.AoV || {
     // (`plot_texts`, src/plot_texts.jl); without that attribute they are
     // English. LOCKSTEP: `_TEXTS_EN` is the English set of
     // `_RUNTIME_TEXT_NAMES` in src/plot_texts.jl; test/plot_texts.jl pins them.
-    _TEXTS_EN: {"no_data": "(no data available)", "no_summary": "(no summary data available)", "median": "Median", "interval": "{point} [{width} credible interval]", "value": "value", "untitled": "AoV plot", "lang": "en"},
+    _TEXTS_EN: {"no_data": "(no data available)", "no_summary": "(no summary data available)", "median": "Median", "interval": "{point} [{width} credible interval]", "value": "value", "untitled": "AoV plot", "lang": "en", "play": "Play", "pause": "Pause"},
     _texts: function(el) {
         var host = el && el.closest ? el.closest('[data-aov-texts]') : null;
         var texts = host ? JSON.parse(host.dataset.aovTexts) : {};
@@ -2211,6 +2521,17 @@ window.AoV = window.AoV || {
                 ['mark', 'encoding', 'transform', 'selection', 'params', '_aovLegend'].forEach(function(k) {
                     if (spec[k] !== undefined) { inner[k] = spec[k]; delete spec[k]; }
                 });
+                // Selections belong to the unit; variable parameters (a
+                // frame's aov_frame) stay on the top level, where every
+                // panel reads them.
+                if (inner.params) {
+                    var vars = inner.params.filter(function(p) { return !p.select; });
+                    if (vars.length) {
+                        spec.params = vars;
+                        inner.params = inner.params.filter(function(p) { return p.select; });
+                        if (!inner.params.length) delete inner.params;
+                    }
+                }
                 spec.spec = inner;
             }
             // Width/height describe the child view in a facet operator.
@@ -2242,7 +2563,9 @@ window.AoV = window.AoV || {
                 });
             } else {
                 // Restore single-view keys
-                Object.keys(inner).forEach(function(k) { spec[k] = inner[k]; });
+                Object.keys(inner).forEach(function(k) {
+                    spec[k] = k === 'params' && spec.params ? spec.params.concat(inner[k]) : inner[k];
+                });
             }
             delete spec.spec;
             delete spec.facet;
@@ -2251,7 +2574,9 @@ window.AoV = window.AoV || {
                     // Single-view: use VL native responsive width
                     spec.width = 'container';
                     spec.autosize = {type: 'fit', contains: 'padding'};
+                    var frame = spec._aov.frame;
                     delete spec._aov;
+                    if (frame) spec._aov = {frame: frame};
                 }
                 // An authored width came back from the cell above.
             } else {

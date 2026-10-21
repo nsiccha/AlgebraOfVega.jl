@@ -69,6 +69,41 @@ other way (a class on a wrapper element), call `AoV.refreshTheme()`.
 
 `config(select=:origin)` adds a client-side dropdown that filters the data frame *before* it reaches any layer. When you also use faceting (`row=` / `col=` channels), the filter applies to *all* facets — there's no per-facet dropdown. If you want per-facet interaction, use `mapping_controls` + `auto_remap_node` instead.
 
+## Animate over a column (`frame=`)
+
+`config(frame=:year)` shows one value of a column at a time, with a play/pause
+button, a slider and the current value under the plot. Play steps through the
+values in order and stops on the last one.
+
+```julia
+data(anomalies) * mapping(:land; color=:anomaly) * geoshape("geo/laender.geojson") *
+    config(frame=(; field=:year, interval=0.3, loop=false))
+```
+
+- Rows whose frame value is missing, and layers without the frame column (a
+  base map, a reference line), are drawn in every frame.
+- Colour, size and x/y scales keep one domain across all frames, so a colour
+  means the same value in every frame and axes do not jump. A map keeps one
+  projection fit. Stacked bars and Vega-Lite transforms such as unfaceted
+  `density()` or `linear()` are recomputed per frame, still on the shared axes.
+- Frames play in sorted order, or in a `sorter` order:
+  `frame=:month => sorter("Jan", "Feb", …)`. Options: `interval` (seconds per
+  frame, default 0.5), `loop` (default `false`) and `start` (`:first`, `:last`
+  or a frame value).
+- It works in live pages and in static exports (`to_html`, the "⬇ HTML"
+  download), wherever AoV's runtime is on the page. The controls' words come
+  from `plot_texts` (`play`, `pause`).
+- The page can drive a player through `AoV.setFrame(id, index)`,
+  `AoV.playFrames(id)` and `AoV.pauseFrames(id)`.
+- Boundaries: `sdraw` refuses frames. Summaries AoV computes in Julia from raw
+  draws (`pointinterval()`, `lineribbon()`, faceted or ridgeline `density()`)
+  cannot step through frames: summarise per frame yourself and use the
+  `bands=` form. Refresh a framed plot with `update_spec`; `append_data` and the
+  other raw-row operations are refused. In a facet with a single layer, a panel
+  with no rows in the shown frame is not drawn in that frame. Independent
+  facet scales (`linkyaxes=:none`, per-column Y scales) fit each panel to the
+  shown frame.
+
 ## Deep-merged encoding
 
 When you pass `config(encoding = (; x = (; scale = (; type = "log"))))`, AoV **deep-merges** that into the encoding dict it generated from `mapping(...)`. So you can override (or add to) any auto-generated channel without re-specifying it from scratch:

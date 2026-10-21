@@ -1459,6 +1459,7 @@ function to_vegalite(v::VegaSpec; interactive::Bool=true,
     isnothing(auto_remap) || return _auto_remap_lowering(v; interactive, auto_remap...).vl
     spec = _base_vegalite(v.drawable, v.layer_encodings)
     select_fields = nothing
+    frame_opts = nothing
     col_yscales = nothing
     if !isnothing(v.config)
         props = v.config.properties
@@ -1518,6 +1519,9 @@ function to_vegalite(v::VegaSpec; interactive::Bool=true,
             elseif sk == "select"
                 # Collect select fields — processed after spec is built
                 select_fields = _select_field_list(val)
+            elseif sk == "frame"
+                # Lowered last, onto the finished spec (`_apply_frame!`)
+                frame_opts = val
             elseif sk == "config" && !isnothing(_as_dict(val))
                 # Deep-merge a user `config(config=…)` Dict into the base config
                 # rather than replacing it. The base config now carries the
@@ -1547,6 +1551,7 @@ function to_vegalite(v::VegaSpec; interactive::Bool=true,
     # hconcat tops, unsorted specs, and already-dense grids.
     _densify_facet_sort!(spec)
     auto_legend && _add_auto_legend_interactivity!(spec)
+    isnothing(frame_opts) || _apply_frame!(spec, v.drawable, frame_opts)
     spec
 end
 
