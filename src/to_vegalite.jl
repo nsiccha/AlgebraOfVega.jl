@@ -1133,8 +1133,48 @@ function _per_column_y_hconcat!(spec::Dict, ycols::Dict)
     spec
 end
 
-"""Translate the props of a categorical/continuous `scales(Color=(; palette, categories, colormap))`
-into a VL colour `scale` dict — or an empty dict if the `Scales` object names no `Color` scale.
+# The attributes AlgebraOfGraphics accepts on a `Color` scale: categorical
+# (`categories`, `palette`), continuous (`AesColorContinuousProps`) and the guide
+# keys every AoG scale takes. These reach the Vega-Lite scale; the guide keys
+# below are not lowered yet.
+const _COLOR_SCALE_LOWERED = (:categories, :palette, :colormap, :colorrange, :scale,
+                              :lowclip, :highclip, :nan_color)
+const _COLOR_SCALE_GUIDE_KEYS = (:label, :legend, :unit, :colorbar, :hide_unused_legend)
+
+"""Refuse a `scales(Color=…)` key AlgebraOfGraphics does not accept on a colour scale and
+warn once on an AoG guide key AoV does not lower, so no colour option is dropped silently
+(snag `aov-color-scale-5492bf71`)."""
+function _check_color_scale_keys(props)
+    for k in keys(props)
+        k in _COLOR_SCALE_LOWERED && continue
+        if k === :clamp
+            # refused: AoG has no colour `clamp`, and `colorrange` already clips (decision `0zeeod8`)
+            throw(ArgumentError("AlgebraOfVega: `clamp` is not a `Color` scale attribute " *
+                "(AlgebraOfGraphics rejects it too). Values outside `colorrange` already take the " *
+                "colormap's end colours, as in AlgebraOfGraphics; set `lowclip=`/`highclip=` to " *
+                "paint them in other colours. Remove `clamp` from `scales(Color=…)`."))
+        elseif k in _COLOR_SCALE_GUIDE_KEYS
+            @warn "AlgebraOfVega: the `Color` scale attribute `$k` is not lowered to Vega-Lite yet; the interactive plot ignores it (`sdraw` applies it)." maxlog=1
+        else
+            throw(ArgumentError("AlgebraOfVega: unknown `Color` scale attribute `$k`. Available: " *
+                join(("`$a`" for a in (_COLOR_SCALE_LOWERED..., _COLOR_SCALE_GUIDE_KEYS...)), ", ") * "."))
+        end
+    end
+end
+
+"""The Vega-Lite form of a `scales(Color=…)` override. `scale` merges into every colour
+encoding that carries a field; `continuous` (clamp and scale type) and `clips` (the
+`lowclip`/`highclip` conditions, as `(comparison, bound, colour)`) only into a quantitative
+or temporal one; `nan_color` becomes the chart's `config.scale.invalid.color`."""
+struct _ColorScaleVL
+    scale::Dict{String,Any}
+    continuous::Dict{String,Any}
+    clips::Vector{Tuple{String,Any,String}}
+    nan_color::Union{Nothing,String}
+end
+
+"""Translate the props of a categorical/continuous `scales(Color=(; palette, categories, colormap, …))`
+into a `_ColorScaleVL`.
 
 - `categories` → `scale.domain` (the group ORDER). AoG allows a plain value vector
   (`["reference","Female","Male"]`) or `value => label` relabel pairs; either way the
@@ -1143,8 +1183,14 @@ into a VL colour `scale` dict — or an empty dict if the `Scales` object names 
 - `palette` → `scale.range` when it is an explicit colour vector, or `scale.scheme` when it
   is a named Vega scheme (`Symbol`/`String`, e.g. `:tableau10`).
 - `colormap` → `scale.scheme` (the continuous-colour spelling of a named scheme).
-- `colorrange` → `scale.domain` (the continuous-colour value range, e.g. `(0.0, 1.0)`)."""
+- `colorrange` → `scale.domain` (the continuous-colour value range, e.g. `(0.0, 1.0)`) plus
+  `scale.clamp`: AoG paints values outside it in `lowclip`/`highclip`, which default to the
+  colormap's end colours, while a Vega-Lite scale extrapolates past its domain.
+- `lowclip`/`highclip` → colour conditions for values below/above `colorrange`.
+- `scale` → `scale.type` (log/sqrt/symlog), as for X/Y.
+- `nan_color` → the colour of a missing or NaN value."""
 function _color_scale_props_to_vl(props)
+    _check_color_scale_keys(props)
     vl_scale = Dict{String,Any}()
     if haskey(props, :categories)
         cats = props[:categories]
@@ -1159,43 +1205,101 @@ function _color_scale_props_to_vl(props)
         end
     end
     haskey(props, :colormap) && (vl_scale["scheme"] = string(props[:colormap]))
-    haskey(props, :colorrange) && (vl_scale["domain"] = collect(props[:colorrange]))
-    vl_scale
+    continuous = Dict{String,Any}()
+    clips = Tuple{String,Any,String}[]
+    if haskey(props, :colorrange)
+        lo, hi = props[:colorrange]
+        vl_scale["domain"] = [lo, hi]
+        continuous["clamp"] = true
+        haskey(props, :lowclip) && push!(clips, ("<", lo, string(props[:lowclip])))
+        haskey(props, :highclip) && push!(clips, (">", hi, string(props[:highclip])))
+    end
+    if haskey(props, :scale)
+        scale_type = _aog_scale_fn_to_vl(props[:scale])
+        isnothing(scale_type) || merge!(continuous, scale_type)
+    end
+    nan_color = haskey(props, :nan_color) ? string(props[:nan_color]) : nothing
+    _ColorScaleVL(vl_scale, continuous, clips, nan_color)
 end
 
-"""Extract the VL colour `scale` dict from a `scales(Color=...)` object (empty if none)."""
+"""Extract the `_ColorScaleVL` from a `scales(Color=...)` object (`nothing` if none)."""
 function _scales_to_color_scale(sc::AlgebraOfGraphics.Scales)
     props = get(sc.dict, :Color, nothing)
-    isnothing(props) && return Dict{String,Any}()
+    isnothing(props) && return nothing
     _color_scale_props_to_vl(props)
 end
 
-"""Merge a colour `scale` dict into every colour encoding that carries a `field`,
+"""Call `f(channel_encoding)` on every `channel` encoding that carries a `field`,
 recursing through layered / faceted sublayers.
 
-Field-LESS colour encodings are deliberately SKIPPED. A layered analysis such as
+Field-LESS encodings are deliberately SKIPPED. A layered analysis such as
 `pointinterval()` draws its median dot with a fixed white fill and NO colour field
 (`src/analysis_to_vl.jl` `_interval_point_layer`); broadcasting a colour override into
 that layer (what a raw `config(encoding=Dict("color"=>…))` does) injects a bare
 field-less colour encoding that Vega-Lite drops with a warning. Scoping to
-field-bearing colour encodings pins the palette/domain on the data-bearing layers only,
+field-bearing encodings pins the palette/domain on the data-bearing layers only,
 leaving the deliberate field-less layer untouched."""
-function _merge_color_scale!(spec::Dict, color_scale::Dict; channel::String="color")
-    isempty(color_scale) && return
+function _foreach_field_encoding(f, spec::Dict, channel::String)
     enc = _as_dict(get(spec, "encoding", nothing))
     if !isnothing(enc)
         col = _as_dict(get(enc, channel, nothing))
-        if !isnothing(col) && haskey(col, "field")
-            existing = get!(col, "scale", Dict{String,Any}())
-            existing isa Dict ? merge!(existing, color_scale) : (col["scale"] = copy(color_scale))
-        end
+        !isnothing(col) && haskey(col, "field") && f(col)
     end
     if haskey(spec, "layer")
-        for sub in spec["layer"]; sub isa Dict && _merge_color_scale!(sub, color_scale; channel); end
+        for sub in spec["layer"]; sub isa Dict && _foreach_field_encoding(f, sub, channel); end
     end
     if haskey(spec, "spec") && spec["spec"] isa Dict
-        _merge_color_scale!(spec["spec"], color_scale; channel)
+        _foreach_field_encoding(f, spec["spec"], channel)
     end
+    return
+end
+
+function _merge_scale_props!(col::Dict, props::Dict)
+    existing = get!(col, "scale", Dict{String,Any}())
+    existing isa Dict ? merge!(existing, deepcopy(props)) : (col["scale"] = deepcopy(props))
+    return
+end
+
+"""Merge a `scale` dict into every `channel` encoding that carries a `field`."""
+function _merge_color_scale!(spec::Dict, color_scale::Dict; channel::String="color")
+    isempty(color_scale) && return
+    _foreach_field_encoding(col -> _merge_scale_props!(col, color_scale), spec, channel)
+end
+
+_merge_color_scale!(spec::Dict, ::Nothing) = nothing
+
+const _CONTINUOUS_VL_TYPES = ("quantitative", "temporal")
+
+"""Merge a `scales(Color=…)` override into every colour encoding that carries a `field`;
+its continuous-only parts reach only quantitative/temporal ones."""
+function _merge_color_scale!(spec::Dict, c::_ColorScaleVL)
+    continuous_seen = false
+    _foreach_field_encoding(spec, "color") do col
+        isempty(c.scale) || _merge_scale_props!(col, c.scale)
+        get(col, "type", nothing) in _CONTINUOUS_VL_TYPES || return
+        continuous_seen = true
+        isempty(c.continuous) || _merge_scale_props!(col, c.continuous)
+        isempty(c.clips) || _add_clip_conditions!(col, c.clips)
+    end
+    if continuous_seen && !isnothing(c.nan_color)
+        # Vega-Lite drops a mark whose continuous colour value is invalid (AoG's
+        # default transparent `nan_color`); this paints it instead, and leaves a
+        # mark with an invalid position dropped.
+        scale_cfg = get!(get!(spec, "config", Dict{String,Any}()), "scale", Dict{String,Any}())
+        get!(scale_cfg, "invalid", Dict{String,Any}())["color"] = Dict{String,Any}("value" => c.nan_color)
+    end
+    return
+end
+
+"""Add the `lowclip`/`highclip` conditions to a colour encoding: a value below/above
+`colorrange` takes the clip colour, and an invalid value matches neither. They follow any
+condition the encoding already has, so that one keeps precedence."""
+function _add_clip_conditions!(col::Dict, clips)
+    ref = "datum[" * _vl_json(col["field"]) * "]"
+    conds = Any[Dict{String,Any}("test" => "isValid($ref) && $ref $op $(_vl_json(bound))",
+                                 "value" => colour) for (op, bound, colour) in clips]
+    cur = get(col, "condition", nothing)
+    col["condition"] = isnothing(cur) ? conds : vcat(cur isa AbstractVector ? cur : Any[cur], conds)
     return
 end
 
@@ -1253,8 +1357,8 @@ function _apply_scales_sugar!(spec, s::AlgebraOfGraphics.Scales)
     # X/Y/Z axis scales broadcast into every matching positional encoding.
     override = _scales_to_encoding_override(s)
     isempty(override) || _merge_encoding_config!(spec, override)
-    # A `Color` scale (palette/categories/colormap) is applied ONLY to colour
-    # encodings that carry a `field` — never broadcast onto a field-less layer.
+    # A `Color` scale is applied ONLY to colour encodings that carry a `field`
+    # — never broadcast onto a field-less layer.
     _merge_color_scale!(spec, _scales_to_color_scale(s))
     marker = get(s.dict, :Marker, nothing)
     if !isnothing(marker)
@@ -1462,7 +1566,10 @@ applies the identical override inline.
 Handles X/Y/Z axis scales (log/log2/log10/sqrt/symlog + `nice`/`zero`/`domain`/
 `clamp`/`constant`) and a categorical/continuous `Color` scale — `palette`
 (explicit colours or a named scheme), `categories` (domain/group ORDER), `colormap`
-(named scheme), `colorrange` (continuous value range). The `Color` override is merged
+(named scheme), `colorrange` (continuous value range; values outside it take the
+colormap's end colours, or `lowclip`/`highclip`), `scale` (log/sqrt/symlog) and
+`nan_color`. Any other AlgebraOfGraphics colour attribute warns that it is not lowered,
+and a key AoG rejects (including `clamp`) is an `ArgumentError`. The `Color` override is merged
 only into colour encodings that carry a `field`, so a layer with a deliberate
 field-less colour (e.g. a `pointinterval()` median dot) is never given a bare,
 VL-dropped colour encoding.
