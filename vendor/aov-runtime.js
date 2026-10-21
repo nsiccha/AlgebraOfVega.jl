@@ -1919,11 +1919,12 @@ window.AoV = window.AoV || {
 
     // The colour encoding a remap assigns to `field`. A field the layer
     // was authored with keeps its authored scale (palette, category
-    // order), sort and legend; any other field gets the default scheme.
+    // order), sort, legend and conditions (`lowclip`/`highclip`); any
+    // other field gets the default scheme.
     _remappedColor: function(authored, field, title) {
         var enc = {field: field, type: 'nominal', title: title};
         if (authored && authored.field === field) {
-            ['scale', 'sort', 'legend'].forEach(function(k) {
+            ['scale', 'sort', 'legend', 'condition'].forEach(function(k) {
                 if (authored[k] !== undefined) enc[k] = authored[k];
             });
         }
