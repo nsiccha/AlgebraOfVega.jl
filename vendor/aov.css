@@ -11,6 +11,27 @@
     .aov-frame > .aov-frame-play { width: auto; margin: 0; padding: 0.2em 0.7em; line-height: 1.2; }
     .aov-frame > .aov-frame-slider { flex: 1; min-width: 4em; margin: 0; }
     .aov-frame > .aov-frame-value { min-width: 4ch; font-variant-numeric: tabular-nums; }
+    /* The player's colours: never a theme's primary colour (Pico fills a
+       button, its focus ring and a focused range thumb azure) or the
+       browser's accent blue (a bare range input). The play button is a
+       text-colour outline. `button.aov-frame-play` outranks Pico's
+       `[type=button]` in any source order and gives way to a page's own,
+       more specific button theme (HTMXObjects' `pico_bridge()`), so it
+       matches the page's other buttons wherever the page styles them.
+       color-mix() refines the border and hover tint where supported. */
+    button.aov-frame-play {
+        color: inherit; background: transparent; box-shadow: none;
+        border: 1px solid currentColor; border-radius: 0.25rem;
+        border-color: color-mix(in srgb, currentColor 40%, transparent);
+    }
+    button.aov-frame-play:hover { background: color-mix(in srgb, currentColor 10%, transparent); }
+    button.aov-frame-play:focus-visible,
+    input.aov-frame-slider:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+    /* A focused or dragged Pico thumb keeps Pico's idle slate. */
+    input.aov-frame-slider {
+        color: inherit; accent-color: currentColor;
+        --pico-range-thumb-active-color: var(--pico-secondary-background, currentColor);
+    }
     .aov-grid-page { width: 100vw; padding: 0.5rem; font-size: 0.5em; }
     /* Dense compact grid (16 cols) and gallery static grid (4 cols).
        Both compose with upstream `.htmxo-grid`, supplying only the

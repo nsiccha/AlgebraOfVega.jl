@@ -22,6 +22,18 @@ using TestItemRunner
         anomaly=[1.0, 2.0, 2.0, 0.0, 3.0, 1.0, -2.0])
     frame_map(rows=frame_rows; kw...) = data(rows) * mapping(:land; color=:anomaly) * geoshape(frame_geo) *
         config(height=100, frame=(; field=:year, interval=0.03, kw...))
+
+    # Headless Chrome ("" when the host has none) and one page load in it: the
+    # JSON report a driver wrote into `<pre id=results>`, or `nothing`.
+    frame_chrome = something(Sys.which("google-chrome"), Sys.which("chromium"), "")
+    frame_run_page(dir, file, results) = begin
+        output = read(pipeline(`$frame_chrome --headless=new --no-sandbox --disable-gpu
+            --user-data-dir=$(joinpath(dir, "profile-" * file)) --window-size=1200,1600
+            --virtual-time-budget=30000 --dump-dom $("file://" * joinpath(dir, file))`,
+            stderr=joinpath(dir, file * ".log")), String)
+        m = match(Regex("<pre id=\"$results\">([^<]*)</pre>"), output)
+        isnothing(m) ? nothing : JSON.parse(replace(m[1], "&quot;" => "\"", "&lt;" => "<", "&gt;" => ">", "&amp;" => "&"))
+    end
 end
 
 @testitem "frame lowering: parameter, unit filters and player metadata" setup=[AoVFrameFixtures] tags=[:frame] begin
@@ -134,18 +146,9 @@ end
         with_plot_caption(frame_map(), "Karte"; plot_id="fr-de", texts=plot_texts(:de))]
     fixture = replace(JSON.json((; update=script_text(update_spec("fr-map", frame_map(more))))), "</" => "<\\/")
 
-    chrome = something(Sys.which("google-chrome"), Sys.which("chromium"), "")
-    if isempty(chrome)
+    if isempty(frame_chrome)
         @test_skip "headless Chrome is not installed"
     else
-        run_page(dir, file, results) = begin
-            output = read(pipeline(`$chrome --headless=new --no-sandbox --disable-gpu
-                --user-data-dir=$(joinpath(dir, "profile-" * file)) --window-size=1200,1600
-                --virtual-time-budget=30000 --dump-dom $("file://" * joinpath(dir, file))`,
-                stderr=joinpath(dir, file * ".log")), String)
-            m = match(Regex("<pre id=\"$results\">([^<]*)</pre>"), output)
-            isnothing(m) ? nothing : JSON.parse(replace(m[1], "&quot;" => "\"", "&lt;" => "<", "&gt;" => ">", "&amp;" => "&"))
-        end
         mktempdir(prefix="kb-aov-frame-") do dir
             head = join(html(n) for n in vega_head(; source=:inline))
             # A dark theme the host-theme watcher sees (a `data-theme` change re-embeds).
@@ -154,7 +157,7 @@ end
                 "<body style='width:800px'>" * join(html(p) for p in page) *
                 "<script>window.AOV_FIXTURE=" * fixture * ";</script><script>" *
                 read(joinpath(@__DIR__, "frame.js"), String) * "</script></body>")
-            report = run_page(dir, "page.html", "aov-frame-results")
+            report = frame_run_page(dir, "page.html", "aov-frame-results")
             @test !isnothing(report)
             if !isnothing(report)
                 @test report["checks"] == 26
@@ -167,12 +170,51 @@ end
             cut = first(findlast("</body>", export_page))
             write(joinpath(dir, "export.html"), export_page[1:prevind(export_page, cut)] * "<script>" *
                 read(joinpath(@__DIR__, "frame_export.js"), String) * "</script>" * export_page[cut:end])
-            report = run_page(dir, "export.html", "aov-frame-export-results")
+            report = frame_run_page(dir, "export.html", "aov-frame-export-results")
             @test !isnothing(report)
             if !isnothing(report)
                 @test report["checks"] == 3
                 @test isempty(report["failures"])
                 isempty(report["failures"]) || println(JSON.json(report["failures"]))
+            end
+        end
+    end
+end
+
+# Pico 2 fills every <button> with its primary azure (plus an azure focus ring)
+# and turns a focused range thumb azure; a bare range input draws in the
+# browser's accent blue. The player took those from whatever page it sat on
+# (snag `aov-frame-play-b-68ebbfc1`). Now, light and dark, it never shows
+# them: on a Pico page and on a page with no stylesheet the play button is a
+# text-colour outline, and on a page that styles its own buttons (as
+# HTMXObjects' `pico_bridge()` may, ahead of `vega_head` in the shell) it
+# looks like the page's other buttons.
+@testitem "frame controls never take a theme's primary blue" setup=[AoVFrameFixtures] tags=[:frame, :browser, :regression] begin
+    using AlgebraOfVega, AlgebraOfGraphics, HTMXObjects, JSON
+    html(x) = sprint(show, MIME"text/html"(), x)
+    if isempty(frame_chrome)
+        @test_skip "headless Chrome is not installed"
+    else
+        mktempdir(prefix="kb-aov-frame-neutral-") do dir
+            copy_vendorfiles(dir; packages=(:pico,), runtime=false)
+            pico = "<link rel='stylesheet' href='pico.min.css'>"
+            button_theme = "<style>:is(button, [type=button]):not(.secondary, .contrast) " *
+                "{ background-color: rgb(82, 95, 122); border-color: rgb(82, 95, 122); color: rgb(255, 255, 255); }</style>" *
+                "<script>window.AOV_BUTTON_THEME = {background: 'rgb(82, 95, 122)', color: 'rgb(255, 255, 255)'};</script>"
+            head = join(html(n) for n in vega_head(; source=:inline))
+            body = html(vdraw(frame_map(); id="fr-neutral"))
+            driver = read(joinpath(@__DIR__, "frame_neutral.js"), String)
+            for (file, theme) in (("pico.html", pico), ("themed.html", pico * button_theme),
+                    ("plain.html", "<style>html[data-theme=dark] body { color: #ddd; background: #111; }</style>"))
+                write(joinpath(dir, file), "<!doctype html><meta charset='utf-8'>" * theme * head *
+                    "<body><main class='container'>" * body * "</main><script>" * driver * "</script></body>")
+                report = frame_run_page(dir, file, "aov-frame-neutral-results")
+                @test !isnothing(report)
+                if !isnothing(report)
+                    @test report["checks"] == 14
+                    @test isempty(report["failures"])
+                    isempty(report["failures"]) || println(file, ": ", JSON.json(report["failures"]))
+                end
             end
         end
     end
