@@ -186,9 +186,9 @@ end
 # browser's accent blue. The player took those from whatever page it sat on
 # (snag `aov-frame-play-b-68ebbfc1`). Now, light and dark, it never shows
 # them: on a Pico page and on a page with no stylesheet the play button is a
-# text-colour outline, and on a page that styles its own buttons (as
-# HTMXObjects' `pico_bridge()` may, ahead of `vega_head` in the shell) it
-# looks like the page's other buttons.
+# text-colour outline, and on a page that styles its own buttons through
+# Pico's button variables (as HTMXObjects' `pico_bridge()` does, ahead of
+# `vega_head` in the shell) it looks like the page's other buttons.
 @testitem "frame controls never take a theme's primary blue" setup=[AoVFrameFixtures] tags=[:frame, :browser, :regression] begin
     using AlgebraOfVega, AlgebraOfGraphics, HTMXObjects, JSON
     html(x) = sprint(show, MIME"text/html"(), x)
@@ -198,8 +198,12 @@ end
         mktempdir(prefix="kb-aov-frame-neutral-") do dir
             copy_vendorfiles(dir; packages=(:pico,), runtime=false)
             pico = "<link rel='stylesheet' href='pico.min.css'>"
-            button_theme = "<style>:is(button, [type=button]):not(.secondary, .contrast) " *
-                "{ background-color: rgb(82, 95, 122); border-color: rgb(82, 95, 122); color: rgb(255, 255, 255); }</style>" *
+            # The shape of `pico_bridge()`'s button rules: Pico's variables, at
+            # rest and in every state, with a slate fill to tell them apart.
+            plain_button = ":is(button, [type=submit], [type=button], [role=button]):not(.secondary, .contrast)"
+            button_theme = "<style>$plain_button, $plain_button:is([aria-current]:not([aria-current=false]), :hover, :active, :focus) " *
+                "{ --pico-background-color: rgb(82, 95, 122); --pico-color: rgb(255, 255, 255); --pico-border-color: rgb(82, 95, 122); } " *
+                "$plain_button:is(:focus, [aria-current]:not([aria-current=false]):focus) { --pico-box-shadow: 0 0 0 2px rgb(82, 95, 122); }</style>" *
                 "<script>window.AOV_BUTTON_THEME = {background: 'rgb(82, 95, 122)', color: 'rgb(255, 255, 255)'};</script>"
             head = join(html(n) for n in vega_head(; source=:inline))
             body = html(vdraw(frame_map(); id="fr-neutral"))
