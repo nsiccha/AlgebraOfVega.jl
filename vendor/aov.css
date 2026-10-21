@@ -14,18 +14,27 @@
     /* The player's colours: never a theme's primary colour (Pico fills a
        button, its focus ring and a focused range thumb azure) or the
        browser's accent blue (a bare range input). The play button is a
-       text-colour outline. `button.aov-frame-play` outranks Pico's
-       `[type=button]` in any source order and gives way to a page's own,
-       more specific button theme (HTMXObjects' `pico_bridge()`), so it
-       matches the page's other buttons wherever the page styles them.
-       color-mix() refines the border and hover tint where supported. */
-    button.aov-frame-play {
-        color: inherit; background: transparent; box-shadow: none;
-        border: 1px solid currentColor; border-radius: 0.25rem;
-        border-color: color-mix(in srgb, currentColor 40%, transparent);
+       text-colour outline, set through the variables Pico paints buttons
+       with: these rules outrank Pico's own (`[type=button]`, and with
+       `:hover`/`:active`/`:focus`) in any source order and give way to a
+       page's more specific button theme on the same variables
+       (HTMXObjects' `pico_bridge()`), so the button matches the page's
+       other buttons wherever the page styles them. It reads them itself,
+       so a page without Pico gets the same look. */
+    button.aov-frame-play,
+    button.aov-frame-play:is(:hover, :active, :focus) {
+        --pico-background-color: transparent;
+        --pico-color: currentColor;
+        --pico-border-color: color-mix(in srgb, currentColor 40%, transparent);
+        --pico-box-shadow: none;
     }
-    button.aov-frame-play:hover { background: color-mix(in srgb, currentColor 10%, transparent); }
-    button.aov-frame-play:focus-visible,
+    button.aov-frame-play:hover { --pico-background-color: color-mix(in srgb, currentColor 10%, transparent); }
+    button.aov-frame-play:focus-visible { --pico-box-shadow: 0 0 0 2px currentColor; }
+    button.aov-frame-play {
+        background-color: var(--pico-background-color); color: var(--pico-color);
+        border: 1px solid var(--pico-border-color); border-radius: 0.25rem;
+        box-shadow: var(--pico-box-shadow);
+    }
     input.aov-frame-slider:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
     /* A focused or dragged Pico thumb keeps Pico's idle slate. */
     input.aov-frame-slider {
