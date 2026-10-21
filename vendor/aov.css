@@ -6,6 +6,11 @@
        HTMXObjects; this block only carries roles peculiar to
        the AoV gallery shell. */
     .aov-plot-area { width: 100%; min-width: 0; max-width: 100%; overflow-x: auto; }
+    /* config(frame=…) player after a plot: play/pause, slider, frame label. */
+    .aov-frame { display: flex; align-items: center; gap: 0.5em; margin: 0.25em 0; }
+    .aov-frame > .aov-frame-play { width: auto; margin: 0; padding: 0.2em 0.7em; line-height: 1.2; }
+    .aov-frame > .aov-frame-slider { flex: 1; min-width: 4em; margin: 0; }
+    .aov-frame > .aov-frame-value { min-width: 4ch; font-variant-numeric: tabular-nums; }
     .aov-grid-page { width: 100vw; padding: 0.5rem; font-size: 0.5em; }
     /* Dense compact grid (16 cols) and gallery static grid (4 cols).
        Both compose with upstream `.htmxo-grid`, supplying only the

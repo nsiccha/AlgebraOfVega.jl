@@ -87,6 +87,8 @@ function _draw_kwargs(cfg::Union{Config,Nothing}; faceted=false, layer_encodings
             if !isnothing(s) && !isnothing(_scales_column_y_scales(s))
                 error("AlgebraOfVega: per-column Y scales (`scales(Y=(; scale=Dict(...)))`) are not supported on the static Makie path; render with `vdraw`/`to_vegalite` (Vega-Lite hconcat of per-column facet views) instead.")
             end
+        elseif k === :frame
+            throw(ArgumentError("AlgebraOfVega: `config(frame=…)` animations are not supported on the static Makie path; render with `vdraw`/`to_html`, or filter the table to one frame for a static figure."))
         elseif k === :facet
             _merge_nt!(facet_kw, _as_nt(v))
         elseif k === :axis

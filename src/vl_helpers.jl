@@ -105,6 +105,11 @@ Create a `Config` with Vega-Lite properties. Common options:
   AoV's defaults rather than replacing them
 - `params`, `transform` — VL interactivity parameters and data transforms
 - `select` — field(s) for client-side dropdown filtering (e.g. `select=:origin`)
+- `frame` — animate the figure over a column's values, one frame at a time, with a
+  play/pause button and a slider (e.g. `frame=:year`); the long form is
+  `frame=(; field=:year, interval=0.5, loop=false, start=:first)`. Frames play in sorted
+  order, or in a `sorter` order (`frame=:month => sorter("Jan", "Feb", …)`). Colour, size
+  and x/y scales, and a map's projection, stay fixed across frames. Interactive path only.
 - `scales` — an AoG `scales(...)` object, mirroring `draw(spec, scales(...))`. Currently
   translates X/Y/Z `scale=log`/`log2`/`log10`/`sqrt`/`symlog`/`identity` to VL scale types.
   Example: `config(scales=scales(Y=(; scale=log10)))`. Use `scale=symlog` for a symlog
@@ -134,6 +139,7 @@ function config(; kwargs...)
     for key in _VL_OBJECT_PROPS
         haskey(props, key) && (props[key] = _lower_vl_object(key, props[key]))
     end
+    haskey(props, :frame) && (props[:frame] = _frame_options(props[:frame]))
     Config(props)
 end
 
