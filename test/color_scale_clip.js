@@ -49,6 +49,26 @@
         check(pts.c === 'grey', 'clip-points: a NaN colour value paints nan_color, got ' + pts.c);
         check(!('d' in pts), 'clip-points: a NaN position stays undrawn, got ' + JSON.stringify(pts));
 
+        // A continuous `Color` override on a figure that also colours routes by a
+        // category: the map keeps its range and the routes paint in category colours
+        // with a categorical legend (before, they painted nothing and the legend
+        // listed the range bounds).
+        const mixedView = await ready('clip-mixed');
+        const mixed = fills(mixedView, 'ags', 'shape');
+        check(mixed['01001'] === mixed['01002'] && !dark(mixed['01001']), 'clip-mixed: the map still clips to colorrange, got ' + JSON.stringify(mixed));
+        const strokes = {};
+        const labels = [];
+        (function walk(item) {
+            if (item.mark?.marktype === 'line' && item.datum && item.datum.check !== undefined)
+                strokes[item.datum.check] = item.stroke;
+            if (item.mark?.role === 'legend-label') labels.push(String(item.text));
+            (item.items || []).forEach(walk);
+        })(mixedView.scenegraph().root);
+        const painted = s => !!s && s !== 'transparent';
+        check(painted(strokes.ok) && painted(strokes['manual check']), 'clip-mixed: both routes are painted, got ' + JSON.stringify(strokes));
+        check(strokes.ok !== strokes['manual check'], 'clip-mixed: the two categories differ, got ' + JSON.stringify(strokes));
+        check(labels.includes('ok') && labels.includes('manual check'), 'clip-mixed: the routes legend lists the categories, got ' + JSON.stringify(labels));
+
         // The picker keeps an authored field's conditions, as it keeps its scale.
         const authored = {field: 'v', type: 'quantitative', scale: {domain: [-20, 20], clamp: true},
             condition: [{test: 'datum.v < -20', value: 'red'}]};

@@ -1135,10 +1135,11 @@ end
 
 # The attributes AlgebraOfGraphics accepts on a `Color` scale: categorical
 # (`categories`, `palette`), continuous (`AesColorContinuousProps`) and the guide
-# keys every AoG scale takes. These reach the Vega-Lite scale; the guide keys
-# below are not lowered yet.
-const _COLOR_SCALE_LOWERED = (:categories, :palette, :colormap, :colorrange, :scale,
-                              :lowclip, :highclip, :nan_color)
+# keys every AoG scale takes. The first two kinds reach the Vega-Lite scale of a
+# colour encoding of that kind only; the guide keys below are not lowered yet.
+const _COLOR_SCALE_KEYS = (; categorical=(:categories, :palette),
+                             continuous=(:colormap, :colorrange, :scale, :lowclip, :highclip, :nan_color))
+const _COLOR_SCALE_LOWERED = (_COLOR_SCALE_KEYS.categorical..., _COLOR_SCALE_KEYS.continuous...)
 const _COLOR_SCALE_GUIDE_KEYS = (:label, :legend, :unit, :colorbar, :hide_unused_legend)
 
 """Refuse a `scales(Color=…)` key AlgebraOfGraphics does not accept on a colour scale and
@@ -1162,13 +1163,15 @@ function _check_color_scale_keys(props)
     end
 end
 
-"""The Vega-Lite form of a `scales(Color=…)` override. `scale` merges into every colour
-encoding that carries a field; `continuous` (clamp and scale type) and `clips` (the
-`lowclip`/`highclip` conditions, as `(comparison, bound, colour)`) only into a quantitative
-or temporal one; `nan_color` becomes the chart's `config.scale.invalid.color`."""
+"""The Vega-Lite form of a `scales(Color=…)` override, split by the kind of colour each
+part describes, as AlgebraOfGraphics splits its props. `scale.categorical` (domain and
+palette) merges into nominal/ordinal colour encodings that carry a field; `scale.continuous`
+(scheme, domain, clamp and scale type) and `clips` (the `lowclip`/`highclip` conditions, as
+`(comparison, bound, colour)`) into quantitative/temporal ones; `nan_color` becomes the
+chart's `config.scale.invalid.color`. `keys` names the authored attributes of each kind."""
 struct _ColorScaleVL
-    scale::Dict{String,Any}
-    continuous::Dict{String,Any}
+    scale::@NamedTuple{categorical::Dict{String,Any}, continuous::Dict{String,Any}}
+    keys::@NamedTuple{categorical::Vector{Symbol}, continuous::Vector{Symbol}}
     clips::Vector{Tuple{String,Any,String}}
     nan_color::Union{Nothing,String}
 end
@@ -1188,28 +1191,32 @@ into a `_ColorScaleVL`.
   colormap's end colours, while a Vega-Lite scale extrapolates past its domain.
 - `lowclip`/`highclip` → colour conditions for values below/above `colorrange`.
 - `scale` → `scale.type` (log/sqrt/symlog), as for X/Y.
-- `nan_color` → the colour of a missing or NaN value."""
+- `nan_color` → the colour of a missing or NaN value.
+
+`categories`/`palette` describe a categorical colour and the rest a continuous one, so in a
+figure that colours one layer by a category and another by a number each reaches only its
+own layer (snag `color-scale-suga-d3529048`, decision `0qhmti5`)."""
 function _color_scale_props_to_vl(props)
     _check_color_scale_keys(props)
-    vl_scale = Dict{String,Any}()
+    categorical = Dict{String,Any}()
     if haskey(props, :categories)
         cats = props[:categories]
-        vl_scale["domain"] = [c isa Pair ? first(c) : c for c in cats]
+        categorical["domain"] = [c isa Pair ? first(c) : c for c in cats]
     end
     if haskey(props, :palette)
         pal = props[:palette]
         if pal isa Symbol || pal isa AbstractString
-            vl_scale["scheme"] = string(pal)
+            categorical["scheme"] = string(pal)
         else
-            vl_scale["range"] = collect(pal)
+            categorical["range"] = collect(pal)
         end
     end
-    haskey(props, :colormap) && (vl_scale["scheme"] = string(props[:colormap]))
     continuous = Dict{String,Any}()
+    haskey(props, :colormap) && (continuous["scheme"] = string(props[:colormap]))
     clips = Tuple{String,Any,String}[]
     if haskey(props, :colorrange)
         lo, hi = props[:colorrange]
-        vl_scale["domain"] = [lo, hi]
+        continuous["domain"] = [lo, hi]
         continuous["clamp"] = true
         haskey(props, :lowclip) && push!(clips, ("<", lo, string(props[:lowclip])))
         haskey(props, :highclip) && push!(clips, (">", hi, string(props[:highclip])))
@@ -1219,7 +1226,10 @@ function _color_scale_props_to_vl(props)
         isnothing(scale_type) || merge!(continuous, scale_type)
     end
     nan_color = haskey(props, :nan_color) ? string(props[:nan_color]) : nothing
-    _ColorScaleVL(vl_scale, continuous, clips, nan_color)
+    authored(kind) = Symbol[k for k in _COLOR_SCALE_KEYS[kind] if haskey(props, k)]
+    _ColorScaleVL((; categorical, continuous),
+                  (; categorical=authored(:categorical), continuous=authored(:continuous)),
+                  clips, nan_color)
 end
 
 """Extract the `_ColorScaleVL` from a `scales(Color=...)` object (`nothing` if none)."""
@@ -1270,18 +1280,52 @@ _merge_color_scale!(spec::Dict, ::Nothing) = nothing
 
 const _CONTINUOUS_VL_TYPES = ("quantitative", "temporal")
 
-"""Merge a `scales(Color=…)` override into every colour encoding that carries a `field`;
-its continuous-only parts reach only quantitative/temporal ones."""
+"""The kind of colour scale an encoding takes, as AlgebraOfGraphics reads it: `:continuous`
+for a quantitative or temporal encoding, `:categorical` for a nominal or ordinal one. An
+untyped encoding follows Vega-Lite's default type (quantitative under `aggregate`/`bin`,
+temporal under `timeUnit`, nominal otherwise)."""
+function _color_kind(col::Dict)
+    type = get(col, "type", nothing)
+    continuous = isnothing(type) ? any(k -> haskey(col, k), ("aggregate", "bin", "timeUnit")) :
+                                   type in _CONTINUOUS_VL_TYPES
+    continuous ? :continuous : :categorical
+end
+
+const _COLOR_KIND_TEXT = (; categorical="categorical (nominal or ordinal)",
+                            continuous="continuous (quantitative or temporal)")
+# What to write instead, for a figure whose colour fields are all of the keyed kind.
+const _COLOR_KIND_HINT = (;
+    categorical="For a categorical colour use `palette` (a colour vector, or a named scheme such as `palette=:viridis`) and `categories`; to colour by number instead, map a numeric field.",
+    continuous="For a continuous colour use `colormap` and `colorrange`; to colour by category instead, map a categorical field (`=> nonnumeric` turns numbers into categories).")
+
+"""Merge a `scales(Color=…)` override into the colour encodings that carry a `field`, each
+part into the encodings of its kind only. A figure that colours one layer by a category and
+another by a number thus gets its categorical keys on the first and its continuous keys on
+the second. Authored keys of a kind no colour encoding has are an `ArgumentError`, as in
+AlgebraOfGraphics; a figure with no colour encoding at all (a picker state with colour off)
+is left alone."""
 function _merge_color_scale!(spec::Dict, c::_ColorScaleVL)
-    continuous_seen = false
+    fields = (; categorical=String[], continuous=String[])
     _foreach_field_encoding(spec, "color") do col
-        isempty(c.scale) || _merge_scale_props!(col, c.scale)
-        get(col, "type", nothing) in _CONTINUOUS_VL_TYPES || return
-        continuous_seen = true
-        isempty(c.continuous) || _merge_scale_props!(col, c.continuous)
-        isempty(c.clips) || _add_clip_conditions!(col, c.clips)
+        kind = _color_kind(col)
+        push!(fields[kind], string(col["field"]))
+        isempty(c.scale[kind]) || _merge_scale_props!(col, c.scale[kind])
+        kind === :continuous && !isempty(c.clips) && _add_clip_conditions!(col, c.clips)
     end
-    if continuous_seen && !isnothing(c.nan_color)
+    all(isempty, fields) && return
+    for (kind, other) in ((:categorical, :continuous), (:continuous, :categorical))
+        authored = c.keys[kind]
+        (isempty(authored) || !isempty(fields[kind])) && continue
+        throw(ArgumentError("AlgebraOfVega: the `Color` scale " *
+            (length(authored) == 1 ? "attribute " : "attributes ") *
+            join(("`$k`" for k in authored), ", ") *
+            (length(authored) == 1 ? " describes a " : " describe a ") * _COLOR_KIND_TEXT[kind] *
+            " colour, but every colour field in this figure is " * _COLOR_KIND_TEXT[other] * ": " *
+            join(("`$f`" for f in unique(fields[other])), ", ") *
+            ". AlgebraOfGraphics refuses " * (length(authored) == 1 ? "it" : "them") * " too. " *
+            _COLOR_KIND_HINT[other]))
+    end
+    if !isempty(fields.continuous) && !isnothing(c.nan_color)
         # Vega-Lite drops a mark whose continuous colour value is invalid (AoG's
         # default transparent `nan_color`); this paints it instead, and leaves a
         # mark with an invalid position dropped.
@@ -1577,7 +1621,11 @@ colormap's end colours, or `lowclip`/`highclip`), `scale` (log/sqrt/symlog) and
 and a key AoG rejects (including `clamp`) is an `ArgumentError`. The `Color` override is merged
 only into colour encodings that carry a `field`, so a layer with a deliberate
 field-less colour (e.g. a `pointinterval()` median dot) is never given a bare,
-VL-dropped colour encoding.
+VL-dropped colour encoding. Each key reaches only colour encodings of its kind:
+`categories`/`palette` the nominal/ordinal ones, the continuous keys the
+quantitative/temporal ones, so one override configures both colours of a figure that
+mixes them. A key no colour encoding of the figure can take is an `ArgumentError`, as
+in AoG.
 """
 function to_vegalite(v, sc::AlgebraOfGraphics.Scales; interactive::Bool=true,
                      auto_remap::Union{Nothing,NamedTuple}=nothing)
