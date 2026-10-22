@@ -3,14 +3,15 @@ module AlgebraOfVegaHTMXObjectsExt
 using AlgebraOfVega
 using HTMXObjects
 using HTMXObjects: CaptionSpec, render_caption, render_table,
-    caption_style, sortable_table_js
+    caption_style, sortable_table_js, html_only
 using HTMX: h
 import Tables
 import Statistics
 import AlgebraOfVega: with_plot_caption, draws_summary_table, _sanitize_id,
                       _auto_summary_args, _auto_remap_parts, to_node, to_html,
                       VegaSpec, caption_share_button, _vl_json,
-                      PlotTexts, _EN_PLOT_TEXTS, _plot_text, _runtime_texts_attrs
+                      PlotTexts, _EN_PLOT_TEXTS, _plot_text, _runtime_texts_attrs,
+                      _static_img, _MarkdownView
 
 # HTMX 1.0 escapes attribute values itself (`&`, `"`, `'`, `<`, `>`), and the
 # HTML parser decodes them back before JS/`dataset` ever sees them — so JSON
@@ -30,7 +31,8 @@ _ci_str(s) = s
                       filename_base=nothing,
                       layer_labels=nothing,
                       extra_actions=(),
-                      texts=plot_texts())
+                      texts=plot_texts(),
+                      static_image=nothing, alt=nothing)
 
 Wrap `plot_node` (the result of `to_node(spec; id=plot_id)` or
 `auto_remap_node(plot_id, spec; ...)`) in a `<figure>` with a caption header.
@@ -69,6 +71,17 @@ who don't want that should not set the VL title.
   [`plot_texts`](@ref)). The caption's own title, summary and long text are
   `caption`'s. A non-English "More" needs HTMXObjects' `caption_texts`
   (HTMXObjects `d344dfd` or later).
+- `static_image=nothing`: the figure's image for a report built from the
+  page's markdown view, such as an accessible (PDF/UA) PDF. With it, the
+  markdown view shows the caption and `<img src=static_image alt=…>` in place
+  of the plot, so the report gets the figure with its alt text. The browser
+  (HTML) view is unchanged. AoV does not write the image: render it first
+  (`sdraw_file`, or any other renderer). It is the `src` as given, so it must
+  resolve where the markdown is rendered: a path relative to the report, an
+  absolute path, a URL or a `data:` URI.
+- `alt=nothing`: the image's alt text, a description of what the figure shows.
+  Defaults to the caption's title and short summary, joined by `" — "`. Needs
+  `static_image`.
 """
 function with_plot_caption(plot_node, caption::CaptionSpec;
                             plot_id::AbstractString,
@@ -81,7 +94,9 @@ function with_plot_caption(plot_node, caption::CaptionSpec;
                             layer_labels::Union{Nothing,AbstractDict}=nothing,
                             extra_actions=(),
                             summary_table=nothing,
-                            texts::PlotTexts=_EN_PLOT_TEXTS)
+                            texts::PlotTexts=_EN_PLOT_TEXTS,
+                            static_image::Union{Nothing,AbstractString}=nothing,
+                            alt::Union{Nothing,AbstractString}=nothing)
     plot_id = _sanitize_id(plot_id)
     fname = something(filename_base, plot_id)
     labels_js = isnothing(layer_labels) ? "{}" : _vl_json(Dict(string(k) => string(v) for (k, v) in layer_labels))
@@ -116,7 +131,7 @@ function with_plot_caption(plot_node, caption::CaptionSpec;
     end
 
     body = Any[render_caption(caption; actions=tuple(actions...), _caption_texts_kw(texts)...),
-               _figure_children(plot_node)...]
+               _report_children(plot_node, caption, static_image, alt)...]
 
     has_pretty = !isnothing(summary_table)
     if data_preview || has_pretty
@@ -175,6 +190,21 @@ _caption_texts_kw(texts::PlotTexts) = texts.more == _EN_PLOT_TEXTS.more ? (;) :
 _figure_children(plot_node) = (plot_node,)
 _figure_children(plot_node::Tuple) = plot_node
 
+# With a static image, the plot is HTML-only and the markdown view shows the
+# image with its alt text instead (an accessible PDF report is built from it).
+_report_children(plot_node, caption, ::Nothing, ::Nothing) = _figure_children(plot_node)
+_report_children(plot_node, caption, ::Nothing, alt) = throw(ArgumentError(
+    "with_plot_caption: `alt` is the alt text of `static_image`; pass the figure's static image too"))
+_report_children(plot_node, caption, static_image, alt) =
+    (map(html_only, _figure_children(plot_node))...,
+     _MarkdownView(_static_img(static_image, _figure_alt(caption, alt))))
+
+# A report figure is never decorative, so its alt text must say something.
+_figure_alt(caption, ::Nothing) = _figure_alt(caption,
+    isempty(caption.short) ? caption.title : caption.title * " — " * caption.short)
+_figure_alt(caption, alt::AbstractString) = isempty(strip(alt)) ? throw(ArgumentError(
+    "with_plot_caption: the static image's alt text is empty; pass `alt` describing what the figure shows")) : alt
+
 # Convenience: also accept a NamedTuple/kwargs form so callers don't need to
 # import CaptionSpec just to label one plot.
 with_plot_caption(plot_node; title, short="", long=nothing, kwargs...) =
@@ -208,6 +238,10 @@ band, typically 95%), `:inner` (narrowest), or a `Float64` like `0.8` (closest
 prob match — auto path only). `summary_sigfigs` rounds cells to N significant
 figures (default 2).
 
+`static_image` (with optional `alt`) puts the figure's image into the
+markdown view in place of the plot, as in the `plot_node` method; the channel
+picker is then left out of the markdown view too.
+
 Remaining `kwargs` are forwarded to the `plot_node` method.
 """
 function with_plot_caption(spec::VegaSpec, caption::CaptionSpec;
@@ -217,6 +251,7 @@ function with_plot_caption(spec::VegaSpec, caption::CaptionSpec;
                             summary_ci=:outer,
                             summary_sigfigs::Int=2,
                             texts::PlotTexts=_EN_PLOT_TEXTS,
+                            static_image::Union{Nothing,AbstractString}=nothing,
                             kwargs...)
     plot_id_s = _sanitize_id(plot_id)
 
@@ -257,12 +292,18 @@ function with_plot_caption(spec::VegaSpec, caption::CaptionSpec;
     end
 
     figure = with_plot_caption(plot_node, caption;
-        plot_id=plot_id_s, summary_table=resolved_summary, texts, kwargs...)
+        plot_id=plot_id_s, summary_table=resolved_summary, texts, static_image, kwargs...)
 
     # `data-aov-fragment` marks the whole card (controls + figure) so the
     # client-side "⬇ HTML" download can clone exactly this subtree.
-    isnothing(controls) ? figure : h.div(; data_aov_fragment=plot_id_s)(controls, figure)
+    isnothing(controls) ? figure :
+        h.div(; data_aov_fragment=plot_id_s)(_report_controls(controls, static_image), figure)
 end
+
+# The picker's labels and options are noise in a report built from the
+# markdown view of a figure that has a static image.
+_report_controls(controls, ::Nothing) = controls
+_report_controls(controls, _) = html_only(controls)
 
 with_plot_caption(spec::VegaSpec; title, short="", long=nothing, kwargs...) =
     with_plot_caption(spec, CaptionSpec(; title, short, long); kwargs...)

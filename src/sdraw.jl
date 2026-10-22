@@ -318,13 +318,17 @@ Render an AoG spec via AlgebraOfGraphics.draw → Makie → file.
 Saves the figure to `path` (format inferred from extension) and returns
 an `h.img` node pointing to `path`.
 
+`alt` gives the image its alt text, a description of what the figure shows
+(`<img src alt>`, Markdown carrying the alt). An accessible (PDF/UA) report
+needs it on every figure; without `alt` the image has none.
+
 Requires a Makie backend (e.g. CairoMakie) to be loaded.
 
 Extra `kwargs` are passed to `Makie.save` (e.g. `px_per_unit=2` for retina).
 """
-function sdraw(spec, path::AbstractString; kwargs...)
+function sdraw(spec, path::AbstractString; alt::Union{Nothing,AbstractString}=nothing, kwargs...)
     sdraw_file(spec, path; kwargs...)
-    h.img(; src=path)
+    _static_img(path, alt)
 end
 
 """
