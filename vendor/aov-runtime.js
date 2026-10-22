@@ -25,13 +25,19 @@ window.AoV = window.AoV || {
     // the re-embed that applies a changed one (see refreshTheme).
     _themeKeys: {},
     _reembeds: {},
+    // Keyed highlights (AoV.highlight): each plot's match test and the
+    // revision its view's `aov_highlight` signal shows. Hovers: the mark
+    // under the pointer, and the key it announced to its link group.
+    _highlights: {},
+    _hovers: {},
 
     // Every map keyed by plot id; dispose() clears each. A new per-plot
     // map belongs in this list.
     _perPlotState: ['views', '_results', '_els', '_embedTok', '_gens', '_pending',
         '_signals', '_liveRows', '_specRows', '_origSpecs', '_droppedLegends',
         '_embedOpts', '_observers', '_computedWidths', '_corrections', '_correctedRegime',
-        '_cur', '_pickers', '_mappings', '_themeKeys', '_reembeds', '_frames'],
+        '_cur', '_pickers', '_mappings', '_themeKeys', '_reembeds', '_frames',
+        '_highlights', '_hovers'],
 
     // Whether the runtime sizes this spec to its container: Julia's
     // `_embed_spec` marks a responsive layered/faceted/per-column spec with
@@ -455,6 +461,7 @@ window.AoV = window.AoV || {
         var self = this;
         self._watchRemovals();
         self._watchTheme();
+        self._watchLinks();
         // Live state (rows added via updateData/appendData, onSignal listeners) belongs
         // to the plot element: a new element with this ID (e.g. after an HTMX swap)
         // starts fresh, a new spec for the same element keeps the listeners.
@@ -464,6 +471,10 @@ window.AoV = window.AoV || {
         var prev = self.views[id], el = document.getElementById(id);
         var sameEl = el && (self._els[id] === el || (prev && el.contains(prev.container())));
         if (!sameEl) {
+            // A hover on the replaced element ends (its link group hears the
+            // key go), and a highlight set on it does not carry over.
+            self._hoverEnd(id, null);
+            delete self._highlights[id];
             delete self._signals[id];
             delete self._liveRows[id];
             delete self._droppedLegends[id];
@@ -492,6 +503,9 @@ window.AoV = window.AoV || {
         // Held by reference so an in-place data swap (updateSpec) reaches
         // the resize/fit re-embeds this embed schedules.
         var cur = self._cur[id] = {spec: origSpec};
+        // A linked plot that appears while its group shows a key (a fragment
+        // swapped in under a hovered table row) shows it too.
+        if (!sameEl) self._joinLinkState(id);
         // config(frame=…): the player and its controls, and the scale domains
         // every frame shares, computed once per spec before the first embed.
         var framePlan = self._frameSetup(id, el, origSpec, opts);
@@ -524,7 +538,7 @@ window.AoV = window.AoV || {
             // Superseded by a newer embed of this id, or disposed: a resize or
             // fit re-embed scheduled earlier must not resurrect the old spec.
             if (self._embedTok[id] !== tok) return Promise.resolve();
-            var s = self._applyResponsiveWidth(id, JSON.parse(JSON.stringify(cur.spec)), budget);
+            var s = self._withHighlight(id, self._applyResponsiveWidth(id, JSON.parse(JSON.stringify(cur.spec)), budget));
             // Host theme, read now: a theme change re-runs this embed.
             var embedOpts = self._withFrame(id, self._themedOpts(id, s, opts), plan);
             // Replace (not leak) the previous view
@@ -550,6 +564,7 @@ window.AoV = window.AoV || {
                     self._attachSignal(view, sig.signal, sig.callback);
                 });
                 self._attachClick(id, view);
+                self._attachHover(id, view);
                 self._frameSync(id, view);
                 // Run anything queued before the view was ready (e.g. appendData)
                 var pending = self._pending[id] || [];
@@ -739,6 +754,7 @@ window.AoV = window.AoV || {
     // embed still in flight is finalized when it resolves.
     dispose: function(id) {
         var self = this;
+        self._hoverEnd(id, null);
         self._frameStop(id);
         self._finalizeView(id);
         if (self._observers && self._observers[id]) self._observers[id].disconnect();
@@ -1661,6 +1677,225 @@ window.AoV = window.AoV || {
         });
     },
 
+    _dispatch: function(id, name, detail) {
+        var el = this._els[id];
+        if (el) el.dispatchEvent(new CustomEvent(name, {bubbles: true, detail: detail}));
+    },
+    // The row a data-mark item was drawn from, as `_attachClick` reads it;
+    // null for legend, axis and title items and an empty facet cell.
+    _markRow: function(item) {
+        if (!item || !item.mark || item.mark.role !== 'mark') return null;
+        var datum = item.datum;
+        while (datum && datum.mark && datum.mark.marktype && datum.datum) datum = datum.datum;
+        return datum || null;
+    },
+
+    // Hovering a data mark reaches app code as a bubbling `aov:hover` event
+    // on the plot element, detail {id, datum, event}; leaving it sends
+    // `aov:hoverend`, detail {id, datum, event}. Moving from one mark to the
+    // next sends the old mark's hoverend, then the new mark's hover. The
+    // marks are the ones `aov:click` reports: on a scatter with tooltips the
+    // nearest point. Vega reports an item change as mouseout then mouseover
+    // in one go, so a mouseout ends the hover only if no mouseover of the
+    // same row follows it; leaving the plot element ends it at once, which
+    // also covers a view replaced while the pointer was over it.
+    _attachHover: function(id, view) {
+        var self = this, el = self._els[id];
+        view.addEventListener('mouseover', function(event, item) {
+            var row = self._markRow(item);
+            if (row) self._hoverStart(id, row, event);
+        });
+        view.addEventListener('mouseout', function(event, item) {
+            if (self._markRow(item)) self._hoverLeave(id, event);
+        });
+        if (el && !el._aovHoverLeave) {
+            el._aovHoverLeave = true;
+            el.addEventListener('pointerleave', function(event) {
+                if (self._els[id] === el) self._hoverEnd(id, event);
+            });
+        }
+    },
+    _hoverStart: function(id, row, event) {
+        var h = this._hovers[id];
+        if (h && h.row === row) { h.leaving = false; return; }
+        if (h) this._hoverEnd(id, event);
+        // Each event carries its own copy of the row, as aov:click does.
+        h = this._hovers[id] = {row: row, leaving: false, key: null};
+        this._dispatch(id, 'aov:hover', {id: id, datum: Object.assign({}, row), event: event});
+        h.key = this._announce(id, row);
+    },
+    _hoverLeave: function(id, event) {
+        var self = this, h = self._hovers[id];
+        if (!h) return;
+        h.leaving = true;
+        Promise.resolve().then(function() {
+            if (self._hovers[id] === h && h.leaving) self._hoverEnd(id, event);
+        });
+    },
+    _hoverEnd: function(id, event) {
+        var h = this._hovers[id];
+        if (!h) return;
+        delete this._hovers[id];
+        this._dispatch(id, 'aov:hoverend', {id: id, datum: Object.assign({}, h.row), event: event});
+        if (h.key !== null) this._announceKey(id, null);
+    },
+
+    // --- Keyed highlight ---
+    // `AoV.highlight(id, match)` dims every mark of plot `id` whose row does
+    // not match to 15 % of its opacity, as a legend selection does; a
+    // legend selection and a highlight combine (a mark stays bright only if
+    // it passes both). `match` is {field: value} or {field: [values]}
+    // (values compare as strings; several fields must all match), or a
+    // function datum => boolean. A row that has none of the match's fields
+    // (a base map under linked points) is left alone. `AoV.clearHighlight(id)`
+    // or `highlight(id, null)` removes it. The highlight is a Vega signal
+    // the embedded layers test, so it repaints the live view: zoom, legend
+    // selection and the canvas stay. It is kept per plot and re-applied by
+    // every re-embed (resize, picker, theme, update_spec).
+    _HIGHLIGHT_PARAM: 'aov_highlight',
+    _highlightRev: 0,
+    highlight: function(id, match) {
+        var self = this;
+        if (match === null || match === undefined) return self.clearHighlight(id);
+        self._highlights[id] = {test: self._highlightTest(match), rev: ++self._highlightRev};
+        self._showHighlight(id);
+    },
+    clearHighlight: function(id) {
+        if (!this._highlights[id]) return;
+        delete this._highlights[id];
+        this._showHighlight(id);
+    },
+    _highlightTest: function(match) {
+        if (typeof match === 'function') return function(d) { return !!match(d); };
+        if (typeof match !== 'object') throw new TypeError('AoV.highlight: match is {field: value | [values]}, a function or null; got ' + match);
+        var fields = Object.keys(match);
+        var wanted = fields.map(function(f) {
+            return (Array.isArray(match[f]) ? match[f] : [match[f]]).map(String);
+        });
+        // A field the row lacks is not tested, so a row with none of them passes.
+        return function(d) {
+            for (var i = 0; i < fields.length; i++) {
+                if (!d || !Object.prototype.hasOwnProperty.call(d, fields[i])) continue;
+                if (wanted[i].indexOf(String(d[fields[i]])) === -1) return false;
+            }
+            return true;
+        };
+    },
+    _highlightValue: function(id) {
+        var h = this._highlights[id];
+        return h ? {id: id, rev: h.rev} : null;
+    },
+    _showHighlight: function(id) {
+        var self = this;
+        self.whenReady(id, function(view) {
+            try {
+                view.signal(self._HIGHLIGHT_PARAM, self._highlightValue(id)).runAsync();
+            } catch (e) { self._console.error.call(console, '[' + id + '] AoV.highlight:', e); }
+        });
+    },
+    // The expression function the highlight test calls: whether `datum`
+    // stays bright under the highlight the signal value names.
+    _registerHighlight: function() {
+        if (this._highlightRegistered || typeof vega === 'undefined' || !vega.expressionFunction) return;
+        var self = this;
+        vega.expressionFunction('aovHighlighted', function(h, datum) {
+            var hl = h && self._highlights[h.id];
+            return !hl || hl.test(datum);
+        });
+        this._highlightRegistered = true;
+    },
+    // The spec a view embeds, with the highlight signal (seeded with the
+    // plot's current highlight) and each data layer's dimming condition.
+    // A layer without an opacity encoding gets a condition with no else
+    // value, so an unhighlighted plot keeps Vega-Lite's own default opacity
+    // (0.7 on scatter points); a constant opacity and a legend selection's
+    // dimming are extended; a data-driven or other conditional opacity, and
+    // composite marks (boxplot, errorbar), are left alone, as the legend
+    // selection leaves them.
+    _withHighlight: function(id, spec) {
+        var self = this, name = self._HIGHLIGHT_PARAM, DIM = 0.15;
+        self._registerHighlight();
+        spec.params = (spec.params || []).filter(function(p) { return p.name !== name; })
+            .concat([{name: name, value: self._highlightValue(id)}]);
+        var dimmed = name + ' !== null && !aovHighlighted(' + name + ', datum)';
+        self._legendUnits(spec).forEach(function(info) {
+            var u = info.unit, enc = info.encoding;
+            var mark = typeof u.mark === 'string' ? u.mark : u.mark.type;
+            if (['boxplot', 'errorbar', 'errorband'].indexOf(mark) !== -1) return;
+            var op = enc.opacity, next;
+            if (op === undefined) {
+                var base = typeof u.mark === 'object' && typeof u.mark.opacity === 'number' ? u.mark.opacity :
+                    ['point', 'tick', 'circle', 'square'].indexOf(mark) !== -1 && !Object.keys(enc).some(function(k) {
+                        return enc[k] && typeof enc[k] === 'object' && enc[k].aggregate;
+                    }) ? 0.7 : 1;
+                next = {condition: {test: dimmed, value: DIM * base}};
+            } else if (u._aovLegend && u._aovLegend.dimmed && op.condition && !Array.isArray(op.condition)) {
+                next = {condition: {test: {and: [op.condition.test, {not: dimmed}]}, value: op.condition.value},
+                    value: op.value};
+            } else if (op && typeof op.value === 'number' && op.condition === undefined && op.field === undefined) {
+                next = {condition: {test: dimmed, value: DIM * op.value}, value: op.value};
+            } else {
+                return;
+            }
+            u.encoding = Object.assign({}, u.encoding, {opacity: next});
+        });
+        return spec;
+    },
+
+    // --- Link groups (`config(link=(; group, key))`) ---
+    // Plots and tables showing the same items join a named group. Hovering a
+    // linked plot's mark announces its key on `document` as an `htmxo:link`
+    // event, detail {group, key, source} (the key as a string, null when the
+    // hover ends; `source` is the plot element), the contract HTMXObjects'
+    // tables share. Every other member of the group shows the key: a linked
+    // plot highlights its marks whose `key` field equals it, and a null key
+    // clears that. The hovered plot itself is not dimmed.
+    _link: function(id) {
+        var cur = this._cur[id], link = cur && cur.spec && cur.spec._aov && cur.spec._aov.link;
+        return link && link.group ? link : null;
+    },
+    _announce: function(id, datum) {
+        var link = this._link(id);
+        if (!link || !datum || !Object.prototype.hasOwnProperty.call(datum, link.key) ||
+            datum[link.key] === null || datum[link.key] === undefined) return null;
+        var key = String(datum[link.key]);
+        this._announceKey(id, key);
+        return key;
+    },
+    _announceKey: function(id, key) {
+        var link = this._link(id);
+        if (!link) return;
+        document.dispatchEvent(new CustomEvent('htmxo:link',
+            {detail: {group: link.group, key: key, source: this._els[id] || null}}));
+    },
+    // The latest announcement per group, {key, source}.
+    _linkState: {},
+    _showLinkKey: function(id, link, key) {
+        if (key === null || key === undefined) { this.clearHighlight(id); return; }
+        var m = {};
+        m[link.key] = String(key);
+        this.highlight(id, m);
+    },
+    _joinLinkState: function(id) {
+        var link = this._link(id), st = link && this._linkState[link.group];
+        if (st && st.key !== null && st.key !== undefined && st.source !== this._els[id]) this._showLinkKey(id, link, st.key);
+    },
+    _watchLinks: function() {
+        if (this._linkListener) return;
+        var self = this;
+        this._linkListener = function(e) {
+            var d = e.detail || {};
+            if (typeof d.group !== 'string') return;
+            self._linkState[d.group] = {key: d.key === undefined ? null : d.key, source: d.source || null};
+            Object.keys(self._cur).forEach(function(id) {
+                var link = self._link(id);
+                if (!link || link.group !== d.group || (d.source && d.source === self._els[id])) return;
+                self._showLinkKey(id, link, d.key);
+            });
+        };
+        document.addEventListener('htmxo:link', this._linkListener);
+    },
+
     // --- Plot data download / inline preview ---
     // Read inline data from a plot's view; returns array of objects.
     // Tries the named source first, falls back to common VL conventions.
@@ -2574,9 +2809,10 @@ window.AoV = window.AoV || {
                     // Single-view: use VL native responsive width
                     spec.width = 'container';
                     spec.autosize = {type: 'fit', contains: 'padding'};
-                    var frame = spec._aov.frame;
+                    var kept = {};
+                    ['frame', 'link'].forEach(function(k) { if (spec._aov[k]) kept[k] = spec._aov[k]; });
                     delete spec._aov;
-                    if (frame) spec._aov = {frame: frame};
+                    if (Object.keys(kept).length) spec._aov = kept;
                 }
                 // An authored width came back from the cell above.
             } else {

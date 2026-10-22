@@ -110,6 +110,11 @@ Create a `Config` with Vega-Lite properties. Common options:
   `frame=(; field=:year, interval=0.5, loop=false, start=:first)`. Frames play in sorted
   order, or in a `sorter` order (`frame=:month => sorter("Jan", "Feb", …)`). Colour, size
   and x/y scales, and a map's projection, stay fixed across frames. Interactive path only.
+- `link` — join a link group, e.g. `link=(; group="probes", key=:kenn)`: hovering one of this
+  plot's marks highlights the item with the same `kenn` in every other member of group
+  `probes` (other linked plots, HTMXObjects tables), and hovering an item there highlights
+  this plot's marks with that `kenn` (the others dim, as for a legend selection). Interactive
+  path only; a static figure ignores it.
 - `scales` — an AoG `scales(...)` object, mirroring `draw(spec, scales(...))`. Currently
   translates X/Y/Z `scale=log`/`log2`/`log10`/`sqrt`/`symlog`/`identity` to VL scale types.
   Example: `config(scales=scales(Y=(; scale=log10)))`. Use `scale=symlog` for a symlog
@@ -140,6 +145,7 @@ function config(; kwargs...)
         haskey(props, key) && (props[key] = _lower_vl_object(key, props[key]))
     end
     haskey(props, :frame) && (props[:frame] = _frame_options(props[:frame]))
+    haskey(props, :link) && (props[:link] = _link_options(props[:link]))
     Config(props)
 end
 
