@@ -40,6 +40,7 @@ to_vegalite
 sdraw
 sdraw_file
 sdraw!
+vsave
 vlspec
 ```
 
@@ -50,11 +51,12 @@ vlspec
 | `to_html(spec)`| A standalone HTML string with the Vega tags embedded (`source=:inline` for fully offline) |
 | `to_json(spec)`| Pretty-printed Vega-Lite JSON                                                       |
 | `to_vegalite(spec; interactive=true, auto_remap=nothing)` | Raw Vega-Lite spec as a `Dict{String,Any}`; pass `interactive=false` to omit AoV-generated parameters, and a channel-picker figure's `auto_remap` keywords to get the Vega-Lite that picker embeds |
-| `sdraw(spec, path; kwargs...)` | Save through AoG/Makie and return an `HTMX.Node` image pointing to `path` |
+| `sdraw(spec, path; alt=nothing, kwargs...)` | Save through AoG/Makie and return an `HTMX.Node` image pointing to `path`, with alt text `alt` when given |
 | `sdraw_file(spec, path; kwargs...)` | Save through AoG/Makie and return `path`; keywords pass to `Makie.save` |
 | `sdraw!(position, spec)` | Draw into an existing Makie figure/layout position for static composition |
+| `vsave(spec, path; locale, scale, ppi)` | Write the figure `vdraw` shows to a PDF/SVG/PNG file through the vl-convert CLI and return `path`; works for every figure, including `geoshape` maps |
 
-The static functions require a loaded Makie backend such as CairoMakie. Compose
+`vsave` needs the [vl-convert](https://github.com/vega/vl-convert/releases) command-line tool on `PATH` (or `ENV["AOV_VL_CONVERT"]`), not Makie. The `sdraw` functions require a loaded Makie backend such as CairoMakie. Compose
 panels with independently configured axes by drawing each spec into its own
 layout position and saving the parent figure:
 
@@ -187,6 +189,11 @@ refine_channels
 with_plot_caption
 draws_summary_table
 ```
+
+For a report built from a page's markdown view, such as an accessible (PDF/UA)
+PDF, render the figure to a file first (for example with `sdraw_file`) and pass
+it as `static_image="figs/radon.png"`: the markdown view then shows that image,
+with alt text from the caption (or `alt=`), in place of the interactive plot.
 
 The words of a captioned plot's chrome (the caption's "More" toggle, its
 buttons, the data preview and the channel picker) come from `texts=`:

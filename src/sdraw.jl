@@ -292,11 +292,11 @@ _convert_drawable(d) = d
 
 _aog_from_analysis(a::LineRibbonAnalysis, l) = _lineribbon_to_aog(a, l)
 _aog_from_analysis(a::PrecomputedRibbonAnalysis, l) = _precomputed_ribbon_to_aog(a, l)
-_aog_from_analysis(a, _) = error("sdraw does not yet support $(typeof(a)) — use vdraw for this plot type")
+_aog_from_analysis(a, _) = error("sdraw does not yet support $(typeof(a)) — use vdraw for this plot type, or vsave(spec, path) for a PDF/SVG/PNG file of it")
 
 function _convert_single_layer(l::AlgebraOfGraphics.Layer)
     isnothing(extract_transformation(l, GeoShapeAnalysis)) || error(
-        "sdraw does not support geoshape — a polygon map has no Makie analogue in AlgebraOfVega; use vdraw for this plot type")
+        "sdraw does not support geoshape — a polygon map has no Makie analogue in AlgebraOfVega; use vdraw for this plot type, or vsave(spec, path) for a PDF/SVG/PNG file of it")
     a = _get_analysis(l)
     isnothing(a) && return _fix_visual_attrs(l)
     _aog_from_analysis(a, l)
@@ -318,13 +318,17 @@ Render an AoG spec via AlgebraOfGraphics.draw → Makie → file.
 Saves the figure to `path` (format inferred from extension) and returns
 an `h.img` node pointing to `path`.
 
+`alt` gives the image its alt text, a description of what the figure shows
+(`<img src alt>`, Markdown carrying the alt). An accessible (PDF/UA) report
+needs it on every figure; without `alt` the image has none.
+
 Requires a Makie backend (e.g. CairoMakie) to be loaded.
 
 Extra `kwargs` are passed to `Makie.save` (e.g. `px_per_unit=2` for retina).
 """
-function sdraw(spec, path::AbstractString; kwargs...)
+function sdraw(spec, path::AbstractString; alt::Union{Nothing,AbstractString}=nothing, kwargs...)
     sdraw_file(spec, path; kwargs...)
-    h.img(; src=path)
+    _static_img(path, alt)
 end
 
 """

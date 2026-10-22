@@ -404,6 +404,26 @@ end
 
 plot_summary_md(spec; kwargs...) = plot_summary_md(_as_vl_dict(spec); kwargs...)
 
+# --- A figure's static image with alt text ----------------------------------
+#
+# An accessible (PDF/UA) report is built from a page's markdown view, and every
+# figure in it needs alt text: Typst's `pdf-standard: ua-1` refuses an image
+# without one. `sdraw(...; alt)` and `with_plot_caption(...; static_image, alt)`
+# build that image here.
+
+# `<img src alt>`; `alt=nothing` keeps a bare `<img src>`.
+_static_img(src::AbstractString, ::Nothing) = h.img(; src)
+_static_img(src::AbstractString, alt::AbstractString) = h.img(; src, alt)
+
+# Shows `node` in the markdown view only: invisible under `text/html`, like
+# `PlotSummary`, but written by HTMX's own markdown writer.
+struct _MarkdownView
+    node
+end
+
+Base.show(::IO, ::MIME"text/html", ::_MarkdownView) = nothing
+Base.show(io::IO, m::MIME"text/markdown", v::_MarkdownView) = show(io, m, v.node)
+
 # Look up a key in a per-signal entry. NamedTuple uses Symbol keys, Dict uses String.
 _sig_get(sig::NamedTuple, key::Symbol) = getproperty(sig, key)
 _sig_get(sig, key::Symbol) = sig[string(key)]

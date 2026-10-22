@@ -86,6 +86,23 @@ jobs:
             Pkg.resolve()
           '
       - uses: julia-actions/julia-buildpkg@v1
+      - name: Install vl-convert
+        run: |
+          # `vsave` renders through the vl-convert CLI (test/vsave.jl). Pin the
+          # release its test items were verified against, checksum included.
+          case "$RUNNER_OS-$RUNNER_ARCH" in
+            Linux-X64)   dist=linux-64;  sum=f557637a159c7510a1486e1e41a86c3919abd71c18abc0826b499c76c712aa53 ;;
+            macOS-ARM64) dist=osx-arm64; sum=794a4182f3717a4730eb0dc8c08f290880a6a56c010f7335e32ceda7a1a3178e ;;
+            Windows-X64) dist=win-64;    sum=97ddf99e7f57133367bcda75fba172acb59db5a65350f28feb2bf29a24cc8b07 ;;
+            *) echo "no pinned vl-convert build for $RUNNER_OS-$RUNNER_ARCH" >&2; exit 1 ;;
+          esac
+          dir="$RUNNER_TEMP/vl-convert"
+          mkdir -p "$dir"
+          curl -sSfL -o "$dir/vl-convert.zip" "https://github.com/vega/vl-convert/releases/download/v1.9.0/vl-convert_$dist.zip"
+          got=$( (command -v sha256sum >/dev/null && sha256sum "$dir/vl-convert.zip" || shasum -a 256 "$dir/vl-convert.zip") | cut -d' ' -f1)
+          [ "$got" = "$sum" ] || { echo "vl-convert_$dist.zip sha256 $got, expected $sum" >&2; exit 1; }
+          unzip -q -o "$dir/vl-convert.zip" -d "$dir"
+          echo "$dir/bin" >> "$GITHUB_PATH"
       - name: Run tests
         run: julia --project=. -e 'using Pkg; Pkg.test(; coverage=true)'
       - uses: julia-actions/julia-processcoverage@v1
