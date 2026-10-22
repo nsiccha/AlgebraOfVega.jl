@@ -40,6 +40,7 @@ to_vegalite
 sdraw
 sdraw_file
 sdraw!
+vsave
 vlspec
 ```
 
@@ -53,8 +54,9 @@ vlspec
 | `sdraw(spec, path; alt=nothing, kwargs...)` | Save through AoG/Makie and return an `HTMX.Node` image pointing to `path`, with alt text `alt` when given |
 | `sdraw_file(spec, path; kwargs...)` | Save through AoG/Makie and return `path`; keywords pass to `Makie.save` |
 | `sdraw!(position, spec)` | Draw into an existing Makie figure/layout position for static composition |
+| `vsave(spec, path; locale, scale, ppi)` | Write the figure `vdraw` shows to a PDF/SVG/PNG file through the vl-convert CLI and return `path`; works for every figure, including `geoshape` maps |
 
-The static functions require a loaded Makie backend such as CairoMakie. Compose
+`vsave` needs the [vl-convert](https://github.com/vega/vl-convert/releases) command-line tool on `PATH` (or `ENV["AOV_VL_CONVERT"]`), not Makie. The `sdraw` functions require a loaded Makie backend such as CairoMakie. Compose
 panels with independently configured axes by drawing each spec into its own
 layout position and saving the parent figure:
 

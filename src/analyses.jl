@@ -229,8 +229,8 @@ Such a layer takes plain point-like marks (`Scatter`, `Lines`, `Text`) with
 the usual named channels and tooltips; an analysis layer, an x/y channel, a
 mark that cannot stand at a point, or two geoshapes with different
 projections fail with an `ArgumentError`. This is a Vega-Lite-only plot type: the static
-`sdraw` path refuses it loudly, and a mounted map refreshes with
-`update_spec`. The channel picker keeps its x/y
+`sdraw` path refuses it loudly, [`vsave`](@ref) writes it to a PDF/SVG/PNG file,
+and a mounted map refreshes with `update_spec`. The channel picker keeps its x/y
 channels disabled for a geoshape layer, as for the interval analyses.
 """
 function geoshape(geometry; key=nothing, projection=:mercator)
