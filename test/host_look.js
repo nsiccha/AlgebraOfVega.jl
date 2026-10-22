@@ -1,7 +1,7 @@
 // Host-look browser checks: host-themed plots take the page's font and its
-// `--aov-*` look (palette, axis/grid/tick/domain, legend and facet-header
-// colours), keep authored colours, switch live through refreshTheme(), and
-// carry the look into PNG/SVG downloads and a saved card.
+// `--aov-*` look (palette, axis/grid/tick/domain, view-frame, legend and
+// facet-header colours), keep authored colours, switch live through
+// refreshTheme(), and carry the look into PNG/SVG downloads and a saved card.
 (async function () {
     const failures = [];
     let checks = 0;
@@ -35,6 +35,14 @@
     const textFills = (view, r) => uniq(role(view, r).filter(i => i.mark.marktype === 'text').map(i => i.fill));
     const fonts = (view, r) => uniq(role(view, r).filter(i => i.mark.marktype === 'text').map(i => i.font));
     const ruleStrokes = (view, r) => uniq(role(view, r).filter(i => i.mark.marktype === 'rule').map(i => i.stroke));
+    // The view frame: a single view's root `frame` group, or each facet cell
+    // (`scope`); a facet's root carries no stroke.
+    const frameStrokes = view => uniq(items(view, i => i.mark?.marktype === 'group' &&
+        (i.mark.role === 'frame' || i.mark.role === 'scope') && 'stroke' in i).map(i => i.stroke));
+    function viewFrame(view, expected, label) {
+        const got = frameStrokes(view);
+        check(same(got, expected), label + ': view frame ' + JSON.stringify(got) + ', expected ' + JSON.stringify(expected));
+    }
     // Facet header labels and titles are both `title-text`; tell them by text.
     const headerFills = (view, texts) => uniq(role(view, 'title-text')
         .filter(i => texts.includes(i.text)).map(i => i.fill));
@@ -102,6 +110,9 @@
             JSON.stringify(ruleStrokes(views['look-scatter'], 'axis-grid')));
         check(role(views['look-scatter'], 'axis-tick').length > 0, 'default: no axis ticks');
         check(role(views['look-scatter'], 'axis-domain').length > 0, 'default: no axis domain');
+        viewFrame(views['look-scatter'], [FAINT], 'default scatter');
+        viewFrame(views['look-facet'], [FAINT], 'default facet');
+        viewFrame(views['look-invalid'], ['rgb(4, 5, 7)'], 'default view colour');
         check(same(headerFills(views['look-facet'], ['p1', 'p2']), [TEXT]), 'default: header labels ' +
             JSON.stringify(headerFills(views['look-facet'], ['p1', 'p2'])));
         check(!fonts(views['look-none'], 'axis-label').includes(PAGE_FONT), 'theme none took the page font');
@@ -124,6 +135,7 @@
         check(invalidCfg.axis.gridColor === FAINT, 'invalid grid colour applied: ' + invalidCfg.axis.gridColor);
         check(!invalidCfg.range, 'palette with an invalid entry applied: ' + JSON.stringify(invalidCfg.range));
         check(invalidCfg.axis.tickColor === 'rgb(1, 2, 3)', 'valid tick colour beside invalid ones: ' + invalidCfg.axis.tickColor);
+        check(invalidCfg.view.stroke === 'rgb(4, 5, 7)', 'valid view colour beside invalid ones: ' + invalidCfg.view.stroke);
         check(warned.length === 2 && warned.some(w => w.includes('--aov-grid-color') && w.includes('notacolor')) &&
             warned.some(w => w.includes('--aov-category') && w.includes('nocolor')), 'invalid values not reported: ' +
             JSON.stringify(warned));
@@ -147,6 +159,8 @@
         check(same(ruleStrokes(s, 'axis-grid'), ['rgb(0, 0, 90)']), 'alt: grid ' + JSON.stringify(ruleStrokes(s, 'axis-grid')));
         check(role(s, 'axis-tick').length === 0, 'alt: ticks drawn (--aov-tick-color: NONE)');
         check(role(s, 'axis-domain').length === 0, 'alt: axis line drawn (--aov-domain-color: none)');
+        viewFrame(s, [null], 'alt scatter (--aov-view-color: none)');
+        viewFrame(views['look-facet'], [null], 'alt facet (--aov-view-color: none)');
         check(same(textFills(s, 'legend-label'), ['rgb(91, 0, 0)']), 'alt: legend labels ' + JSON.stringify(textFills(s, 'legend-label')));
         check(same(textFills(s, 'legend-title'), ['rgb(0, 91, 0)']), 'alt: legend title ' + JSON.stringify(textFills(s, 'legend-title')));
         check(same(fonts(s, 'legend-label'), [ALT_FONT]), 'alt: legend font ' + JSON.stringify(fonts(s, 'legend-label')));
@@ -167,6 +181,7 @@
         font(views['look-face'], '"AoV Test Face"', 'alt face');
         check(same(ruleStrokes(views['look-invalid'], 'axis-grid'), [FAINT]), 'alt: invalid wrapper grid ' +
             JSON.stringify(ruleStrokes(views['look-invalid'], 'axis-grid')));
+        viewFrame(views['look-invalid'], ['rgb(4, 5, 7)'], 'alt wrapper view colour');
         check(!fonts(views['look-none'], 'axis-label').includes(ALT_FONT), 'alt: theme none took the look font');
 
         // Downloads render with the same font and palette.
@@ -188,6 +203,7 @@
         check(pinned('--aov-category').includes('#c0ffee') && pinned('--aov-category').includes('rgb(200, 100, 0)'),
             'saved card palette ' + pinned('--aov-category'));
         check(pinned('--aov-tick-color').toLowerCase() === 'none', 'saved card ticks ' + pinned('--aov-tick-color'));
+        check(pinned('--aov-view-color') === 'none', 'saved card view frame ' + pinned('--aov-view-color'));
         const frame = document.createElement('iframe');
         frame.style.width = '900px';
         frame.style.height = '600px';
@@ -199,6 +215,7 @@
         palette(savedView, ALT, 'saved card');
         font(savedView, ALT_FONT, 'saved card');
         check(role(savedView, 'axis-tick').length === 0, 'saved card: ticks drawn');
+        viewFrame(savedView, [null], 'saved card');
         frame.remove();
 
         // --- And back to the page's default look. ---
@@ -206,6 +223,7 @@
         palette(views['look-scatter'], TABLEAU, 'back');
         font(views['look-scatter'], PAGE_FONT, 'back');
         check(role(views['look-scatter'], 'axis-tick').length > 0, 'back: no axis ticks');
+        viewFrame(views['look-scatter'], [FAINT], 'back');
         check(same(textFills(views['look-scatter'], 'axis-label'), [TEXT]), 'back: axis labels');
     } catch (error) {
         failures.push(error.stack || String(error));
