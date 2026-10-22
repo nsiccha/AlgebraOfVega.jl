@@ -24,6 +24,13 @@ using TestItemRunner
     choropleth(sc; tbl=regions) = data(tbl) * mapping(:ags; color=:estimate => "% per year") *
         geoshape(geojson(tbl.ags)) * config(width=300, height=80, scales=sc)
     blueorange = scales(Color=(; colormap=:blueorange, colorrange=(-20, 20)))
+
+    # Route segments coloured by a category, drawn over the choropleth.
+    segs = (; seg=["s1", "s1", "s2", "s2"], lon=[10.2, 14.8, 10.2, 14.8], lat=[54.6, 54.6, 54.3, 54.3],
+              check=["ok", "ok", "manual check", "manual check"])
+    routes = data(segs) * mapping(:lon, :lat; group=:seg, color=:check => "Check") * visual(Lines; linewidth=3)
+    map_with_routes(sc) = (data(regions) * mapping(:ags; color=:estimate => "% per year") *
+        geoshape(geojson(regions.ags)) + routes) * config(width=300, height=80, scales=sc)
 end
 
 @testitem "colorrange clips out-of-range colours on the Vega-Lite path" setup=[AoVColorClipFixtures] tags=[:regression, :translation, :geoshape] begin
@@ -74,6 +81,63 @@ end
     @test_logs (:warn, r"`label` is not lowered") match_mode=:any to_vegalite(choropleth(scales(Color=(; label="x"))))
 end
 
+# A figure that colours one layer by a number and another by a category takes each
+# `Color` key on the layer of its kind. Before, every key landed on every colour
+# encoding: `colorrange` put a numeric domain on the nominal routes, so they painted
+# nothing and their legend listed the bounds, and `categories` put a string domain on
+# the numeric choropleth (snag `color-scale-suga-d3529048`, decision `0qhmti5`).
+@testitem "Color scale keys reach only the colour encodings of their kind" setup=[AoVColorClipFixtures] tags=[:regression, :translation, :geoshape] begin
+    colours(vl) = Dict(l["encoding"]["color"]["field"] => l["encoding"]["color"] for l in vl["layer"])
+
+    c = colours(to_vegalite(map_with_routes(blueorange); interactive=false))
+    @test c["estimate"]["scale"] == Dict{String,Any}("scheme" => "blueorange", "domain" => [-20, 20], "clamp" => true)
+    @test !haskey(c["check"], "scale")
+
+    both = scales(Color=(; colormap=:blueorange, colorrange=(-20, 20), lowclip=:red, nan_color=:grey,
+                           palette=["#1b9e77", "#d95f02"], categories=["ok", "manual check"]))
+    vl = to_vegalite(map_with_routes(both); interactive=false)
+    c = colours(vl)
+    @test c["estimate"]["scale"] == Dict{String,Any}("scheme" => "blueorange", "domain" => [-20, 20], "clamp" => true)
+    @test length(c["estimate"]["condition"]) == 1
+    @test c["check"]["scale"] == Dict{String,Any}("domain" => ["ok", "manual check"], "range" => ["#1b9e77", "#d95f02"])
+    @test !haskey(c["check"], "condition")
+    @test vl["config"]["scale"]["invalid"]["color"] == Dict{String,Any}("value" => "grey")
+
+    # Not map-specific; the positional form agrees.
+    pts = (; x=[1.0, 2.0], y=[1.0, 2.0], demand=[10.0, 90.0])
+    plain = data(pts) * mapping(:x, :y; color=:demand) * visual(Scatter) +
+            data(segs) * mapping(:lon, :lat; group=:seg, color=:check) * visual(Lines)
+    sc = scales(Color=(; colormap=:viridis, colorrange=(0, 100), categories=["manual check", "ok"]))
+    for c in (colours(to_vegalite(plain * config(scales=sc))), colours(to_vegalite(plain, sc)))
+        @test c["demand"]["scale"]["domain"] == [0, 100]
+        @test c["check"]["scale"] == Dict{String,Any}("domain" => ["manual check", "ok"])
+    end
+
+    # Untyped encodings take Vega-Lite's default type.
+    @test AlgebraOfVega._color_kind(Dict{String,Any}("field" => "g")) === :categorical
+    @test AlgebraOfVega._color_kind(Dict{String,Any}("field" => "v", "aggregate" => "mean")) === :continuous
+    @test AlgebraOfVega._color_kind(Dict{String,Any}("field" => "d", "type" => "ordinal")) === :categorical
+
+    # refused: AoG rejects colormap/colorrange on a categorical colour scale (decision `0qhmti5`)
+    err = try to_vegalite(routes * config(scales=blueorange)); nothing catch e; e end
+    @test err isa ArgumentError
+    @test occursin("`colormap`, `colorrange`", sprint(showerror, err))
+    @test occursin("`check`", sprint(showerror, err))
+    @test occursin("palette=:viridis", sprint(showerror, err))
+    # refused: AoG rejects palette/categories on a continuous colour scale (decision `0qhmti5`)
+    err = try to_vegalite(choropleth(scales(Color=(; palette=["red", "blue"])))); nothing catch e; e end
+    @test err isa ArgumentError
+    @test occursin("attribute `palette` describes", sprint(showerror, err))
+    @test occursin("`colormap`", sprint(showerror, err))
+    # A named scheme on a categorical colour is AoG's `palette`, and stays a scheme.
+    @test colours(to_vegalite(map_with_routes(scales(Color=(; palette=:tableau10)))))["check"]["scale"] ==
+        Dict{String,Any}("scheme" => "tableau10")
+
+    # A figure with no colour encoding (a picker state with colour off) is left alone.
+    nocolour = data(pts) * mapping(:x, :y) * visual(Scatter) * config(scales=blueorange)
+    @test !haskey(to_vegalite(nocolour)["encoding"], "color")
+end
+
 @testitem "colour clipping in the browser" setup=[AoVColorClipFixtures] tags=[:regression, :browser, :geoshape] begin
     using HTMX, JSON
     html(x) = sprint(show, MIME"text/html"(), x)
@@ -89,7 +153,8 @@ end
             page = [vdraw(choropleth(blueorange); id="clip-default"),
                 vdraw(choropleth(colours; tbl=nan_regions); id="clip-colours"),
                 vdraw(data(points) * mapping(:x, :x; color=:v) * visual(Scatter) *
-                    config(width=300, height=80, scales=colours); id="clip-points")]
+                    config(width=300, height=80, scales=colours); id="clip-points"),
+                vdraw(map_with_routes(blueorange); id="clip-mixed")]
             head = join(html(n) for n in vega_head(; source=:inline))
             driver = read(joinpath(@__DIR__, "color_scale_clip.js"), String)
             write(joinpath(dir, "page.html"), "<!doctype html><meta charset='utf-8'>" * head *
@@ -103,7 +168,7 @@ end
             if !isnothing(result)
                 report = JSON.parse(replace(result[1], "&quot;" => "\"", "&lt;" => "<",
                     "&gt;" => ">", "&amp;" => "&"))
-                @test report["checks"] >= 12
+                @test report["checks"] >= 16
                 @test isempty(report["failures"])
                 @info "colour clipping browser checks" checks=report["checks"]
                 isempty(report["failures"]) || println(JSON.json(report["failures"]))

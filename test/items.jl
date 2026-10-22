@@ -869,11 +869,10 @@ Regression for snag `apply-the-aov-us-45aac295`.
     @test vl3["layer"][1]["encoding"]["color"]["scale"]["range"] == palette
     @test !haskey(vl3["layer"][end]["encoding"], "color")
 
-    # --- Continuous colour: colormap → scheme, colorrange → domain ---
-    vl4 = to_vegalite(spec, scales(Color=(colormap=:viridis, colorrange=(0.0, 2.0))))
-    c4 = vl4["layer"][1]["encoding"]["color"]["scale"]
-    @test c4["scheme"] == "viridis"
-    @test c4["domain"] == [0.0, 2.0]
+    # --- Continuous colour keys do not describe this nominal colour ---
+    # (colormap → scheme and colorrange → domain on a numeric colour: color_scale_clip.jl)
+    # refused: AoG rejects colormap/colorrange on a categorical colour scale (decision `0qhmti5`)
+    @test_throws ArgumentError to_vegalite(spec, scales(Color=(colormap=:viridis, colorrange=(0.0, 2.0))))
 end
 
 """
