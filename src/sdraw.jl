@@ -292,11 +292,11 @@ _convert_drawable(d) = d
 
 _aog_from_analysis(a::LineRibbonAnalysis, l) = _lineribbon_to_aog(a, l)
 _aog_from_analysis(a::PrecomputedRibbonAnalysis, l) = _precomputed_ribbon_to_aog(a, l)
-_aog_from_analysis(a, _) = error("sdraw does not yet support $(typeof(a)) — use vdraw for this plot type")
+_aog_from_analysis(a, _) = error("sdraw does not yet support $(typeof(a)) — use vdraw for this plot type, or vsave(spec, path) for a PDF/SVG/PNG file of it")
 
 function _convert_single_layer(l::AlgebraOfGraphics.Layer)
     isnothing(extract_transformation(l, GeoShapeAnalysis)) || error(
-        "sdraw does not support geoshape — a polygon map has no Makie analogue in AlgebraOfVega; use vdraw for this plot type")
+        "sdraw does not support geoshape — a polygon map has no Makie analogue in AlgebraOfVega; use vdraw for this plot type, or vsave(spec, path) for a PDF/SVG/PNG file of it")
     a = _get_analysis(l)
     isnothing(a) && return _fix_visual_attrs(l)
     _aog_from_analysis(a, l)

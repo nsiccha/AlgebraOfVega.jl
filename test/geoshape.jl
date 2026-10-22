@@ -118,6 +118,8 @@ end
     @test err isa ErrorException
     @test occursin("geoshape", sprint(showerror, err))
     @test occursin("vdraw", sprint(showerror, err))
+    # …and names the file export that does draw it.
+    @test occursin("vsave", sprint(showerror, err))
 end
 
 @testitem "geoshape in the browser: each facet panel draws its own year" tags=[:regression, :browser, :geoshape, :facet] begin
