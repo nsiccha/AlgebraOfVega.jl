@@ -171,17 +171,54 @@ sized as if the container were `max_width` px (layered/faceted specs), or fills
 at most `max_width` px of its container (single-view specs). A per-plot
 `config(max_width=...)` overrides this page-level value for that plot.
 
-`theme` selects how plots follow the page's light/dark choice. `:host` (the
-default) draws axes, legends, facet headers, titles and unencoded text in the
-CSS `color` each plot element inherits, on a transparent background, and
+`theme` selects how plots follow the page's look. `:host` (the default) draws
+axes, legends, facet headers, titles and unencoded text in the CSS `color` each
+plot element inherits, in its `font-family` (a page left on the browser's
+default font keeps Vega's sans-serif), on a transparent background, and
 re-renders the plots when the page's colour scheme changes (a
 `prefers-color-scheme` change, or a `class` / `data-theme` / `style` change on
 `<html>` or `<body>`). Authored palette and literal mark colours are unchanged;
 `visual(...; color=:ink)` uses the plot's inherited foreground colour instead.
 A spec's own `config(config=Dict(...))` values still win. PNG/SVG
 downloads of such a plot are painted on the page background behind it. `:none`
-keeps Vega's own defaults (white background, black text). A per-plot
+keeps Vega's own defaults (white background, black text, sans-serif). A per-plot
 `config(theme=...)` overrides this page-level value for that plot.
+
+A page restyles its host-themed plots further with optional CSS custom
+properties, set on the plot element or any ancestor. Their values may use
+`currentColor` and `light-dark()`, which resolve where the plot sits, and
+`var(...)` tokens, which CSS resolves where the property is declared (a token
+defined only on a descendant, such as `body` for a property set on `html`,
+invalidates the whole property):
+
+| Property | Sets |
+|:---|:---|
+| `--aov-font` | the plot font, a `font-family` list, instead of the element's own |
+| `--aov-category` | the default categorical palette, a comma-separated colour list |
+| `--aov-axis-label-color`, `--aov-axis-title-color` | axis labels and titles |
+| `--aov-grid-color`, `--aov-tick-color`, `--aov-domain-color` | grid lines, ticks and the axis line; `none` leaves them out |
+| `--aov-legend-label-color`, `--aov-legend-title-color` | legend labels and titles |
+| `--aov-header-label-color`, `--aov-header-title-color` | facet header labels and titles |
+
+An unset property keeps the host default. `--aov-category` only replaces the
+default range: `scales(Color=(; palette))`, an explicit scale range or scheme,
+and literal mark colours keep theirs. An invalid value is reported on the
+browser console and ignored. For example:
+
+```css
+html[data-look=brand] {
+  --aov-font: "Brand Sans", sans-serif;
+  --aov-category: #1f6f8b, #e07a1f, #6a994e, var(--brand-accent);
+  --aov-grid-color: light-dark(#eceff3, #2a2f37);
+  --aov-domain-color: none;
+}
+```
+
+To switch a look live, change the CSS (for example that attribute on `<html>`)
+and call `AoV.refreshTheme()`; it re-renders every plot whose look changed,
+keeping its data and picker state. A `class`, `data-theme` or `style` change on
+`<html>` or `<body>` re-renders by itself. PNG/SVG downloads keep the font and
+look, and a saved card (`downloadPlotHtml`) pins them on its plot element.
 """
 function vega_head(;
     vega_version=VEGA_VERSION,
@@ -381,9 +418,10 @@ Client-side API:
   `key` as a `CustomEvent('htmxo:link', {detail: {group, key, source}})` on `document`
   (`key: null` when the hover ends), and highlights its marks whose `key` equals a key
   another member of the group announces — the contract HTMXObjects' tables share
-- `AoV.refreshTheme()` — re-render host-themed plots whose inherited text colour
-  changed (automatic on `prefers-color-scheme` and `<html>`/`<body>` class,
-  `data-theme` or `style` changes; call it after other theme switches)
+- `AoV.refreshTheme()` — re-render host-themed plots whose inherited text colour,
+  font or `--aov-*` look changed (automatic on `prefers-color-scheme` and
+  `<html>`/`<body>` class, `data-theme` or `style` changes; call it after other
+  theme switches, such as a custom attribute on `<html>`)
 - `AoV.hostThemeConfig(el)` / `AoV.hostBackground(el)` — the Vega-Lite config a
   host-themed plot in `el` embeds with, and the background its image downloads use
 - `AoV.dispose(id)` — tear a plot down: finalize its Vega view and drop all
