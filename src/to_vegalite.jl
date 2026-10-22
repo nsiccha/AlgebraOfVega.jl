@@ -1460,6 +1460,7 @@ function to_vegalite(v::VegaSpec; interactive::Bool=true,
     spec = _base_vegalite(v.drawable, v.layer_encodings)
     select_fields = nothing
     frame_opts = nothing
+    link_opts = nothing
     col_yscales = nothing
     if !isnothing(v.config)
         props = v.config.properties
@@ -1522,6 +1523,9 @@ function to_vegalite(v::VegaSpec; interactive::Bool=true,
             elseif sk == "frame"
                 # Lowered last, onto the finished spec (`_apply_frame!`)
                 frame_opts = val
+            elseif sk == "link"
+                # Runtime metadata only (`_apply_link!`)
+                link_opts = val
             elseif sk == "config" && !isnothing(_as_dict(val))
                 # Deep-merge a user `config(config=…)` Dict into the base config
                 # rather than replacing it. The base config now carries the
@@ -1552,6 +1556,7 @@ function to_vegalite(v::VegaSpec; interactive::Bool=true,
     _densify_facet_sort!(spec)
     auto_legend && _add_auto_legend_interactivity!(spec)
     isnothing(frame_opts) || _apply_frame!(spec, v.drawable, frame_opts)
+    isnothing(link_opts) || _apply_link!(spec, v.drawable, link_opts)
     spec
 end
 

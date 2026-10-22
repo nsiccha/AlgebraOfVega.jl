@@ -366,6 +366,21 @@ Client-side API:
   mark's row, and the browser's mouse event. Legend, axis, title and empty-space
   clicks send none. Listen with `document.addEventListener('aov:click', …)` or
   htmx `hx-trigger="aov:click from:#<id>"`
+- `aov:hover` / `aov:hoverend` — DOM events (bubbling) a plot element dispatches
+  when the pointer moves onto a data mark and leaves it again (the marks `aov:click`
+  reports; on a scatter with tooltips, the nearest point); `event.detail` is
+  `{id, datum, event}`. Moving from one mark to the next sends the old mark's
+  `aov:hoverend`, then the new mark's `aov:hover`
+- `AoV.highlight(id, match)` / `AoV.clearHighlight(id)` — dim every mark of plot `id`
+  whose row does not match to 15 % of its opacity, as a legend selection does, and
+  undo it. `match` is `{field: value}` or `{field: [values]}` (values compare as
+  strings, several fields must all match; a row with none of the fields is left
+  alone) or a function `datum => boolean`. Repaints the live view (no re-embed) and
+  is kept across re-embeds
+- Link groups: a plot with `config(link=(; group, key))` announces a hovered mark's
+  `key` as a `CustomEvent('htmxo:link', {detail: {group, key, source}})` on `document`
+  (`key: null` when the hover ends), and highlights its marks whose `key` equals a key
+  another member of the group announces — the contract HTMXObjects' tables share
 - `AoV.refreshTheme()` — re-render host-themed plots whose inherited text colour
   changed (automatic on `prefers-color-scheme` and `<html>`/`<body>` class,
   `data-theme` or `style` changes; call it after other theme switches)
