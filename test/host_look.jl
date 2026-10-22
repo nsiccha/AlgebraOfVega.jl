@@ -3,7 +3,8 @@ using TestItemRunner
 """
 A page restyles its host-themed plots from CSS: the plot element's font, and an
 optional look of `--aov-*` custom properties (default categorical palette, axis,
-grid, tick, legend and facet-header colours) on the element or any ancestor.
+grid, tick, view-frame, legend and facet-header colours) on the element or any
+ancestor.
 
 Feature (todo `1f3r6ad`, user decision `1s5lxgn`): a page-level look that
 switches live (an attribute on `<html>` plus `AoV.refreshTheme()`) restyles
@@ -48,7 +49,7 @@ the browser's default font keeps Vega's sans-serif (`host_theme.js`).
                 html(vdraw(plain * config(theme=:none); id="look-none")), "</div>",
                 "<div style='--aov-font: \"AoV Test Face\"'>", html(vdraw(plain; id="look-face")), "</div>",
                 "<div id='look-invalid-host' style='--aov-grid-color: notacolor; --aov-category: red, nocolor; " *
-                    "--aov-tick-color: rgb(1,2,3)'>", html(vdraw(plain; id="look-invalid")), "</div>",
+                    "--aov-tick-color: rgb(1,2,3); --aov-view-color: rgb(4, 5, 7)'>", html(vdraw(plain; id="look-invalid")), "</div>",
                 html(with_plot_caption(captioned, "Captioned"; plot_id="look-card"))]
             style = """<style>
                 @font-face { font-family: "AoV Test Face"; src: url(data:font/ttf;base64,$face); }
@@ -62,6 +63,7 @@ the browser's default font keeps Vega's sans-serif (`host_theme.js`).
                     --aov-grid-color: rgb(0, 0, 90);
                     --aov-tick-color: NONE;
                     --aov-domain-color: none;
+                    --aov-view-color: none;
                     --aov-legend-label-color: rgb(91, 0, 0);
                     --aov-legend-title-color: rgb(0, 91, 0);
                     --aov-header-label-color: rgb(92, 0, 0);

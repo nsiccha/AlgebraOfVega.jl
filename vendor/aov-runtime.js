@@ -671,17 +671,19 @@ window.AoV = window.AoV || {
     // any ancestor (`html[data-look=x] { --aov-grid-color: #eee }`), read
     // from its computed style, so `var(...)` tokens, `currentColor` and
     // `light-dark()` resolve where the plot sits. Each row: property,
-    // config group, config key, and the key that `none` switches off.
+    // config group, config key, and the group's settings that `none`
+    // applies (the part leaves the plot).
     // `--aov-category` (a comma-separated colour list) is the default
     // categorical range: explicit scale ranges and mark colours keep theirs.
     // LOCKSTEP: the property table in `vega_head`'s docstring
-    // (src/js_runtime.jl) and test/host_theme.js.
+    // (src/js_runtime.jl) and test/host_look.js.
     _HOST_LOOK: [
         ['--aov-axis-label-color', 'axis', 'labelColor'],
         ['--aov-axis-title-color', 'axis', 'titleColor'],
-        ['--aov-grid-color', 'axis', 'gridColor', 'grid'],
-        ['--aov-tick-color', 'axis', 'tickColor', 'ticks'],
-        ['--aov-domain-color', 'axis', 'domainColor', 'domain'],
+        ['--aov-grid-color', 'axis', 'gridColor', {grid: false}],
+        ['--aov-tick-color', 'axis', 'tickColor', {ticks: false}],
+        ['--aov-domain-color', 'axis', 'domainColor', {domain: false}],
+        ['--aov-view-color', 'view', 'stroke', {stroke: null}],
         ['--aov-legend-label-color', 'legend', 'labelColor'],
         ['--aov-legend-title-color', 'legend', 'titleColor'],
         ['--aov-header-label-color', 'header', 'labelColor'],
@@ -710,7 +712,7 @@ window.AoV = window.AoV || {
             this._HOST_LOOK.forEach(function(p) {
                 var v = cs.getPropertyValue(p[0]).trim();
                 if (!v) return;
-                if (p[3] && v.toLowerCase() === 'none') { cfg[p[1]][p[3]] = false; return; }
+                if (p[3] && v.toLowerCase() === 'none') { Object.assign(cfg[p[1]], p[3]); return; }
                 var color = computed('color', v);
                 if (color) cfg[p[1]][p[2]] = color; else invalid(p[0], v, 'a CSS colour');
             });

@@ -197,6 +197,7 @@ invalidates the whole property):
 | `--aov-category` | the default categorical palette, a comma-separated colour list |
 | `--aov-axis-label-color`, `--aov-axis-title-color` | axis labels and titles |
 | `--aov-grid-color`, `--aov-tick-color`, `--aov-domain-color` | grid lines, ticks and the axis line; `none` leaves them out |
+| `--aov-view-color` | the frame around each plot area (and facet cell); `none` leaves it out |
 | `--aov-legend-label-color`, `--aov-legend-title-color` | legend labels and titles |
 | `--aov-header-label-color`, `--aov-header-title-color` | facet header labels and titles |
 
