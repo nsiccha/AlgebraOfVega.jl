@@ -119,6 +119,12 @@
         check(views['theme-none'].background() === 'white', 'theme none: background ' + views['theme-none'].background());
         check(!fills(views['theme-none'], 'axis-label').includes(LIGHT), 'theme none: axis labels took the host colour');
         check(!('theme-none' in AoV._themeKeys), 'theme none: recorded as themed');
+        // A page left on the browser's default font keeps Vega's sans-serif
+        // (a page that sets a font is test/host_look.js).
+        check(!('font' in AoV.hostThemeConfig(document.getElementById('theme-live'))), 'default page font taken: ' +
+            AoV.hostThemeConfig(document.getElementById('theme-live')).font);
+        const labelFonts = [...new Set(role(views['theme-picker'], 'axis-label').map(i => i.font))];
+        check(!labelFonts.some(f => /Times/.test(f || '')), 'axis labels in the browser default font ' + JSON.stringify(labelFonts));
 
         // No change, no re-embed.
         // More plot fixtures can leave a prior resize/fit callback queued;

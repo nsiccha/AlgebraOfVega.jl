@@ -541,6 +541,12 @@ window.AoV = window.AoV || {
             var s = self._withHighlight(id, self._applyResponsiveWidth(id, JSON.parse(JSON.stringify(cur.spec)), budget));
             // Host theme, read now: a theme change re-runs this embed.
             var embedOpts = self._withFrame(id, self._themedOpts(id, s, opts), plan);
+            var fonts = self._fontsPending((s.config && s.config.font) || (embedOpts.config && embedOpts.config.font));
+            return fonts ? fonts.then(function() { return render(s, embedOpts); }) : render(s, embedOpts);
+        };
+        var render = function(s, embedOpts) {
+            // Superseded while its font loaded.
+            if (self._embedTok[id] !== tok) return Promise.resolve();
             // Replace (not leak) the previous view
             self._finalizeView(id);
             // Only the latest embed registers its view; one that resolves after
@@ -621,8 +627,11 @@ window.AoV = window.AoV || {
     // (it paints black), so the runtime resolves the colour itself and
     // embeds with a Vega-Lite config that draws the chrome (axes, legends,
     // facet headers, titles, unencoded text) in it on a transparent
-    // background. Mark colours are left alone. The spec's own `config`
-    // wins key by key (vega-lite merges the embed config under it).
+    // background, in the element's font. A page may also restyle plots
+    // through `--aov-*` custom properties (_HOST_LOOK). Mark colours are
+    // left alone, apart from the default categorical range a page may set.
+    // The spec's own `config` wins key by key (vega-lite merges the embed
+    // config under it).
     // Page default: `window.AoV.theme` (`vega_head(theme=...)`); per plot:
     // `spec._aov.theme` (`config(theme=...)`). Values: 'host' or 'none'.
     _themeOn: function(spec) {
@@ -636,15 +645,16 @@ window.AoV = window.AoV || {
         var a = m[4] === undefined ? 1 : parseFloat(m[4]) / (m[5] ? 100 : 1);
         return [+m[1], +m[2], +m[3], a];
     },
-    // The Vega-Lite config for a plot element's resolved text colour.
-    // Alphas reproduce Vega's defaults for black text on white (domain
-    // and ticks #888, grid and view frame #ddd), so a light page renders
-    // as before apart from the transparent background.
+    // The Vega-Lite config for a plot element's resolved text colour, font
+    // and look (_hostLook). Alphas reproduce Vega's defaults for black text
+    // on white (domain and ticks #888, grid and view frame #ddd), so a
+    // light page renders as before apart from the transparent background.
     hostThemeConfig: function(el) {
-        var c = (el && this._rgba(getComputedStyle(el).color)) || [0, 0, 0, 1];
+        var cs = el ? getComputedStyle(el) : null;
+        var c = (cs && this._rgba(cs.color)) || [0, 0, 0, 1];
         var ink = function(a) { return 'rgba(' + c[0] + ',' + c[1] + ',' + c[2] + ',' + (+(c[3] * a).toFixed(3)) + ')'; };
         var text = ink(1), soft = ink(0.467), faint = ink(0.133);
-        return {
+        var cfg = {
             background: 'transparent',
             title: {color: text, subtitleColor: soft},
             axis: {labelColor: text, titleColor: text, domainColor: soft, tickColor: soft, gridColor: faint},
@@ -654,6 +664,113 @@ window.AoV = window.AoV || {
             text: {color: text},
             style: {'aov-ink': {color: text}}
         };
+        if (cs) this._hostLook(cfg, el, cs);
+        return cfg;
+    },
+    // A page's plot look: CSS custom properties set on the plot element or
+    // any ancestor (`html[data-look=x] { --aov-grid-color: #eee }`), read
+    // from its computed style, so `var(...)` tokens, `currentColor` and
+    // `light-dark()` resolve where the plot sits. Each row: property,
+    // config group, config key, and the key that `none` switches off.
+    // `--aov-category` (a comma-separated colour list) is the default
+    // categorical range: explicit scale ranges and mark colours keep theirs.
+    // LOCKSTEP: the property table in `vega_head`'s docstring
+    // (src/js_runtime.jl) and test/host_theme.js.
+    _HOST_LOOK: [
+        ['--aov-axis-label-color', 'axis', 'labelColor'],
+        ['--aov-axis-title-color', 'axis', 'titleColor'],
+        ['--aov-grid-color', 'axis', 'gridColor', 'grid'],
+        ['--aov-tick-color', 'axis', 'tickColor', 'ticks'],
+        ['--aov-domain-color', 'axis', 'domainColor', 'domain'],
+        ['--aov-legend-label-color', 'legend', 'labelColor'],
+        ['--aov-legend-title-color', 'legend', 'titleColor'],
+        ['--aov-header-label-color', 'header', 'labelColor'],
+        ['--aov-header-title-color', 'header', 'titleColor']
+    ],
+    _hostLook: function(cfg, el, cs) {
+        var probe = null;
+        // A CSS value as the browser computes it on a hidden child of `el`
+        // (null when it is no valid `prop`).
+        var computed = function(prop, value) {
+            if (!probe) {
+                probe = document.createElement('span');
+                probe.style.display = 'none';
+                el.appendChild(probe);
+            }
+            probe.style[prop] = '';
+            probe.style[prop] = value;
+            return probe.style[prop] ? getComputedStyle(probe)[prop] : null;
+        };
+        var invalid = function(name, value, what) {
+            console.warn('AoV: ' + name + ' is not ' + what + ': ' + value);
+        };
+        try {
+            var font = this._hostFont(cs, computed, invalid);
+            if (font) cfg.font = font;
+            this._HOST_LOOK.forEach(function(p) {
+                var v = cs.getPropertyValue(p[0]).trim();
+                if (!v) return;
+                if (p[3] && v.toLowerCase() === 'none') { cfg[p[1]][p[3]] = false; return; }
+                var color = computed('color', v);
+                if (color) cfg[p[1]][p[2]] = color; else invalid(p[0], v, 'a CSS colour');
+            });
+            var cat = cs.getPropertyValue('--aov-category').trim();
+            if (cat) {
+                var colors = this._splitTopLevel(cat).map(function(v) {
+                    var color = computed('color', v);
+                    if (!color) invalid('--aov-category', v, 'a CSS colour');
+                    return color;
+                });
+                // A palette with a hole would shift every later category's colour.
+                if (colors.length && colors.every(Boolean)) cfg.range = {category: colors};
+            }
+        } finally {
+            if (probe) probe.remove();
+        }
+    },
+    // The plot font: `--aov-font`, else the element's own font-family when
+    // the page set one. A page left on the browser's default font (Chrome:
+    // "Times New Roman") keeps Vega's sans-serif.
+    _hostFont: function(cs, computed, invalid) {
+        var own = cs.getPropertyValue('--aov-font').trim();
+        if (own) {
+            var font = computed('fontFamily', own);
+            if (!font) invalid('--aov-font', own, 'a CSS font-family');
+            return font;
+        }
+        if (this._uaFont === undefined) this._uaFont = computed('fontFamily', 'initial');
+        return cs.fontFamily && cs.fontFamily !== this._uaFont ? cs.fontFamily : null;
+    },
+    // `a, rgb(1, 2, 3), b` → ['a', 'rgb(1, 2, 3)', 'b']: commas inside
+    // parentheses belong to their colour.
+    _splitTopLevel: function(value) {
+        var out = [], depth = 0, start = 0;
+        for (var i = 0; i < value.length; i++) {
+            var ch = value.charAt(i);
+            if (ch === '(') depth++;
+            else if (ch === ')') depth--;
+            else if (ch === ',' && depth === 0) { out.push(value.slice(start, i)); start = i + 1; }
+        }
+        out.push(value.slice(start));
+        return out.map(function(s) { return s.trim(); }).filter(Boolean);
+    },
+    // A promise that settles once the faces `font` draws plot text with
+    // (regular and bold) are loaded, or null when none is pending. Canvas
+    // text drawn before a web font loads stays in the fallback font, and
+    // its fallback widths size the layout, so the embed waits for it.
+    _fontsPending: function(font) {
+        var fonts = typeof document !== 'undefined' && document.fonts;
+        if (!font || !fonts || !fonts.check) return null;
+        var faces = ['10px ' + font, 'bold 10px ' + font];
+        try {
+            if (faces.every(function(f) { return fonts.check(f); })) return null;
+        } catch (err) {
+            console.warn('AoV: plot font ' + font + ' is not a CSS font-family:', err);
+            return null;
+        }
+        return Promise.all(faces.map(function(f) { return fonts.load(f); })).catch(function(err) {
+            console.warn('AoV: plot font ' + font + ' did not load; drawing with the fallback:', err);
+        });
     },
     // The first opaque background behind `el` (exports paint it).
     hostBackground: function(el) {
@@ -684,7 +801,7 @@ window.AoV = window.AoV || {
         if (ink && ink.color === '#333') ink.color = cfg.style['aov-ink'].color;
         return Object.assign({}, opts, {config: this._deepMerge(cfg, opts.config)});
     },
-    // Re-embed every themed plot whose host colours changed. Runs on
+    // Re-embed every themed plot whose host colours, font or look changed. Runs on
     // prefers-color-scheme changes and on class / data-theme / style
     // changes of <html> and <body>; call it after switching a theme by
     // other means (e.g. a class on a wrapper element).
@@ -2054,6 +2171,17 @@ window.AoV = window.AoV || {
         // Live-rendered view output: the fresh page re-embeds from the spec.
         var plotEl = clone.querySelector('#' + id);
         if (plotEl) plotEl.innerHTML = '';
+        // The plot's font and `--aov-*` look come from page CSS the saved
+        // file does not carry: pin them on the saved plot element.
+        if (plotEl && id in this._themeKeys) {
+            var live = getComputedStyle(anchor);
+            this._HOST_LOOK.map(function(p) { return p[0]; }).concat(['--aov-category']).forEach(function(name) {
+                var v = live.getPropertyValue(name).trim();
+                if (v) plotEl.style.setProperty(name, v);
+            });
+            var font = JSON.parse(this._themeKeys[id]).font;
+            if (font) plotEl.style.setProperty('--aov-font', font);
+        }
         // Frame players: the fresh page's embed builds its own controls.
         clone.querySelectorAll('[data-aov-frame-for]').forEach(function(c) { c.remove(); });
         // Lazy data shells: drop rendered bodies; the fresh page re-renders lazily.
