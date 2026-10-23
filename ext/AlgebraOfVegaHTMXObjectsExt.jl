@@ -140,14 +140,16 @@ function with_plot_caption(plot_node, caption::CaptionSpec;
             details = h.details(; class="aov-data-preview", data_mode="pretty",
                                 ontoggle="if(this.open) AoV._lazyRenderDataView(this, 'pretty')")(
                 h.summary(texts.show_data),
-                h.div(; role="group")(
+                # Browser-only: the markdown view has no raw pane to switch to,
+                # and would read the pressed button as "Pretty (pressed)".
+                html_only(h.div(; role="group")(
                     h.button(texts.pretty; type="button", class="outline",
                         data_view="pretty", aria_pressed="true",
                         onclick="AoV.toggleDataView(this, 'pretty')"),
                     h.button(texts.raw; type="button", class="outline",
                         data_view="raw",
                         onclick="AoV.toggleDataView(this, 'raw')"),
-                ),
+                )),
                 h.div(; data_view="pretty")(summary_table),
                 h.div(; data_view="raw")(
                     h.div(; class="aov-data-raw-body", id=preview_id,
