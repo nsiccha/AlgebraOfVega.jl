@@ -284,8 +284,13 @@ function explorer_js(; namespace="", plot_selector="#explorer-plot", spec_select
                 }
 
                 var xType = fieldType(x), yType = fieldType(y);
-                var zeroX = xType === 'quantitative' && (mark === 'bar') ? {} : {zero: false};
-                var zeroY = yType === 'quantitative' && (mark === 'bar') ? {} : {zero: false};
+                var logX = document.getElementById('ex-log-x') && document.getElementById('ex-log-x').checked;
+                var logY = document.getElementById('ex-log-y') && document.getElementById('ex-log-y').checked;
+                // Vega-Lite drops `zero` (with a console warning) from a log
+                // scale and from a nominal axis's band/point scale, so only a
+                // linear quantitative axis gets AoV's no-zero default.
+                var zeroX = xType === 'quantitative' && mark !== 'bar' && !logX ? {zero: false} : {};
+                var zeroY = yType === 'quantitative' && mark !== 'bar' && !logY ? {zero: false} : {};
                 var encoding = {
                     x: {field: x, type: xType, scale: zeroX},
                     y: {field: y, type: yType, scale: zeroY},
@@ -303,8 +308,6 @@ function explorer_js(; namespace="", plot_selector="#explorer-plot", spec_select
 
                 var indepX = document.getElementById('ex-indep-x') && document.getElementById('ex-indep-x').checked;
                 var indepY = document.getElementById('ex-indep-y') && document.getElementById('ex-indep-y').checked;
-                var logX = document.getElementById('ex-log-x') && document.getElementById('ex-log-x').checked;
-                var logY = document.getElementById('ex-log-y') && document.getElementById('ex-log-y').checked;
 
                 if (logX && xType === 'quantitative') { encoding.x.scale = Object.assign({}, encoding.x.scale, {type: 'log'}); }
                 if (logY && yType === 'quantitative') { encoding.y.scale = Object.assign({}, encoding.y.scale, {type: 'log'}); }
@@ -915,8 +918,13 @@ function write_explorer_assets(dir, datasets_or_table; width="container", height
       return 'nominal';
     }
     var xType = fieldType(x), yType = fieldType(y);
-    var zeroX = xType === 'quantitative' && (mark === 'bar') ? {} : {zero: false};
-    var zeroY = yType === 'quantitative' && (mark === 'bar') ? {} : {zero: false};
+    var logX = document.getElementById('ex-log-x') && document.getElementById('ex-log-x').checked;
+    var logY = document.getElementById('ex-log-y') && document.getElementById('ex-log-y').checked;
+    // Vega-Lite drops `zero` (with a console warning) from a log scale and from
+    // a nominal axis's band/point scale, so only a linear quantitative axis gets
+    // AoV's no-zero default.
+    var zeroX = xType === 'quantitative' && mark !== 'bar' && !logX ? {zero: false} : {};
+    var zeroY = yType === 'quantitative' && mark !== 'bar' && !logY ? {zero: false} : {};
     var encoding = {
       x: {field: x, type: xType, scale: zeroX},
       y: {field: y, type: yType, scale: zeroY},
@@ -931,8 +939,6 @@ function write_explorer_assets(dir, datasets_or_table; width="container", height
     }
     var indepX = document.getElementById('ex-indep-x') && document.getElementById('ex-indep-x').checked;
     var indepY = document.getElementById('ex-indep-y') && document.getElementById('ex-indep-y').checked;
-    var logX = document.getElementById('ex-log-x') && document.getElementById('ex-log-x').checked;
-    var logY = document.getElementById('ex-log-y') && document.getElementById('ex-log-y').checked;
     if (logX && xType === 'quantitative') { encoding.x.scale = Object.assign({}, encoding.x.scale, {type: 'log'}); }
     if (logY && yType === 'quantitative') { encoding.y.scale = Object.assign({}, encoding.y.scale, {type: 'log'}); }
     var ribbonEl = document.getElementById('ex-ribbon-levels-label');

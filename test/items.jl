@@ -243,6 +243,11 @@ toggles.
     @test occursin("ex-log-x", js)
     @test occursin("ex-log-y", js)
     @test occursin("type: 'log'", js)
+    # Only a linear quantitative axis gets `zero: false`: Vega-Lite drops it, with
+    # a console warning, from a log scale and from a nominal axis's band/point
+    # scale (snag `log-scale-zero-w-7b997a94`).
+    @test occursin("xType === 'quantitative' && mark !== 'bar' && !logX ? {zero: false} : {}", js)
+    @test occursin("yType === 'quantitative' && mark !== 'bar' && !logY ? {zero: false} : {}", js)
 end
 
 """
