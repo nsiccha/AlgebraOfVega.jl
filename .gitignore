@@ -5,9 +5,8 @@ build/
 !web/
 !web/*
 !web/**
-# Re-ignore generated/local files within web/
-web/Manifest.toml
-web/app/Manifest.toml
+# Re-ignore generated/local files within web/ (web/ and web/app's Manifest.toml
+# are committed: pinned dependencies, pin-deps.sh)
 web/flagged.txt
 web/plots/
 
