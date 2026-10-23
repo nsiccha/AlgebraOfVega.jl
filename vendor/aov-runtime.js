@@ -2909,6 +2909,21 @@ window.AoV = window.AoV || {
         return enc;
     },
 
+    // The `calculate` expression of a ribbon interval drawing's dodge on
+    // the ribbon's own x axis: `field` moved by the step of the row's
+    // `by` group in `domain`, added on a linear axis, multiplied in as
+    // `exp` of a log step on a log one. The same formula as
+    // `_ribbon_dodge_expr` (src/ribbon_view.jl); a row outside `domain`
+    // stays at its x.
+    _dodgeXExpr: function(field, by, domain, span, scale) {
+        var f = 'datum[' + JSON.stringify(field) + ']';
+        var n = domain.length;
+        if (!by || n < 2) return 'isValid(' + f + ') ? ' + f + ' : null';
+        var k = 'indexof(' + JSON.stringify(domain) + ', datum[' + JSON.stringify(by) + '])';
+        var d = '(' + k + ' < 0 ? 0 : (' + k + ' - ' + (n - 1) / 2 + ') * ' + span / n + ')';
+        return 'isValid(' + f + ') ? ' + (scale === 'log' ? f + ' * exp(' + d + ')' : f + ' + ' + d) + ' : null';
+    },
+
     // Whether a layer was given a fixed colour (`visual(...; color=...)`):
     // a literal mark colour, or AoV's theme-following ink style
     // (`color=:ink`), which a composite mark (errorbar, boxplot) carries
@@ -3162,6 +3177,34 @@ window.AoV = window.AoV || {
                         if (cf) l.encoding[ch] = {field: cf, type: 'nominal'}; else delete l.encoding[ch];
                     });
                 });
+                // A ribbon's interval drawing on the ribbon's own x axis
+                // dodges with a `calculate` (`_aov.dodgeX`,
+                // src/ribbon_view.jl): rebuilt for the new colour's groups,
+                // or undone without a colour.
+                var dx = spec._aov && spec._aov.dodgeX;
+                if (dx && dodged !== null && dodged === dx.by && dodged !== cf) {
+                    var dxRows = (spec.data && spec.data.values) || [];
+                    var dxDomain = null;
+                    layers.forEach(function(l) {
+                        var ts = l && Array.isArray(l.transform) ? l.transform : [];
+                        ts.forEach(function(t) {
+                            if (!t || t.as !== dx.as) return;
+                            if (dxDomain === null) {
+                                var tag = null;
+                                ts.forEach(function(u) {
+                                    var m = u && typeof u.filter === 'string' &&
+                                        /^datum\.__src === '([^']*)'$/.exec(u.filter);
+                                    if (m) tag = m[1];
+                                });
+                                dxDomain = cf ? self._rowGroups(dxRows.filter(function(r) {
+                                    return r && r.__aov_pad !== true && (tag === null || r.__src === tag);
+                                }), cf) : [];
+                            }
+                            t.calculate = self._dodgeXExpr(dx.field, cf, dxDomain, dx.span, dx.scale);
+                        });
+                    });
+                    spec._aov.dodgeX = Object.assign({}, dx, {by: cf || null, domain: dxDomain || []});
+                }
                 layers.forEach(function(l) {
                     if (!l.encoding) return;
                     if (l._keep_color) return;  // layer-fixed color (field outside remappable dims)

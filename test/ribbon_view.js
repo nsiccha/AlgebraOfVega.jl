@@ -133,6 +133,45 @@
         check(drawsRibbons(pview), 'setRibbonView: ribbons again');
         check(AoV.setRibbonView(plain, 'bars') === false, 'setRibbonView: unknown view refused');
 
+        // A log dose axis: the intervals keep true positions, dodged by colour
+        // around each dose (positions read against the view's own x scale).
+        const lg = 'ribbon-log';
+        let lview = await ready(lg);
+        const xScale = v => v.scale('x');
+        check(pressed(lg).join() === 'intervals' && drawsIntervals(lview), 'log: starts as intervals');
+        check(layers(AoV._cur[lg].spec).some(l => l.encoding && l.encoding.x && l.encoding.x.field === '__aov_x' &&
+            l.encoding.x.type === 'quantitative' && l.encoding.x.scale && l.encoding.x.scale.type === 'log'),
+            'log: intervals on the dodged log x');
+        let sc = xScale(lview);
+        check(sc && sc.type === 'log', 'log: a log x scale');
+        const groupX = (v, d, g) => rules(v).filter(i => i.datum.dose === d && i.datum.study === 'S1' &&
+            i.datum.group === g).map(i => i.x)[0];
+        const g5 = ['A', 'B', 'C'].map(g => groupX(lview, 5, g));
+        check(g5.every(x => x !== undefined) && g5[0] < g5[1] && g5[1] < g5[2], 'log: A, B, C left to right at 5: ' + g5);
+        check(Math.abs(g5[1] - sc(5)) < 1, 'log: the middle group on the dose: ' + g5[1] + ' vs ' + sc(5));
+        check(Math.abs(groupX(lview, 320, 'B') - sc(320)) < 1, 'log: the middle group on the dose at 320');
+        check(g5[2] - g5[0] < 0.75 * (sc(10) - sc(5)), 'log: the dodge fits inside a doubling');
+        const o5 = observations(lview).filter(i => i.datum.dose === 5);
+        check(o5.length > 0 && o5.every(i => Math.abs(i.x - sc(5)) < 1), 'log: observations on the dose');
+        // The picker moves the colour: the dodge follows the new colour.
+        document.querySelector('input[type=radio][name="aov-pin-' + lg + '"][value=color]').click();
+        const lrow = document.getElementById('aov-remap-row-' + lg);
+        [...lrow.options].forEach(o => o.selected = o.value === 'group');
+        lrow.dispatchEvent(new Event('change', {bubbles: true}));
+        lview = await ready(lg, lview);
+        sc = xScale(lview);
+        const dx = AoV._cur[lg].spec._aov.dodgeX;
+        check(dx && dx.by === 'study' && JSON.stringify(dx.domain) === '["S1","S2"]',
+            'log re-facet: dodged by the new colour: ' + JSON.stringify(dx));
+        const s5 = ['S1', 'S2'].map(s => rules(lview).filter(i => i.datum.dose === 5 && i.datum.group === 'A' &&
+            i.datum.study === s).map(i => i.x)[0]);
+        check(s5.every(x => x !== undefined) && s5[0] < s5[1] && Math.abs(mean(s5) - sc(5)) < 1,
+            'log re-facet: two studies centred on the dose: ' + s5 + ' vs ' + (sc && sc(5)));
+        check(cells(lview).length === 3 && drawsIntervals(lview), 'log re-facet: intervals per group row');
+        button(lg, 'ribbons').click();
+        lview = await ready(lg, lview);
+        check(drawsRibbons(lview) && xScale(lview).type === 'log', 'log: the ribbons on the same log axis');
+
         // German texts.
         const de = 'ribbon-de';
         await ready(de);

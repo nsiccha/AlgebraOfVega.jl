@@ -5,7 +5,9 @@ A coloured ribbon's point-interval view (`lineribbon(...; intervals=…)`).
 
 A ribbon coloured by group over a few numeric x values (a dose ladder) is
 lowered twice: as drawn, and as the vertical `pointinterval` of the same rows,
-dodged by colour on evenly spaced x slots. The figure starts in the
+dodged by colour: around the true x on the ribbon's own (linear or log) x axis,
+or on evenly spaced x slots when the x values are too unevenly spaced on that
+axis to dodge readably (a dose ladder on a linear axis). The figure starts in the
 point-interval view when the colour groups' outer bands overlap by more than
 10% of the y range on average (in some facet panel, for some pair of groups),
 and the browser runtime swaps between the two with a "Ribbons | Intervals"
@@ -76,8 +78,9 @@ end
     @test view_meta(sig)["score"] < 0.05
     @test view_meta(other(sig))["view"] == "intervals"
 
-    # The point-interval drawing: evenly spaced dose slots in ascending order,
-    # dodged by colour, the ribbon's x title, upright labels.
+    # The point-interval drawing of a dose ladder on a linear axis: evenly
+    # spaced dose slots in ascending order, dodged by colour, the ribbon's x
+    # title, upright labels.
     slots = Any[5, 10, 20, 40, 80, 160, 320]
     for x in x_encodings(over)
         @test x["type"] == "nominal" && x["scale"] == Dict("domain" => slots)
@@ -145,14 +148,17 @@ end
     dated = merge(t, (; day=[days[findfirst(==(d), [5, 10, 20, 40])] for d in t.dose]))
     @test unoffered(data(dated) * mapping(:day, :med; color=:group) * lineribbon(bands=BANDS))
     # A layer whose x values miss the slots cannot sit on them.
-    @test unoffered(ribbon_fig(overlapping()) + data((; dose=[7], y=[1.0])) * mapping(:dose, :y) * visual(Scatter))
+    off_slot = ribbon_fig(overlapping()) + data((; dose=[7], y=[1.0])) * mapping(:dose, :y) * visual(Scatter)
+    @test unoffered(off_slot)
+    # On a log axis the intervals keep true positions, so it stays at 7.
+    @test !isnothing(view_meta(to_vegalite(off_slot * config(scales=scales(X=(; scale=log10))))))
     # Two ribbons, or a detail split: no single set of groups to dodge.
     @test unoffered(ribbon_fig(overlapping()) + ribbon_fig(sigmoids()))
     @test unoffered(data(overlapping()) * mapping(:dose, :med; color=:group) *
         lineribbon(bands=BANDS, detail=[:group]))
 end
 
-@testitem "layers on the ribbon's x land on the slots; a log x stays with the ribbon" setup=[AoVRibbonViewFixtures] tags=[:translation, :ribbon] begin
+@testitem "on a log x the intervals keep true positions, dodged around each dose" setup=[AoVRibbonViewFixtures] tags=[:translation, :ribbon] begin
     obs = (; dose=repeat(DOSES, 2), y=collect(1.0:14.0))
     guides = (; dose=[20, 160])
     base = ribbon_fig(overlapping()) + data(obs) * mapping(:dose, :y) * visual(Scatter; color=:ink) +
@@ -162,18 +168,72 @@ end
     positional = to_vegalite(base, scales(X=(; scale=log10)))
     for vl in (sugar, raw, positional)
         @test view_meta(vl)["start"] == "intervals"
-        # Every x of the interval drawing is a slot: no log scale there.
-        xs = x_encodings(vl)
-        @test length(xs) == 6 && all(x -> x["scale"] == Dict("domain" => Any[DOSES...]), xs)
-        # The ribbon drawing keeps its log axis.
+        # The interval layers draw the dodged x, quantitative on the log axis,
+        # with the ribbon's x title; observations and dose lines keep theirs.
+        dodged, kept = Dict{String,Any}[], Dict{String,Any}[]
+        AoV._each_encoded(vl) do d, _
+            x = get(d["encoding"], "x", nothing)
+            isnothing(x) && return
+            if x["field"] == "__aov_x"
+                push!(dodged, d)
+                @test x["type"] == "quantitative" && x["scale"]["type"] == "log"
+                @test x["title"] == "Dose (mg)" && !haskey(d["encoding"], "xOffset")
+                @test d["transform"][end]["as"] == "__aov_x"
+            else
+                push!(kept, x)
+            end
+        end
+        @test length(dodged) == 4
+        @test length(kept) == 2 && all(x -> x["field"] == "dose" && x["scale"]["type"] == "log", kept)
+        # Three groups within 0.7 of a doubling: steps of 0.7·log(2)/3 in log space.
+        dx = vl["_aov"]["dodgeX"]
+        @test dx["by"] == "group" && dx["domain"] == ["A", "B", "C"] && dx["scale"] == "log"
+        @test dx["span"] ≈ 0.7 * log(2)
+        @test dodged[1]["transform"][end]["calculate"] ==
+            AoV._ribbon_dodge_expr("dose", "group", ["A", "B", "C"], dx["span"], :log)
+        # The ribbon drawing keeps its log axis and no dodge.
         @test all(x -> x["scale"]["type"] == "log", x_encodings(other(vl)))
+        @test !haskey(get(other(vl), "_aov", Dict()), "dodgeX")
     end
-    # A nominal axis does not zoom: no x scale binding in the interval drawing.
+    # The expression: the middle group stays on the dose, the others a step
+    # either side (multiplied in on a log axis, added on a linear one).
+    @test AoV._ribbon_dodge_expr("dose", "group", ["A", "B", "C"], 1.5, :log) ==
+        "isValid(datum[\"dose\"]) ? datum[\"dose\"] * exp((indexof([\"A\",\"B\",\"C\"], datum[\"group\"]) < 0 ? 0 : " *
+        "(indexof([\"A\",\"B\",\"C\"], datum[\"group\"]) - 1.0) * 0.5)) : null"
+    @test occursin("datum[\"dose\"] + (", AoV._ribbon_dodge_expr("dose", "g", [1, 2], 7.0, :linear))
+    @test AoV._ribbon_dodge_expr("dose", "g", ["A"], 7.0, :linear) == "isValid(datum[\"dose\"]) ? datum[\"dose\"] : null"
+    # A quantitative x zooms, as in the ribbon drawing.
+    zooms = String[]
     AoV._each_encoded(sugar) do d, _
         for p in get(d, "params", Any[])
-            get(p, "bind", nothing) == "scales" && @test !("x" in p["select"]["encodings"])
+            get(p, "bind", nothing) == "scales" && append!(zooms, p["select"]["encodings"])
         end
     end
+    @test "x" in zooms && "y" in zooms
+end
+
+@testitem "true positions where the x values leave room, slots where they do not" setup=[AoVRibbonViewFixtures] tags=[:translation, :ribbon] begin
+    # The closest pair needs a quarter of an even share of the axis.
+    @test isnothing(AoV._ribbon_dodge_gap(DOSES, :linear))
+    @test AoV._ribbon_dodge_gap(DOSES, :log) ≈ log(2)
+    @test AoV._ribbon_dodge_gap([10, 20, 30, 40, 50], :linear) == 10
+    @test isnothing(AoV._ribbon_dodge_gap([5], :linear)) && isnothing(AoV._ribbon_dodge_gap([0, 5, 10], :log))
+    @test AoV._ribbon_dodge_kind(nothing) === :linear && AoV._ribbon_dodge_kind(Dict("zero" => false)) === :linear
+    @test isnothing(AoV._ribbon_dodge_kind(Dict("type" => "sqrt")))
+    # An evenly spaced ladder on a linear axis: true positions, the dodge added.
+    even = to_vegalite(ribbon_fig(overlapping(; doses=[10, 20, 30, 40, 50])))
+    @test even["_aov"]["dodgeX"]["scale"] == "linear" && even["_aov"]["dodgeX"]["span"] ≈ 7
+    @test all(x -> x["field"] == "__aov_x" && x["type"] == "quantitative", x_encodings(even))
+    # A scale the dodge cannot move along: slots.
+    sq = to_vegalite(ribbon_fig(overlapping(; doses=[10, 20, 30, 40, 50])) *
+        config(encoding=Dict("x" => Dict("scale" => Dict("type" => "sqrt")))))
+    @test all(x -> x["type"] == "nominal", x_encodings(sq)) && !haskey(sq["_aov"], "dodgeX")
+    # A sorter orders the dodge as it orders the colours.
+    srt = to_vegalite(data(overlapping()) * mapping(:dose, :med; color=:group => sorter("C", "A", "B")) *
+        lineribbon(bands=BANDS) * config(scales=scales(X=(; scale=log10))))
+    @test srt["_aov"]["dodgeX"]["domain"] == ["C", "A", "B"]
+    @test AoV._ribbon_dodge_domain(Any[3, 1, 2, 1], nothing) == [1, 2, 3]
+    @test AoV._ribbon_dodge_domain(Any["b", "a", missing], ["b"]) == ["b", "a"]
 end
 
 @testitem "the y axis the overlap is measured on" setup=[AoVRibbonViewFixtures] tags=[:translation, :ribbon] begin
@@ -263,6 +323,8 @@ end
                 with_plot_caption(ribbon_fig(overlapping()) * config(height=160), "Dosis-Wirkung";
                     plot_id="ribbon-de", texts=plot_texts(:de)),
                 vdraw(data(obs) * mapping(:dose, :y) * visual(Scatter); id="ribbon-none"),
+                with_plot_caption(picker_fig(overlapping()) * config(scales=scales(X=(; scale=log10))),
+                    "Log doses"; plot_id="ribbon-log", auto_remap=remap),
             ]
             runtime = join(html(n) for n in vega_head(source=:inline))
             payload = replace(JSON.json((; updates, updated_median=shifted.med[1])), "</" => "<\\/")
@@ -281,7 +343,7 @@ end
             if !isnothing(result)
                 report = JSON.parse(replace(result[1], "&quot;" => "\"", "&lt;" => "<",
                     "&gt;" => ">", "&amp;" => "&"))
-                @test report["checks"] >= 35
+                @test report["checks"] >= 45
                 @test isempty(report["failures"])
                 @info "ribbon switch browser checks" checks=report["checks"]
                 isempty(report["failures"]) || println(JSON.json(report["failures"]))
