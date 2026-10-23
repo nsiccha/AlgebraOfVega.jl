@@ -26,7 +26,7 @@ end
     x = vl["encoding"]["x"]
     @test x["field"] == "x"                     # generated channel kept
     @test x["scale"]["type"] == "log"           # override merged into it
-    @test x["scale"]["zero"] == false           # AoV's default survives the merge
+    @test !haskey(x["scale"], "zero")           # a log scale takes no zero default (snag `log-scale-zero-w-7b997a94`)
     @test tooltip_fields(vl["encoding"]) == ["x", "y", "group"]
     # Exactly what the Dict spelling produces.
     dict = config(encoding = Dict(
