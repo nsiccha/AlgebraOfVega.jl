@@ -1576,13 +1576,15 @@ _select_field_list(v) = v
 
 function to_vegalite(v::VegaSpec; interactive::Bool=true,
                      auto_remap::Union{Nothing,NamedTuple}=nothing)
-    _apply_no_zero_default!(_lower_vegalite(v; interactive, auto_remap))
+    _finish_vegalite!(_lower_vegalite(v; interactive, auto_remap), v)
 end
 
-# `to_vegalite` without its last pass, the no-zero default, which needs every
-# scale's final type: a caller that changes the lowered spec's scales
-# (`to_vegalite(spec, scales)`, the auto-remap lowering) applies the default
-# itself afterwards. Any other input lowers through its own `to_vegalite`.
+# `to_vegalite` without its last passes, which need every scale's final type
+# (`_finish_vegalite!`): a caller that changes the lowered spec's scales
+# (`to_vegalite(spec, scales)`, the auto-remap lowering) finishes it itself
+# afterwards. A coloured ribbon's interval view is still pending in it
+# (src/ribbon_view.jl), so such passes go through `_each_ribbon_view!`. Any
+# other input lowers through its own `to_vegalite`.
 _lower_vegalite(x; interactive::Bool=true, auto_remap::Union{Nothing,NamedTuple}=nothing) =
     to_vegalite(x; interactive, auto_remap)
 _lower_vegalite(x::Union{AlgebraOfGraphics.Layer,AlgebraOfGraphics.Layers}; kwargs...) =
@@ -1590,7 +1592,13 @@ _lower_vegalite(x::Union{AlgebraOfGraphics.Layer,AlgebraOfGraphics.Layers}; kwar
 function _lower_vegalite(v::VegaSpec; interactive::Bool=true,
                          auto_remap::Union{Nothing,NamedTuple}=nothing)
     isnothing(auto_remap) ||
-        return _auto_remap_lowering(v; interactive, zero_default=false, auto_remap...).vl
+        return _auto_remap_lowering(v; interactive, finish=false, auto_remap...).vl
+    _vegaspec_views(v; interactive)
+end
+
+# The Vega-Lite of `v` as drawn, before the last passes and without a ribbon's
+# interval view (`_vegaspec_views`, src/ribbon_view.jl, adds that).
+function _lower_vegaspec(v::VegaSpec; interactive::Bool=true)
     spec = _base_vegalite(v.drawable, v.layer_encodings)
     select_fields = nothing
     frame_opts = nothing
@@ -1720,22 +1728,27 @@ in AoG.
 function to_vegalite(v, sc::AlgebraOfGraphics.Scales; interactive::Bool=true,
                      auto_remap::Union{Nothing,NamedTuple}=nothing)
     spec = _lower_vegalite(v; interactive, auto_remap)
-    _apply_scales_sugar!(spec, sc)
-    col = _scales_column_y_scales(sc)
-    isnothing(col) || _per_column_y_hconcat!(spec, col)
-    # The sugar above can add a facet sort after the inner lowering densified
-    # (or skipped an unsorted spec) — re-run so a sparse grid never meets a
-    # sort (snag `facet-column-sor-9904da1f`).
-    _densify_facet_sort!(spec)
-    haskey(get(spec, "_aov", Dict()), "legendInteraction") &&
-        _add_auto_legend_interactivity!(spec)
+    # Both drawings of a ribbon with an interval view take the scales, before
+    # its overlap score reads the y scale.
+    _each_ribbon_view!(spec) do s
+        _apply_scales_sugar!(s, sc)
+        col = _scales_column_y_scales(sc)
+        isnothing(col) || _per_column_y_hconcat!(s, col)
+        # The sugar above can add a facet sort after the inner lowering densified
+        # (or skipped an unsorted spec) — re-run so a sparse grid never meets a
+        # sort (snag `facet-column-sor-9904da1f`).
+        _densify_facet_sort!(s)
+        haskey(get(s, "_aov", Dict()), "legendInteraction") &&
+            _add_auto_legend_interactivity!(s)
+    end
     _finish_vegalite!(spec, v)
 end
 
-# The no-zero default closes AoV's own lowerings; a raw Vega-Lite Dict is the
-# caller's spec, and AoV adds no default to it.
+# AoV's own lowerings close with the no-zero default, on both drawings of a
+# coloured ribbon, then decide which drawing it starts in; a raw Vega-Lite Dict
+# is the caller's spec, and AoV adds no default to it.
 _finish_vegalite!(spec, ::Dict) = spec
-_finish_vegalite!(spec, _) = _apply_no_zero_default!(spec)
+_finish_vegalite!(spec, _) = _finish_ribbon_views!(_each_ribbon_view!(_apply_no_zero_default!, spec))
 
 """
     add_select_filters!(spec, drawable, fields)

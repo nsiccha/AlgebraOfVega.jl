@@ -295,8 +295,8 @@ end
 # chain to `new_detail`. Walks through `ComposedFunction` recursively.
 _with_detail(t::PointIntervalAnalysis, d) = PointIntervalAnalysis(t.probs, t.point, d, t.orientation)
 _with_detail(t::GradientIntervalAnalysis, d) = GradientIntervalAnalysis(t.probs, t.point, d, t.orientation)
-_with_detail(t::LineRibbonAnalysis, d) = LineRibbonAnalysis(t.probs, t.show_line, d, t.single_x_glyph)
-_with_detail(t::PrecomputedRibbonAnalysis, d) = PrecomputedRibbonAnalysis(t.bands, t.show_line, d, t.single_x_glyph)
+_with_detail(t::LineRibbonAnalysis, d) = LineRibbonAnalysis(t.probs, t.show_line, d, t.single_x_glyph, t.intervals)
+_with_detail(t::PrecomputedRibbonAnalysis, d) = PrecomputedRibbonAnalysis(t.bands, t.show_line, d, t.single_x_glyph, t.intervals)
 _with_detail(t::PrecomputedIntervalAnalysis, d) = PrecomputedIntervalAnalysis(t.bands, d, t.orientation)
 _with_detail(t::DotIntervalAnalysis, d) = DotIntervalAnalysis(t.probs, t.n_dots, t.point, d, t.orientation)
 
@@ -471,7 +471,9 @@ function does all of it.
   are picked up from `dims` if present, otherwise snake_case → Title Case.
 - **`pinned`** is the catch-all channel.
 - **`texts`** is the [`PlotTexts`](@ref) whose channel labels the picker
-  shows (default English; `plot_texts(:de)` for German).
+  shows (default English; `plot_texts(:de)` for German), and whose words the
+  runtime writes on the plot (a coloured ribbon's "Ribbons | Intervals"
+  switch).
 - **`axes=true`** opts in to X/Y axis channels in the picker. The layer's
   positional fields (`mapping(x, y, …)`) are automatically added to the
   picker's dim set — they become X/Y defaults AND are selectable on the
@@ -515,9 +517,9 @@ auto_remap_node("dose-response-plot", spec;
     pinned=:row)
 ```
 """
-function auto_remap_node(plot_id, spec; kwargs...)
-    controls, plot = _auto_remap_parts(plot_id, spec; kwargs...)
-    h.div()(controls, plot)
+function auto_remap_node(plot_id, spec; texts::PlotTexts=_EN_PLOT_TEXTS, kwargs...)
+    controls, plot = _auto_remap_parts(plot_id, spec; texts, kwargs...)
+    h.div(; _runtime_texts_attrs(texts)...)(controls, plot)
 end
 
 # Same idea as `_remap_node_parts`: expose the (controls, plot_node) pair for
@@ -557,7 +559,7 @@ end
 function _auto_remap_lowering(spec; dims, fixed=Dict(), pinned::Symbol=:row,
                               axes::Bool=false, off=String[],
                               color=nothing, row=nothing, column=nothing, detail=nothing,
-                              interactive::Bool=true, zero_default::Bool=true)
+                              interactive::Bool=true, finish::Bool=true)
     layers = _spec_layers(spec)
     raw_dfs = [extract_data(l) for l in layers]
     any(isnothing, raw_dfs) && error("auto_remap_node: every layer must have associated data (no Pregrouped layers supported here)")
@@ -633,20 +635,24 @@ function _auto_remap_lowering(spec; dims, fixed=Dict(), pinned::Symbol=:row,
     new_spec = _wrap_with_config(spec, new_drawable)
 
     # Build VL, tag layers whose color field is layer-fixed so JS remapEncoding skips them.
+    # A ribbon's interval view (src/ribbon_view.jl) takes the same passes.
     vl = _lower_vegalite(new_spec; interactive)
-    isempty(keep_color_fields) || _tag_keep_color_layers!(vl, keep_color_fields)
-    # If the resolved spec is non-faceted (e.g. `:basename` had a single unique
-    # value and got refined out of `dims`), strip top-level
-    # `resolve.scale.{x,y} == "independent"` entries inherited from the user's
-    # config — they were authored to mean "independent across facet rows", but
-    # on a flat layered spec VL would interpret them as "independent across
-    # layers", which gives each band/point sublayer its own x/y axis (top-axes
-    # stack-up bug).
-    _scrub_independent_resolve_if_unfaceted!(vl)
-    # The no-zero default reads which layers share a scale, so it follows the
-    # scrub. `to_vegalite(spec, scales; auto_remap)` changes the scales first and
-    # applies it itself (`zero_default=false`).
-    zero_default && _apply_no_zero_default!(vl)
+    _each_ribbon_view!(vl) do s
+        isempty(keep_color_fields) || _tag_keep_color_layers!(s, keep_color_fields)
+        # If the resolved spec is non-faceted (e.g. `:basename` had a single unique
+        # value and got refined out of `dims`), strip top-level
+        # `resolve.scale.{x,y} == "independent"` entries inherited from the user's
+        # config — they were authored to mean "independent across facet rows", but
+        # on a flat layered spec VL would interpret them as "independent across
+        # layers", which gives each band/point sublayer its own x/y axis (top-axes
+        # stack-up bug).
+        _scrub_independent_resolve_if_unfaceted!(s)
+    end
+    # The last passes — the no-zero default, which reads which layers share a
+    # scale, and a ribbon's view decision — follow the scrub.
+    # `to_vegalite(spec, scales; auto_remap)` changes the scales first and
+    # finishes the spec itself (`finish=false`).
+    finish && (vl = _finish_vegalite!(vl, new_spec))
     (; resolved, new_spec, vl)
 end
 

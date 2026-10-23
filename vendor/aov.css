@@ -41,6 +41,26 @@
         color: inherit; accent-color: currentColor;
         --pico-range-thumb-active-color: var(--pico-secondary-background, currentColor);
     }
+    /* A coloured ribbon's Ribbons | Intervals switch (built by the runtime,
+       `_ribbonViewControls`): the pressed button is the drawing shown. In a
+       captioned figure the two buttons are the action row's first buttons
+       and take its look; elsewhere they are a joined compact pair right
+       after the plot. Outranks Pico's `[role=group]` (full width, a bottom
+       margin, wide buttons) in any source order. */
+    button[data-aov-ribbon-view-for][aria-pressed="true"] {
+        background-color: color-mix(in srgb, currentColor 15%, transparent);
+        font-weight: 600;
+    }
+    div.aov-ribbon-view[role="group"] { display: inline-flex; width: auto; margin: 0.25em 0; }
+    div.aov-ribbon-view[role="group"] > button {
+        flex: none; width: auto; margin: 0; padding: 0.1rem 0.6rem; font-size: 0.85em;
+    }
+    div.aov-ribbon-view[role="group"] > button:not(:first-child) {
+        margin-left: -1px; border-top-left-radius: 0; border-bottom-left-radius: 0;
+    }
+    div.aov-ribbon-view[role="group"] > button:not(:last-child) {
+        border-top-right-radius: 0; border-bottom-right-radius: 0;
+    }
     .aov-grid-page { width: 100vw; padding: 0.5rem; font-size: 0.5em; }
     /* Dense compact grid (16 cols) and gallery static grid (4 cols).
        Both compose with upstream `.htmxo-grid`, supplying only the

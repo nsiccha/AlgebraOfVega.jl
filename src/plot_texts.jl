@@ -4,14 +4,16 @@
 The words AoV's own plot chrome shows: the caption's "More" toggle, the
 caption row's download and Share buttons, the "Show data" preview and its
 summary table, the channel picker's labels, a frame player's play/pause button
-(`config(frame=…)`), and standalone HTML exports. Build one with [`plot_texts`](@ref) and
+(`config(frame=…)`), a coloured ribbon's "Ribbons | Intervals" switch
+(`lineribbon(...; intervals=…)`), and standalone HTML exports. Build one with [`plot_texts`](@ref) and
 pass it as `texts=` to `with_plot_caption`, `to_html`, [`auto_remap_node`](@ref),
 [`mapping_controls`](@ref), `caption_share_button`, `with_caption_share` or
 `summary_share_button`.
 
 A text in braces is a placeholder AoV fills in: `image` takes `{format}`
 (`PNG`, `SVG`); `interval` takes `{point}` (the `median` text) and `{width}`
-(`95%`).
+(`95%`); `overlap` takes `{score}` (`34%`), and `overlap_auto` takes `{score}`
+and `{threshold}` (`10%`).
 """
 struct PlotTexts
     more::String            # the caption's toggle that opens its long text
@@ -40,11 +42,17 @@ struct PlotTexts
     y::String
     play::String            # frame player (`config(frame=…)`): the play button's name
     pause::String           # frame player: the button's name while playing
+    ribbons::String         # ribbon switch: the ribbon drawing
+    intervals::String       # ribbon switch: the point-interval drawing
+    ribbon_view::String     # ribbon switch: the group's accessible name
+    overlap::String         # ribbon switch tooltip: the measured band overlap
+    overlap_auto::String    # the same, when `intervals=:auto` picked the start
     untitled::String        # title of a standalone HTML page without a caption title
     lang::String            # `lang` of a standalone HTML page
 end
 
-const _PLOT_TEXT_PLACEHOLDERS = (image = (:format,), interval = (:point, :width))
+const _PLOT_TEXT_PLACEHOLDERS = (image = (:format,), interval = (:point, :width),
+    overlap = (:score,), overlap_auto = (:score, :threshold))
 
 const _PLOT_TEXT_LOCALES = (
     en = (
@@ -74,6 +82,11 @@ const _PLOT_TEXT_LOCALES = (
         y = "Y",
         play = "Play",
         pause = "Pause",
+        ribbons = "Ribbons",
+        intervals = "Intervals",
+        ribbon_view = "Drawing",
+        overlap = "Bands overlap {score} of the y range",
+        overlap_auto = "Bands overlap {score} of the y range; intervals above {threshold}",
         untitled = "AoV plot",
         lang = "en",
     ),
@@ -104,6 +117,11 @@ const _PLOT_TEXT_LOCALES = (
         y = "Y",
         play = "Abspielen",
         pause = "Pause",
+        ribbons = "Bänder",
+        intervals = "Intervalle",
+        ribbon_view = "Darstellung",
+        overlap = "Die Bänder überlappen sich auf {score} des y-Bereichs",
+        overlap_auto = "Die Bänder überlappen sich auf {score} des y-Bereichs; Intervalle ab {threshold}",
         untitled = "AoV-Grafik",
         lang = "de",
     ),
@@ -150,9 +168,10 @@ _plot_text(texts::PlotTexts, name::Symbol; values...) =
     replace(getfield(texts, name), r"\{([A-Za-z_]+)\}" => m -> string(values[Symbol(m[2:end-1])]))
 
 # The texts the browser runtime writes itself (preview contents, the frame
-# player, the HTML export). LOCKSTEP: `_TEXTS_EN` in `vendor/aov-runtime.js` holds their
+# player, the ribbon switch, the HTML export). LOCKSTEP: `_TEXTS_EN` in `vendor/aov-runtime.js` holds their
 # English values; `test/plot_texts.jl` pins the two together.
-const _RUNTIME_TEXT_NAMES = (:no_data, :no_summary, :median, :interval, :value, :untitled, :lang, :play, :pause)
+const _RUNTIME_TEXT_NAMES = (:no_data, :no_summary, :median, :interval, :value, :untitled, :lang, :play, :pause,
+    :ribbons, :intervals, :ribbon_view, :overlap, :overlap_auto)
 
 _runtime_texts_json(texts::PlotTexts) =
     _vl_json(NamedTuple{_RUNTIME_TEXT_NAMES}(getfield.(Ref(texts), _RUNTIME_TEXT_NAMES)))

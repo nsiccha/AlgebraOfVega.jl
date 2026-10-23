@@ -101,7 +101,7 @@ end
 function _vsave_render(vl, path::AbstractString, cmd::Cmd)
     mktempdir() do dir
         input = joinpath(dir, "figure.vl.json")
-        write(input, _vl_json(_vsave_inline_data(vl)))
+        write(input, _vl_json(_vsave_inline_data(_without_ribbon_view(vl))))
         err = IOBuffer()
         success(pipeline(`$cmd --input $input --output $path`; stdout=devnull, stderr=err)) ||
             error("vsave: vl-convert could not write \"$path\":\n" * String(take!(err)))
