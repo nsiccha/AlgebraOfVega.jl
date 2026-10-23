@@ -43,7 +43,6 @@ function _base_vegalite(layer::AlgebraOfGraphics.Layer, layer_encodings::Abstrac
     spec = layer_to_vl(layer)
     # One layer: its units are the whole spec.
     _apply_layer_encodings!([[spec]], layer_encodings)
-    _apply_no_zero_default!(spec)
     _apply_no_truncate_default!(spec)
     _apply_ink_default!(spec)
     _densify_facet_sort!(spec)
@@ -52,7 +51,6 @@ end
 
 function _base_vegalite(layers::AlgebraOfGraphics.Layers, layer_encodings::AbstractVector=Any[])
     spec = layers_to_vl(layers; layer_encodings)
-    _apply_no_zero_default!(spec)
     _apply_no_truncate_default!(spec)
     _apply_ink_default!(spec)
     _densify_facet_sort!(spec)
@@ -62,23 +60,63 @@ end
 # AoV default: don't auto-include zero on quantitative x/y axes (overrides VL's
 # default `scale.zero=true`). Users opt back in via
 # `config(scales=scales(Y=(; zero=true)))` or `encoding=Dict("y"=>Dict("scale"=>Dict("zero"=>true)))`.
-_apply_no_zero_default!(_) = nothing
+#
+# It runs once, on the finished spec (`to_vegalite`'s last pass), because it
+# depends on each scale's final type: Vega-Lite drops `zero` from a scale type
+# that cannot take it and logs one console warning per encoding (`y-scale's
+# "zero" is dropped as it does not work with log scale.`). Units that share a
+# scale share its type, so a layer whose own `y` sets no type still gets no
+# default when a sibling layer makes the shared `y` scale log (snag
+# `log-scale-zero-w-7b997a94`). A `zero` the caller wrote is never touched.
+_apply_no_zero_default!(spec) = spec
 function _apply_no_zero_default!(spec::Dict)
-    if haskey(spec, "encoding") && spec["encoding"] isa Dict
-        for ch in ("x", "y")
-            enc = get(spec["encoding"], ch, nothing)
-            enc isa Dict || continue
-            get(enc, "type", nothing) == "quantitative" || continue
+    for ch in ("x", "y"), group in _shared_scale_groups(spec, ch)
+        all(_scale_takes_zero, group) || continue
+        for enc in group
             scale = get!(enc, "scale", Dict{String,Any}())
             scale isa Dict || continue
             haskey(scale, "zero") || (scale["zero"] = false)
         end
     end
-    if haskey(spec, "layer")
-        for sub in spec["layer"]; _apply_no_zero_default!(sub); end
-    end
-    if haskey(spec, "spec"); _apply_no_zero_default!(spec["spec"]); end
+    spec
 end
+
+# The Vega-Lite scale types that take `zero` (vega-lite 5.23
+# `scaleTypeSupportProperty`: the continuous types except log, time, utc,
+# threshold and quantile). A quantitative x/y scale without a `type` is linear.
+const _VL_ZERO_SCALE_TYPES = ("linear", "pow", "sqrt", "symlog", "quantize", "sequential", "identity")
+_scale_takes_zero(enc::Dict) = _scale_type_takes_zero(get(enc, "scale", nothing))
+_scale_type_takes_zero(scale::Dict) = (t = get(scale, "type", nothing); isnothing(t) || t in _VL_ZERO_SCALE_TYPES)
+_scale_type_takes_zero(_) = true
+
+# The quantitative `ch` encodings of a spec tree, grouped by the scale they
+# share, following Vega-Lite's default resolution: layer and facet children
+# share a scale unless `resolve.scale.<ch>` is "independent", while
+# concatenated views each get their own unless it is "shared".
+_shared_scale_groups(spec, ch) = _collect_scale_groups!(Vector{Dict}[Dict[]], 1, spec, ch)
+_collect_scale_groups!(groups, g, _, ch) = groups
+function _collect_scale_groups!(groups, g, node::Dict, ch)
+    enc = get(node, "encoding", nothing)
+    c = enc isa Dict ? get(enc, ch, nothing) : nothing
+    c isa Dict && get(c, "type", nothing) == "quantitative" && push!(groups[g], c)
+    resolve = get(node, "resolve", nothing)
+    scale_resolve = resolve isa Dict ? get(resolve, "scale", nothing) : nothing
+    mode = scale_resolve isa Dict ? get(scale_resolve, ch, nothing) : nothing
+    layers = get(node, "layer", nothing)
+    layers isa AbstractVector && for sub in layers
+        _collect_scale_groups!(groups, mode == "independent" ? _new_scale_group!(groups) : g, sub, ch)
+    end
+    _collect_scale_groups!(groups, g, get(node, "spec", nothing), ch)
+    for key in ("hconcat", "vconcat", "concat")
+        views = get(node, key, nothing)
+        views isa AbstractVector || continue
+        for sub in views
+            _collect_scale_groups!(groups, mode == "shared" ? g : _new_scale_group!(groups), sub, ch)
+        end
+    end
+    groups
+end
+_new_scale_group!(groups) = (push!(groups, Dict[]); length(groups))
 
 # AoV's neutral ink: marks AoV draws in a fixed text-like colour (dot-interval
 # rules) carry `style: "aov-ink"` instead of a literal colour, and the top-level
@@ -1538,12 +1576,28 @@ _select_field_list(v) = v
 
 function to_vegalite(v::VegaSpec; interactive::Bool=true,
                      auto_remap::Union{Nothing,NamedTuple}=nothing)
-    isnothing(auto_remap) || return _auto_remap_lowering(v; interactive, auto_remap...).vl
-    _finish_ribbon_views!(_vegaspec_views(v; interactive))
+    _finish_vegalite!(_lower_vegalite(v; interactive, auto_remap), v)
 end
 
-# The Vega-Lite of `v` as drawn, without a ribbon's interval view
-# (`_vegaspec_views`, src/ribbon_view.jl, adds that).
+# `to_vegalite` without its last passes, which need every scale's final type
+# (`_finish_vegalite!`): a caller that changes the lowered spec's scales
+# (`to_vegalite(spec, scales)`, the auto-remap lowering) finishes it itself
+# afterwards. A coloured ribbon's interval view is still pending in it
+# (src/ribbon_view.jl), so such passes go through `_each_ribbon_view!`. Any
+# other input lowers through its own `to_vegalite`.
+_lower_vegalite(x; interactive::Bool=true, auto_remap::Union{Nothing,NamedTuple}=nothing) =
+    to_vegalite(x; interactive, auto_remap)
+_lower_vegalite(x::Union{AlgebraOfGraphics.Layer,AlgebraOfGraphics.Layers}; kwargs...) =
+    _lower_vegalite(vlspec(x); kwargs...)
+function _lower_vegalite(v::VegaSpec; interactive::Bool=true,
+                         auto_remap::Union{Nothing,NamedTuple}=nothing)
+    isnothing(auto_remap) ||
+        return _auto_remap_lowering(v; interactive, finish=false, auto_remap...).vl
+    _vegaspec_views(v; interactive)
+end
+
+# The Vega-Lite of `v` as drawn, before the last passes and without a ribbon's
+# interval view (`_vegaspec_views`, src/ribbon_view.jl, adds that).
 function _lower_vegaspec(v::VegaSpec; interactive::Bool=true)
     spec = _base_vegalite(v.drawable, v.layer_encodings)
     select_fields = nothing
@@ -1673,7 +1727,7 @@ in AoG.
 """
 function to_vegalite(v, sc::AlgebraOfGraphics.Scales; interactive::Bool=true,
                      auto_remap::Union{Nothing,NamedTuple}=nothing)
-    spec = _unfinished_vegalite(v; interactive, auto_remap)
+    spec = _lower_vegalite(v; interactive, auto_remap)
     # Both drawings of a ribbon with an interval view take the scales, before
     # its overlap score reads the y scale.
     _each_ribbon_view!(spec) do s
@@ -1687,17 +1741,14 @@ function to_vegalite(v, sc::AlgebraOfGraphics.Scales; interactive::Bool=true,
         haskey(get(s, "_aov", Dict()), "legendInteraction") &&
             _add_auto_legend_interactivity!(s)
     end
-    _finish_ribbon_views!(spec)
+    _finish_vegalite!(spec, v)
 end
 
-# `to_vegalite(v; …)` with a ribbon's interval view still pending (see
-# src/ribbon_view.jl), for passes that must reach both drawings.
-_unfinished_vegalite(v::Union{AlgebraOfGraphics.Layer,AlgebraOfGraphics.Layers}; kw...) =
-    _unfinished_vegalite(vlspec(v); kw...)
-_unfinished_vegalite(v::VegaSpec; interactive::Bool, auto_remap) = isnothing(auto_remap) ?
-    _vegaspec_views(v; interactive) :
-    _auto_remap_lowering(v; interactive, finish=false, auto_remap...).vl
-_unfinished_vegalite(v; interactive::Bool, auto_remap) = to_vegalite(v; interactive, auto_remap)
+# AoV's own lowerings close with the no-zero default, on both drawings of a
+# coloured ribbon, then decide which drawing it starts in; a raw Vega-Lite Dict
+# is the caller's spec, and AoV adds no default to it.
+_finish_vegalite!(spec, ::Dict) = spec
+_finish_vegalite!(spec, _) = _finish_ribbon_views!(_each_ribbon_view!(_apply_no_zero_default!, spec))
 
 """
     add_select_filters!(spec, drawable, fields)

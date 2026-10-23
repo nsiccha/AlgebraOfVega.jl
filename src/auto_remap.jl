@@ -636,7 +636,7 @@ function _auto_remap_lowering(spec; dims, fixed=Dict(), pinned::Symbol=:row,
 
     # Build VL, tag layers whose color field is layer-fixed so JS remapEncoding skips them.
     # A ribbon's interval view (src/ribbon_view.jl) takes the same passes.
-    vl = _vegaspec_views(new_spec; interactive)
+    vl = _lower_vegalite(new_spec; interactive)
     _each_ribbon_view!(vl) do s
         isempty(keep_color_fields) || _tag_keep_color_layers!(s, keep_color_fields)
         # If the resolved spec is non-faceted (e.g. `:basename` had a single unique
@@ -648,7 +648,11 @@ function _auto_remap_lowering(spec; dims, fixed=Dict(), pinned::Symbol=:row,
         # stack-up bug).
         _scrub_independent_resolve_if_unfaceted!(s)
     end
-    finish && (vl = _finish_ribbon_views!(vl))
+    # The last passes — the no-zero default, which reads which layers share a
+    # scale, and a ribbon's view decision — follow the scrub.
+    # `to_vegalite(spec, scales; auto_remap)` changes the scales first and
+    # finishes the spec itself (`finish=false`).
+    finish && (vl = _finish_vegalite!(vl, new_spec))
     (; resolved, new_spec, vl)
 end
 

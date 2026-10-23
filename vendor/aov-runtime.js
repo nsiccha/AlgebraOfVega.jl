@@ -1793,8 +1793,10 @@ window.AoV = window.AoV || {
     // domain, and the features of each fitted projection, are unioned. So a
     // colour means the same value in every frame, axes do not jump and a map
     // keeps its framing, whatever the marks compute (stacked bars, Vega-Lite
-    // density or regression transforms). Resolves to null when it cannot be
-    // computed; the frames then re-fit their scales one by one.
+    // density or regression transforms). Only the data runs per frame
+    // (_framePlanView), not the marks. A spec with neither a data-driven scale
+    // nor a fitted projection needs no run at all. Resolves to null when it
+    // cannot be computed; the frames then re-fit their scales one by one.
     _framePlan: function(id, spec, opts) {
         var self = this, meta = spec._aov.frame, view = null, P = this._FRAME_PARAM;
         function dataDriven(d) { return !!d && typeof d === 'object' && !Array.isArray(d) && !d.signal; }
@@ -1821,9 +1823,10 @@ window.AoV = window.AoV || {
             if (!(vg.signals || []).some(function(sig) { return sig.name === P; })) return null;
             var scales = (vg.scales || []).filter(function(sc) { return dataDriven(sc.domain); });
             var fitted = (vg.projections || []).map(function(p) { return !!(p.fit && p.fit.signal); });
+            if (!scales.length && fitted.indexOf(true) === -1) return {domains: {}, fits: []};
             vg.signals = vg.signals.concat((vg.projections || []).filter(function(p, j) { return fitted[j]; })
                 .map(function(p) { return {name: '__aov_frame_fit_' + vg.projections.indexOf(p), update: p.fit.signal}; }));
-            view = new vega.View(vega.parse(vg), {renderer: 'none', loader: opts && opts.loader || undefined});
+            view = new vega.View(vega.parse(self._framePlanView(vg)), {renderer: 'none', loader: opts && opts.loader || undefined});
             var domains = {}, fits = fitted.map(function() { return {seen: new Set(), points: {}, features: []}; });
             var collect = function() {
                 scales.forEach(function(sc) {
@@ -1877,6 +1880,41 @@ window.AoV = window.AoV || {
             if (view) view.finalize();
             return plan;
         });
+    },
+    // The compiled spec `vg` (the frame plan's own copy, changed in place)
+    // cut down to what the plan reads: the top-level scale domains and the
+    // features each fitted projection fits. Marks, axes, legends and titles
+    // feed neither, and neither does a projection's fit itself, which only
+    // places marks. Kept, they were the plan's whole cost: a map's outlines
+    // went through the projection twice per frame, for the fit and for the
+    // marks' bounds (snag `frame-plan-repla-b3f8cee5`: 145 frames of 16 states
+    // with 28,902 vertices took 3 s, the data alone 0.1 s). A geopoint
+    // transform (lon/lat marks on a map) only adds the marks' pixel
+    // positions, so it goes too unless something left reads them; then a
+    // projection nothing left names loses its fit. Anything else that names
+    // a projection keeps it fitted, so what it computes is unchanged.
+    _framePlanView: function(vg) {
+        // Whether the JSON `text` mentions `name` as a string (a field, a
+        // projection), inside an expression too: datum["f"] (escaped there
+        // as datum[\"f\"]), 'f', datum.f.
+        function names(text, name) {
+            var q = String(name).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            return new RegExp('\\\\?"' + q + '\\\\?"|\'' + q + '\'|datum\\.' + q + '\\b').test(text);
+        }
+        delete vg.marks;
+        delete vg.axes;
+        delete vg.legends;
+        delete vg.title;
+        (vg.data || []).forEach(function(d) {
+            (d.transform || []).slice().forEach(function(t) {
+                if (t.type !== 'geopoint') return;
+                var rest = JSON.stringify(vg, function(k, v) { return v === t ? undefined : v; });
+                if (!(t.as || ['x', 'y']).some(function(f) { return names(rest, f); })) d.transform.splice(d.transform.indexOf(t), 1);
+            });
+        });
+        var rest = JSON.stringify(Object.assign({}, vg, {projections: undefined}));
+        (vg.projections || []).forEach(function(p) { if (p.fit && !names(rest, p.name)) delete p.fit; });
+        return vg;
     },
     // `opts` whose compiled spec shows the current frame with the plan's
     // shared domains and projection fits.
