@@ -36,6 +36,11 @@
         box-shadow: var(--pico-box-shadow);
     }
     input.aov-frame-slider:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+    /* A focused or dragged Pico thumb keeps Pico's idle slate. */
+    input.aov-frame-slider {
+        color: inherit; accent-color: currentColor;
+        --pico-range-thumb-active-color: var(--pico-secondary-background, currentColor);
+    }
     /* A coloured ribbon's Ribbons | Intervals switch (built by the runtime,
        `_ribbonViewControls`): the pressed button is the drawing shown. In a
        captioned figure the two buttons are the action row's first buttons
