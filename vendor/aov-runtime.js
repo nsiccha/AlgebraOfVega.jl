@@ -30,6 +30,9 @@ window.AoV = window.AoV || {
     // under the pointer, and the key it announced to its link group.
     _highlights: {},
     _hovers: {},
+    // Container-sized plots last embedded while their container offered no
+    // width (a hidden tab panel, a closed <details>; see _measurableAgain).
+    _unmeasured: {},
 
     // Every map keyed by plot id; dispose() clears each. A new per-plot
     // map belongs in this list.
@@ -37,16 +40,17 @@ window.AoV = window.AoV || {
         '_signals', '_liveRows', '_specRows', '_origSpecs', '_droppedLegends',
         '_embedOpts', '_observers', '_computedWidths', '_corrections', '_correctedRegime',
         '_cur', '_pickers', '_mappings', '_themeKeys', '_reembeds', '_frames',
-        '_highlights', '_hovers'],
+        '_highlights', '_hovers', '_unmeasured'],
 
     // Whether the runtime sizes this spec to its container: Julia's
     // `_embed_spec` marks a responsive layered/faceted/per-column spec with
-    // `_aov.fitWidth`; a single view keeps VL's `width: "container"`. `_aov`
-    // alone is no sizing marker: it also carries legend, theme and ribbon
-    // metadata, and a plot with an authored width (`width=`, `fit_width=false`)
-    // keeps that width and is never re-embedded on resize.
+    // `_aov.fitWidth`; a single view keeps VL's `width: "container"`, with or
+    // without `_aov`. `_aov` alone is no sizing marker: it also carries
+    // legend, theme and ribbon metadata, and a plot with an authored width
+    // (`width=`, `fit_width=false`) keeps that width and is never re-embedded
+    // on resize.
     _fitSized: function(spec) {
-        return !!(spec && spec._aov && (spec._aov.fitWidth || spec.width === 'container'));
+        return !!(spec && ((spec._aov && spec._aov.fitWidth) || spec.width === 'container'));
     },
 
     // The width el's container offers it, measured with el collapsed. A
@@ -63,6 +67,23 @@ window.AoV = window.AoV || {
         var offered = parent.clientWidth;
         el.style.width = width;
         return offered;
+    },
+
+    // A container-sized plot embedded while its container offered no width
+    // rendered at its fallback width (layered/faceted) or 0px wide (a single
+    // view: Vega-Lite reads `width: "container"` again only on a window
+    // resize). Whatever lays the container out again — a tab panel shown on
+    // load or by a click, a <details> opened — the plot re-sizes at once:
+    // that is no drag-resize to coalesce, and the container may come back at
+    // the width last seen before it was hidden. Measured as
+    // _applyResponsiveWidth measures, so a container that still offers no
+    // width (one that shrink-wraps the plot) re-embeds nothing.
+    _measurableAgain: function(id, el) {
+        if (!this._unmeasured[id]) return false;
+        var offered = this._offeredWidth(el);
+        if (!offered || offered < 50) return false;
+        delete this._unmeasured[id];
+        return true;
     },
 
     // `budget` pins the sizing budget instead of measuring the container: the
@@ -83,7 +104,11 @@ window.AoV = window.AoV || {
         var containerWidth = budget;
         if (containerWidth === undefined) {
             containerWidth = this._offeredWidth(el);
-            if (!containerWidth || containerWidth < 50) return unsized();
+            if (!containerWidth || containerWidth < 50) {
+                self._unmeasured[id] = true;
+                return unsized();
+            }
+            delete self._unmeasured[id];
             var zoom = (window.AoV && window.AoV.zoom) ? window.AoV.zoom : 1;
             containerWidth = Math.floor(containerWidth / zoom);
             var maxWidth = (spec._aov && spec._aov.maxWidth) || (window.AoV && window.AoV.maxWidth) || Infinity;
@@ -116,7 +141,9 @@ window.AoV = window.AoV || {
             computed = Math.max(minCell, containerWidth - padding);
             kind = spec.spec ? 'inner' : 'top';
         } else {
-            return spec;
+            // A single view without `_aov`: Vega-Lite reads its
+            // `width: "container"` itself.
+            return unsized();
         }
         var colField = spec.facet && spec.facet.column && spec.facet.column.field;
         var rowField = spec.facet && spec.facet.row && spec.facet.row.field;
@@ -262,6 +289,80 @@ window.AoV = window.AoV || {
 
     embed: function(id, spec, opts) {
         return this._embed(id, spec, opts, false);
+    },
+
+    // --- Polygon winding (geometry loaded from a URL) ---
+    // d3-geo reads a counter-clockwise exterior ring (RFC 7946's winding) as
+    // the whole globe minus the polygon, so such a map fills the projection
+    // in one colour. AoV draws each polygon as the smaller region its rings
+    // enclose: an exterior ring covering more than a hemisphere is reversed,
+    // and so is a hole that does not. Julia rewinds inline geometry when it
+    // lowers a geoshape; a URL is fetched here, so every plot's loader
+    // rewinds the GeoJSON it reads. LOCKSTEP: `_rewind_geojson!` and
+    // `_ring_area` in src/analysis_to_vl.jl (snag `a-choropleth-of-89e8fdc1`).
+
+    // d3-geo's area of a polygon with this one ring, in steradians (0 to 4π).
+    _ringArea: function(ring) {
+        var rad = Math.PI / 180, n = ring.length - 1, p = ring[0];
+        var l0 = p[0] * rad, f = p[1] * rad / 2 + Math.PI / 4;
+        var c0 = Math.cos(f), s0 = Math.sin(f), sum = 0;
+        for (var i = 1; i <= n; i++) {
+            p = i < n ? ring[i] : ring[0];
+            var l = p[0] * rad, d = l - l0, sd = d >= 0 ? 1 : -1;
+            f = p[1] * rad / 2 + Math.PI / 4;
+            var c = Math.cos(f), s = Math.sin(f), k = s0 * s;
+            sum += Math.atan2(k * sd * Math.sin(sd * d), c0 * c + k * Math.cos(sd * d));
+            l0 = l; c0 = c; s0 = s;
+        }
+        return 2 * (sum < 0 ? 2 * Math.PI + sum : sum);
+    },
+    // Rewinds a parsed GeoJSON object in place; returns whether a ring changed.
+    _rewindGeoJSON: function(x) {
+        var self = this, any = function(xs, f) {
+            return Array.isArray(xs) && xs.reduce(function(ch, e, i) { return f(e, i) || ch; }, false);
+        };
+        if (Array.isArray(x)) return any(x, function(e) { return self._rewindGeoJSON(e); });
+        if (!x || typeof x !== 'object') return false;
+        var polygon = function(rings) {
+            return any(rings, function(ring, i) {
+                if (!Array.isArray(ring) || ring.length < 4) return false;
+                // The exterior ring (the first) must cover less than a hemisphere, a hole more.
+                if ((self._ringArea(ring) > 2 * Math.PI) !== (i === 0)) return false;
+                ring.reverse();
+                return true;
+            });
+        };
+        switch (x.type) {
+            case 'FeatureCollection': return self._rewindGeoJSON(x.features);
+            case 'Feature': return self._rewindGeoJSON(x.geometry);
+            case 'GeometryCollection': return self._rewindGeoJSON(x.geometries);
+            case 'Polygon': return polygon(x.coordinates);
+            case 'MultiPolygon': return any(x.coordinates, function(rings) { return polygon(rings); });
+            default: return false;
+        }
+    },
+    // What a data URL's load returned, with any GeoJSON polygons rewound: a
+    // JSON dataset arrives parsed (Vega asks the fetch for JSON), a file read
+    // or another format as text. Text with no polygon type, and text that is
+    // not JSON (a CSV, say), comes back as it was, for Vega to read in the
+    // dataset's own format.
+    _rewindLoaded: function(loaded) {
+        if (loaded && typeof loaded === 'object') { this._rewindGeoJSON(loaded); return loaded; }
+        if (typeof loaded !== 'string' || !/"(Multi)?Polygon"/.test(loaded)) return loaded;
+        var obj;
+        try { obj = JSON.parse(loaded); } catch (e) { return loaded; }
+        return this._rewindGeoJSON(obj) ? JSON.stringify(obj) : loaded;
+    },
+    // The embed options with a loader that rewinds what it loads: the page's
+    // own loader (a Vega loader, or loader options) or Vega's default.
+    _withGeoLoader: function(opts) {
+        var self = this, given = opts.loader;
+        var base = given && typeof given.load === 'function' ? given : vega.loader(given);
+        var loader = Object.create(base);
+        loader.load = function(uri, options) {
+            return base.load.call(this, uri, options).then(function(loaded) { return self._rewindLoaded(loaded); });
+        };
+        return Object.assign({}, opts, {loader: loader});
     },
 
     // A plot whose element leaves the document is disposed. One
@@ -494,6 +595,9 @@ window.AoV = window.AoV || {
         // legend-restore re-embed from appendData/updateData) can preserve
         // them (e.g. actions:false) instead of falling back to defaults.
         self._embedOpts[id] = opts;
+        // GeoJSON a data URL returns is rewound before Vega reads it, in the
+        // view and in the frame player's headless one.
+        opts = self._withGeoLoader(opts);
         // Store original spec for re-embed on resize and remapEncoding
         var origSpec = self._expandSpecData(JSON.parse(JSON.stringify(spec)));
         self._refreshLegendSelections(origSpec);
@@ -583,14 +687,24 @@ window.AoV = window.AoV || {
             }).catch(function(err) { settle(); self._console.error.call(console, '[' + id + ']', err); });
         };
 
-        // Set up resize observer for responsive re-embed (only for _aov-marked specs)
-        if (spec._aov) {
+        // Set up resize observer for responsive re-embed: container-sized
+        // specs, and _aov-marked ones (a remap can make them container-sized).
+        // A plot whose container offered no width when it embedded re-sizes
+        // as soon as it does (_measurableAgain); other width changes are
+        // coalesced.
+        if (spec._aov || self._fitSized(spec)) {
             var el = document.getElementById(id);
             if (el && el.parentElement && window.ResizeObserver) {
                 var timer = null;
                 var lastWidth = el.parentElement.clientWidth;
                 var ro = new ResizeObserver(function() {
                     var newWidth = el.parentElement ? el.parentElement.clientWidth : 0;
+                    if (self._measurableAgain(id, el)) {
+                        lastWidth = newWidth;
+                        clearTimeout(timer);
+                        self._resizeReembed(id);
+                        return;
+                    }
                     if (newWidth === lastWidth || newWidth < 50) return;
                     lastWidth = newWidth;
                     clearTimeout(timer);

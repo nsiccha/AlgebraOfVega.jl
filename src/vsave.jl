@@ -37,10 +37,11 @@ command-line tool (AoV is tested with 1.9.0). Put it on `PATH` or set
   [`to_vegalite`](@ref), to write the figure that picker shows first.
 
 Size the figure with `config(width=…, height=…)`; without them Vega-Lite's
-defaults apply. A data URL naming a local file — such as
-`geoshape("districts.geojson")`, read relative to the current directory — is
-read into the spec, because vl-convert loads no local files; an `http(s)` URL is
-left to vl-convert.
+defaults apply. Every data URL naming a local file — such as
+`geoshape("districts.geojson")`, read relative to the current directory — or an
+`http(s)` address is read into the spec before vl-convert renders it: vl-convert
+loads no local files, and GeoJSON polygons are rewound the way `vdraw` draws
+them (see [`geoshape`](@ref)). A `data:` URL is already inline and stays.
 
     for (name, rows) in regions
         vsave(data(rows) * mapping(:AGS; color=:share) * geoshape(geo) *
@@ -110,37 +111,53 @@ end
 
 # vl-convert loads no local file: a `geoshape(...)` URL naming a .geojson on
 # disk — relative, absolute or file:// — renders an empty map with exit 0 and
-# no warning (measured with vl-convert 1.9.0). So every Vega-Lite URL data
-# object (`url`, optional `format`/`name`) naming a local file is read into the
-# spec; http(s) and data: URLs stay. The walk copies the objects on its way and
-# never writes into the lowered spec, which `to_vegalite(::Dict)` returns as the
-# caller's own Dict; inline `values` payloads are shared, not walked.
+# no warning (measured with vl-convert 1.9.0). And GeoJSON it fetches itself
+# keeps its winding, so an RFC 7946 (counter-clockwise) file fills the map in one
+# colour (snag `a-choropleth-of-89e8fdc1`). So every Vega-Lite URL data object
+# (`url`, optional `format`/`name`) naming a local file or an http(s) address is
+# read into the spec, its GeoJSON polygons rewound as `geoshape` rewinds inline
+# geometry; data: URLs and other schemes stay. The walk copies the objects on its
+# way and never writes into the lowered spec, which `to_vegalite(::Dict)` returns
+# as the caller's own Dict; inline `values` payloads are shared, not walked.
 _vsave_inline_data(x) = x
 _vsave_inline_data(v::AbstractVector) = Any[_vsave_inline_data(e) for e in v]
 function _vsave_inline_data(d::AbstractDict)
     url = get(d, "url", nothing)
     if url isa AbstractString && all(k -> string(k) in ("url", "format", "name"), keys(d))
-        file = _vsave_local_file(url)
-        isnothing(file) || return _vsave_file_data(d, url, file)
+        text = _vsave_read_url(url)
+        isnothing(text) || return _vsave_url_data(d, url, text)
     end
     Dict{String,Any}(string(k) => (string(k) == "values" ? v : _vsave_inline_data(v)) for (k, v) in d)
 end
 
-function _vsave_local_file(url::AbstractString)
+# The text a data URL names, or `nothing` for one vl-convert keeps (data:, and
+# schemes other than file and http(s)).
+function _vsave_read_url(url::AbstractString)
     lower = lowercase(url)
-    startswith(lower, "file://") && return url[8:end]
-    (startswith(lower, "data:") || occursin(r"^[a-z][a-z0-9+.-]*://", lower)) && return nothing
-    url
-end
-
-function _vsave_file_data(d::AbstractDict, url::AbstractString, file::AbstractString)
-    path = abspath(file)
+    if occursin(r"^https?://", lower)
+        io = IOBuffer()
+        try
+            Downloads.download(url, io)
+        catch e
+            throw(ArgumentError("vsave: could not download the data URL \"$url\": " * sprint(showerror, e)))
+        end
+        return String(take!(io))
+    end
+    (startswith(lower, "data:") || (occursin(r"^[a-z][a-z0-9+.-]*://", lower) &&
+        !startswith(lower, "file://"))) && return nothing
+    path = abspath(startswith(lower, "file://") ? url[8:end] : url)
     isfile(path) || throw(ArgumentError(
         "vsave: the data URL \"$url\" names no file ($path); a local path is read relative to the current directory"))
+    read(path, String)
+end
+
+function _vsave_url_data(d::AbstractDict, url::AbstractString, text::AbstractString)
     format = Dict{String,Any}(string(k) => v for (k, v) in get(d, "format", Dict{String,Any}()))
-    kind = get!(() -> get(_VSAVE_URL_FORMATS, lowercase(last(splitext(path))), "json"), format, "type")
-    values = kind in ("json", "topojson") ?
-        JSON.parse(read(path, String); dicttype=Dict{String,Any}) : read(path, String)
+    # An http(s) address's extension is its path's, before any query.
+    file = occursin(r"^https?://"i, url) ? first(split(url, r"[?#]")) : url
+    kind = get!(() -> get(_VSAVE_URL_FORMATS, lowercase(last(splitext(file))), "json"), format, "type")
+    values = kind in ("json", "topojson") ? JSON.parse(text; dicttype=Dict{String,Any}) : text
+    kind == "json" && _rewind_geojson!(values)
     out = Dict{String,Any}("values" => values, "format" => format)
     haskey(d, "name") && (out["name"] = d["name"])
     out

@@ -198,7 +198,13 @@ are not drawn.
 
 `geometry` is a GeoJSON source in one of three forms: a URL string (fetched
 by the browser), a parsed FeatureCollection `Dict`, or a vector of Feature
-`Dict`s. `key` names the join field: a single name used on both sides
+`Dict`s. Any ring winding draws: each polygon is the region its rings enclose,
+whether the file winds exterior rings counter-clockwise (RFC 7946, as WFS
+servers and most GIS tools write) or clockwise (d3's convention, and the
+Shapefile one). AoV rewinds a parsed geometry when it lowers the layer, the AoV
+browser runtime rewinds a URL's GeoJSON when it loads it, and [`vsave`](@ref)
+rewinds what it reads into the file. A region larger than half the globe cannot
+be drawn. `key` names the join field: a single name used on both sides
 (`key=:AGS` — the geometry's feature property and the table column), a
 `data_column => geo_property` pair when the two sides spell it differently,
 or omitted, in which case the mapping's single positional is the key
