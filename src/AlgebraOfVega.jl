@@ -119,6 +119,7 @@ _sanitize_id(id) = replace(string(id), r"[^A-Za-z0-9_-]" => "-")
 function _auto_summary_args end
 # Tidybayes-style analysis exports
 export pointinterval, gradient_interval, lineribbon, ribbon, dotinterval
+export ribbon_view
 export geoshape
 # High-level widget/recipe exports
 export ecdf_grid, ppc_overlay

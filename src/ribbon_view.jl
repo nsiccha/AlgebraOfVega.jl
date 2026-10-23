@@ -18,25 +18,30 @@
 # pass to both; finished, the spec is the starting view and carries the other
 # as `_aov.ribbonView.alt`.
 
-# The coloured ribbon a figure's interval view is drawn from, or `nothing`: the
-# figure has exactly one ribbon layer, it maps `color=` (and no `detail`), its x
-# is numeric and has at most `_RIBBON_INTERVAL_MAX_X` distinct values. `cells`
-# are the outer band of each (facet panel, colour group, x), which the overlap
-# score reads; `slots` the x values in ascending order.
+# The coloured ribbon a figure's interval view is drawn from: the figure has
+# exactly one ribbon layer, it maps `color=` (and no `detail`), its x is numeric
+# and has at most `_RIBBON_INTERVAL_MAX_X` distinct values. `cells` are the
+# outer band of each (facet panel, colour group, x), which the overlap score
+# reads; `slots` the x values in ascending order. A figure that misses one of
+# these gets the condition it misses, as the Symbol `ribbon_view` reports.
 function _ribbon_view_source(v)
     layers = _spec_layers_or_nothing(_spec_drawable(v))
-    isnothing(layers) && return nothing
+    isnothing(layers) && return :no_ribbon
     found = [(i, l, a) for (i, l) in enumerate(layers)
              for a in (extract_transformation(l, LineRibbonAnalysis),
                        extract_transformation(l, PrecomputedRibbonAnalysis))
              if !isnothing(a)]
-    length(found) == 1 || return nothing
+    isempty(found) && return :no_ribbon
+    length(found) == 1 || return :several_ribbons
     index, layer, a = only(found)
-    (haskey(layer.named, :color) && length(layer.positional) >= 2 && isempty(a.detail_fields)) || return nothing
-    table = extract_data(layer)
-    isnothing(table) && return nothing
+    haskey(layer.named, :color) || return :no_color
+    isempty(a.detail_fields) || return :detail
+    # A ribbon without data or a y does not lower at all.
+    table = length(layer.positional) >= 2 ? extract_data(layer) : nothing
+    isnothing(table) && return :no_ribbon
     x_field = _field_name(layer.positional[1])
-    _ribbon_x_type(Tables.getcolumn(table, Symbol(x_field))) == "quantitative" || return nothing
+    x_col = Tables.getcolumn(table, Symbol(x_field))
+    _ribbon_x_type(x_col) == "quantitative" || return :not_numeric_x
     color_field = _field_name(layer.named[:color])
     _, facet_fields = _extract_facet_info(layer)
     rows, lo, hi = _ribbon_outer_rows(a, layer, table, x_field, color_field, facet_fields)
@@ -52,7 +57,11 @@ function _ribbon_view_source(v)
                         color=get(row, color_field, nothing), x=Float64(x),
                         lo=Float64(min(l, h)), hi=Float64(max(l, h))))
     end
-    (isempty(slots) || length(slots) > _RIBBON_INTERVAL_MAX_X) && return nothing
+    # No x value to draw: either none is a number (text), or there are no rows
+    # yet, or only missing ones.
+    isempty(slots) && return any(x -> !(isnothing(x) || ismissing(x) || (x isa Real && !(x isa Bool))), x_col) ?
+        :not_numeric_x : :no_x_values
+    length(slots) > _RIBBON_INTERVAL_MAX_X && return :too_many_x
     (; index, analysis=a, x_field, x_title=_field_label(layer.positional[1]), lo, hi, cells,
        slots=Any[slots[k] for k in sort!(collect(keys(slots)))])
 end
@@ -91,7 +100,7 @@ _interval_view_analysis(a::PrecomputedRibbonAnalysis) = PrecomputedIntervalAnaly
 function _vegaspec_views(v::VegaSpec; interactive::Bool=true)
     vl = _lower_vegaspec(v; interactive)
     src = _ribbon_view_source(v)
-    isnothing(src) && return vl
+    src isa Symbol && return vl
     alt = _lower_vegaspec(_ribbon_intervals_spec(v, src); interactive)
     get!(Dict{String,Any}, vl, "_aov")["ribbonView"] = Dict{String,Any}("pending" => alt, "source" => src)
     vl
@@ -494,4 +503,63 @@ function _ribbon_y_scale(vl::Dict, src)
         !isnothing(sc) && get(sc, "y", nothing) == "independent"
     end
     (; domain, log=get(scale, "type", nothing) == "log", per_panel=independent)
+end
+
+# --- Public API: ribbon_view ---
+
+"""
+    ribbon_view(spec; auto_remap=nothing) -> NamedTuple
+    ribbon_view(spec, scales(...); auto_remap=nothing) -> NamedTuple
+
+Whether a coloured `lineribbon`/`ribbon` figure gets the "Ribbons | Intervals"
+switch, and which drawing it starts in: the facts the switch's tooltip shows,
+read from the figure `to_vegalite` lowers from the same arguments (pass the
+picker's keywords as `auto_remap` for a figure drawn through the channel
+picker). Returns `(; offered, why_not, start, score, threshold)`:
+
+- `offered`: whether the figure carries the switch.
+- `why_not`: `nothing` when it does; otherwise the condition the figure misses.
+  `:no_ribbon` (no `lineribbon`/`ribbon` layer), `:several_ribbons` (more than
+  one), `:no_color` (the ribbon maps no `color=`), `:detail` (a `detail=`
+  split), `:not_numeric_x` (a date or text x), `:no_x_values` (no rows with an x
+  value yet), `:too_many_x` (more than $(_RIBBON_INTERVAL_MAX_X) distinct x
+  values across the figure) or `:x_off_slots` (the point-interval drawing puts
+  the x values on evenly spaced slots, and another layer's x cannot sit on one:
+  a value that is not one of the ribbon's x values, or a binned, aggregated or
+  `datum` x).
+- `start`: `:ribbons` or `:intervals`, the drawing the figure starts in.
+- `score`: the overlap score the tooltip shows (to three decimals): how far the
+  colour groups' outer bands overlap, as a share of the y range. It is measured
+  whatever `intervals=` says, so a fixed start can be calibrated too.
+- `threshold`: the share `intervals=:auto` compared `score` against;
+  `nothing` when `intervals=true`/`false` fixes the start.
+
+`start`, `score` and `threshold` are `nothing` when the switch is not offered.
+
+    fig = data(summary) * mapping(:dose, :median; color=:group) *
+        lineribbon(bands=[:q025 => :q975, :q25 => :q75])
+    v = ribbon_view(fig)
+    v.start === :intervals   # true when v.score > v.threshold
+"""
+ribbon_view(spec::Union{AlgebraOfGraphics.Layer,AlgebraOfGraphics.Layers,VegaSpec};
+            auto_remap::Union{Nothing,NamedTuple}=nothing) =
+    _ribbon_view_facts(to_vegalite(spec; auto_remap), spec, auto_remap)
+ribbon_view(spec::Union{AlgebraOfGraphics.Layer,AlgebraOfGraphics.Layers,VegaSpec}, sc::AlgebraOfGraphics.Scales;
+            auto_remap::Union{Nothing,NamedTuple}=nothing) =
+    _ribbon_view_facts(to_vegalite(spec, sc; auto_remap), spec, auto_remap)
+
+# The facts of the finished spec `vl`. Without a switch, the reason comes from
+# the figure the lowering drew (the picker's resolved figure under `auto_remap`):
+# the condition it misses, or, when it has none, the one `_finish_ribbon_views!`
+# checks last — another layer's x values miss the slots.
+function _ribbon_view_facts(vl, spec, auto_remap)
+    rv = _ribbon_view_meta(vl)
+    if !isnothing(rv)
+        threshold = rv["threshold"]
+        return (; offered=true, why_not=nothing, start=Symbol(rv["start"]), score=Float64(rv["score"]),
+                  threshold=isnothing(threshold) ? nothing : Float64(threshold))
+    end
+    drawn = isnothing(auto_remap) ? spec : _auto_remap_lowering(spec; finish=false, auto_remap...).new_spec
+    src = _ribbon_view_source(drawn)
+    (; offered=false, why_not=src isa Symbol ? src : :x_off_slots, start=nothing, score=nothing, threshold=nothing)
 end
