@@ -1404,19 +1404,57 @@ function _apply_scales_sugar!(spec, s::AlgebraOfGraphics.Scales)
     # A `Color` scale is applied ONLY to colour encodings that carry a `field`
     # — never broadcast onto a field-less layer.
     _merge_color_scale!(spec, _scales_to_color_scale(s))
-    marker = get(s.dict, :Marker, nothing)
-    if !isnothing(marker)
-        shape_scale = Dict{String,Any}()
-        if haskey(marker, :categories)
-            shape_scale["domain"] = [c isa Pair ? first(c) : c for c in marker[:categories]]
-        end
-        if haskey(marker, :palette)
-            shape_scale["range"] = [string(m) for m in marker[:palette]]
-        end
-        _merge_color_scale!(spec, shape_scale; channel="shape")
+    # So are the Makie-vocabulary categorical scales.
+    for (name, channel) in _MAKIE_CATEGORICAL_SCALES
+        props = get(s.dict, name, nothing)
+        isnothing(props) || _merge_color_scale!(spec, _makie_categorical_scale_vl(name, props); channel)
     end
     _merge_facet_sorts!(spec, _scales_to_facet_sorts(s))
     spec
+end
+
+# The categorical scales whose palette AoG spells in Makie attribute values, and the
+# Vega-Lite channel each one's mapping lowers to (`_CHANNEL_MAP`): `marker=` → `shape`,
+# `linestyle=` → `strokeDash`.
+const _MAKIE_CATEGORICAL_SCALES = ((:Marker, "shape"), (:LineStyle, "strokeDash"))
+
+# The keys AlgebraOfGraphics accepts on a categorical scale; AoV lowers the first two.
+const _CATEGORICAL_SCALE_LOWERED = (:categories, :palette)
+const _CATEGORICAL_SCALE_GUIDE_KEYS = (:label, :legend, :hide_unused_legend, :dim_labels)
+
+"""The Vega-Lite `scale` of a `scales(Marker=…)`/`scales(LineStyle=…)` override:
+`categories` → `domain` (the order in which the categories take the palette) and `palette` →
+`range`, each entry spelled as for the fixed `visual(...)` attribute and converted the same
+way (`:rect` → `"square"`, `:dash` → `[6, 6]`). A key AlgebraOfGraphics rejects on a
+categorical scale is an `ArgumentError`; an AoG guide key AoV does not lower warns once
+(snag `a-map-layer-with-db3ce798`)."""
+function _makie_categorical_scale_vl(name::Symbol, props)
+    for k in keys(props)
+        k in _CATEGORICAL_SCALE_LOWERED && continue
+        k in _CATEGORICAL_SCALE_GUIDE_KEYS || throw(ArgumentError(
+            "AlgebraOfVega: unknown `$name` scale attribute `$k` (AlgebraOfGraphics rejects it too). Available: " *
+            join(("`$a`" for a in (_CATEGORICAL_SCALE_LOWERED..., _CATEGORICAL_SCALE_GUIDE_KEYS...)), ", ") * "."))
+        @warn "AlgebraOfVega: the `$name` scale attribute `$k` is not lowered to Vega-Lite yet; the interactive plot ignores it (`sdraw` applies it)." _id=(name, k) maxlog=1
+    end
+    scale = Dict{String,Any}()
+    haskey(props, :categories) && (scale["domain"] = _scales_categories(props))
+    haskey(props, :palette) && (scale["range"] = Any[_palette_entry_vl(Val(name), p) for p in props[:palette]])
+    scale
+end
+
+_palette_entry_vl(::Val{:Marker}, m::Symbol) = _marker_to_shape(m)
+_palette_entry_vl(::Val{:Marker}, m) = string(m)
+
+# `:solid` (and `nothing`, the first entry of Makie's default linestyle palette) becomes
+# the gapless pattern Vega-Lite's own default `strokeDash` range starts with: a range entry
+# cannot omit `strokeDash` the way the fixed attribute does.
+function _palette_entry_vl(::Val{:LineStyle}, ls)
+    dash = something(_linestyle_to_strokedash(ls), [1, 0])
+    dash isa AbstractVector && all(d -> d isa Real, dash) && return collect(dash)
+    throw(ArgumentError("AlgebraOfVega: the `LineStyle` palette entry $(repr(ls)) has no " *
+        "Vega-Lite dash pattern. Use a Makie linestyle symbol (" *
+        join(("`:$k`" for k in (:solid, :dash, :dot, :dashdot, :dashdotdot)), ", ") *
+        ") or a numeric dash/gap array such as `[4, 2]`."))
 end
 
 # `categories` is AoG's categorical-scale order; `value => label` pairs contribute

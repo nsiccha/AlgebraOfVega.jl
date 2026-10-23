@@ -30,11 +30,27 @@ AoG Layer → check transformation chain for known analyses:
 | `color` | color |
 | `marker` | shape |
 | `markersize` | size |
+| `linestyle` | strokeDash |
 | `dodge_x` | xOffset |
 | `dodge_y` | yOffset |
 | `col` | column (facet) |
 | `row` | row (facet) |
 | `group` | detail |
+
+A `Marker` or `LineStyle` scale fixes the order of a mapped `marker=` or
+`linestyle=` and the value each category takes, as in AlgebraOfGraphics:
+`categories` becomes the Vega-Lite `scale.domain` and `palette` the
+`scale.range`. Palette entries are spelled as for the fixed `visual(...)`
+attribute and converted the same way (`:rect` → `"square"`, `:dash` →
+`[6, 6]`, `:solid` → `[1, 0]`):
+
+```julia
+spec = data(rows) * mapping(:lon, :lat; group=:segment, linestyle=:check) * visual(Lines)
+vdraw(spec, scales(LineStyle=(; categories=["ok", "check"], palette=[:solid, :dash])))
+```
+
+Without `categories`, Vega orders the categories alphabetically, with uppercase
+before lowercase.
 
 ## Positional channel mapping
 
