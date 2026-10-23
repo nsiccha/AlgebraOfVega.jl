@@ -138,13 +138,15 @@ band and the median line. A `color=` mapping wins over it; other `visual`
 attributes are not applied to ribbons and log a warning.
 
 A ribbon coloured by `color=` over at most 12 numeric x values (a dose ladder)
-is also drawn as point-intervals, dodged by colour on evenly spaced x slots, and
-a "Ribbons | Intervals" switch in the browser swaps the two drawings. The figure
-starts in point-intervals when the colour groups' outer bands overlap by more
-than 10% of the y range; `lineribbon(...; intervals=0.25)` changes that
-threshold, and `intervals=true`/`false` fix the start. Layers on the same x
-(observations, dose `VLines`) move onto the slots, and a log x applies to the
-ribbon drawing only.
+is also drawn as point-intervals, and a "Ribbons | Intervals" switch in the
+browser swaps the two drawings. The figure starts in point-intervals when the
+colour groups' outer bands overlap by more than 10% of the y range;
+`lineribbon(...; intervals=0.25)` changes that threshold, and
+`intervals=true`/`false` fix the start. The point-intervals keep the ribbon's x
+axis, a log scale included, with each colour group a small step either side of
+the true x; observations and dose `VLines` stay where they are. When the x values
+are too unevenly spaced on that axis to dodge readably (a doubling dose ladder
+on a linear axis), the point-intervals sit on evenly spaced x slots instead.
 
 The interval analyses take a fixed colour the same way:
 `pointinterval() * visual(; color="black")` (also `bands=`,
