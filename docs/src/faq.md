@@ -144,7 +144,9 @@ colour groups' outer bands overlap by more than 10% of the y range;
 `lineribbon(...; intervals=0.25)` changes that threshold, and
 `intervals=true`/`false` fix the start. The point-intervals keep the ribbon's x
 axis, a log scale included, with each colour group a small step either side of
-the true x; observations and dose `VLines` stay where they are. When the x values
+the true x; observations and dose `VLines` stay where they are. The axis leaves
+room for the outermost groups at the first and last x, and a log axis is not
+rounded out to the next power of ten. When the x values
 are too unevenly spaced on that axis to dodge readably (a doubling dose ladder
 on a linear axis), the point-intervals sit on evenly spaced x slots instead.
 

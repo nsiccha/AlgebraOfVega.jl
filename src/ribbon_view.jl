@@ -249,7 +249,8 @@ const _RIBBON_DODGE_SPAN = 0.7
 # lowering dodges with `xOffset`) becomes the dodged `__aov_x`, and every other
 # x on the ribbon's x field (observations, dose `VLines`, which the lowering made
 # nominal to share the category axis) keeps its field; all of them quantitative
-# on the ribbon's x scale, with its x title. Returns false, changing nothing, when the
+# on the ribbon's x scale with room for the dodge (`_dodged_x_scale`), with its
+# x title. Returns false, changing nothing, when the
 # ribbon's x scale is neither linear nor log, or the x values are so unevenly
 # spaced on it that the closest pair gets less than a quarter of an even share
 # of the axis (a dose ladder on a linear axis): evenly spaced slots read better.
@@ -271,6 +272,7 @@ function _true_x_axis!(alt::Dict, vl::Dict, src)
     domain = _ribbon_dodge_domain(Any[c.color for c in src.cells], get(color[], "sort", nothing))
     span = _RIBBON_DODGE_SPAN * gap
     expr = _ribbon_dodge_expr(src.x_field, by, domain, span, kind)
+    xscale = _dodged_x_scale(scale, alt, src, kind, span)
     _each_encoded(alt) do d, _
         enc = d["encoding"]
         e = _as_dict(get(enc, "x", nothing))
@@ -285,7 +287,7 @@ function _true_x_axis!(alt::Dict, vl::Dict, src)
             haskey(ax, "title") && isnothing(ax["title"]) && delete!(ax, "title")
             isempty(ax) || (x["axis"] = ax)
         end
-        isnothing(scale) || (x["scale"] = deepcopy(scale))
+        x["scale"] = deepcopy(xscale)
         enc["x"] = x
         dodged || return
         ts = get(d, "transform", nothing)
@@ -298,6 +300,45 @@ function _true_x_axis!(alt::Dict, vl::Dict, src)
         "field" => src.x_field, "by" => by, "domain" => domain, "span" => span,
         "scale" => string(kind), "as" => _RIBBON_DODGE_FIELD)
     true
+end
+
+# The interval drawing's x scale: the ribbon's, with room for the dodge. The
+# dodged positions widen the data domain, so the outermost groups sit on the
+# plot's edges: `padding` keeps their glyphs inside (Vega-Lite widens a
+# continuous domain by that many pixels), and a log axis is not made `nice`,
+# which would round it out a whole power of ten past the ribbon's. An authored
+# domain is widened by the most a dodge can move (half the span), so the
+# groups at its ends fit for any number of colour groups (the picker can change
+# it). Authored `padding` and `nice` stay as written.
+function _dodged_x_scale(scale, alt::Dict, src, kind, span)
+    s = isnothing(scale) ? Dict{String,Any}() : deepcopy(scale)
+    get!(s, "padding", _interval_glyph_pad(alt, src))
+    kind === :log && get!(s, "nice", false)
+    dom = get(s, "domain", nothing)
+    if dom isa Union{AbstractVector,Tuple} && length(dom) == 2 && all(_finite_number, dom) && dom[1] < dom[2]
+        s["domain"] = kind === :log ? Any[dom[1] * exp(-span / 2), dom[2] * exp(span / 2)] :
+            Any[dom[1] - span / 2, dom[2] + span / 2]
+    end
+    s
+end
+
+# Pixels an interval glyph reaches either side of its x, plus a small gap: half
+# the widest rule, or the median point's radius (its size is an area) plus half
+# its ring, over the layers the interval lowering dodges.
+const _RIBBON_DODGE_PAD_GAP = 4
+function _interval_glyph_pad(alt::Dict, src)
+    reach = 0.0
+    _each_encoded(alt) do d, _
+        enc = d["encoding"]
+        (_is_interval_x(get(enc, "x", nothing), src) && haskey(enc, "xOffset")) || return
+        m = something(_as_dict(get(d, "mark", nothing)), Dict{String,Any}())
+        sw = get(m, "strokeWidth", 1)
+        sw = _finite_number(sw) ? Float64(sw) : 1.0
+        size = get(m, "size", 30)  # Vega-Lite's default point size
+        r = get(m, "type", nothing) == "point" ? sqrt((_finite_number(size) ? size : 30) / π) + sw / 2 : sw / 2
+        reach = max(reach, r)
+    end
+    ceil(Int, reach) + _RIBBON_DODGE_PAD_GAP
 end
 
 # An x encoding on the interval lowering's nominal category axis: the ribbon's

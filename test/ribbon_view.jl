@@ -212,6 +212,52 @@ end
     @test "x" in zooms && "y" in zooms
 end
 
+"""
+The dodge moves the outermost groups past the first and last x, and the scale's
+domain ends at the dodged positions. Before snag `ribbon-interval-da26aaeb`,
+a `nice=false` log axis drew those groups half off the plot (1 and 1000 mg), and
+the default `nice` rounded a 1–1000 mg log axis out to 0.1–10,000.
+"""
+@testitem "the interval drawing leaves room for the outermost groups" setup=[AoVRibbonViewFixtures] tags=[:translation, :ribbon] begin
+    obs = (; dose=DOSES, y=collect(1.0:7.0))
+    fig = ribbon_fig(overlapping()) + data(obs) * mapping(:dose, :y) * visual(Scatter)
+    x_scales(vl) = [x["scale"] for x in x_encodings(vl)]
+    function intervals_and_ribbons(spec)
+        vl = to_vegalite(spec)
+        view_meta(vl)["view"] == "intervals" ? (vl, other(vl)) : (other(vl), vl)
+    end
+    # Every x of the interval drawing (dodged and kept layers alike) shares one
+    # scale: padded by the median point's reach (size 80: radius 5.05 + half its
+    # 1.5 ring, rounded up) plus 4 px; a log axis is not rounded out.
+    iv, rb = intervals_and_ribbons(fig * config(scales=scales(X=(; scale=log10))))
+    @test length(x_scales(iv)) == 5 && allequal(x_scales(iv))
+    @test only(unique(x_scales(iv))) == Dict("type" => "log", "padding" => 10, "nice" => false)
+    # The ribbon drawing's scale is unchanged.
+    @test all(s -> !haskey(s, "padding") && !haskey(s, "nice"), x_scales(rb))
+    # An authored nice or padding stays as written.
+    iv, _ = intervals_and_ribbons(fig * config(encoding=Dict("x" => Dict("scale" =>
+        Dict("type" => "log", "nice" => true, "padding" => 25)))))
+    @test all(s -> s["nice"] === true && s["padding"] == 25, x_scales(iv))
+    iv, _ = intervals_and_ribbons(fig * config(encoding=Dict("x" => Dict("scale" => Dict("type" => "log", "nice" => false)))))
+    @test all(s -> s["nice"] === false && s["padding"] == 10, x_scales(iv))
+    # An authored domain (a tuple from `scales`, a vector from `limits`) is
+    # widened by half the dodge span, on the axis's terms.
+    span = 0.7 * log(2)
+    iv, rb = intervals_and_ribbons(fig * config(scales=scales(X=(; scale=log10, domain=(5, 320)))))
+    @test all(s -> s["domain"] ≈ [5 * exp(-span / 2), 320 * exp(span / 2)], x_scales(iv))
+    @test all(s -> collect(s["domain"]) == [5, 320], x_scales(rb))
+    even = to_vegalite(ribbon_fig(overlapping(; doses=[10, 20, 30, 40, 50])) *
+        config(axis=(; limits=((10, 50), nothing))))
+    @test even["_aov"]["dodgeX"]["scale"] == "linear"
+    @test all(s -> s["domain"] ≈ [10 - 3.5, 50 + 3.5] && s["padding"] == 10 && !haskey(s, "nice"), x_scales(even))
+    # A linear axis keeps Vega-Lite's nice; with no scale at all it still gets one.
+    @test AoV._dodged_x_scale(nothing, Dict{String,Any}(), nothing, :linear, 7.0) == Dict("padding" => 4)
+    # The slot fallback (a band scale) needs no padding.
+    sq = to_vegalite(ribbon_fig(overlapping(; doses=[10, 20, 30, 40, 50])) *
+        config(encoding=Dict("x" => Dict("scale" => Dict("type" => "sqrt")))))
+    @test all(s -> !haskey(s, "padding"), x_scales(sq))
+end
+
 @testitem "true positions where the x values leave room, slots where they do not" setup=[AoVRibbonViewFixtures] tags=[:translation, :ribbon] begin
     # The closest pair needs a quarter of an even share of the axis.
     @test isnothing(AoV._ribbon_dodge_gap(DOSES, :linear))
