@@ -74,6 +74,47 @@ against that writer's output rather than pinning its spelling.
 end
 
 """
+The data preview's Pretty/Raw toggle stays out of the markdown view (snag
+`accessible-pdf-u-e569daa4`). Its `aria-pressed` state is browser-only: the
+markdown view has no raw pane to switch to. Before, HTMXObjects' markdown read
+(`to_markdown_string`, which `?plain` and `pdf_report` use) projected the
+pressed button as a stray `Übersicht (pressed)` line in every captioned figure
+with a summary, including a report figure's PDF.
+"""
+@testitem "data preview toggle stays out of the markdown view" tags=[:caption, :markdown, :regression] begin
+    using AlgebraOfVega, HTMXObjects
+    using HTMX: h
+    md(x) = HTMXObjects.to_markdown_string(x)
+    html(x) = sprint(show, MIME"text/html"(), x)
+    img_md(src, alt) = strip(sprint(show, MIME"text/markdown"(), h.img(; src, alt)))
+
+    rows = (; k=["a", "b", "c"], v=[1.0, 2.0, 3.0], q05=[0.5, 1.5, 2.5], q95=[1.5, 2.5, 3.5])
+    spec = data(rows) * mapping(:k => "Kreis", :v => "Wert") *
+        pointinterval(bands=[:q05 => :q95], orientation=:vertical) * config(height=160)
+    cap = CaptionSpec(; title="Realisierung", short="Median und 90%-Intervall")
+    de = plot_texts(:de)
+
+    report = with_plot_caption(spec, cap; plot_id="abb", texts=de, static_image="abb.png", alt="Punkte")
+    # The browser keeps the toggle, with its pressed state.
+    @test occursin("aria-pressed=\"true\"", html(report)) && occursin(">Übersicht</button>", html(report))
+    m = md(report)
+    @test occursin(img_md("abb.png", "Punkte"), m)
+    @test occursin("**Realisierung** — Median und 90%-Intervall", m)
+    @test !occursin("Übersicht", m) && !occursin("Rohdaten", m) && !occursin("pressed", m)
+
+    # A page read (`?plain`) of the same figure without a static image.
+    m = md(with_plot_caption(spec, cap; plot_id="abb", texts=de))
+    @test occursin("**Vega-Lite figure**", m)
+    @test !occursin("Übersicht", m) && !occursin("pressed", m)
+
+    # An explicit summary table stays in the markdown view; its toggle does not.
+    m = md(with_plot_caption(spec, cap; plot_id="abb", static_image="abb.png",
+        summary_table=h.table(h.tr(h.td("Kreis a"), h.td("1.0")))))
+    @test occursin("| Kreis a | 1.0 |", m)
+    @test !occursin("Pretty", m) && !occursin("Raw", m) && !occursin("pressed", m)
+end
+
+"""
 `sdraw(spec, path; alt)` returns `<img src alt>`; before, `alt` went on to
 `Makie.save`, which ignores unknown keywords, so the image had no alt text and
 nothing said so. The test env loads no Makie backend, so this pins the image
