@@ -34,10 +34,9 @@
         i.datum?.y === undefined);
     const observations = view => items(view, i => i.mark?.marktype === 'symbol' && i.datum?.y !== undefined);
     const cells = view => items(view, i => i.mark?.role === 'scope' && i.mark?.name === 'cell');
-    const box = id => document.querySelector('[data-aov-ribbon-view-for="' + id + '"]');
-    const button = (id, v) => box(id).querySelector('button[data-view="' + v + '"]');
-    const pressed = id => [...box(id).querySelectorAll('button')]
-        .filter(b => b.getAttribute('aria-pressed') === 'true').map(b => b.dataset.view);
+    const switches = id => [...document.querySelectorAll('[data-aov-ribbon-view-for="' + id + '"]')];
+    const button = (id, v) => switches(id).find(b => b.dataset.view === v);
+    const pressed = id => switches(id).filter(b => b.getAttribute('aria-pressed') === 'true').map(b => b.dataset.view);
     const drawsIntervals = view => rules(view).length > 0 && areas(view).length === 0;
     const drawsRibbons = view => areas(view).length > 0 && rules(view).length === 0;
     const layers = spec => (spec.spec ? spec.spec.layer : spec.layer) || [];
@@ -48,15 +47,14 @@
         const cap = 'ribbon-cap';
         let view = await ready(cap);
         const fig = document.getElementById(cap).closest('figure');
-        check(box(cap) && box(cap).parentElement.classList.contains('caption-actions') &&
-            box(cap).closest('figure') === fig, 'captioned: switch in the action row');
-        check(box(cap).getAttribute('role') === 'group' && box(cap).querySelectorAll('button').length === 2,
-            'captioned: a group of two buttons');
+        const acts = fig.querySelector('.caption-actions');
+        check(switches(cap).length === 2 && acts.children[0] === button(cap, 'ribbons') &&
+            acts.children[1] === button(cap, 'intervals'), 'captioned: first two buttons of the action row');
+        check(switches(cap).every(b => b.classList.contains('caption-action')), 'captioned: caption buttons');
         check(button(cap, 'ribbons').textContent === 'Ribbons' && button(cap, 'intervals').textContent === 'Intervals',
             'captioned: English labels');
-        check(box(cap).getAttribute('aria-label') === 'Drawing', 'captioned: group name');
-        check(/Bands overlap \d+% of the y range; intervals above 10%/.test(box(cap).title),
-            'captioned: overlap tooltip: ' + box(cap).title);
+        check(switches(cap).every(b => /Bands overlap \d+% of the y range; intervals above 10%/.test(b.title)),
+            'captioned: overlap tooltip: ' + button(cap, 'ribbons').title);
         check(pressed(cap).join() === 'intervals', 'captioned: starts as intervals');
         check(drawsIntervals(view), 'captioned: draws point-intervals');
         // Dodged by colour around each dose slot; the observations sit on the slot's centre.
@@ -76,8 +74,7 @@
         check(drawsRibbons(view), 'switch: draws ribbons');
         check(pressed(cap).join() === 'ribbons', 'switch: Ribbons pressed');
         check(AoV._ribbonViews[cap].view === 'ribbons', 'switch: state');
-        check(box(cap).parentElement.querySelectorAll('[data-aov-ribbon-view-for]').length === 1,
-            'switch: one switch after a re-embed');
+        check(switches(cap).length === 2, 'switch: one pair after a re-embed');
 
         // The choice survives a resize, a theme switch, a re-facet and update_spec.
         check(AoV._resizeReembed(cap), 'resize: re-embedded');
@@ -122,9 +119,12 @@
         const plain = 'ribbon-plain';
         let pview = await ready(plain);
         const area = document.getElementById(plain).closest('.aov-plot-area');
-        check(box(plain) && area && area.nextElementSibling === box(plain), 'plain: switch right after the plot');
+        const group = area && area.nextElementSibling;
+        check(group && group.classList.contains('aov-ribbon-view') && group.getAttribute('role') === 'group' &&
+            group.getAttribute('aria-label') === 'Drawing' && switches(plain).every(b => b.parentElement === group),
+            'plain: a named group right after the plot');
         check(pressed(plain).join() === 'ribbons' && drawsRibbons(pview), 'plain: starts as ribbons');
-        check(/Bands overlap \d+% of the y range; intervals above 10%/.test(box(plain).title), 'plain: tooltip');
+        check(/Bands overlap \d+% of the y range; intervals above 10%/.test(button(plain, 'intervals').title), 'plain: tooltip');
         button(plain, 'intervals').click();
         pview = await ready(plain, pview);
         check(drawsIntervals(pview) && pressed(plain).join() === 'intervals', 'plain: switched to intervals');
@@ -138,12 +138,11 @@
         await ready(de);
         check(button(de, 'ribbons').textContent === 'Bänder' && button(de, 'intervals').textContent === 'Intervalle',
             'German: labels');
-        check(/überlappen/.test(box(de).title) && box(de).getAttribute('aria-label') === 'Darstellung',
-            'German: tooltip and name');
+        check(/überlappen/.test(button(de, 'ribbons').title), 'German: tooltip');
 
         // A plot without a ribbon has no switch.
         await ready('ribbon-none');
-        check(!box('ribbon-none'), 'no ribbon: no switch');
+        check(switches('ribbon-none').length === 0, 'no ribbon: no switch');
 
         check(errors.length === 0, 'unexpected runtime errors: ' + errors.join('; '));
     } catch (error) {

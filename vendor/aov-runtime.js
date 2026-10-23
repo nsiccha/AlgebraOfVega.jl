@@ -349,26 +349,24 @@ window.AoV = window.AoV || {
         return true;
     },
 
-    // The switch of a plot with two drawings: in its captioned figure's
-    // action row, else right after the plot (as a frame player). Removed
-    // when a new spec no longer offers the point-interval drawing.
+    // The switch of a plot with two drawings: a pressed/unpressed pair of
+    // buttons, first in its captioned figure's action row (HTMXObjects'
+    // caption styles give them the row's look), else in a group right after
+    // the plot (as a frame player). Removed when a new spec no longer
+    // offers the point-interval drawing.
     _ribbonViewControls: function(id, el) {
         var self = this, st = this._ribbonViews[id];
-        var box = document.querySelector('[data-aov-ribbon-view-for="' + id + '"]');
-        if (!st) { if (box) box.remove(); return; }
-        if (!box && el && el.parentNode) {
-            box = document.createElement('span');
-            box.className = 'aov-ribbon-view';
-            box.setAttribute('role', 'group');
-            box.setAttribute('data-aov-ribbon-view-for', id);
-            ['ribbons', 'intervals'].forEach(function(v) {
-                var b = document.createElement('button');
-                b.type = 'button';
-                b.className = 'outline caption-action';
-                b.dataset.view = v;
-                b.addEventListener('click', function() { self.setRibbonView(id, v); });
-                box.appendChild(b);
+        var sel = '[data-aov-ribbon-view-for="' + id + '"]';
+        var buttons = document.querySelectorAll(sel);
+        if (!st) {
+            buttons.forEach(function(b) {
+                var group = b.parentElement;
+                b.remove();
+                if (group && group.classList.contains('aov-ribbon-view') && !group.children.length) group.remove();
             });
+            return;
+        }
+        if (!buttons.length && el && el.parentNode) {
             var fig = el.closest('figure.captioned');
             var acts = fig && fig.querySelector('.caption-actions');
             var header = fig && fig.querySelector('.caption-header');
@@ -377,22 +375,39 @@ window.AoV = window.AoV || {
                 acts.className = 'caption-actions';
                 header.appendChild(acts);
             }
+            var made = ['ribbons', 'intervals'].map(function(v) {
+                var b = document.createElement('button');
+                b.type = 'button';
+                b.className = acts ? 'outline caption-action' : 'outline';
+                b.dataset.view = v;
+                b.setAttribute('data-aov-ribbon-view-for', id);
+                b.addEventListener('click', function() { self.setRibbonView(id, v); });
+                return b;
+            });
             if (acts) {
-                acts.insertBefore(box, acts.firstChild);
+                acts.insertBefore(made[1], acts.firstChild);
+                acts.insertBefore(made[0], made[1]);
             } else {
+                var group = document.createElement('div');
+                group.className = 'aov-ribbon-view';
+                group.setAttribute('role', 'group');
+                made.forEach(function(b) { group.appendChild(b); });
                 var host = el.parentElement && el.parentElement.classList.contains('aov-plot-area') ? el.parentElement : el;
-                host.insertAdjacentElement('afterend', box);
+                host.insertAdjacentElement('afterend', group);
             }
+            buttons = document.querySelectorAll(sel);
         }
-        if (!box) return;
-        var text = this._texts(box);
+        if (!buttons.length) return;
+        var text = this._texts(buttons[0]);
         var pct = function(x) { return Math.round(100 * x) + '%'; };
-        box.setAttribute('aria-label', text('ribbon_view'));
-        box.title = st.threshold === null || st.threshold === undefined ?
+        var tip = st.threshold === null || st.threshold === undefined ?
             text('overlap', {score: pct(st.score)}) :
             text('overlap_auto', {score: pct(st.score), threshold: pct(st.threshold)});
-        box.querySelectorAll('button[data-view]').forEach(function(b) {
+        var group = buttons[0].parentElement;
+        if (group && group.classList.contains('aov-ribbon-view')) group.setAttribute('aria-label', text('ribbon_view'));
+        buttons.forEach(function(b) {
             b.textContent = text(b.dataset.view);
+            b.title = tip;
             b.setAttribute('aria-pressed', String(b.dataset.view === st.view));
         });
     },
@@ -2435,7 +2450,7 @@ window.AoV = window.AoV || {
         }
         // Frame players and ribbon switches: the fresh page's embed builds
         // its own controls.
-        clone.querySelectorAll('[data-aov-frame-for], [data-aov-ribbon-view-for]').forEach(function(c) { c.remove(); });
+        clone.querySelectorAll('[data-aov-frame-for], [data-aov-ribbon-view-for], .aov-ribbon-view').forEach(function(c) { c.remove(); });
         // Lazy data shells: drop rendered bodies; the fresh page re-renders lazily.
         clone.querySelectorAll('.aov-data-raw-body[data-aov-plot-id], .aov-data-pretty-body[data-aov-plot-id]').forEach(function(b) {
             b.innerHTML = '';
