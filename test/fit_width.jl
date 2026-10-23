@@ -123,3 +123,24 @@ end
         "<template id='sw-tol-plot'>" * html(vdraw(tolerance; id="sw-tol")) * "</template>"
     browser_checks(body, joinpath(@__DIR__, "fit_width_shrinkwrap.js"), "aov-fit-width-shrinkwrap-results"; min_checks=20)
 end
+
+# Two plots side by side in an auto-fit grid or a wrapping flex row, each
+# embedded by its inline script while the page is parsed (MietspiegelBayes'
+# two-plot rows; snag grid-first-plot-6b826c86). When the first plot's script
+# ran, the parser had not reached the second plot, so the first one's track
+# spanned the whole row: it was sized for the row, and a single view kept that
+# width after the row split into two columns.
+@testitem "plots sharing a grid or flex row are sized for their own column" setup=[AoVFitWidthBrowser] tags=[:regression, :browser] begin
+    single = data(rows) * mapping(:x, :y) * visual(Scatter)
+    plot(id, spec) = html(vdraw(spec; id, height=120))
+    probe = """<style>.gr-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));gap:16px}
+        .gr-flex{display:flex;flex-wrap:wrap;gap:16px}.gr-flex>*{flex:1 1 220px}.gr-grid>*,.gr-flex>*{min-width:0}</style>
+        <script>window.aovGridEmbeds = []; (function () { const embed = window.vegaEmbed;
+        window.vegaEmbed = function (selector, spec, opts) { const el = document.querySelector(selector);
+        window.aovGridEmbeds.push({id: el.id, offered: el.parentElement.clientWidth}); return embed(selector, spec, opts); }; })();</script>"""
+    body = "<div style='width:640px'>" * probe *
+        "<div class='gr-grid'>" * plot("gr-a1", layered) * plot("gr-a2", single) * "</div>" *
+        "<div class='gr-grid'>" * plot("gr-b1", single) * plot("gr-b2", layered) * "</div>" *
+        "<div class='gr-flex'>" * plot("gr-c1", layered) * plot("gr-c2", single) * "</div></div>"
+    browser_checks(body, joinpath(@__DIR__, "fit_width_grid.js"), "aov-fit-width-grid-results"; min_checks=24)
+end
