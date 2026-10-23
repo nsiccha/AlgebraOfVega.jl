@@ -30,6 +30,9 @@ window.AoV = window.AoV || {
     // under the pointer, and the key it announced to its link group.
     _highlights: {},
     _hovers: {},
+    // Container-sized plots last embedded while their container offered no
+    // width (a hidden tab panel, a closed <details>; see _measurableAgain).
+    _unmeasured: {},
 
     // Every map keyed by plot id; dispose() clears each. A new per-plot
     // map belongs in this list.
@@ -37,16 +40,17 @@ window.AoV = window.AoV || {
         '_signals', '_liveRows', '_specRows', '_origSpecs', '_droppedLegends',
         '_embedOpts', '_observers', '_computedWidths', '_corrections', '_correctedRegime',
         '_cur', '_pickers', '_mappings', '_themeKeys', '_reembeds', '_frames',
-        '_highlights', '_hovers'],
+        '_highlights', '_hovers', '_unmeasured'],
 
     // Whether the runtime sizes this spec to its container: Julia's
     // `_embed_spec` marks a responsive layered/faceted/per-column spec with
-    // `_aov.fitWidth`; a single view keeps VL's `width: "container"`. `_aov`
-    // alone is no sizing marker: it also carries legend, theme and ribbon
-    // metadata, and a plot with an authored width (`width=`, `fit_width=false`)
-    // keeps that width and is never re-embedded on resize.
+    // `_aov.fitWidth`; a single view keeps VL's `width: "container"`, with or
+    // without `_aov`. `_aov` alone is no sizing marker: it also carries
+    // legend, theme and ribbon metadata, and a plot with an authored width
+    // (`width=`, `fit_width=false`) keeps that width and is never re-embedded
+    // on resize.
     _fitSized: function(spec) {
-        return !!(spec && spec._aov && (spec._aov.fitWidth || spec.width === 'container'));
+        return !!(spec && ((spec._aov && spec._aov.fitWidth) || spec.width === 'container'));
     },
 
     // The width el's container offers it, measured with el collapsed. A
@@ -63,6 +67,23 @@ window.AoV = window.AoV || {
         var offered = parent.clientWidth;
         el.style.width = width;
         return offered;
+    },
+
+    // A container-sized plot embedded while its container offered no width
+    // rendered at its fallback width (layered/faceted) or 0px wide (a single
+    // view: Vega-Lite reads `width: "container"` again only on a window
+    // resize). Whatever lays the container out again — a tab panel shown on
+    // load or by a click, a <details> opened — the plot re-sizes at once:
+    // that is no drag-resize to coalesce, and the container may come back at
+    // the width last seen before it was hidden. Measured as
+    // _applyResponsiveWidth measures, so a container that still offers no
+    // width (one that shrink-wraps the plot) re-embeds nothing.
+    _measurableAgain: function(id, el) {
+        if (!this._unmeasured[id]) return false;
+        var offered = this._offeredWidth(el);
+        if (!offered || offered < 50) return false;
+        delete this._unmeasured[id];
+        return true;
     },
 
     // `budget` pins the sizing budget instead of measuring the container: the
@@ -83,7 +104,11 @@ window.AoV = window.AoV || {
         var containerWidth = budget;
         if (containerWidth === undefined) {
             containerWidth = this._offeredWidth(el);
-            if (!containerWidth || containerWidth < 50) return unsized();
+            if (!containerWidth || containerWidth < 50) {
+                self._unmeasured[id] = true;
+                return unsized();
+            }
+            delete self._unmeasured[id];
             var zoom = (window.AoV && window.AoV.zoom) ? window.AoV.zoom : 1;
             containerWidth = Math.floor(containerWidth / zoom);
             var maxWidth = (spec._aov && spec._aov.maxWidth) || (window.AoV && window.AoV.maxWidth) || Infinity;
@@ -116,7 +141,9 @@ window.AoV = window.AoV || {
             computed = Math.max(minCell, containerWidth - padding);
             kind = spec.spec ? 'inner' : 'top';
         } else {
-            return spec;
+            // A single view without `_aov`: Vega-Lite reads its
+            // `width: "container"` itself.
+            return unsized();
         }
         var colField = spec.facet && spec.facet.column && spec.facet.column.field;
         var rowField = spec.facet && spec.facet.row && spec.facet.row.field;
@@ -583,14 +610,24 @@ window.AoV = window.AoV || {
             }).catch(function(err) { settle(); self._console.error.call(console, '[' + id + ']', err); });
         };
 
-        // Set up resize observer for responsive re-embed (only for _aov-marked specs)
-        if (spec._aov) {
+        // Set up resize observer for responsive re-embed: container-sized
+        // specs, and _aov-marked ones (a remap can make them container-sized).
+        // A plot whose container offered no width when it embedded re-sizes
+        // as soon as it does (_measurableAgain); other width changes are
+        // coalesced.
+        if (spec._aov || self._fitSized(spec)) {
             var el = document.getElementById(id);
             if (el && el.parentElement && window.ResizeObserver) {
                 var timer = null;
                 var lastWidth = el.parentElement.clientWidth;
                 var ro = new ResizeObserver(function() {
                     var newWidth = el.parentElement ? el.parentElement.clientWidth : 0;
+                    if (self._measurableAgain(id, el)) {
+                        lastWidth = newWidth;
+                        clearTimeout(timer);
+                        self._resizeReembed(id);
+                        return;
+                    }
                     if (newWidth === lastWidth || newWidth < 50) return;
                     lastWidth = newWidth;
                     clearTimeout(timer);
