@@ -2,10 +2,14 @@
 #
 # A ribbon coloured by group over a handful of numeric x values (a dose ladder)
 # is lowered a second time as the vertical `pointinterval` of the same rows: at
-# each x one interval per colour group, dodged by colour, on evenly spaced x
-# slots. Both drawings go to the browser, where a "Ribbons | Intervals" control
-# swaps them (`AoV.setRibbonView`, vendor/aov-runtime.js); the figure starts in
-# the one `intervals=` picks from the overlap of the groups' outer bands.
+# each x one interval per colour group, dodged by colour. The x axis stays the
+# ribbon's (a log scale included), each group's intervals sitting a small
+# step from the true x (`_true_x_axis!`); where the x values are too unevenly
+# spaced on that axis for the step to stay readable, or the scale is neither
+# linear nor log, they sit on evenly spaced x slots instead (`_slot_x_axis!`).
+# Both drawings go to the browser, where a "Ribbons | Intervals" control swaps
+# them (`AoV.setRibbonView`, vendor/aov-runtime.js); the figure starts in the
+# one `intervals=` picks from the overlap of the groups' outer bands.
 #
 # Both drawings are whole Vega-Lite specs from the same lowering, so every pass
 # after it (positional scales, the picker's layer tags, `_embed_spec`'s sizing)
@@ -126,9 +130,9 @@ end
 
 # Decide a pending interval view and return the spec to use: the starting view,
 # carrying the other as `_aov.ribbonView.alt`, with the start, the overlap score
-# and the `:auto` threshold for the runtime's control. The view is dropped when
-# another layer's x values miss the ribbon's slots (an interval view cannot
-# place it); the ribbon spec is then returned without any `ribbonView`.
+# and the `:auto` threshold for the runtime's control. On slots, the view is
+# dropped when another layer's x values miss them (an interval view cannot place
+# it); the ribbon spec is then returned without any `ribbonView`.
 function _finish_ribbon_views!(vl::Dict)
     rv = _ribbon_view_meta(vl)
     (isnothing(rv) || !haskey(rv, "pending")) && return vl
@@ -136,7 +140,7 @@ function _finish_ribbon_views!(vl::Dict)
     aov = vl["_aov"]
     delete!(aov, "ribbonView")
     isempty(aov) && delete!(vl, "_aov")
-    _slot_x_axis!(alt, src) || return vl
+    _true_x_axis!(alt, vl, src) || _slot_x_axis!(alt, src) || return vl
     score = _ribbon_overlap_score(vl, src)
     iv = src.analysis.intervals
     start = iv.start === :auto ? (score > iv.threshold ? "intervals" : "ribbons") : string(iv.start)
@@ -220,6 +224,133 @@ function _x_on_slots(d, chain, slotset)
     true
 end
 
+# The dodge of the interval view on the ribbon's own x axis. Vega-Lite drops an
+# `xOffset` on a continuous x, so each interval layer draws `__aov_x`, a
+# `calculate` of the true x moved by its colour group's step: added on a linear
+# axis, multiplied in (as `exp` of a log step) on a log one. The groups together
+# span `_RIBBON_DODGE_SPAN` of the smallest gap between adjacent x values on the
+# axis, so neighbouring x values' groups never meet. The recipe rides along as
+# `_aov.dodgeX`, from which the runtime rebuilds the expression when the
+# picker moves the colour (`_dodgeXExpr`, vendor/aov-runtime.js — the same
+# formula as `_ribbon_dodge_expr`).
+const _RIBBON_DODGE_FIELD = "__aov_x"
+const _RIBBON_DODGE_SPAN = 0.7
+
+# The interval view on the ribbon's x axis: the interval layers' x (the ones the
+# lowering dodges with `xOffset`) becomes the dodged `__aov_x`, and every other
+# x on the ribbon's x field (observations, dose `VLines`, which the lowering made
+# nominal to share the category axis) keeps its field; all of them quantitative
+# on the ribbon's x scale, with its x title. Returns false, changing nothing, when the
+# ribbon's x scale is neither linear nor log, or the x values are so unevenly
+# spaced on it that the closest pair gets less than a quarter of an even share
+# of the axis (a dose ladder on a linear axis): evenly spaced slots read better.
+function _true_x_axis!(alt::Dict, vl::Dict, src)
+    scale = _ribbon_x_scale(vl, src)
+    kind = _ribbon_dodge_kind(scale)
+    isnothing(kind) && return false
+    gap = _ribbon_dodge_gap(src.slots, kind)
+    isnothing(gap) && return false
+    color = Ref{Any}(nothing)
+    _each_encoded(alt) do d, _
+        isnothing(color[]) || return
+        (_is_interval_x(get(d["encoding"], "x", nothing), src) && haskey(d["encoding"], "xOffset")) || return
+        c = _as_dict(get(d["encoding"], "color", nothing))
+        isnothing(c) || (color[] = c)
+    end
+    isnothing(color[]) && return false
+    by = string(color[]["field"])
+    domain = _ribbon_dodge_domain(Any[c.color for c in src.cells], get(color[], "sort", nothing))
+    span = _RIBBON_DODGE_SPAN * gap
+    expr = _ribbon_dodge_expr(src.x_field, by, domain, span, kind)
+    _each_encoded(alt) do d, _
+        enc = d["encoding"]
+        e = _as_dict(get(enc, "x", nothing))
+        _is_interval_x(e, src) || return
+        dodged = haskey(enc, "xOffset")
+        delete!(enc, "xOffset")
+        x = Dict{String,Any}("field" => dodged ? _RIBBON_DODGE_FIELD : src.x_field,
+            "type" => "quantitative", "title" => src.x_title)
+        ax = _as_dict(get(e, "axis", nothing))
+        if !isnothing(ax)
+            ax = copy(ax)
+            haskey(ax, "title") && isnothing(ax["title"]) && delete!(ax, "title")
+            isempty(ax) || (x["axis"] = ax)
+        end
+        isnothing(scale) || (x["scale"] = deepcopy(scale))
+        enc["x"] = x
+        dodged || return
+        ts = get(d, "transform", nothing)
+        d["transform"] = Any[(ts isa AbstractVector ? ts : Any[])...,
+            Dict{String,Any}("calculate" => expr, "as" => _RIBBON_DODGE_FIELD)]
+    end
+    # The lowering zooms only along a quantitative x; the x is one now.
+    _add_x_scale_binding!(alt)
+    get!(Dict{String,Any}, alt, "_aov")["dodgeX"] = Dict{String,Any}(
+        "field" => src.x_field, "by" => by, "domain" => domain, "span" => span,
+        "scale" => string(kind), "as" => _RIBBON_DODGE_FIELD)
+    true
+end
+
+# An x encoding on the interval lowering's nominal category axis: the ribbon's
+# x field, nominal (the lowering makes every layer on that field share it).
+_is_interval_x(e, src) = (e = _as_dict(e); !isnothing(e) &&
+    get(e, "field", nothing) == src.x_field && get(e, "type", nothing) == "nominal")
+
+# The ribbon drawing's x scale (`scales(X=…)`, a raw `config(encoding=…)`, the
+# no-zero default): the first `scale` on an x encoding of the ribbon's x field.
+function _ribbon_x_scale(vl::Dict, src)
+    found = Ref{Any}(nothing)
+    _each_encoded(vl) do d, _
+        isnothing(found[]) || return
+        e = _as_dict(get(d["encoding"], "x", nothing))
+        (isnothing(e) || get(e, "field", nothing) != src.x_field) && return
+        s = _as_dict(get(e, "scale", nothing))
+        isnothing(s) || (found[] = s)
+    end
+    found[]
+end
+
+# `:linear` or `:log`, the scales the dodge can move along; `nothing` otherwise.
+function _ribbon_dodge_kind(scale)
+    t = isnothing(scale) ? nothing : get(scale, "type", nothing)
+    (isnothing(t) || t == "linear") && return :linear
+    t == "log" && return :log
+    nothing
+end
+
+# The smallest gap between adjacent x values on the axis (natural-log units on
+# a log axis), or `nothing` when there is no gap or it is too small to read.
+function _ribbon_dodge_gap(slots, kind)
+    xs = Float64[Float64(s) for s in slots]
+    length(xs) >= 2 || return nothing
+    if kind === :log
+        all(>(0), xs) || return nothing
+        xs = log.(xs)
+    end
+    gap = minimum(diff(xs))
+    gap >= (last(xs) - first(xs)) / (4 * (length(xs) - 1)) ? gap : nothing
+end
+
+# The colour groups in the colour scale's order: a sort array's values first,
+# in its order, then the rest ascending (Vega-Lite's order for a nominal field).
+function _ribbon_dodge_domain(colors, sort)
+    present = unique(c for c in colors if !(isnothing(c) || ismissing(c)))
+    lead = sort isa AbstractVector ? [s for s in sort if s in present] : Any[]
+    rest = [c for c in present if !(c in lead)]
+    Any[lead..., (all(c -> c isa Real, rest) ? Base.sort(rest) : Base.sort(rest; by=string))...]
+end
+
+# The Vega expression for `__aov_x`; kept in step with `_dodgeXExpr` in
+# vendor/aov-runtime.js. A row whose colour is not in `domain` stays at its x.
+function _ribbon_dodge_expr(field, by, domain, span, kind)
+    f = "datum[" * _vl_json(string(field)) * "]"
+    n = length(domain)
+    n < 2 && return "isValid($f) ? $f : null"
+    k = "indexof(" * _vl_json(domain) * ", datum[" * _vl_json(by) * "])"
+    d = "($k < 0 ? 0 : ($k - $((n - 1) / 2)) * $(span / n))"
+    "isValid($f) ? " * (kind === :log ? "$f * exp($d)" : "$f + $d") * " : null"
+end
+
 # Put every x of the interval view on the ribbon's slots: nominal, the slots as
 # its domain in ascending order (a log or other continuous scale, from
 # `scales(X=…)` or a raw `config(encoding=…)`, does not apply to slots), and the
@@ -251,6 +382,27 @@ function _slot_x_axis!(alt::Dict, src)
     end
     _drop_x_scale_binding!(alt)
     true
+end
+
+function _add_x_scale_binding!(d::Dict)
+    ps = get(d, "params", nothing)
+    if ps isa AbstractVector
+        for p in ps
+            pd = _as_dict(p)
+            (isnothing(pd) || get(pd, "bind", nothing) != "scales") && continue
+            sel = _as_dict(get(pd, "select", nothing))
+            encs = isnothing(sel) ? nothing : get(sel, "encodings", nothing)
+            encs isa AbstractVector && !("x" in encs) && (sel["encodings"] = Any["x", encs...])
+        end
+    end
+    for key in ("layer", "concat", "hconcat", "vconcat")
+        sub = get(d, key, nothing)
+        sub isa AbstractVector || continue
+        foreach(s -> (sd = _as_dict(s); isnothing(sd) || _add_x_scale_binding!(sd)), sub)
+    end
+    inner = _as_dict(get(d, "spec", nothing))
+    isnothing(inner) || _add_x_scale_binding!(inner)
+    d
 end
 
 function _drop_x_scale_binding!(d::Dict)
