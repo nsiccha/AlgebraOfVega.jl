@@ -138,7 +138,12 @@ end
     days = data((; d=[Date(2020, 1, 1), Date(2020, 1, 2), Date(2020, 1, 3)], v=[1.0, 4.0, 2.0])) *
         mapping(:d, :v) * visual(Scatter) * config(width=200, height=120, frame=:d)
     more = (; land=[frame_rows.land; "A"], year=[frame_rows.year; 2003], anomaly=[frame_rows.anomaly; 5.0])
-    page = [vdraw(frame_map(); id="fr-map"),
+    # Lon/lat marks on the map: their positions come from the map's projection.
+    sites = (; kind=["x", "y", "x", "y"], year=[2000, 2001, 2002, 2002],
+        lon=[0.5, 2.5, 4.5, 0.3], lat=[50.5, 50.5, 50.5, 50.8])
+    pts = (data(frame_rows) * mapping(:land; color=:anomaly) * geoshape(frame_geo) +
+        data(sites) * mapping(:lon, :lat; color=:kind) * visual(Scatter)) * config(height=100, frame=:year)
+    page = [vdraw(frame_map(); id="fr-map"), vdraw(pts; id="fr-pts"),
         h.div(; id="fr-bars-wrap")(vdraw(bars; id="fr-bars")),
         vdraw(ref; id="fr-ref"), vdraw(days; id="fr-time"),
         with_plot_caption(frame_map(), "Karte"; plot_id="fr-de", texts=plot_texts(:de))]
@@ -158,7 +163,7 @@ end
             report = frame_run_page(dir, "page.html", "aov-frame-results")
             @test !isnothing(report)
             if !isnothing(report)
-                @test report["checks"] == 26
+                @test report["checks"] == 45
                 @test isempty(report["failures"])
                 isempty(report["failures"]) || println(JSON.json(report["failures"]))
             end
