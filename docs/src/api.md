@@ -213,6 +213,7 @@ gradient_interval
 lineribbon
 ribbon
 dotinterval
+ribbon_view
 ```
 
 ## High-level recipes
