@@ -532,6 +532,20 @@ function _embed_spec(spec; width=nothing, height=nothing, fit_width=true)
         end
     end
     _broadcast_cross_source_layers!(vl)
+    _embed_ribbon_view_alt!(vl; width, height, fit_width)
+end
+
+# The other drawing of a ribbon with an interval view (src/ribbon_view.jl) is
+# embedded by a view swap, so it is sized like the spec that carries it. Written
+# into copies: `_as_vl_dict` shares nested Dicts with the caller.
+function _embed_ribbon_view_alt!(vl::Dict; kw...)
+    rv = _ribbon_view_meta(vl)
+    (isnothing(rv) || !haskey(rv, "alt")) && return vl
+    rv = copy(rv)
+    rv["alt"] = _embed_spec(rv["alt"]; kw...)
+    aov = copy(vl["_aov"])
+    aov["ribbonView"] = rv
+    vl["_aov"] = aov
     vl
 end
 

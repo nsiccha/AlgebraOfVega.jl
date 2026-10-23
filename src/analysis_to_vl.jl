@@ -367,7 +367,7 @@ end
 # A fixed ribbon colour (`fixed_mark`) colours the rules; the median point keeps
 # its white fill and dark ring. (decisions `1ipps5p`, `1liuv2o`.)
 function _ribbon_glyph_layers(x_field, x_label, y_label, median_col, band_cols;
-        x_type::String, color_field=nothing, color_label=nothing, filter_expr=nothing,
+        x_type::String, color_field=nothing, color_label=nothing, color_sort=nothing, filter_expr=nothing,
         fixed_mark::Dict{String,Any}=Dict{String,Any}())
     stroke_widths = length(band_cols) == 1 ? [8.0] : range(1.5, 8, length=length(band_cols))
     x_enc() = let e = Dict{String,Any}("field" => x_field, "type" => x_type)
@@ -384,6 +384,7 @@ function _ribbon_glyph_layers(x_field, x_label, y_label, median_col, band_cols;
         if !isnothing(color_field)
             c = Dict{String,Any}("field" => color_field, "type" => "nominal")
             !isnothing(color_label) && color_label != color_field && (c["title"] = color_label)
+            !isnothing(color_sort) && (c["sort"] = color_sort)
             enc["color"] = c
             enc["xOffset"] = Dict{String,Any}("field" => color_field, "type" => "nominal")
         end
@@ -435,6 +436,7 @@ function _ribbon_to_vl(
     x_type::String,
     color_field::Union{String,Nothing}=nothing,
     color_label::Union{String,Nothing}=nothing,
+    color_sort=nothing,
     detail_fields::Vector{String}=String[],
     facet=nothing, show_line::Bool=true, is_sublayer::Bool=false,
     band_labels::Union{Vector{String},Nothing}=nothing,
@@ -495,6 +497,9 @@ function _ribbon_to_vl(
     if !isnothing(color_field)
         color_enc = Dict{String,Any}("field" => color_field, "type" => "nominal")
         !isnothing(color_label) && color_label != color_field && (color_enc["title"] = color_label)
+        # A sorter on the colour selector orders the legend and palette, as on
+        # the interval analyses (whose drawing a ribbon's interval view is).
+        !isnothing(color_sort) && (color_enc["sort"] = color_sort)
         color_vals = sort(unique(row[color_field] for row in summary if haskey(row, color_field)))
         # Each group's layers carry `_lr_group`, so the runtime can add the
         # layers of a group that rows sent later bring (`AoV._regroupRibbons`).
@@ -537,7 +542,7 @@ function _ribbon_to_vl(
         append!(group_fields, detail_fields)
         if _mark_single_x_groups!(summary, x_field, group_fields)
             append!(layers, _ribbon_glyph_layers(x_field, x_label, y_label, median_col, band_cols;
-                x_type, color_field, color_label, filter_expr="datum.__single_x__", fixed_mark))
+                x_type, color_field, color_label, color_sort, filter_expr="datum.__single_x__", fixed_mark))
         end
     end
 
@@ -567,6 +572,7 @@ function analysis_to_vl(a::LineRibbonAnalysis, layer::AlgebraOfGraphics.Layer; i
     group_field = haskey(layer.named, :group) ? _field_name(layer.named[:group]) : "draw"
     color_field = haskey(layer.named, :color) ? _field_name(layer.named[:color]) : nothing
     color_label = haskey(layer.named, :color) ? _field_label(layer.named[:color]) : nothing
+    color_sort = haskey(layer.named, :color) ? _selector_sort(layer.named[:color]) : nothing
     facet, facet_fields = _extract_facet_info(layer)
 
     detail_strs = string.(a.detail_fields)
@@ -578,7 +584,7 @@ function analysis_to_vl(a::LineRibbonAnalysis, layer::AlgebraOfGraphics.Layer; i
 
     _ribbon_to_vl(summary, x_field, x_label, y_label, "__median__", band_cols;
         x_type=_ribbon_x_type(Tables.getcolumn(table, Symbol(x_field))),
-        color_field, color_label, detail_fields=detail_strs,
+        color_field, color_label, color_sort, detail_fields=detail_strs,
         facet, show_line=a.show_line, is_sublayer, band_labels,
         single_x_glyph=a.single_x_glyph, facet_fields,
         fixed_color=_analysis_fixed_color(layer, _ribbon_name(a)))
@@ -594,6 +600,7 @@ function analysis_to_vl(a::PrecomputedRibbonAnalysis, layer::AlgebraOfGraphics.L
     haskey(layer.named, :group) && error("Pre-aggregated lineribbon (bands=...) should not have group= in mapping — data is already aggregated")
     color_field = haskey(layer.named, :color) ? _field_name(layer.named[:color]) : nothing
     color_label = haskey(layer.named, :color) ? _field_label(layer.named[:color]) : nothing
+    color_sort = haskey(layer.named, :color) ? _selector_sort(layer.named[:color]) : nothing
     facet, facet_fields = _extract_facet_info(layer)
     detail_strs = string.(a.detail_fields)
 
@@ -611,7 +618,7 @@ function analysis_to_vl(a::PrecomputedRibbonAnalysis, layer::AlgebraOfGraphics.L
 
     _ribbon_to_vl(summary, x_field, x_label, y_label, median_col, band_cols;
         x_type=_ribbon_x_type(Tables.getcolumn(table, Symbol(x_field))),
-        color_field, color_label, detail_fields=detail_strs,
+        color_field, color_label, color_sort, detail_fields=detail_strs,
         facet, show_line=a.show_line, is_sublayer,
         single_x_glyph=a.single_x_glyph, facet_fields,
         fixed_color=_analysis_fixed_color(layer, _ribbon_name(a)))

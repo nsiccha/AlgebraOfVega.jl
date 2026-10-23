@@ -33,6 +33,9 @@ window.AoV = window.AoV || {
     // Container-sized plots last embedded while their container offered no
     // width (a hidden tab panel, a closed <details>; see _measurableAgain).
     _unmeasured: {},
+    // Coloured ribbons drawn either as ribbons or as point-intervals: both
+    // drawings, the one shown, and the overlap score (see setRibbonView).
+    _ribbonViews: {},
 
     // Every map keyed by plot id; dispose() clears each. A new per-plot
     // map belongs in this list.
@@ -40,7 +43,7 @@ window.AoV = window.AoV || {
         '_signals', '_liveRows', '_specRows', '_origSpecs', '_droppedLegends',
         '_embedOpts', '_observers', '_computedWidths', '_corrections', '_correctedRegime',
         '_cur', '_pickers', '_mappings', '_themeKeys', '_reembeds', '_frames',
-        '_highlights', '_hovers', '_unmeasured'],
+        '_highlights', '_hovers', '_unmeasured', '_ribbonViews'],
 
     // Whether the runtime sizes this spec to its container: Julia's
     // `_embed_spec` marks a responsive layered/faceted/per-column spec with
@@ -288,7 +291,110 @@ window.AoV = window.AoV || {
     },
 
     embed: function(id, spec, opts) {
-        return this._embed(id, spec, opts, false);
+        return this._embed(id, this._takeRibbonViews(id, spec, false), opts, false);
+    },
+
+    // --- Ribbons | Intervals ---
+    // A coloured ribbon over a few x values arrives with two drawings
+    // (src/ribbon_view.jl): the spec shows the starting one and carries the
+    // other as `_aov.ribbonView.alt`. Record both and return the drawing to
+    // show: the starting one, or, for a new spec of the same plot (`keep`,
+    // update_spec), the one the reader chose. The drawings are stored without
+    // that metadata, so an update that changes only data still swaps in place.
+    _takeRibbonViews: function(id, spec, keep) {
+        var rv = spec && spec._aov && spec._aov.ribbonView;
+        var prev = this._ribbonViews[id];
+        if (!rv || !rv.alt) {
+            delete this._ribbonViews[id];
+            return rv ? this._withoutRibbonView(spec) : spec;
+        }
+        var specs = {};
+        specs[rv.view] = this._withoutRibbonView(spec);
+        specs[rv.alt._aov.ribbonView.view] = this._withoutRibbonView(rv.alt);
+        var view = keep && prev && specs[prev.view] ? prev.view : rv.view;
+        this._ribbonViews[id] = {view: view, specs: specs, score: rv.score, threshold: rv.threshold};
+        return specs[view];
+    },
+    _withoutRibbonView: function(spec) {
+        var out = Object.assign({}, spec), aov = Object.assign({}, spec._aov);
+        delete aov.ribbonView;
+        if (Object.keys(aov).length) out._aov = aov; else delete out._aov;
+        return out;
+    },
+
+    // Public: show plot `id` as 'ribbons' or 'intervals' (its "Ribbons |
+    // Intervals" switch). The picker's channels, rows added since the first
+    // render and the host theme carry over, as on a picker change. Returns
+    // whether the plot has that drawing.
+    setRibbonView: function(id, view) {
+        var st = this._ribbonViews[id];
+        if (!st || !st.specs[view]) return false;
+        if (st.view === view) return true;
+        st.view = view;
+        var pristine = this._expandSpecData(JSON.parse(JSON.stringify(st.specs[view])));
+        this._refreshLegendSelections(pristine);
+        this._broadcastCrossSource(pristine);
+        var shown = pristine;
+        if (this._mappings[id]) {
+            // The picker builds its spec from the stored original.
+            this._origSpecs[id] = pristine;
+            var mapping = this._pickers[id] ? this._pickers[id]() : this._mappings[id];
+            shown = (mapping && this._remappedSpec(id, mapping)) || pristine;
+        }
+        var live = (this._liveRows[id] || {}).source_0;
+        if (live) shown = this._withRibbonGroups(shown, live) || shown;
+        this._embed(id, shown, this._embedOpts[id], true);
+        this._origSpecs[id] = pristine;
+        this._dataChanged(id);
+        return true;
+    },
+
+    // The switch of a plot with two drawings: in its captioned figure's
+    // action row, else right after the plot (as a frame player). Removed
+    // when a new spec no longer offers the point-interval drawing.
+    _ribbonViewControls: function(id, el) {
+        var self = this, st = this._ribbonViews[id];
+        var box = document.querySelector('[data-aov-ribbon-view-for="' + id + '"]');
+        if (!st) { if (box) box.remove(); return; }
+        if (!box && el && el.parentNode) {
+            box = document.createElement('span');
+            box.className = 'aov-ribbon-view';
+            box.setAttribute('role', 'group');
+            box.setAttribute('data-aov-ribbon-view-for', id);
+            ['ribbons', 'intervals'].forEach(function(v) {
+                var b = document.createElement('button');
+                b.type = 'button';
+                b.className = 'outline caption-action';
+                b.dataset.view = v;
+                b.addEventListener('click', function() { self.setRibbonView(id, v); });
+                box.appendChild(b);
+            });
+            var fig = el.closest('figure.captioned');
+            var acts = fig && fig.querySelector('.caption-actions');
+            var header = fig && fig.querySelector('.caption-header');
+            if (!acts && header) {
+                acts = document.createElement('span');
+                acts.className = 'caption-actions';
+                header.appendChild(acts);
+            }
+            if (acts) {
+                acts.insertBefore(box, acts.firstChild);
+            } else {
+                var host = el.parentElement && el.parentElement.classList.contains('aov-plot-area') ? el.parentElement : el;
+                host.insertAdjacentElement('afterend', box);
+            }
+        }
+        if (!box) return;
+        var text = this._texts(box);
+        var pct = function(x) { return Math.round(100 * x) + '%'; };
+        box.setAttribute('aria-label', text('ribbon_view'));
+        box.title = st.threshold === null || st.threshold === undefined ?
+            text('overlap', {score: pct(st.score)}) :
+            text('overlap_auto', {score: pct(st.score), threshold: pct(st.threshold)});
+        box.querySelectorAll('button[data-view]').forEach(function(b) {
+            b.textContent = text(b.dataset.view);
+            b.setAttribute('aria-pressed', String(b.dataset.view === st.view));
+        });
     },
 
     // --- Polygon winding (geometry loaded from a URL) ---
@@ -613,6 +719,7 @@ window.AoV = window.AoV || {
         // config(frame=…): the player and its controls, and the scale domains
         // every frame shares, computed once per spec before the first embed.
         var framePlan = self._frameSetup(id, el, origSpec, opts);
+        self._ribbonViewControls(id, el);
 
         // width:"container" sizes the view from the embed element's own
         // width, and vega-embed makes that element display:inline-block,
@@ -1438,7 +1545,9 @@ window.AoV = window.AoV || {
             if (!el) { if (now) self.updateSpec(id, spec, opts); return; }
             // Removed, or replaced by a fresh render, meanwhile.
             if (now !== el || self._els[id] !== el) return;
-            var pristine = self._expandSpecData(JSON.parse(JSON.stringify(spec)));
+            // A ribbon keeps the drawing the reader chose.
+            var drawn = self._takeRibbonViews(id, spec, true);
+            var pristine = self._expandSpecData(JSON.parse(JSON.stringify(drawn)));
             self._refreshLegendSelections(pristine);
             self._broadcastCrossSource(pristine);
             var shown = pristine;
@@ -1458,6 +1567,7 @@ window.AoV = window.AoV || {
                     self._swapData(id, view, prepared)) {
                 cur.spec = prepared;
                 delete self._liveRows[id];
+                self._ribbonViewControls(id, el);
             } else {
                 self._embed(id, shown, opts, false);
             }
@@ -2323,8 +2433,9 @@ window.AoV = window.AoV || {
             var font = JSON.parse(this._themeKeys[id]).font;
             if (font) plotEl.style.setProperty('--aov-font', font);
         }
-        // Frame players: the fresh page's embed builds its own controls.
-        clone.querySelectorAll('[data-aov-frame-for]').forEach(function(c) { c.remove(); });
+        // Frame players and ribbon switches: the fresh page's embed builds
+        // its own controls.
+        clone.querySelectorAll('[data-aov-frame-for], [data-aov-ribbon-view-for]').forEach(function(c) { c.remove(); });
         // Lazy data shells: drop rendered bodies; the fresh page re-renders lazily.
         clone.querySelectorAll('.aov-data-raw-body[data-aov-plot-id], .aov-data-pretty-body[data-aov-plot-id]').forEach(function(b) {
             b.innerHTML = '';
@@ -2417,7 +2528,7 @@ window.AoV = window.AoV || {
     // (`plot_texts`, src/plot_texts.jl); without that attribute they are
     // English. LOCKSTEP: `_TEXTS_EN` is the English set of
     // `_RUNTIME_TEXT_NAMES` in src/plot_texts.jl; test/plot_texts.jl pins them.
-    _TEXTS_EN: {"no_data": "(no data available)", "no_summary": "(no summary data available)", "median": "Median", "interval": "{point} [{width} credible interval]", "value": "value", "untitled": "AoV plot", "lang": "en", "play": "Play", "pause": "Pause"},
+    _TEXTS_EN: {"no_data": "(no data available)", "no_summary": "(no summary data available)", "median": "Median", "interval": "{point} [{width} credible interval]", "value": "value", "untitled": "AoV plot", "lang": "en", "play": "Play", "pause": "Pause", "ribbons": "Ribbons", "intervals": "Intervals", "ribbon_view": "Drawing", "overlap": "Bands overlap {score} of the y range", "overlap_auto": "Bands overlap {score} of the y range; intervals above {threshold}"},
     _texts: function(el) {
         var host = el && el.closest ? el.closest('[data-aov-texts]') : null;
         var texts = host ? JSON.parse(host.dataset.aovTexts) : {};
@@ -2980,6 +3091,24 @@ window.AoV = window.AoV || {
                 // given a fixed colour (a literal or `:ink`, `_fixedMarkColor`)
                 // — e.g. black observation scatters or a theme-ink ribbon —
                 // which should not be data-driven by the picker.
+                // An interval dodged by its colour (the auto-dodge, and a
+                // ribbon's interval drawing) keeps dodging by the colour:
+                // left on the old field, a field moved to a facet would
+                // draw every panel's interval off centre.
+                var dodged = null;
+                layers.forEach(function(l) {
+                    var c = l && l.encoding && l.encoding.color;
+                    if (dodged === null && c && typeof c.field === 'string' && !l._keep_color &&
+                            !self._fixedMarkColor(l)) dodged = c.field;
+                });
+                layers.forEach(function(l) {
+                    if (!l || !l.encoding || dodged === null || dodged === cf) return;
+                    ['xOffset', 'yOffset'].forEach(function(ch) {
+                        var off = l.encoding[ch];
+                        if (!off || off.field !== dodged) return;
+                        if (cf) l.encoding[ch] = {field: cf, type: 'nominal'}; else delete l.encoding[ch];
+                    });
+                });
                 layers.forEach(function(l) {
                     if (!l.encoding) return;
                     if (l._keep_color) return;  // layer-fixed color (field outside remappable dims)

@@ -1539,6 +1539,12 @@ _select_field_list(v) = v
 function to_vegalite(v::VegaSpec; interactive::Bool=true,
                      auto_remap::Union{Nothing,NamedTuple}=nothing)
     isnothing(auto_remap) || return _auto_remap_lowering(v; interactive, auto_remap...).vl
+    _finish_ribbon_views!(_vegaspec_views(v; interactive))
+end
+
+# The Vega-Lite of `v` as drawn, without a ribbon's interval view
+# (`_vegaspec_views`, src/ribbon_view.jl, adds that).
+function _lower_vegaspec(v::VegaSpec; interactive::Bool=true)
     spec = _base_vegalite(v.drawable, v.layer_encodings)
     select_fields = nothing
     frame_opts = nothing
@@ -1667,18 +1673,31 @@ in AoG.
 """
 function to_vegalite(v, sc::AlgebraOfGraphics.Scales; interactive::Bool=true,
                      auto_remap::Union{Nothing,NamedTuple}=nothing)
-    spec = to_vegalite(v; interactive, auto_remap)
-    _apply_scales_sugar!(spec, sc)
-    col = _scales_column_y_scales(sc)
-    isnothing(col) || _per_column_y_hconcat!(spec, col)
-    # The sugar above can add a facet sort after the inner lowering densified
-    # (or skipped an unsorted spec) — re-run so a sparse grid never meets a
-    # sort (snag `facet-column-sor-9904da1f`).
-    _densify_facet_sort!(spec)
-    haskey(get(spec, "_aov", Dict()), "legendInteraction") &&
-        _add_auto_legend_interactivity!(spec)
-    spec
+    spec = _unfinished_vegalite(v; interactive, auto_remap)
+    # Both drawings of a ribbon with an interval view take the scales, before
+    # its overlap score reads the y scale.
+    _each_ribbon_view!(spec) do s
+        _apply_scales_sugar!(s, sc)
+        col = _scales_column_y_scales(sc)
+        isnothing(col) || _per_column_y_hconcat!(s, col)
+        # The sugar above can add a facet sort after the inner lowering densified
+        # (or skipped an unsorted spec) — re-run so a sparse grid never meets a
+        # sort (snag `facet-column-sor-9904da1f`).
+        _densify_facet_sort!(s)
+        haskey(get(s, "_aov", Dict()), "legendInteraction") &&
+            _add_auto_legend_interactivity!(s)
+    end
+    _finish_ribbon_views!(spec)
 end
+
+# `to_vegalite(v; …)` with a ribbon's interval view still pending (see
+# src/ribbon_view.jl), for passes that must reach both drawings.
+_unfinished_vegalite(v::Union{AlgebraOfGraphics.Layer,AlgebraOfGraphics.Layers}; kw...) =
+    _unfinished_vegalite(vlspec(v); kw...)
+_unfinished_vegalite(v::VegaSpec; interactive::Bool, auto_remap) = isnothing(auto_remap) ?
+    _vegaspec_views(v; interactive) :
+    _auto_remap_lowering(v; interactive, finish=false, auto_remap...).vl
+_unfinished_vegalite(v; interactive::Bool, auto_remap) = to_vegalite(v; interactive, auto_remap)
 
 """
     add_select_filters!(spec, drawable, fields)

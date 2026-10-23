@@ -16,11 +16,39 @@ struct GradientIntervalAnalysis <: TidybayesAnalysis
     orientation::Symbol
 end
 
+# Which view a coloured ribbon with few x values starts in (`intervals=`):
+# `:auto` picks point-intervals when its colour groups' bands overlap by more
+# than `threshold` of the y range; `:ribbons`/`:intervals` always start there.
+struct RibbonIntervals
+    start::Symbol
+    threshold::Float64
+end
+
+# The `:auto` threshold (share of the y range), and the most distinct x values
+# a ribbon may have to be offered as point-intervals.
+const _RIBBON_OVERLAP_THRESHOLD = 0.1
+const _RIBBON_INTERVAL_MAX_X = 12
+
+_ribbon_intervals(start::Bool) = RibbonIntervals(start ? :intervals : :ribbons, _RIBBON_OVERLAP_THRESHOLD)
+function _ribbon_intervals(threshold::Real)
+    0 <= threshold <= 1 || throw(ArgumentError(
+        "intervals=$threshold: a threshold is a share of the y range, between 0 and 1"))
+    RibbonIntervals(:auto, Float64(threshold))
+end
+function _ribbon_intervals(start::Symbol)
+    start === :auto || throw(ArgumentError(
+        "intervals=:$start: pass :auto, a threshold between 0 and 1, or true/false"))
+    RibbonIntervals(:auto, _RIBBON_OVERLAP_THRESHOLD)
+end
+_ribbon_intervals(x) = throw(ArgumentError(
+    "intervals=$(repr(x)): pass :auto, a threshold between 0 and 1, or true/false"))
+
 struct LineRibbonAnalysis <: TidybayesAnalysis
     probs::Vector{Float64}
     show_line::Bool
     detail_fields::Vector{Symbol}
     single_x_glyph::Bool
+    intervals::RibbonIntervals
 end
 
 struct PrecomputedRibbonAnalysis <: TidybayesAnalysis
@@ -28,6 +56,7 @@ struct PrecomputedRibbonAnalysis <: TidybayesAnalysis
     show_line::Bool
     detail_fields::Vector{Symbol}
     single_x_glyph::Bool
+    intervals::RibbonIntervals
 end
 
 struct PrecomputedIntervalAnalysis <: TidybayesAnalysis
@@ -136,13 +165,25 @@ wins over it, as for plain marks. Other `visual` attributes are not applied
 
     data(summary) * mapping(:x, :median) *
         lineribbon(bands=[:q025 => :q975, :q25 => :q75]) * visual(; color="black")
+
+A ribbon coloured by `color=` with at most $(_RIBBON_INTERVAL_MAX_X) distinct
+numeric x values (a dose ladder) can also be drawn as vertical point-intervals,
+dodged by colour on evenly spaced x slots, and the reader switches between the
+two with a "Ribbons | Intervals" control. `intervals` picks the view it starts
+in: `:auto` (default) starts in point-intervals when the colour groups' outer
+bands overlap by more than $(round(Int, 100 * _RIBBON_OVERLAP_THRESHOLD))% of
+the y range on average, a number between 0 and 1 replaces that threshold, and
+`true`/`false` always start in point-intervals/ribbons. `vsave` writes the
+starting view; `sdraw` always draws the ribbon.
 """
-function lineribbon(; probs=[0.95, 0.8, 0.5], bands=nothing, detail=Symbol[], single_x_glyph=true)
+function lineribbon(; probs=[0.95, 0.8, 0.5], bands=nothing, detail=Symbol[], single_x_glyph=true,
+                    intervals=:auto)
+    iv = _ribbon_intervals(intervals)
     if !isnothing(bands)
         parsed = Pair{Symbol,Symbol}[Symbol(first(b)) => Symbol(last(b)) for b in bands]
-        return Layer(transformation=PrecomputedRibbonAnalysis(parsed, true, Symbol.(detail), single_x_glyph))
+        return Layer(transformation=PrecomputedRibbonAnalysis(parsed, true, Symbol.(detail), single_x_glyph, iv))
     end
-    Layer(transformation=LineRibbonAnalysis(Float64.(probs), true, Symbol.(detail), single_x_glyph))
+    Layer(transformation=LineRibbonAnalysis(Float64.(probs), true, Symbol.(detail), single_x_glyph, iv))
 end
 
 """
@@ -151,17 +192,20 @@ end
 
 Uncertainty ribbons (area marks) without a median line.
 Same as `lineribbon` but omits the central line. Accepts the same `bands`
-kwarg for pre-aggregated data, and a fixed `visual(; color=…)` the same way.
+kwarg for pre-aggregated data, a fixed `visual(; color=…)` and `intervals` the
+same way (its point-interval view keeps the median point).
 
     data(preds) * mapping(:x, :y, group=:draw) * ribbon()
     data(summary) * mapping(:x, :median) * ribbon(bands=[:q025 => :q975])
 """
-function ribbon(; probs=[0.95, 0.8, 0.5], bands=nothing, detail=Symbol[], single_x_glyph=true)
+function ribbon(; probs=[0.95, 0.8, 0.5], bands=nothing, detail=Symbol[], single_x_glyph=true,
+                intervals=:auto)
+    iv = _ribbon_intervals(intervals)
     if !isnothing(bands)
         parsed = Pair{Symbol,Symbol}[Symbol(first(b)) => Symbol(last(b)) for b in bands]
-        return Layer(transformation=PrecomputedRibbonAnalysis(parsed, false, Symbol.(detail), single_x_glyph))
+        return Layer(transformation=PrecomputedRibbonAnalysis(parsed, false, Symbol.(detail), single_x_glyph, iv))
     end
-    Layer(transformation=LineRibbonAnalysis(Float64.(probs), false, Symbol.(detail), single_x_glyph))
+    Layer(transformation=LineRibbonAnalysis(Float64.(probs), false, Symbol.(detail), single_x_glyph, iv))
 end
 
 """

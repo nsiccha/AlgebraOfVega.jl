@@ -36,6 +36,26 @@
         box-shadow: var(--pico-box-shadow);
     }
     input.aov-frame-slider:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+    /* A coloured ribbon's Ribbons | Intervals switch (built by the runtime,
+       `_ribbonViewControls`): a joined pair of the caption row's buttons,
+       first in its action row or right after the plot. The pressed half is
+       the drawing shown. Outranks Pico's `[role=group]` (full width, a
+       bottom margin) in any source order. */
+    span.aov-ribbon-view[role="group"] {
+        display: inline-flex; width: auto; margin: 0.25em 0; vertical-align: middle;
+    }
+    .caption-actions > span.aov-ribbon-view[role="group"] { margin: 0; }
+    span.aov-ribbon-view[role="group"] > button { margin: 0; width: auto; }
+    span.aov-ribbon-view[role="group"] > button:not(:first-child) {
+        margin-left: -1px; border-top-left-radius: 0; border-bottom-left-radius: 0;
+    }
+    span.aov-ribbon-view[role="group"] > button:not(:last-child) {
+        border-top-right-radius: 0; border-bottom-right-radius: 0;
+    }
+    span.aov-ribbon-view[role="group"] > button[aria-pressed="true"] {
+        background-color: color-mix(in srgb, currentColor 15%, transparent);
+        font-weight: 600;
+    }
     /* A focused or dragged Pico thumb keeps Pico's idle slate. */
     input.aov-frame-slider {
         color: inherit; accent-color: currentColor;
