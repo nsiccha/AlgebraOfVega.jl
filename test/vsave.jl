@@ -25,8 +25,8 @@
     @test !isfile(joinpath(tempdir(), "aov-vsave-never.svg"))
 end
 
-@testitem "vsave: a local geometry file is read into the spec, the caller's Dict untouched" setup=[AoVGeoshapeMapFixtures] tags=[:static, :geoshape, :vsave] begin
-    using JSON
+@testitem "vsave: local and http(s) geometry is read into the spec, rewound, the caller's Dict untouched" setup=[AoVGeoshapeMapFixtures, AoVBrowserServer] tags=[:static, :geoshape, :vsave] begin
+    using JSON, Sockets
     inline = AlgebraOfVega._vsave_inline_data
     geo_unit(vl) = haskey(vl, "layer") ? vl["layer"][1] : vl
     lookup_data(vl) = only(t for t in geo_unit(vl)["transform"] if haskey(t, "lookup"))["from"]["data"]
@@ -46,11 +46,42 @@ end
             @test !haskey(got, "url")
             @test JSON.json(vl) == before
         end
-        # Remote and data: URLs are left to vl-convert.
-        for url in ("https://example.invalid/kreise.geojson", "data:application/json,{}")
-            vl = to_vegalite(data(kreise) * mapping(:AGS; color=:effect) * geoshape(url); interactive=false)
-            @test lookup_data(inline(vl))["url"] == url
+        # An RFC 7946 file (counter-clockwise rings) is rewound as vdraw draws it:
+        # the same features the clockwise Dict lowers to (snag `a-choropleth-of-89e8fdc1`).
+        rfc7946 = JSON.parse(JSON.json(kreise_geo); dicttype=Dict{String,Any})
+        for f in rfc7946["features"]
+            reverse!(only(f["geometry"]["coordinates"]))
         end
+        open(io -> JSON.print(io, rfc7946), joinpath(dir, "rfc7946.geojson"), "w")
+        vl = to_vegalite(data(kreise) * mapping(:AGS; color=:effect) * geoshape("rfc7946.geojson"); interactive=false)
+        @test lookup_data(cd(() -> inline(vl), dir))["values"] == expected["values"]
+        # vl-convert would fetch an http(s) address itself and keep its winding, so
+        # vsave reads it too.
+        with_page_server(dir) do root
+            for name in ("kreise.geojson", "rfc7946.geojson?service=wfs")
+                vl = to_vegalite(data(kreise) * mapping(:AGS; color=:effect) * geoshape("$root/$name");
+                    interactive=false)
+                got = lookup_data(inline(vl))
+                @test got["values"] == expected["values"]
+                @test got["format"] == Dict{String,Any}("type" => "json", "property" => "features")
+            end
+        end
+        # An address that cannot be read fails loudly, naming it.
+        socket = Sockets.listen(Sockets.localhost, 0)
+        port = Int(Sockets.getsockname(socket)[2])
+        close(socket)
+        gone = "http://127.0.0.1:$port/kreise.geojson"
+        err = try
+            inline(to_vegalite(data(kreise) * mapping(:AGS; color=:effect) * geoshape(gone); interactive=false))
+            nothing
+        catch e
+            e
+        end
+        @test err isa ArgumentError && occursin(gone, sprint(showerror, err))
+        # A data: URL is already inline and is left to vl-convert.
+        vl = to_vegalite(data(kreise) * mapping(:AGS; color=:effect) * geoshape("data:application/json,{}");
+            interactive=false)
+        @test lookup_data(inline(vl))["url"] == "data:application/json,{}"
         # A local path that names no file fails loudly instead of drawing nothing.
         missing_map = to_vegalite(data(kreise) * mapping(:AGS; color=:effect) * geoshape("nope.geojson");
             interactive=false)
@@ -80,6 +111,13 @@ end
                 # A geometry file renders exactly like the parsed Dict.
                 vsave(map_spec("kreise.geojson"), "file.svg")
                 @test read("file.svg") == read("dict.svg")
+                # So does an RFC 7946 one, wound counter-clockwise: each district is
+                # drawn as itself, not as the globe minus it (snag `a-choropleth-of-89e8fdc1`).
+                rfc7946 = JSON.parse(JSON.json(kreise_geo); dicttype=Dict{String,Any})
+                foreach(f -> reverse!(only(f["geometry"]["coordinates"])), rfc7946["features"])
+                open(io -> JSON.print(io, rfc7946), "rfc7946.geojson", "w")
+                vsave(map_spec("rfc7946.geojson"), "rfc7946.svg")
+                @test read("rfc7946.svg") == read("dict.svg")
 
                 @test startswith(read(vsave(map_spec(kreise_geo), "map.pdf"), String), "%PDF-")
                 png_width(f) = Int(ntoh(reinterpret(UInt32, read(f)[17:20])[1]))

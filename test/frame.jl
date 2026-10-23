@@ -8,8 +8,6 @@ using TestItemRunner
 # replaced a geoshape's own lookup, so the map painted nothing.
 
 @testsnippet AoVFrameFixtures begin
-    # Clockwise rings: d3-geo reads a counter-clockwise ring as the whole globe
-    # minus the square (todo `0jjyv1k`), which breaks the projection fit.
     _frame_square(x0) = Dict{String,Any}("type" => "Polygon", "coordinates" =>
         [[[x0, 50.0], [x0, 51.0], [x0 + 1, 51.0], [x0 + 1, 50.0], [x0, 50.0]]])
     frame_geo = Dict{String,Any}("type" => "FeatureCollection", "features" => [

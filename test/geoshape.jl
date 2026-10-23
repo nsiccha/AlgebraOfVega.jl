@@ -12,12 +12,20 @@ using TestItemRunner
     using AlgebraOfGraphics
 
     effects = (; AGS=["01001", "01002", "01003"], effect=[-0.4, 0.1, 0.7])
+    # Counter-clockwise rings, as RFC 7946 winds them (and WFS servers write them).
     square(x0) = Dict{String,Any}("type" => "Polygon", "coordinates" =>
         [[[x0, 0.0], [x0 + 1, 0.0], [x0 + 1, 1.0], [x0, 1.0], [x0, 0.0]]])
-    features = [Dict{String,Any}("type" => "Feature",
-        "properties" => Dict{String,Any}("AGS" => ags),
-        "geometry" => square(Float64(i))) for (i, ags) in enumerate(effects.AGS)]
-    geojson = Dict{String,Any}("type" => "FeatureCollection", "features" => features)
+    feature_collection(geometry) = Dict{String,Any}("type" => "FeatureCollection", "features" => [
+        Dict{String,Any}("type" => "Feature", "properties" => Dict{String,Any}("AGS" => ags),
+            "geometry" => geometry(Float64(i))) for (i, ags) in enumerate(effects.AGS)])
+    geojson = feature_collection(square)
+    features = geojson["features"]
+    # What AoV lowers them to: the same squares wound clockwise, d3-geo's winding,
+    # so each district is its square rather than the globe minus it.
+    cw_square(x0) = Dict{String,Any}("type" => "Polygon",
+        "coordinates" => [reverse(only(square(x0)["coordinates"]))])
+    lowered_geojson = feature_collection(cw_square)
+    lowered_features = lowered_geojson["features"]
 end
 
 @testitem "geoshape: inline GeoJSON joined on the positional key" setup=[AoVGeoshapeFixtures] tags=[:translation, :geoshape] begin
@@ -30,7 +38,7 @@ end
     @test vl["data"] == Dict{String,Any}("values" => AlgebraOfVega.table_to_rows(effects))
     @test vl["transform"] == [Dict{String,Any}("lookup" => "AGS",
         "from" => Dict{String,Any}(
-            "data" => Dict{String,Any}("values" => geojson,
+            "data" => Dict{String,Any}("values" => lowered_geojson,
                 "format" => Dict{String,Any}("property" => "features")),
             "key" => "properties.AGS"),
         "as" => "__geometry__")]
@@ -40,6 +48,68 @@ end
     # A geoshape has no Cartesian axes: the positional key must NOT lower to x.
     @test !haskey(enc, "x") && !haskey(enc, "y")
     @test [t["field"] for t in enc["tooltip"]] == ["AGS", "effect"]
+end
+
+# d3-geo, which draws Vega's geoshapes, reads a ring on the sphere: the polygon is
+# the region on its right, so a counter-clockwise exterior ring (RFC 7946's
+# winding) is the whole globe minus the region. Every such district filled the
+# projection in one colour, with no error (snag `a-choropleth-of-89e8fdc1`,
+# todo `0jjyv1k`). AoV now draws each polygon as the smaller region its rings
+# enclose, as AlgebraOfGraphics/Makie does.
+@testitem "geoshape: every winding draws the region its rings enclose" setup=[AoVGeoshapeFixtures] tags=[:translation, :geoshape] begin
+    using JSON
+    lowered(geo) = only(to_vegalite(data(effects) * mapping(:AGS; color=:effect) *
+        geoshape(geo))["transform"])["from"]["data"]["values"]
+    # Planar signed area in lon/lat: positive is counter-clockwise.
+    signed(ring) = sum(ring[i][1] * ring[i + 1][2] - ring[i + 1][1] * ring[i][2] for i in 1:length(ring) - 1) / 2
+    polygon(rings...) = Dict{String,Any}("type" => "Polygon", "coordinates" => collect(rings))
+    feature(geometry) = Dict{String,Any}("type" => "Feature",
+        "properties" => Dict{String,Any}("AGS" => "01001"), "geometry" => geometry)
+    collection(geometries...) = Dict{String,Any}("type" => "FeatureCollection",
+        "features" => [feature(g) for g in geometries])
+    ccw(x0, y0, w) = [[x0, y0], [x0 + w, y0], [x0 + w, y0 + w], [x0, y0 + w], [x0, y0]]
+    cw(x0, y0, w) = reverse(ccw(x0, y0, w))
+
+    # RFC 7946 input is rewound to clockwise exterior rings; d3-wound input is kept.
+    before = JSON.json(geojson)
+    @test lowered(geojson) == lowered_geojson
+    @test all(f -> signed(only(f["geometry"]["coordinates"])) < 0, lowered(geojson)["features"])
+    @test lowered(lowered_geojson) == lowered_geojson
+    @test lowered(features) == lowered_features
+    # The caller's geometry is never written to.
+    @test JSON.json(geojson) == before
+
+    # Holes are wound the other way round, whatever the input did.
+    outer, hole = ccw(0.0, 0.0, 4.0), cw(1.0, 1.0, 1.0)          # RFC 7946
+    d3 = polygon(reverse(outer), reverse(hole))
+    for given in (polygon(outer, hole), d3, polygon(reverse(outer), hole), polygon(outer, reverse(hole)))
+        @test only(lowered(collection(given))["features"])["geometry"] == d3
+    end
+    # MultiPolygons and GeometryCollections, polygon by polygon.
+    multi = Dict{String,Any}("type" => "MultiPolygon", "coordinates" => [[ccw(0.0, 0.0, 1.0)], [cw(2.0, 0.0, 1.0)]])
+    @test only(lowered(collection(multi))["features"])["geometry"]["coordinates"] ==
+        [[cw(0.0, 0.0, 1.0)], [cw(2.0, 0.0, 1.0)]]
+    gc = Dict{String,Any}("type" => "GeometryCollection", "geometries" => [polygon(ccw(0.0, 0.0, 1.0)),
+        Dict{String,Any}("type" => "LineString", "coordinates" => ccw(5.0, 0.0, 1.0))])
+    got = only(lowered(collection(gc))["features"])["geometry"]["geometries"]
+    @test got[1] == polygon(cw(0.0, 0.0, 1.0))
+    # A line has no inside: its order is kept.
+    @test got[2]["coordinates"] == ccw(5.0, 0.0, 1.0)
+
+    # The test is d3's spherical area, not the plane: a clockwise box across the
+    # antimeridian (179°E to 179°W) is a small box on the globe and is kept, though
+    # in the plane it reads as a 358°-wide counter-clockwise one.
+    fiji = [[179.0, -17.0], [179.0, -16.0], [-179.0, -16.0], [-179.0, -17.0], [179.0, -17.0]]
+    @test signed(fiji) > 0
+    @test only(lowered(collection(polygon(fiji)))["features"])["geometry"] == polygon(fiji)
+    @test only(lowered(collection(polygon(reverse(fiji))))["features"])["geometry"] == polygon(fiji)
+    # d3-geo's area of a 1°×1° square on the equator, in steradians: about the
+    # cell between two meridians and two parallels (d3's edges are great-circle
+    # arcs, so the top edge bulges slightly poleward), and the rest of the globe
+    # for the counter-clockwise ring.
+    cell = (π / 180) * sin(π / 180)
+    @test AlgebraOfVega._ring_area(cw(0.0, 0.0, 1.0)) ≈ cell rtol=1e-4
+    @test 4π - AlgebraOfVega._ring_area(ccw(0.0, 0.0, 1.0)) ≈ AlgebraOfVega._ring_area(cw(0.0, 0.0, 1.0)) rtol=1e-9
 end
 
 @testitem "geoshape: URL geometry, explicit key and projection" setup=[AoVGeoshapeFixtures] tags=[:translation, :geoshape] begin
@@ -55,7 +125,7 @@ end
 @testitem "geoshape: feature-vector geometry, pair key, no projection" setup=[AoVGeoshapeFixtures] tags=[:translation, :geoshape] begin
     vl = to_vegalite(data(effects) * mapping(color=:effect) *
         geoshape(features; key=:AGS => :AGS, projection=nothing))
-    @test only(vl["transform"])["from"]["data"] == Dict{String,Any}("values" => features)
+    @test only(vl["transform"])["from"]["data"] == Dict{String,Any}("values" => lowered_features)
     @test !haskey(vl, "projection")
     @test vl["mark"] == "geoshape"
     # The pair's sides land on their own sides of the lookup.
@@ -161,10 +231,80 @@ end
             if !isnothing(result)
                 report = JSON.parse(replace(result[1], "&quot;" => "\"", "&lt;" => "<",
                     "&gt;" => ">", "&amp;" => "&"))
-                @test report["checks"] >= 27
+                @test report["checks"] >= 34
                 @test isempty(report["failures"])
                 @info "geoshape browser checks" checks=report["checks"]
                 isempty(report["failures"]) || println(JSON.json(report["failures"]))
+            end
+        end
+    end
+end
+
+# RFC 7946 geometry from a URL is fetched by the browser, where AoV's runtime
+# rewinds it before Vega reads it (snag `a-choropleth-of-89e8fdc1`). A file://
+# page cannot fetch, so the page and its GeoJSON files are served over HTTP.
+@testitem "geoshape in the browser: any winding draws each district in place, inline and from a URL" setup=[AoVBrowserServer] tags=[:regression, :browser, :geoshape] begin
+    using AlgebraOfVega, AlgebraOfGraphics, HTMXObjects, JSON
+    html(x) = sprint(show, MIME"text/html"(), x)
+
+    ags = ["01001", "01002", "01003"]
+    ccw(x0, y0, w) = [[x0, y0], [x0 + w, y0], [x0 + w, y0 + w], [x0, y0 + w], [x0, y0]]
+    cw(x0, y0, w) = reverse(ccw(x0, y0, w))
+    polygon(rings...) = Dict{String,Any}("type" => "Polygon", "coordinates" => collect(rings))
+    collection(geometries) = Dict{String,Any}("type" => "FeatureCollection", "features" => [
+        Dict{String,Any}("type" => "Feature", "properties" => Dict{String,Any}("AGS" => a), "geometry" => g)
+        for (a, g) in zip(ags, geometries)])
+    # Three districts side by side, west to east, near Berlin.
+    rfc7946 = collection([polygon(ccw(12.0 + i, 52.0, 0.5)) for i in 1:3])
+    d3 = collection([polygon(cw(12.0 + i, 52.0, 0.5)) for i in 1:3])
+    rows = (; AGS=ags, effect=[-0.4, 0.1, 0.7])
+    years = (; AGS=repeat(ags, 2), year=repeat([2020, 2021], inner=3), effect=[-0.4, 0.1, 0.7, 0.5, -0.2, 0.3])
+    width = 300
+    district_map(geo; table=rows, kw...) = data(table) * mapping(:AGS; color=:effect) * geoshape(geo) *
+        config(; width, height=100, kw...)
+    plots = ["wind-d3-inline" => district_map(d3), "wind-rfc-inline" => district_map(rfc7946),
+        "wind-rfc-url" => district_map("rfc7946.geojson"), "wind-d3-url" => district_map("d3.geojson"),
+        "wind-rfc-url-frame" => district_map("rfc7946.geojson"; table=years, frame=:year)]
+
+    # The runtime must rewind exactly as Julia does.
+    fiji = [[179.0, -17.0], [179.0, -16.0], [-179.0, -16.0], [-179.0, -17.0], [179.0, -17.0]]
+    multi = Dict{String,Any}("type" => "MultiPolygon", "coordinates" => [[ccw(0.0, 0.0, 1.0)], [cw(2.0, 0.0, 1.0)]])
+    gc = Dict{String,Any}("type" => "GeometryCollection", "geometries" => [polygon(ccw(0.0, 0.0, 1.0)),
+        Dict{String,Any}("type" => "LineString", "coordinates" => ccw(5.0, 0.0, 1.0))])
+    cases = [rfc7946, d3, polygon(ccw(0.0, 0.0, 4.0), cw(1.0, 1.0, 1.0)),
+        polygon(cw(0.0, 0.0, 4.0), cw(1.0, 1.0, 1.0)), multi, gc, polygon(fiji), polygon(reverse(fiji))]
+    fixture = (; width, plots=first.(plots), cases=[(; input=c,
+        expected=AlgebraOfVega._rewind_geojson!(AlgebraOfVega._owned_copy(c))) for c in cases])
+    expected_checks = 3 * length(plots) + (length(plots) - 2) + 2 * length(cases) + 1
+
+    chrome = something(Sys.which("google-chrome"), Sys.which("chromium"), "")
+    if isempty(chrome)
+        @test_skip "headless Chrome is not installed"
+    else
+        mktempdir(prefix="kb-geoshape-winding-") do dir
+            open(io -> JSON.print(io, rfc7946), joinpath(dir, "rfc7946.geojson"), "w")
+            open(io -> JSON.print(io, d3), joinpath(dir, "d3.geojson"), "w")
+            head = join(html(n) for n in vega_head(; source=:inline))
+            driver = read(joinpath(@__DIR__, "geoshape_winding.js"), String)
+            write(joinpath(dir, "page.html"), "<!doctype html><meta charset='utf-8'>" * head * "<body>" *
+                join(html(vdraw(spec; id)) for (id, spec) in plots) *
+                "<script>window.AOV_FIXTURE=" * replace(JSON.json(fixture), "</" => "<\\/") * ";</script>" *
+                "<script>" * driver * "</script></body>")
+            with_page_server(dir) do root
+                output = read(pipeline(`$chrome --headless=new --no-sandbox --disable-gpu
+                    --user-data-dir=$(joinpath(dir, "profile")) --window-size=1200,1400
+                    --virtual-time-budget=20000 --dump-dom $(root * "/page.html")`,
+                    stderr=joinpath(dir, "chrome.log")), String)
+                result = match(r"<pre id=\"aov-geoshape-winding-results\">([^<]*)</pre>", output)
+                @test !isnothing(result)
+                if !isnothing(result)
+                    report = JSON.parse(replace(result[1], "&quot;" => "\"", "&lt;" => "<",
+                        "&gt;" => ">", "&amp;" => "&"))
+                    @test report["checks"] == expected_checks
+                    @test isempty(report["failures"])
+                    @info "geoshape winding browser checks" checks=report["checks"]
+                    isempty(report["failures"]) || println(JSON.json(report["failures"]))
+                end
             end
         end
     end
