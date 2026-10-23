@@ -1557,11 +1557,72 @@ end
 
 # --- Geoshape / choropleth emitter ---
 
+# Polygon winding. d3-geo, which draws Vega's geoshapes, reads a ring on the
+# sphere: the polygon is the region on the ring's right. A counter-clockwise
+# exterior ring — what RFC 7946 §3.1.6 prescribes, and what WFS servers and most
+# GIS exporters write — is then the whole globe minus the region, and every
+# feature fills the projection in one colour, with no error (snag
+# `a-choropleth-of-89e8fdc1`). AoV draws each polygon as the smaller region its
+# rings enclose, as AlgebraOfGraphics/Makie (reading polygons in the plane)
+# does: an exterior ring that covers more than a hemisphere is reversed, and so
+# is a hole that does not. The area is d3-geo's own `geoArea` sum, so the test
+# is the one d3 draws by. LOCKSTEP: `_rewindGeoJSON` in vendor/aov-runtime.js,
+# which applies the same rule to geometry the browser loads from a URL.
+
+# d3-geo's area of a polygon with this one ring, in steradians (0 to 4π): the
+# spherical excess of the triangle each edge forms with the south pole. Like
+# d3, it drops the ring's closing position and closes the ring itself.
+function _ring_area(ring::AbstractVector)
+    m = length(ring) - 1
+    p = ring[1]
+    λ0 = deg2rad(p[1])
+    ψ = deg2rad(p[2]) / 2 + π / 4
+    cosψ0, sinψ0 = cos(ψ), sin(ψ)
+    s = 0.0
+    for i in 2:m+1
+        p = i <= m ? ring[i] : ring[1]
+        λ = deg2rad(p[1])
+        ψ = deg2rad(p[2]) / 2 + π / 4
+        dλ = λ - λ0
+        sd = dλ >= 0 ? 1 : -1
+        cosψ, sinψ = cos(ψ), sin(ψ)
+        k = sinψ0 * sinψ
+        s += atan(k * sd * sin(sd * dλ), cosψ0 * cosψ + k * cos(sd * dλ))
+        λ0, cosψ0, sinψ0 = λ, cosψ, sinψ
+    end
+    2 * (s < 0 ? 2π + s : s)
+end
+
+# Rewind, in place, the polygons of a GeoJSON object AoV owns (a fresh copy of
+# the caller's geometry, or a file it just parsed). Points and lines have no
+# inside, and objects that are not GeoJSON geometry are left as they are.
+_rewind_geojson!(x) = x
+_rewind_geojson!(v::AbstractVector) = (foreach(_rewind_geojson!, v); v)
+_rewind_geojson!(d::AbstractDict) =
+    (_rewind_geojson!(d, Val(Symbol(string(get(d, "type", ""))))); d)
+_rewind_geojson!(d, ::Val{:FeatureCollection}) = _rewind_geojson!(get(d, "features", nothing))
+_rewind_geojson!(d, ::Val{:Feature}) = _rewind_geojson!(get(d, "geometry", nothing))
+_rewind_geojson!(d, ::Val{:GeometryCollection}) = _rewind_geojson!(get(d, "geometries", nothing))
+_rewind_geojson!(d, ::Val{:Polygon}) = _rewind_polygon!(get(d, "coordinates", nothing))
+_rewind_geojson!(d, ::Val{:MultiPolygon}) = _rewind_polygons!(get(d, "coordinates", nothing))
+_rewind_geojson!(d, ::Val) = nothing
+
+_rewind_polygons!(polygons::AbstractVector) = foreach(_rewind_polygon!, polygons)
+_rewind_polygons!(_) = nothing
+_rewind_polygon!(_) = nothing
+function _rewind_polygon!(rings::AbstractVector)
+    for (i, ring) in enumerate(rings)
+        ring isa AbstractVector && length(ring) >= 4 || continue
+        # The exterior ring (the first) must cover less than a hemisphere, a hole more.
+        (_ring_area(ring) > 2π) == (i == 1) && reverse!(ring)
+    end
+end
+
 _geoshape_data(g::AbstractString) = Dict{String,Any}("url" => g,
     "format" => Dict{String,Any}("type" => "json", "property" => "features"))
-_geoshape_data(g::AbstractDict) = Dict{String,Any}("values" => _owned_copy(g),
+_geoshape_data(g::AbstractDict) = Dict{String,Any}("values" => _rewind_geojson!(_owned_copy(g)),
     "format" => Dict{String,Any}("property" => "features"))
-_geoshape_data(g::AbstractVector) = Dict{String,Any}("values" => _owned_copy(g))
+_geoshape_data(g::AbstractVector) = Dict{String,Any}("values" => _rewind_geojson!(_owned_copy(g)))
 
 # The field a table row's looked-up GeoJSON Feature lands in (the `shape` channel).
 const _GEOSHAPE_FIELD = "__geometry__"
