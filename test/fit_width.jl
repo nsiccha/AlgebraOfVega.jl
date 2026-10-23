@@ -51,15 +51,15 @@ end
 end
 
 # Runs `driver` (a `test/*.js` file) after `body` on an inline-head page in
-# headless Chrome and checks the `{checks, failures}` report it writes to
-# `<pre id=result_id>`.
+# headless Chrome, opened with the URL `query`, and checks the
+# `{checks, failures}` report it writes to `<pre id=result_id>`.
 @testsnippet AoVFitWidthBrowser begin
     using AlgebraOfVega, AlgebraOfGraphics, JSON
     html(x) = sprint(show, MIME"text/html"(), x)
     rows = (; x=repeat([1.0, 2.0, 3.0], 4), y=collect(1.0:12.0),
         group=repeat(["A", "B"], inner=3, outer=2), panel=repeat(["P", "Q"], inner=6))
     layered = data(rows) * mapping(:x, :y; color=:group) * (visual(Scatter) + visual(Lines))
-    function browser_checks(body, driver, result_id; min_checks)
+    function browser_checks(body, driver, result_id; min_checks, query="")
         chrome = something(Sys.which("google-chrome"), Sys.which("chromium"), "")
         if isempty(chrome)
             @test_skip "headless Chrome is not installed"
@@ -71,7 +71,7 @@ end
                 "<body>" * body * "<script>" * read(driver, String) * "</script></body>")
             output = read(pipeline(`$chrome --headless=new --no-sandbox --disable-gpu
                 --user-data-dir=$(joinpath(dir, "profile")) --window-size=1200,1600
-                --virtual-time-budget=15000 --dump-dom $("file://" * joinpath(dir, "page.html"))`,
+                --virtual-time-budget=15000 --dump-dom $("file://" * joinpath(dir, "page.html") * query)`,
                 stderr=joinpath(dir, "chrome.log")), String)
             result = match(Regex("<pre id=\"$result_id\">([^<]*)</pre>"), output)
             @test !isnothing(result)
@@ -143,4 +143,29 @@ end
         "<div class='gr-grid'>" * plot("gr-b1", single) * plot("gr-b2", layered) * "</div>" *
         "<div class='gr-flex'>" * plot("gr-c1", layered) * plot("gr-c2", single) * "</div></div>"
     browser_checks(body, joinpath(@__DIR__, "fit_width_grid.js"), "aov-fit-width-grid-results"; min_checks=24)
+end
+
+# A tabset panel hidden while its plots embed (`display: none`) offers them no
+# width. A page opened with `?tab=<name>` shows that panel from the restore
+# script the tabset renders as its last child; before plots rendered after the
+# parse (snag grid-first-plot-6b826c86), that ran after the panel's plots had
+# embedded. Plots in a hidden panel now fill it as soon as it shows, instead of
+# first painting at the 400px fallback for the 200ms resize debounce (captured
+# by a screenshot taken at load). A plain single view, which no ResizeObserver
+# watched, stayed 0px wide for good; a plot re-embedded while hidden stayed at
+# its fallback when the panel came back at its old width (snag
+# a-page-with-an-h-eb58645a).
+@testitem "plots in a hidden tab panel fill it once it is shown" setup=[AoVFitWidthBrowser] tags=[:regression, :browser] begin
+    using HTMXObjects
+    using HTMX: h
+    plain = data(rows) * mapping(:x, :y) * visual(Scatter)
+    # No colour legend, so no `_aov`: the single view no observer watched.
+    @test !haskey(AlgebraOfVega._embed_spec(plain), "_aov")
+    tabs = tabset("Shown" => vdraw(layered; id="hp-shown", height=120),
+        "Hidden" => h.div(vdraw(layered; id="hp-layered", height=120), vdraw(plain; id="hp-single", height=120),
+            h.div(; style="display:inline-block")(vdraw(layered; id="hp-wrap", height=120)));
+        names=["shown", "hidden"])
+    body = html(htmxo_utility_styles()) * html(tabset_script()) * "<div style='width:900px'>" * html(tabs) * "</div>"
+    browser_checks(body, joinpath(@__DIR__, "fit_width_hidden.js"), "aov-fit-width-hidden-results";
+        min_checks=26, query="?tab=hidden")
 end
