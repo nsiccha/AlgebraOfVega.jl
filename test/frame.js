@@ -148,6 +148,54 @@
         check(days.every(d => d.split(':')[1] === '1') && new Set(days.map(d => d.split(':')[2])).size === 1 &&
             days.map(d => d.split(':')[0]).join(' ') === '2020-01-01 2020-01-02 2020-01-03', 'dates ' + days.join(' '));
 
+        // --- The frame plan runs each frame's data, not its marks (snag
+        // `frame-plan-repla-b3f8cee5`: a map's outlines went through the
+        // projection twice per frame). Its headless view keeps no marks, axes
+        // or legends, a map's projection is not fitted per frame, lon/lat
+        // marks' geopoint goes too, and the plan equals a full replay.
+        const planOf = async (id, view) => {
+            const keep = AoV._framePlanView;
+            if (view) AoV._framePlanView = view;
+            try { return JSON.stringify(await AoV._framePlan(id, AoV._origSpecs[id], AoV._withGeoLoader({}))); }
+            finally { AoV._framePlanView = keep; }
+        };
+        for (const id of ['fr-map', 'fr-pts', 'fr-bars', 'fr-time']) {
+            await ready(id);
+            const s = JSON.parse(JSON.stringify(AoV._origSpecs[id]));
+            delete s.autosize;
+            if (s.width === 'container') s.width = 400;
+            const compiled = vegaLite.compile(s).spec;
+            const hadMarks = !!compiled.marks;
+            const vg = AoV._framePlanView(compiled);
+            check(hadMarks && !vg.marks && !vg.axes && !vg.legends, id + ': the plan view keeps ' + Object.keys(vg).join(','));
+            check((vg.projections || []).every(p => !p.fit), id + ': the plan fits ' + JSON.stringify(vg.projections));
+            check(!vg.data.some(d => (d.transform || []).some(t => t.type === 'geopoint')), id + ': the plan keeps a geopoint');
+            const pruned = await planOf(id), full = await planOf(id, x => x);
+            check(pruned !== 'null' && pruned === full, id + ': plan ' + pruned + ' against a full replay ' + full);
+        }
+        // A geopoint whose positions something else reads stays, and so does its projection's fit.
+        const geoVg = read => ({data: [{name: 'd', values: [], transform: [
+            {type: 'geopoint', projection: 'projection', fields: ['lon', 'lat'], as: ['px', 'py']}].concat(
+            read ? [{type: 'filter', expr: 'datum["px"] > 0'}] : [])}],
+            projections: [{name: 'projection', size: [10, 10], fit: {signal: 'g'}}], marks: [{type: 'symbol'}]});
+        const kept = AoV._framePlanView(geoVg(true)), dropped = AoV._framePlanView(geoVg(false));
+        check(kept.data[0].transform.length === 2 && !!kept.projections[0].fit,
+            'a read geopoint: ' + JSON.stringify(kept));
+        check(dropped.data[0].transform.length === 0 && !dropped.projections[0].fit,
+            'an unread geopoint: ' + JSON.stringify(dropped));
+        // Nothing data-driven (authored domains, no map): no headless run at all.
+        const authored = {_aov: {frame: {field: 't', values: [1, 2], temporal: false, interval: 30, loop: false, start: 0}},
+            data: {values: [{x: 1, y: 1, t: 1}, {x: 2, y: 3, t: 2}]}, params: [{name: 'aov_frame', value: 1}],
+            transform: [{filter: '!isValid(datum["t"]) || datum["t"] === aov_frame'}], mark: 'point',
+            encoding: {x: {field: 'x', type: 'quantitative', scale: {domain: [0, 4]}},
+                y: {field: 'y', type: 'quantitative', scale: {domain: [0, 4]}}}};
+        const View = vega.View;
+        let views = 0;
+        vega.View = function () { views++; return new View(...arguments); };
+        let none;
+        try { none = JSON.stringify(await AoV._framePlan('fr-authored', authored, {})); } finally { vega.View = View; }
+        check(none === '{"domains":{},"fits":[]}' && views === 0, 'authored domains: plan ' + none + ' after ' + views + ' headless views');
+
         // --- German texts on a captioned figure; the HTML download leaves the live controls out.
         await ready('fr-de');
         p = parts('fr-de');
