@@ -47,9 +47,8 @@
         for (const id of ['hp-layered', 'hp-single']) {
             const w = canvasWidth(id), budget = offered(id);
             check(w > budget - 40 && w <= budget + 2, id + ' is ' + w + 'px wide in a ' + budget + 'px panel');
-            check(!AoV._unmeasured[id], id + ' still waits for a width');
         }
-        check(!AoV._unmeasured['hp-shown'], 'the default panel\'s plot waits for a width');
+        for (const id of ['hp-layered', 'hp-single', 'hp-shown']) check(!AoV._unmeasured[id], id + ' still waits for a width');
 
         // Hidden again, re-embedded there, then shown at the width it had.
         show('hp-shown');
