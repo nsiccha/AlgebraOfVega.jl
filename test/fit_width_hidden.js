@@ -1,10 +1,11 @@
-// Plots in a tabset panel that was hidden when they embedded. The page opens
-// with `?tab=hidden`, so the tabset's restore script shows that panel after its
-// plots embedded into it: each embedded into a container that offered no
-// width. Once the panel shows, they fill it — a plain single view too, which
-// no ResizeObserver watched before — and a plot re-embedded while hidden (a
-// theme change, `update_spec`) re-sizes when the panel shows again at the
-// width it had before.
+// Plots in a tabset panel that was hidden when they rendered. The page opens
+// with `?tab=hidden`: the tabset's restore script runs while the page is
+// parsed, before any plot renders (AoV._afterParse), so the `hidden` panel's
+// plots render into it shown and the `shown` panel's plot renders hidden, into
+// a container that offers no width. Once a panel shows, its plots fill it — a
+// plain single view too, which no ResizeObserver watched before — and a plot
+// re-embedded while hidden (a theme change, `update_spec`) re-sizes when the
+// panel shows again at the width it had before.
 (async function () {
     const failures = [];
     let checks = 0;
@@ -48,10 +49,24 @@
             const w = canvasWidth(id), budget = offered(id);
             check(w > budget - 40 && w <= budget + 2, id + ' is ' + w + 'px wide in a ' + budget + 'px panel');
         }
-        for (const id of ['hp-layered', 'hp-single', 'hp-shown']) check(!AoV._unmeasured[id], id + ' still waits for a width');
+        for (const id of ['hp-layered', 'hp-single']) check(!AoV._unmeasured[id], id + ' still waits for a width');
+
+        // The panel the restore script hid before its plot rendered: the plot
+        // waits at its fallback, and fills the panel once it shows.
+        check(AoV._unmeasured['hp-shown'] === true, 'hp-shown rendered in a hidden panel is not marked unmeasured');
+        check(AoV.views['hp-shown'].width() === 400,
+            'hp-shown hidden width ' + AoV.views['hp-shown'].width() + ', expected its 400px fallback');
+        show('hp-shown');
+        const revealed = observe('hp-shown');
+        check(revealed.resized, 'hp-shown did not re-size when its panel was shown');
+        await revealed.done;
+        {
+            const w = canvasWidth('hp-shown'), budget = offered('hp-shown');
+            check(w > budget - 40 && w <= budget + 2, 'hp-shown is ' + w + 'px wide in a ' + budget + 'px panel once shown');
+        }
+        check(!AoV._unmeasured['hp-shown'], 'hp-shown still waits for a width once shown');
 
         // Hidden again, re-embedded there, then shown at the width it had.
-        show('hp-shown');
         for (const id of ['hp-layered', 'hp-single']) {
             const before = AoV.views[id];
             AoV._reembeds[id]();

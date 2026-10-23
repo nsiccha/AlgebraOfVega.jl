@@ -687,11 +687,41 @@ window.AoV = window.AoV || {
             }).catch(function(err) { settle(); self._console.error.call(console, '[' + id + ']', err); });
         };
 
-        // Set up resize observer for responsive re-embed: container-sized
-        // specs, and _aov-marked ones (a remap can make them container-sized).
-        // A plot whose container offered no width when it embedded re-sizes
-        // as soon as it does (_measurableAgain); other width changes are
-        // coalesced.
+        // A host-theme change re-embeds like a resize does: the current
+        // spec (picker assignment, update_spec data) and live rows carry over.
+        self._reembeds[id] = doEmbed;
+        // The first render waits for the parsed page (_afterParse), and the
+        // resize observer starts from the width that render is sized for.
+        return self._afterParse(function() {
+            if (self._embedTok[id] !== tok) return;
+            self._observeResize(id, spec);
+            return doEmbed();
+        });
+    },
+
+    // Runs fn once the HTML parser has finished the page. A plot embedded by
+    // an inline script while the page loads would otherwise be measured
+    // before the parser reaches the rest of its container: the plots after
+    // it in a grid or flex row do not exist yet, so an auto-fit grid or a
+    // wrapping flex row hands the first plot the whole row. An htmx swap
+    // inserts its whole fragment before running its scripts, so embeds
+    // after load run fn at once.
+    _afterParse: function(fn) {
+        if (document.readyState !== 'loading') return fn();
+        return new Promise(function(resolve, reject) {
+            document.addEventListener('DOMContentLoaded', function() {
+                try { resolve(fn()); } catch (err) { reject(err); }
+            }, {once: true});
+        });
+    },
+
+    // Set up resize observer for responsive re-embed: container-sized
+    // specs, and _aov-marked ones (a remap can make them container-sized).
+    // A plot whose container offered no width when it embedded re-sizes
+    // as soon as it does (_measurableAgain); other width changes are
+    // coalesced.
+    _observeResize: function(id, spec) {
+        var self = this;
         if (spec._aov || self._fitSized(spec)) {
             var el = document.getElementById(id);
             if (el && el.parentElement && window.ResizeObserver) {
@@ -717,11 +747,6 @@ window.AoV = window.AoV || {
                 self._observers[id] = ro;
             }
         }
-
-        // A host-theme change re-embeds like a resize does: the current
-        // spec (picker assignment, update_spec data) and live rows carry over.
-        self._reembeds[id] = doEmbed;
-        return doEmbed();
     },
 
     // A plot's container changed width: re-embed it at the new width when it is

@@ -124,14 +124,37 @@ end
     browser_checks(body, joinpath(@__DIR__, "fit_width_shrinkwrap.js"), "aov-fit-width-shrinkwrap-results"; min_checks=20)
 end
 
+# Two plots side by side in an auto-fit grid or a wrapping flex row, each
+# embedded by its inline script while the page is parsed (MietspiegelBayes'
+# two-plot rows; snag grid-first-plot-6b826c86). When the first plot's script
+# ran, the parser had not reached the second plot, so the first one's track
+# spanned the whole row: it was sized for the row, and a single view kept that
+# width after the row split into two columns.
+@testitem "plots sharing a grid or flex row are sized for their own column" setup=[AoVFitWidthBrowser] tags=[:regression, :browser] begin
+    single = data(rows) * mapping(:x, :y) * visual(Scatter)
+    plot(id, spec) = html(vdraw(spec; id, height=120))
+    probe = """<style>.gr-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));gap:16px}
+        .gr-flex{display:flex;flex-wrap:wrap;gap:16px}.gr-flex>*{flex:1 1 220px}.gr-grid>*,.gr-flex>*{min-width:0}</style>
+        <script>window.aovGridEmbeds = []; (function () { const embed = window.vegaEmbed;
+        window.vegaEmbed = function (selector, spec, opts) { const el = document.querySelector(selector);
+        window.aovGridEmbeds.push({id: el.id, offered: el.parentElement.clientWidth}); return embed(selector, spec, opts); }; })();</script>"""
+    body = "<div style='width:640px'>" * probe *
+        "<div class='gr-grid'>" * plot("gr-a1", layered) * plot("gr-a2", single) * "</div>" *
+        "<div class='gr-grid'>" * plot("gr-b1", single) * plot("gr-b2", layered) * "</div>" *
+        "<div class='gr-flex'>" * plot("gr-c1", layered) * plot("gr-c2", single) * "</div></div>"
+    browser_checks(body, joinpath(@__DIR__, "fit_width_grid.js"), "aov-fit-width-grid-results"; min_checks=24)
+end
+
 # A tabset panel hidden while its plots embed (`display: none`) offers them no
-# width. A page opened with `?tab=<name>` shows that panel only after its plots
-# embedded, from the restore script the tabset renders as its last child. They
-# now fill the panel as soon as it shows, instead of first painting at the 400px
-# fallback for the 200ms resize debounce (captured by a screenshot taken at load).
-# A plain single view, which no ResizeObserver watched, stayed 0px wide for good;
-# a plot re-embedded while hidden stayed at its fallback when the panel came back
-# at its old width (snag a-page-with-an-h-eb58645a).
+# width. A page opened with `?tab=<name>` shows that panel from the restore
+# script the tabset renders as its last child; before plots rendered after the
+# parse (snag grid-first-plot-6b826c86), that ran after the panel's plots had
+# embedded. Plots in a hidden panel now fill it as soon as it shows, instead of
+# first painting at the 400px fallback for the 200ms resize debounce (captured
+# by a screenshot taken at load). A plain single view, which no ResizeObserver
+# watched, stayed 0px wide for good; a plot re-embedded while hidden stayed at
+# its fallback when the panel came back at its old width (snag
+# a-page-with-an-h-eb58645a).
 @testitem "plots in a hidden tab panel fill it once it is shown" setup=[AoVFitWidthBrowser] tags=[:regression, :browser] begin
     using HTMXObjects
     using HTMX: h
@@ -144,5 +167,5 @@ end
         names=["shown", "hidden"])
     body = html(htmxo_utility_styles()) * html(tabset_script()) * "<div style='width:900px'>" * html(tabs) * "</div>"
     browser_checks(body, joinpath(@__DIR__, "fit_width_hidden.js"), "aov-fit-width-hidden-results";
-        min_checks=22, query="?tab=hidden")
+        min_checks=26, query="?tab=hidden")
 end

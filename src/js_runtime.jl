@@ -460,5 +460,10 @@ groups that already have layers are swapped into the live view.
 container itself, so single-view plots fill their container on any page —
 without it vega-embed's `display: inline-block` shrink-wraps the element and
 the view measures 0px wide wherever no page stylesheet widens it.
+
+An `AoV.embed` issued while the page is still being parsed (the inline script
+`to_node` writes) renders once the document is parsed: until then the plots
+after it in a grid or flex row do not exist, and the row's first track would
+span the whole row. Embeds after load (htmx swaps) render at once.
 """
 vega_runtime() = h.script(Raw(_vega_vendor_inline(_AOV_RUNTIME_FILE)))
