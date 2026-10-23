@@ -41,7 +41,7 @@ defaults apply. Every data URL naming a local file — such as
 `geoshape("districts.geojson")`, read relative to the current directory — or an
 `http(s)` address is read into the spec before vl-convert renders it: vl-convert
 loads no local files, and GeoJSON polygons are rewound the way `vdraw` draws
-them (see [`geoshape`](@ref)). A `data:` URL is already inline and stays.
+them (see `geoshape`). A `data:` URL is already inline and stays.
 
     for (name, rows) in regions
         vsave(data(rows) * mapping(:AGS; color=:share) * geoshape(geo) *
