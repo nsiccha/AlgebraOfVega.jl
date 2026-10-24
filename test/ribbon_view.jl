@@ -397,3 +397,48 @@ end
         end
     end
 end
+
+# The pressed switch button's tint (15% of its text colour) took Pico's slate
+# outline (HTMXObjects' `pico_bridge()`) to 4.39:1 in light mode, under WCAG
+# AA's 4.5:1 for its 0.85em text; Pico's azure outline fell to 4.23:1, and on a
+# dark page with no stylesheet the button's black text sat on near-black (snag
+# `axe-core-4-10-3-e386d833`, axe-core 4.10.3 on ODLPlaus' report page). Now
+# both buttons keep 4.5:1, at rest and focused, in light and dark.
+@testitem "the Ribbons | Intervals switch keeps AA text contrast" setup=[AoVRibbonViewFixtures] tags=[:ribbon, :browser, :regression] begin
+    using HTMXObjects, JSON
+    html(x) = sprint(show, MIME"text/html"(), x)
+    chrome = something(Sys.which("google-chrome"), Sys.which("chromium"), "")
+    if isempty(chrome)
+        @test_skip "headless Chrome is not installed"
+    else
+        mktempdir(prefix="kb-ribbon-contrast-") do dir
+            copy_vendorfiles(dir; packages=(:pico,), runtime=false)
+            pico = "<link rel='stylesheet' href='pico.min.css'>"
+            head = join(html(n) for n in vega_head(; source=:inline)) * html(caption_style())
+            body = html(with_plot_caption(ribbon_fig(overlapping()) * config(height=160), "Dose response";
+                    plot_id="rc-cap")) *
+                html(vdraw(ribbon_fig(sigmoids()) * config(height=160); id="rc-plain"))
+            driver = read(joinpath(@__DIR__, "ribbon_view_contrast.js"), String)
+            for (name, theme) in (("pico", pico), ("slate", pico * html(pico_bridge())),
+                    ("plain", "<style>html[data-theme=dark] body { color: #ddd; background: #111; }</style>"))
+                file = name * ".html"
+                write(joinpath(dir, file), "<!doctype html><meta charset='utf-8'>" * theme * head *
+                    "<body><main class='container'>" * body * "</main><script>window.AOV_CONTRAST_PAGE='" *
+                    name * "';</script><script>" * driver * "</script></body>")
+                output = read(pipeline(`$chrome --headless=new --no-sandbox --disable-gpu
+                    --user-data-dir=$(joinpath(dir, "profile-" * name)) --window-size=1200,1400
+                    --virtual-time-budget=30000 --dump-dom $("file://" * joinpath(dir, file))`,
+                    stderr=joinpath(dir, name * ".log")), String)
+                result = match(r"<pre id=\"aov-ribbon-contrast-results\">([^<]*)</pre>", output)
+                @test !isnothing(result)
+                if !isnothing(result)
+                    report = JSON.parse(replace(result[1], "&quot;" => "\"", "&lt;" => "<",
+                        "&gt;" => ">", "&amp;" => "&"))
+                    @test report["checks"] == 20
+                    @test isempty(report["failures"])
+                    isempty(report["failures"]) || println(name, ": ", JSON.json(report["failures"]))
+                end
+            end
+        end
+    end
+end

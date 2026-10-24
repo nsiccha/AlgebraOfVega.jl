@@ -46,8 +46,14 @@
        captioned figure the two buttons are the action row's first buttons
        and take its look; elsewhere they are a joined compact pair right
        after the plot. Outranks Pico's `[role=group]` (full width, a bottom
-       margin, wide buttons) in any source order. */
+       margin, wide buttons) in any source order.
+       The pressed button's tint lowers its text contrast, so its text moves
+       30% of the way to the theme's contrast colour (Pico's near-black in
+       light, near-white in dark), keeping it at WCAG AA (4.5:1). On Pico's
+       slate outline (HTMXObjects' `pico_bridge()`) that is Pico's own hover
+       slate: 6.1:1 light, 6.5:1 dark, where the tint alone gave 4.4:1. */
     button[data-aov-ribbon-view-for][aria-pressed="true"] {
+        color: color-mix(in srgb, var(--pico-color, currentColor) 70%, var(--pico-contrast, currentColor));
         background-color: color-mix(in srgb, currentColor 15%, transparent);
         font-weight: 600;
     }
