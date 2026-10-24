@@ -206,16 +206,86 @@ _MARKER_SHAPE = Dict{Symbol,String}(
 _marker_to_shape(v::Symbol) = get(_MARKER_SHAPE, v, string(v))
 _marker_to_shape(v) = v
 
+# The mark properties Vega-Lite reads: the `MarkDef`, `BoxPlotDef`,
+# `ErrorBarDef` and `ErrorBandDef` property names of the schema of the vendored
+# Vega-Lite (5.23.0). A fixed `visual(...)` attribute under one of these names
+# reaches the mark as written (the Vega-Lite spelling). Any other name is either
+# translated in `visual_attrs_to_mark_props` or reported there: Vega-Lite drops a
+# mark property it does not read without a word, so passing a Makie name such as
+# `fontsize` through drew the mark as if it had never been set.
+const _VL_MARK_PROPERTIES = Set{Symbol}([
+    :align, :angle, :aria, :ariaRole, :ariaRoleDescription, :aspect, :band,
+    :bandSize, :baseline, :binSpacing, :blend, :borders, :box, :clip, :color,
+    :continuousBandSize, :cornerRadius, :cornerRadiusBottomLeft,
+    :cornerRadiusBottomRight, :cornerRadiusEnd, :cornerRadiusTopLeft,
+    :cornerRadiusTopRight, :cursor, :description, :dir, :discreteBandSize, :dx,
+    :dy, :ellipsis, :extent, :fill, :fillOpacity, :filled, :font, :fontSize,
+    :fontStyle, :fontWeight, :height, :href, :innerRadius, :interpolate,
+    :invalid, :limit, :line, :lineBreak, :lineHeight, :median, :minBandSize,
+    :opacity, :order, :orient, :outerRadius, :outliers, :padAngle, :point,
+    :radius, :radius2, :radius2Offset, :radiusOffset, :rule, :shape, :size,
+    :smooth, :stroke, :strokeCap, :strokeDash, :strokeDashOffset, :strokeJoin,
+    :strokeMiterLimit, :strokeOffset, :strokeOpacity, :strokeWidth, :style,
+    :tension, :text, :theta, :theta2, :theta2Offset, :thetaOffset, :thickness,
+    :ticks, :time, :timeUnitBandPosition, :timeUnitBandSize, :tooltip, :type,
+    :url, :width, :x, :x2, :x2Offset, :xOffset, :y, :y2, :y2Offset, :yOffset,
+])
+
+# Makie `Text` attributes → Vega-Lite text-mark properties. A method returns the
+# properties, or `nothing` when the value has no Vega-Lite counterpart (it is
+# then reported); `missing` means the attribute is not one translated here.
+_text_mark_props(::Val, v) = missing
+_text_mark_props(::Val{:fontsize}, v) = nothing
+_text_mark_props(::Val{:fontsize}, v::Real) = Dict{String,Any}("fontSize" => v)
+# Makie turns text counter-clockwise by `rotation` radians; Vega turns it
+# clockwise by `angle` degrees.
+_text_mark_props(::Val{:rotation}, v) = nothing
+_text_mark_props(::Val{:rotation}, v::Real) = Dict{String,Any}("angle" => -rad2deg(v))
+# Makie's pixel `offset` points up; Vega's `dy` points down.
+_text_mark_props(::Val{:offset}, v) = nothing
+_text_mark_props(::Val{:offset}, v::Union{Tuple{Real,Real},AbstractVector{<:Real}}) =
+    length(v) == 2 ? Dict{String,Any}("dx" => v[1], "dy" => -v[2]) : nothing
+# Makie's `align = (horizontal, vertical)` anchors the text at its position;
+# Vega-Lite splits it into `align` and `baseline`. A string is the Vega-Lite
+# spelling of the horizontal half and passes as written.
+const _TEXT_HALIGN = Dict{Symbol,String}(:left => "left", :center => "center", :right => "right")
+const _TEXT_VALIGN = Dict{Symbol,String}(
+    :top => "top", :center => "middle", :bottom => "bottom", :baseline => "alphabetic")
+_text_mark_props(::Val{:align}, v) = nothing
+_text_mark_props(::Val{:align}, v::AbstractString) = Dict{String,Any}("align" => v)
+function _text_mark_props(::Val{:align}, v::Tuple{Symbol,Symbol})
+    h, b = get(_TEXT_HALIGN, v[1], nothing), get(_TEXT_VALIGN, v[2], nothing)
+    (isnothing(h) || isnothing(b)) ? nothing : Dict{String,Any}("align" => h, "baseline" => b)
+end
+# A font name is a family in both; a Makie font symbol names one of the theme's
+# `fonts`, whose default set differs only in weight and style.
+const _TEXT_FONT_STYLE = Dict{Symbol,Dict{String,Any}}(
+    :regular     => Dict{String,Any}(),
+    :bold        => Dict{String,Any}("fontWeight" => "bold"),
+    :italic      => Dict{String,Any}("fontStyle" => "italic"),
+    :bold_italic => Dict{String,Any}("fontWeight" => "bold", "fontStyle" => "italic"),
+)
+_text_mark_props(::Val{:font}, v) = nothing
+_text_mark_props(::Val{:font}, v::AbstractString) = Dict{String,Any}("font" => v)
+_text_mark_props(::Val{:font}, v::Symbol) =
+    haskey(_TEXT_FONT_STYLE, v) ? copy(_TEXT_FONT_STYLE[v]) : nothing
+
+_visual_name(vis::AlgebraOfGraphics.Visual) =
+    vis.plottype === Makie.Plot{Makie.plot} ? "visual(...)" : "visual($(Makie.plotsym(vis.plottype)))"
+
 function visual_attrs_to_mark_props(vis::AlgebraOfGraphics.Visual)
     props = Dict{String,Any}()
     # Only a true Scatter becomes a Vega point mark, where `size` is an area.
     # (ScatterLines lowers to a line mark, where `size` is a stroke width.)
     scatter = vis.plottype <: Scatter
+    text = vis.plottype <: Makie.Text
     theme_ink = false
+    ignored = Symbol[]
     for (k, v) in pairs(vis.attributes)
         sk = string(k)
+        text_props = text ? _text_mark_props(Val(k), v) : missing
         # Map Makie attribute names to Vega mark properties
-        if k === :opacity || k === :fillOpacity
+        if k === :opacity || k === :fillOpacity || k === :alpha
             props["opacity"] = v
         elseif k === :color
             if v === :ink
@@ -236,10 +306,15 @@ function visual_attrs_to_mark_props(vis::AlgebraOfGraphics.Visual)
             props["size"] = v
         elseif k === :strokeWidth || k === :linewidth || k === :strokewidth
             props["strokeWidth"] = v
-        else
+        elseif !ismissing(text_props)
+            isnothing(text_props) ? push!(ignored, k) : merge!(props, text_props)
+        elseif k in _VL_MARK_PROPERTIES
             props[sk] = v
+        else
+            push!(ignored, k)
         end
     end
+    isempty(ignored) || @warn "AlgebraOfVega: `$(_visual_name(vis))` sets $(join(("`$k`" for k in ignored), ", ")) with no Vega-Lite mark counterpart; vdraw and vsave ignore $(length(ignored) == 1 ? "it" : "them")." _id=(:aov_unread_visual_attrs, vis.plottype, Tuple(ignored)) maxlog=1
     if theme_ink
         # A named style lets the host runtime resolve the inherited CSS colour
         # at embed time. Keep any caller-authored styles, with ink last so the

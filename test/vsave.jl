@@ -144,3 +144,19 @@ end
         end
     end
 end
+
+@testitem "vsave: map labels keep each layer's fixed font size" setup=[AoVGeoshapeMapFixtures] tags=[:static, :geoshape, :vsave] begin
+    # Snag `aov-text-fontsiz-2339eeb1`: two label layers at fontsize 7 and 10
+    # both drew at Vega-Lite's 11 px default.
+    if isnothing(Sys.which("vl-convert")) && !haskey(ENV, "AOV_VL_CONVERT")
+        @test_skip "vl-convert is not installed"
+    else
+        label(fontsize) = data(sites) * mapping(:lon, :lat; text=:name) *
+            visual(AlgebraOfVega.Makie.Text; fontsize, color="#3a3a3a")
+        mktempdir() do dir
+            svg = vsave(kreis_map + label(7) + label(10), joinpath(dir, "labels.svg"))
+            sizes = [m[1] for m in eachmatch(r"aria-roledescription=\"text mark\"[^>]*font-size=\"([\d.]+)px\"", read(svg, String))]
+            @test sort(sizes) == [fill("10", length(sites.name)); fill("7", length(sites.name))]
+        end
+    end
+end

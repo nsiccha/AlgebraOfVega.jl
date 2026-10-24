@@ -569,6 +569,61 @@ encoding rather than a fixed mark property.
     @test static_attrs[:strokewidth] == 1
 end
 
+"""
+Fixed Makie `Text` attributes must reach Vega-Lite under the names its text
+mark reads (snag `aov-text-fontsiz-2339eeb1`): `fontsize` was emitted as
+`fontsize`, which Vega-Lite drops, so every label drew at its 11 px default.
+An attribute with no Vega-Lite mark counterpart is reported instead of being
+emitted where Vega-Lite drops it without a word.
+"""
+@testitem "fixed Text attributes lower to Vega text-mark properties" setup=[AoVTestImports] tags=[:translation, :regression] begin
+    Text = AlgebraOfVega.Makie.Text
+    df = (; x=[1.0, 2.0], y=[2.0, 3.0], label=["a", "b"])
+    labels(vis) = data(df) * mapping(:x, :y; text=:label) * vis
+    mark(vis) = to_vegalite(labels(vis); interactive=false)["mark"]
+
+    # The reporter's label layer, with no warning.
+    @test (@test_logs mark(visual(Text; fontsize=18, color="#3a3a3a"))) ==
+          Dict{String,Any}("type" => "text", "fontSize" => 18, "color" => "#3a3a3a")
+
+    # Every Makie text attribute with a Vega-Lite counterpart.
+    m = @test_logs mark(visual(Text; align=(:left, :center), rotation=π/2, offset=(4, 3),
+                                font=:bold_italic, alpha=0.5))
+    @test m["align"] == "left" && m["baseline"] == "middle"
+    @test m["angle"] == -90  # Makie turns counter-clockwise by radians, Vega clockwise by degrees
+    @test m["dx"] == 4 && m["dy"] == -3  # Makie's pixel offset points up, Vega's `dy` down
+    @test m["fontWeight"] == "bold" && m["fontStyle"] == "italic"
+    @test m["opacity"] == 0.5
+    @test isempty(intersect(keys(m), ("fontsize", "rotation", "offset", "alpha")))
+    @test mark(visual(Text; align=(:right, :baseline))) ==
+          Dict{String,Any}("type" => "text", "align" => "right", "baseline" => "alphabetic")
+    @test mark(visual(Text; align=(:center, :top)))["baseline"] == "top"
+    @test mark(visual(Text; font="Arial"))["font"] == "Arial"
+    @test mark(visual(Text; font=:bold)) == Dict{String,Any}("type" => "text", "fontWeight" => "bold")
+    @test mark(visual(Text; font=:regular)) == "text"
+
+    # The Vega-Lite spellings pass as written and draw the same mark.
+    @test mark(visual(Text; fontSize=18, align="left", baseline="middle", angle=-90, dx=4, dy=-3)) ==
+          mark(visual(Text; fontsize=18, align=(:left, :center), rotation=π/2, offset=(4, 3)))
+
+    # No Vega-Lite counterpart: reported, and not emitted where Vega-Lite drops it.
+    m = @test_logs (:warn, r"`visual\(Text\)` sets `glowcolor`, `word_wrap_width` with no Vega-Lite mark counterpart") mark(
+        visual(Text; fontsize=9, glowcolor=:white, word_wrap_width=40))
+    @test m == Dict{String,Any}("type" => "text", "fontSize" => 9)
+    # A Makie value Vega-Lite cannot express is reported the same way.
+    @test (@test_logs (:warn, r"`fontsize`, `align`") mark(visual(Text; fontsize=(9, 12), align=(0.3, :top)))) == "text"
+    @test !haskey((@test_logs (:warn, r"`visual\(Scatter\)` sets `rasterize`") to_vegalite(
+        data(df) * mapping(:x, :y) * visual(Scatter; rasterize=true); interactive=false)["mark"]), "rasterize")
+    # `alpha` lowers to `opacity` on every mark.
+    @test to_vegalite(data(df) * mapping(:x, :y) * visual(Scatter; alpha=0.3))["mark"]["opacity"] == 0.3
+
+    # The static path keeps the Makie spellings, which Makie draws natively.
+    layer = labels(visual(Text; fontsize=18, align=(:left, :center)))
+    static_attrs = Dict(pairs(AlgebraOfVega.extract_visual(
+        AlgebraOfVega._fix_visual_attrs(layer isa AlgebraOfGraphics.Layer ? layer : only(layer.layers))).attributes))
+    @test static_attrs[:fontsize] == 18 && static_attrs[:align] == (:left, :center)
+end
+
 @testitem "Band lowers to an unstacked absolute range" setup=[AoVTestImports] tags=[:translation, :regression] begin
     rows = (; x=[1.0, 2.0, 3.0, 1.0, 2.0, 3.0],
               lo=[0.1, 0.2, 0.3, 0.5, 0.6, 0.7],
