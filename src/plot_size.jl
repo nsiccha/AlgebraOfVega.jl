@@ -124,8 +124,8 @@ end
 # Resolve the panel grid: how many rows (stacked vertically → height) and
 # columns (laid out horizontally → width) of panels the spec facets into.
 # Handles both the `facet` operator (single-field wrap, or row/column channels)
-# and the `encoding.row`/`encoding.column` shorthand. Returns
-# `(n_rows, n_cols, faceted)`.
+# and the encoding shorthand (`encoding.row`/`encoding.column`, or the wrap
+# channel `encoding.facet`). Returns `(n_rows, n_cols, faceted)`.
 function _size_facet_grid(spec::Dict, rows)
     facet = _as_dict(get(spec, "facet", nothing))
     enc   = _as_dict(get(spec, "encoding", nothing))
@@ -133,12 +133,13 @@ function _size_facet_grid(spec::Dict, rows)
     src = !isnothing(facet) ? facet : (_has_encoding_facet(spec) ? enc : nothing)
     isnothing(src) && return (1, 1, false)
 
-    # Single-field facet operator (`{facet:{field}, columns:k}`) → wrap grid.
-    if !isnothing(facet) && haskey(facet, "field")
-        n = max(_size_field_cardinality(rows, facet["field"]), 1)
-        cols = _as_number(get(spec, "columns", nothing))
-        isnothing(cols) && return (1, n, true)   # VL default: a single row of panels
-        c = max(round(Int, cols), 1)
+    # Wrap facet (`{facet:{field}, columns:k}`, or a single view's `encoding.facet`)
+    # → wrap grid.
+    wrap = _wrap_facet(spec)
+    if !isnothing(wrap)
+        n = max(_size_field_cardinality(rows, wrap["field"]), 1)
+        c = _wrap_columns(spec, wrap)
+        isnothing(c) && return (1, n, true)   # VL default: a single row of panels
         return (cld(n, c), min(c, n), true)
     end
 
@@ -169,7 +170,8 @@ The model:
   symmetrically over `n_cols`. `n_rows`/`n_cols` come from the facet fields'
   cardinality (distinct values in the embedded data) and the `columns` /
   row-column layout; it covers the `facet` operator (single-field wrap and
-  row/column channels) and the `encoding.row`/`encoding.column` shorthand.
+  row/column channels) and the `encoding.row`/`encoding.column`/`encoding.facet`
+  shorthand.
 - **single categorical axis** — a nominal/ordinal `y` (or `x`) with no explicit
   size gives `n_categories × step`, so a tall category list is measured.
 - **plain continuous** — an explicit numeric `width`/`height`, else Vega-Lite's

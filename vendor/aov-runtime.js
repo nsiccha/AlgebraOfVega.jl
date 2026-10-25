@@ -56,6 +56,62 @@ window.AoV = window.AoV || {
         return !!(spec && ((spec._aov && spec._aov.fitWidth) || spec.width === 'container'));
     },
 
+    // A wrap facet (`layout=`) whose column count AoV chose itself: Julia's
+    // `_apply_wrap_default!` writes AoG's near-square count and marks it
+    // `_aov.autoColumns`. In the browser the row takes as many panels as fit the
+    // plot's width instead (_wrapColumns), re-wrapping when that width changes.
+    // An authored count (`config(columns=N)`, `wrapped(cols=N)`) carries no
+    // marker and is never changed.
+    _autoColumns: function(spec) {
+        return !!(spec && spec._aov && spec._aov.autoColumns && this._wrapField(spec));
+    },
+
+    // The field of a wrap facet: the operator's `facet.field`, or a single
+    // view's `encoding.facet.field`.
+    _wrapField: function(spec) {
+        if (spec.facet) return spec.facet.field || null;
+        var f = spec.encoding && spec.encoding.facet;
+        return (f && f.field) || null;
+    },
+
+    // How many distinct values `field` takes in `rows` (0 without rows).
+    _distinctCount: function(rows, field) {
+        if (!Array.isArray(rows) || !field) return 0;
+        var seen = {};
+        rows.forEach(function(r) { if (r && r[field] !== undefined) seen[r[field]] = true; });
+        return Object.keys(seen).length;
+    },
+
+    // Panels per row for an auto-wrapped facet in `budget` px: each panel at its
+    // authored width, or Vega-Lite's 200px default for a container-sized plot
+    // (whose cells then stretch to fill the row), plus the facet spacing, ~40px
+    // for the y axis on the left and ~6px of x-label overhang per panel
+    // (measured on Vega-Lite 5.23: 170px panels take 196px each). At most one
+    // row of every level; without inline rows the Julia count stays. A first
+    // paint that still overshoots drops columns once (_fitCorrection).
+    _wrapColumns: function(spec, budget, fit) {
+        var n = this._distinctCount(spec.data && spec.data.values, this._wrapField(spec));
+        if (!n) return spec.columns;
+        var panel = spec.spec || spec;
+        var cell = (!fit && typeof panel.width === 'number') ? panel.width : 200;
+        var facetCfg = (spec.config && spec.config.facet) || {};
+        var gap = typeof spec.spacing === 'number' ? spec.spacing :
+            (typeof facetCfg.spacing === 'number' ? facetCfg.spacing : 20);
+        var k = Math.floor((budget - 40 + gap) / (cell + gap + 6));
+        return Math.max(1, Math.min(n, k));
+    },
+
+    // The width a JS-sized plot is laid out in: what its container offers,
+    // in layout px (`vega_head(zoom=N)`), capped by `max_width`. `null` while
+    // the container offers no width (a hidden tab panel; see _measurableAgain).
+    _sizingBudget: function(el, spec) {
+        var offered = this._offeredWidth(el);
+        if (!offered || offered < 50) return null;
+        var zoom = (window.AoV && window.AoV.zoom) ? window.AoV.zoom : 1;
+        var maxWidth = (spec._aov && spec._aov.maxWidth) || (window.AoV && window.AoV.maxWidth) || Infinity;
+        return Math.min(Math.floor(offered / zoom), maxWidth);
+    },
+
     // The width el's container offers it, measured with el collapsed. A
     // container that shrink-wraps its content (an auto-layout table cell, an
     // inline-block, an auto grid/flex track) is widened by the plot it holds,
@@ -101,24 +157,38 @@ window.AoV = window.AoV || {
             if (self._computedWidths) delete self._computedWidths[id];
             return spec;
         };
-        if (!this._fitSized(spec)) return unsized();
+        var fit = this._fitSized(spec), wrap = this._autoColumns(spec);
+        if (!fit && !wrap) return unsized();
         var el = document.getElementById(id);
         if (!el) return unsized();
         var containerWidth = budget;
         if (containerWidth === undefined) {
-            containerWidth = this._offeredWidth(el);
-            if (!containerWidth || containerWidth < 50) {
+            containerWidth = this._sizingBudget(el, spec);
+            if (containerWidth === null) {
                 self._unmeasured[id] = true;
                 return unsized();
             }
             delete self._unmeasured[id];
-            var zoom = (window.AoV && window.AoV.zoom) ? window.AoV.zoom : 1;
-            containerWidth = Math.floor(containerWidth / zoom);
-            var maxWidth = (spec._aov && spec._aov.maxWidth) || (window.AoV && window.AoV.maxWidth) || Infinity;
-            containerWidth = Math.min(containerWidth, maxWidth);
         }
         var padding = 30; // approximate VL padding
         var minCell = 100; // readable-minimum panel width; narrower viewports scroll in-frame (see .aov-plot-area)
+
+        // An auto-wrapped facet first takes as many columns as fit; with
+        // authored panel widths that is all the runtime changes.
+        if (wrap) {
+            var wrapEst = this._wrapColumns(spec, containerWidth, fit);
+            var wrapRegime = [containerWidth, 'wrap', wrapEst, this._wrapField(spec)].join('|');
+            var wrapCorr = (self._corrections || {})[id];
+            var wrapCols = (wrapCorr && wrapCorr.regime === wrapRegime && wrapCorr.cols) ? wrapCorr.cols : wrapEst;
+            spec = Object.assign({}, spec, {columns: wrapCols,
+                _aov: Object.assign({}, spec._aov, {nFacetCols: wrapCols})});
+            if (!fit) {
+                self._computedWidths = self._computedWidths || {};
+                self._computedWidths[id] = {kind: 'wrap', nCols: wrapCols, estimate: wrapEst,
+                    budget: containerWidth, regime: wrapRegime};
+                return spec;
+            }
+        }
 
         // Classify the shape. Only _aov-marked composite specs are JS-sized
         // (single views use VL-native width:"container").
@@ -199,14 +269,24 @@ window.AoV = window.AoV || {
         // container alike, so the factor cancels in the difference.
         var over = canvas.clientWidth - info.budget;
         if (over <= 2) return;
+        self._correctedRegime = self._correctedRegime || {};
+        self._corrections = self._corrections || {};
+        if (info.kind === 'wrap') {
+            // Authored panel widths stay: the row takes fewer panels instead.
+            if (info.nCols <= 1) return;
+            var cols = Math.max(1, Math.min(info.nCols - 1,
+                Math.floor(info.nCols * info.budget / canvas.clientWidth)));
+            self._correctedRegime[id] = info.regime;
+            self._corrections[id] = {regime: info.regime, cols: cols};
+            reembed(info.budget);
+            return;
+        }
         var minCell = 100;
         var perCell = (info.kind === 'facet' || info.kind === 'encfacet' || info.kind === 'hconcat') && info.nCols > 0;
         var shrink = perCell ? Math.ceil(over / info.nCols) : Math.ceil(over);
         var newWidth = info.width - shrink;
         if (newWidth >= info.width || newWidth < minCell) return;
-        self._correctedRegime = self._correctedRegime || {};
         self._correctedRegime[id] = info.regime;
-        self._corrections = self._corrections || {};
         self._corrections[id] = {regime: info.regime, width: newWidth};
         reembed(info.budget);
     },
@@ -873,13 +953,28 @@ window.AoV = window.AoV || {
 
     // A plot's container changed width: re-embed it at the new width when it is
     // container-sized. A fixed-width plot is left alone — a re-embed would only
-    // replace its view and drop its legend selection. Reads the current spec, so
-    // a remap can turn a plot responsive or back. Returns whether it re-embedded.
+    // replace its view and drop its legend selection — unless it is an
+    // auto-wrapped facet whose row now fits a different number of panels.
+    // Reads the current spec, so a remap can turn a plot responsive or back.
+    // Returns whether it re-embedded.
     _resizeReembed: function(id) {
         var cur = this._cur[id], again = this._reembeds[id];
-        if (!cur || !again || !this._fitSized(cur.spec)) return false;
+        if (!cur || !again) return false;
+        if (!this._fitSized(cur.spec) &&
+            !(this._autoColumns(cur.spec) && this._wrapChanged(id, cur.spec))) return false;
         again();
         return true;
+    },
+
+    // Whether an auto-wrapped facet with authored panel widths would now wrap
+    // into a different number of columns than its last embed estimated. One
+    // never sized (embedded while hidden) is due.
+    _wrapChanged: function(id, spec) {
+        var info = (this._computedWidths || {})[id];
+        if (!info || info.kind !== 'wrap') return true;
+        var el = document.getElementById(id);
+        var budget = el ? this._sizingBudget(el, spec) : null;
+        return budget !== null && this._wrapColumns(spec, budget, false) !== info.estimate;
     },
 
     // --- Host theme ---
@@ -3228,11 +3323,7 @@ window.AoV = window.AoV || {
 
         // Count unique values for a field in the data (for nFacetCols hint)
         function countUnique(field) {
-            var vals = spec.data && spec.data.values;
-            if (!vals) return 1;
-            var seen = {};
-            vals.forEach(function(r) { if (r[field] !== undefined) seen[r[field]] = true; });
-            return Math.max(Object.keys(seen).length, 1);
+            return Math.max(self._distinctCount(spec.data && spec.data.values, field), 1);
         }
 
         // Helper: wrap a non-faceted spec into faceted structure
@@ -3346,6 +3437,10 @@ window.AoV = window.AoV || {
         if (isFaceted && spec._aov && spec.facet) {
             if (spec.facet.column) {
                 spec._aov.nFacetCols = countUnique(spec.facet.column.field);
+            } else if (spec.facet.field) {
+                // A wrap facet lays out at most `columns` panels per row.
+                var nWrap = countUnique(spec.facet.field);
+                spec._aov.nFacetCols = spec.columns ? Math.min(nWrap, spec.columns) : nWrap;
             } else {
                 delete spec._aov.nFacetCols;
             }
