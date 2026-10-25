@@ -41,14 +41,45 @@ _as_dict(_) = nothing
 _as_str(s::AbstractString) = s
 _as_str(_) = nothing
 
-# Encoding-faceted? A spec faceted via `row=`/`col=` encoding channels carries
-# `encoding.row` / `encoding.column` but has NO top-level `facet` operator and
-# NO nested `spec`. `to_node` (fit_width sizing) and the auto-remap resolve
-# scrubber must agree on this — a single source of truth so an encoding-faceted
-# spec is never misclassified as a flat layered one by one site but not the other.
+# Encoding-faceted? A single view faceted through its encoding — `encoding.row` /
+# `encoding.column` (single-layer `row=`/`col=`) or the wrap channel
+# `encoding.facet` (single-layer `layout=`) — has NO top-level `facet` operator
+# and NO nested `spec`. `to_node` (fit_width sizing), `plot_size` and the
+# auto-remap resolve scrubber must agree on this — a single source of truth so an
+# encoding-faceted spec is never misclassified as a flat single view by one site
+# but not the other.
 function _has_encoding_facet(vl::Dict)
     enc = _as_dict(get(vl, "encoding", nothing))
-    !isnothing(enc) && (haskey(enc, "row") || haskey(enc, "column"))
+    !isnothing(enc) && (haskey(enc, "row") || haskey(enc, "column") || haskey(enc, "facet"))
+end
+
+# The wrap facet of a spec (`layout=`): the facet operator's single-field form
+# (`facet: {field}`, analysis and multi-layer figures) or a single view's
+# `encoding.facet` channel. Returns that field def, or `nothing` for any other spec
+# (a `row`/`column` grid does not wrap).
+_wrap_facet(_) = nothing
+function _wrap_facet(vl::Dict)
+    facet = _as_dict(get(vl, "facet", nothing))
+    isnothing(facet) || return haskey(facet, "field") ? facet : nothing
+    enc = _as_dict(get(vl, "encoding", nothing))
+    f = isnothing(enc) ? nothing : _as_dict(get(enc, "facet", nothing))
+    (!isnothing(f) && haskey(f, "field")) ? f : nothing
+end
+
+# The column count a wrap facet already carries: the spec's top-level `columns`, or
+# the facet channel's own `columns`. Vega-Lite reads either; `nothing` when neither
+# is set (Vega-Lite then lays every panel out in one row).
+function _wrap_columns(vl::Dict, facet::Dict)
+    n = _as_number(get(vl, "columns", nothing))
+    isnothing(n) && (n = _as_number(get(facet, "columns", nothing)))
+    isnothing(n) ? nothing : max(1, round(Int, n))
+end
+
+# How many distinct values `field` takes in the spec's inline `data.values`:
+# the number of facet panels. 0 when the spec carries no inline rows.
+function _facet_levels(vl::Dict, field)
+    vals = _as_vec(get(something(_as_dict(get(vl, "data", nothing)), Dict()), "values", nothing))
+    isnothing(vals) ? 0 : _size_field_cardinality(vals, field)
 end
 
 _vl_tooltip_entry!(args...) = nothing

@@ -1448,6 +1448,7 @@ function _apply_scales_sugar!(spec, s::AlgebraOfGraphics.Scales)
         isnothing(props) || _merge_color_scale!(spec, _makie_categorical_scale_vl(name, props); channel)
     end
     _merge_facet_sorts!(spec, _scales_to_facet_sorts(s))
+    _apply_wrap_palette!(spec, get(s.dict, :Layout, nothing))
     spec
 end
 
@@ -1529,30 +1530,100 @@ end
 
 function _merge_facet_sort!(spec::Dict, channel::String, order)
     facet = _as_dict(get(spec, "facet", nothing))
-    encoding = _as_dict(get(spec, "encoding", nothing))
+    # A facet operator holds the facet channels; a single view holds them in its
+    # encoding (`encoding.row`/`column`, or the wrap channel `encoding.facet`).
+    holder = isnothing(facet) ? _as_dict(get(spec, "encoding", nothing)) : facet
     target = nothing
-    if !isnothing(facet)
-        if channel == "layout"
-            if haskey(facet, "field")
-                target = _as_dict(facet)
-            else
-                available = String[ch for ch in ("row", "column") if
-                    haskey(facet, ch) && haskey(_as_dict(facet[ch]), "field")]
-                if length(available) == 1
-                    target = _as_dict(facet[only(available)])
-                elseif length(available) > 1
-                    @warn "AlgebraOfVega: `scales(Layout=(; categories=...))` is ambiguous with both row= and col= facets; use scales(Row=...)/scales(Col=...)." maxlog=1
-                end
+    if channel == "layout"
+        target = _wrap_facet(spec)
+        if isnothing(target) && !isnothing(holder)
+            available = String[ch for ch in ("row", "column") if
+                haskey(holder, ch) && haskey(_as_dict(holder[ch]), "field")]
+            if length(available) == 1
+                target = _as_dict(holder[only(available)])
+            elseif length(available) > 1
+                @warn "AlgebraOfVega: `scales(Layout=(; categories=...))` is ambiguous with both row= and col= facets; use scales(Row=...)/scales(Col=...)." maxlog=1
             end
-        elseif haskey(facet, channel)
-            target = _as_dict(facet[channel])
         end
-    elseif !isnothing(encoding) && haskey(encoding, channel)
-        target = _as_dict(encoding[channel])
+    elseif !isnothing(holder) && haskey(holder, channel)
+        target = _as_dict(holder[channel])
     end
     isnothing(target) && return
     haskey(target, "field") || return
     target["sort"] = copy(order)
+    spec
+end
+
+"""Lower AoG's explicit wrap count, `scales(Layout=(; palette=wrapped(cols=N)))` or
+`wrapped(rows=N)`, to Vega-Lite's `columns` on the spec's wrap facet (`layout=`).
+`wrapped()` with neither count leaves the default to `_apply_wrap_default!`, as AoG
+does. Vega-Lite fills a wrap facet row by row only, so a column-first fill
+(`wrapped(by_col=true)`) or explicit panel positions are an `ArgumentError`: drawing
+them by rows would place the panels differently from `sdraw` (snag
+`aov-layout-facet-e1179109`). A spec without a wrap facet is left alone."""
+_apply_wrap_palette!(::Dict, ::Nothing) = nothing
+function _apply_wrap_palette!(spec::Dict, props)
+    haskey(props, :palette) || return
+    facet = _wrap_facet(spec)
+    isnothing(facet) && return
+    cols = _wrap_palette_columns(props[:palette], _facet_levels(spec, facet["field"]))
+    isnothing(cols) || (spec["columns"] = cols)
+    spec
+end
+
+function _wrap_palette_columns(w::AlgebraOfGraphics.Wrap, n::Integer)
+    w.by_col && throw(ArgumentError(
+        "AlgebraOfVega: `scales(Layout=(; palette=wrapped(by_col=true)))` cannot be drawn " *
+        "with Vega-Lite, which fills a wrapped facet row by row; use `wrapped(cols=N)` or " *
+        "`wrapped(rows=N)`."))
+    _wrap_restriction_columns(w.size_restriction, n)
+end
+_wrap_palette_columns(p, ::Integer) = throw(ArgumentError(
+    "AlgebraOfVega: `scales(Layout=(; palette=…))` takes AoG's `wrapped(cols=N)` or " *
+    "`wrapped(rows=N)` on the Vega-Lite path, which wraps facet panels row by row into a " *
+    "column count and cannot place them at explicit positions; got $(repr(p))."))
+
+# `wrapped()` (neither count): AoG's own default rule applies.
+_wrap_restriction_columns(::Makie.Automatic, ::Integer) = nothing
+# `wrapped(cols=N)` → N columns; `wrapped(rows=N)` → enough columns for N rows.
+_wrap_restriction_columns(r::NamedTuple, n::Integer) =
+    r.cols ? max(1, r.n) : (n > 0 ? cld(n, max(1, r.n)) : nothing)
+
+"""Columns of AlgebraOfGraphics' default wrap for `n` panels whose axes have width/height
+ratio `aspect`: the count that brings the block of panels closest to a square. A port of
+AoG 0.13's `resolve_lazy_wrap` column choice (with `aspect = 1` its earlier
+`ceil(sqrt(n))`), so `vdraw` and AoG lay a `layout=` facet out alike. Capped at `n`."""
+function _aog_wrap_columns(n::Integer, aspect::Real)
+    target = sqrt(n / aspect)
+    candidates = (ceil(Int, target), max(1, floor(Int, target)))
+    distance(c) = abs(log(c * aspect / ceil(Int, n / c)))
+    min(n, candidates[argmin(distance.(candidates))])
+end
+
+# The panel aspect AoG's wrap rule reads: authored width/height when both are numbers
+# (AoG uses its axis size the same way), else 1.
+_panel_aspect(w, h) = (w = _as_number(w); h = _as_number(h);
+    isnothing(w) || isnothing(h) || h <= 0 ? 1.0 : w / h)
+
+"""Give a wrap facet (`layout=`) without a column count AoG's default grid. Vega-Lite
+lays an un-counted wrap facet out as ONE row, so 17 panels ran off the page (snag
+`aov-layout-facet-e1179109`). The count is `_aog_wrap_columns` over the facet's levels,
+with the panel aspect from the authored `width`/`height` when both are set (AoG reads its
+axis size the same way) and 1 otherwise. It is recorded as `_aov.autoColumns`: the browser
+runtime replaces it with as many panels as fit the plot's width (decision
+`AlgebraOfVega:snag.aov-layout-facet-e1179109/decisions/2026-10-25T09-18-44-857-1r4o8ot`),
+while files and other renderers keep it. An authored count (`config(columns=N)`,
+`wrapped(cols=N)`) is never touched, and a spec without inline rows keeps Vega-Lite's
+layout."""
+_apply_wrap_default!(spec) = spec
+function _apply_wrap_default!(spec::Dict)
+    facet = _wrap_facet(spec)
+    (isnothing(facet) || !isnothing(_wrap_columns(spec, facet))) && return spec
+    n = _facet_levels(spec, facet["field"])
+    n > 0 || return spec
+    panel = something(_as_dict(get(spec, "spec", nothing)), spec)
+    spec["columns"] = _aog_wrap_columns(n, _panel_aspect(get(panel, "width", nothing), get(panel, "height", nothing)))
+    get!(spec, "_aov", Dict{String,Any}())["autoColumns"] = true
     spec
 end
 
@@ -1744,11 +1815,14 @@ function to_vegalite(v, sc::AlgebraOfGraphics.Scales; interactive::Bool=true,
     _finish_vegalite!(spec, v)
 end
 
-# AoV's own lowerings close with the no-zero default, on both drawings of a
-# coloured ribbon, then decide which drawing it starts in; a raw Vega-Lite Dict
-# is the caller's spec, and AoV adds no default to it.
+# AoV's own lowerings close with the wrap-facet and no-zero defaults, on both
+# drawings of a coloured ribbon, then decide which drawing it starts in; a raw
+# Vega-Lite Dict is the caller's spec, and AoV adds no default to it. The wrap
+# default follows every authored count (`config(columns=…)`, a positional
+# `scales(Layout=…)`), so it only fills a count nobody set.
 _finish_vegalite!(spec, ::Dict) = spec
-_finish_vegalite!(spec, _) = _finish_ribbon_views!(_each_ribbon_view!(_apply_no_zero_default!, spec))
+_finish_vegalite!(spec, _) = _finish_ribbon_views!(_each_ribbon_view!(_apply_finish_defaults!, spec))
+_apply_finish_defaults!(spec) = _apply_no_zero_default!(_apply_wrap_default!(spec))
 
 """
     add_select_filters!(spec, drawable, fields)

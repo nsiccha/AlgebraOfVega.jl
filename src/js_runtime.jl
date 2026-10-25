@@ -324,30 +324,20 @@ function _count_facet_cols(vl::Dict)
         col_field = facet["field"]
     end
     isnothing(col_field) && return 1
-    data_vals = _as_vec(get(get(vl, "data", Dict()), "values", nothing))
-    isnothing(data_vals) && return 1
-    vals = Set()
-    for row in data_vals
-        _push_row_value!(vals, row, col_field)
-    end
-    n = length(vals)
+    n = _facet_levels(vl, col_field)
     n <= 0 && return 1
-    cols = get(vl, "columns", nothing)
-    cols isa Number && cols >= 1 && (n = min(n, round(Int, cols)))
+    cols = _wrap_columns(vl, facet)
+    isnothing(cols) || (n = min(n, cols))
     return n
-end
-
-_push_row_value!(args...) = nothing
-function _push_row_value!(vals, row::Dict, col_field)
-    haskey(row, col_field) && push!(vals, row[col_field])
 end
 
 """
 Count the number of facet columns for ENCODING-level facets.
 
-Covers the unit-spec form (`encoding.column`, emitted for single-layer `col=`):
-Vega-Lite sizes top-level `width` PER CELL there (measured: 2 columns render
-275px at width 100 and 875px at width 400), so the responsive JS must divide
+Covers the unit-spec forms: `encoding.column` (single-layer `col=`) and the wrap
+channel `encoding.facet` (single-layer `layout=`, clamped by its `columns` like the
+operator wrap). Vega-Lite sizes top-level `width` PER CELL there (measured: 2 columns
+render 275px at width 100 and 875px at width 400), so the responsive JS must divide
 by this count just like for operator facets. Returns `nothing` for every
 other shape: operator facets (counted by `_count_facet_cols`), row-only
 encoding facets (full-width cells), non-faceted specs — and layered specs,
@@ -358,18 +348,15 @@ function _count_encoding_facet_cols(vl::Dict)
     (haskey(vl, "facet") || haskey(vl, "spec") || haskey(vl, "layer")) && return nothing
     enc = _as_dict(get(vl, "encoding", nothing))
     isnothing(enc) && return nothing
-    col = _as_dict(get(enc, "column", nothing))
+    wrap = _wrap_facet(vl)
+    col = isnothing(wrap) ? _as_dict(get(enc, "column", nothing)) : wrap
     isnothing(col) && return nothing
     col_field = get(col, "field", nothing)
     (isnothing(col_field) || !(col_field isa AbstractString)) && return nothing
-    data_vals = _as_vec(get(get(vl, "data", Dict()), "values", nothing))
-    isnothing(data_vals) && return nothing
-    vals = Set()
-    for row in data_vals
-        _push_row_value!(vals, row, col_field)
-    end
-    n = length(vals)
-    n <= 0 ? nothing : n
+    n = _facet_levels(vl, col_field)
+    n <= 0 && return nothing
+    cols = isnothing(wrap) ? nothing : _wrap_columns(vl, wrap)
+    isnothing(cols) ? n : min(n, cols)
 end
 
 """

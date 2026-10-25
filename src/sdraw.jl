@@ -54,6 +54,41 @@ _is_faceted(drawable::AlgebraOfGraphics.Layer) =
 _is_faceted(drawable::AlgebraOfGraphics.Layers) = any(_is_faceted, drawable.layers)
 _is_faceted(_) = false
 
+# The distinct `layout=` levels across the drawable's layer tables: the number of
+# wrap-facet panels (0 without a `layout=` mapping or readable table).
+_layout_levels(drawable::AlgebraOfGraphics.Layer) = length(_layout_values!(Set{Any}(), drawable))
+_layout_levels(drawable::AlgebraOfGraphics.Layers) =
+    length(foldl(_layout_values!, drawable.layers; init=Set{Any}()))
+_layout_levels(_) = 0
+function _layout_values!(seen::Set, layer::AlgebraOfGraphics.Layer)
+    haskey(layer.named, :layout) || return seen
+    tbl = extract_data(layer)
+    field = Symbol(_field_name(layer.named[:layout]))
+    (isnothing(tbl) || !(field in Tables.columnnames(tbl))) && return seen
+    union!(seen, Tables.getcolumn(tbl, field))
+end
+
+# The Makie figure wraps a `layout=` facet into the columns of its Vega-Lite spec
+# (`_apply_wrap_default!`): an authored `config(columns=N)`, else AoG's rule with the
+# authored panel aspect. AoV's static path drops `width`/`height` on a faceted figure,
+# so AoG alone would wrap with aspect 1; the count goes in as the `Layout` palette
+# `wrapped(cols=k)` instead. An authored `Layout` palette is AoG's own and wins.
+function _sdraw_scales(scales_obj, drawable, cfg)
+    n = _layout_levels(drawable)
+    n > 0 || return scales_obj
+    dict = isnothing(scales_obj) ? Dict{Symbol,Any}() :
+        Dict{Symbol,Any}(k => (; pairs(v)...) for (k, v) in pairs(scales_obj.dict))
+    layout = get(dict, :Layout, (;))
+    haskey(layout, :palette) && return scales_obj
+    props = isnothing(cfg) ? Dict{Symbol,Any}() : cfg.properties
+    cols = _as_number(get(props, :columns, nothing))
+    cols = isnothing(cols) ?
+        _aog_wrap_columns(n, _panel_aspect(get(props, :width, nothing), get(props, :height, nothing))) :
+        max(1, round(Int, cols))
+    dict[:Layout] = merge(layout, (; palette=AlgebraOfGraphics.wrapped(; cols)))
+    AlgebraOfGraphics.scales(; dict...)
+end
+
 function _draw_kwargs(cfg::Union{Config,Nothing}; faceted=false, layer_encodings=Any[])
     figure_kw = Dict{Symbol,Any}()
     facet_kw = Dict{Symbol,Any}()
@@ -354,13 +389,14 @@ Requires a Makie backend (e.g. CairoMakie) to be loaded. Returns the result of
 `AlgebraOfGraphics.draw!`.
 """
 function sdraw!(position, spec)
-    drawable, cfg = _extract_drawable(spec)
-    drawable = _convert_drawable(drawable)
+    authored, cfg = _extract_drawable(spec)
+    drawable = _convert_drawable(authored)
     kw = _draw_kwargs(cfg; faceted=_is_faceted(drawable),
         layer_encodings=_spec_layer_encodings(spec))
-    isnothing(kw.scales) ?
+    sc = _sdraw_scales(kw.scales, authored, cfg)
+    isnothing(sc) ?
         AlgebraOfGraphics.draw!(position, drawable; facet=kw.facet, axis=kw.axis) :
-        AlgebraOfGraphics.draw!(position, drawable, kw.scales; facet=kw.facet, axis=kw.axis)
+        AlgebraOfGraphics.draw!(position, drawable, sc; facet=kw.facet, axis=kw.axis)
 end
 
 """
@@ -370,13 +406,14 @@ Render an AoG spec to a file via AlgebraOfGraphics.draw → Makie.save.
 Returns the path. Extra `kwargs` are passed to `Makie.save`.
 """
 function sdraw_file(spec, path::AbstractString; kwargs...)
-    drawable, cfg = _extract_drawable(spec)
-    drawable = _convert_drawable(drawable)
+    authored, cfg = _extract_drawable(spec)
+    drawable = _convert_drawable(authored)
     kw = _draw_kwargs(cfg; faceted=_is_faceted(drawable),
         layer_encodings=_spec_layer_encodings(spec))
-    fg = isnothing(kw.scales) ?
+    sc = _sdraw_scales(kw.scales, authored, cfg)
+    fg = isnothing(sc) ?
         AlgebraOfGraphics.draw(drawable; figure=kw.figure, facet=kw.facet, axis=kw.axis) :
-        AlgebraOfGraphics.draw(drawable, kw.scales; figure=kw.figure, facet=kw.facet, axis=kw.axis)
+        AlgebraOfGraphics.draw(drawable, sc; figure=kw.figure, facet=kw.facet, axis=kw.axis)
     Makie.save(path, fg; kwargs...)
     path
 end

@@ -5,7 +5,7 @@ import AlgebraOfGraphics: data, mapping, visual, dims,
     density, histogram, linear, smooth, expectation, frequency,
     Layer, Layers, ProcessedLayer, ProcessedLayers,
     renamer, sorter, nonnumeric, verbatim, presorted, direct,
-    scale, scales, pregrouped
+    scale, scales, pregrouped, wrapped
 using Makie: Scatter, Lines, ScatterLines, BarPlot, Heatmap, BoxPlot,
     Band, HLines, VLines, Hist, Density as MakieDensity, Errorbars, Stairs,
     Contour, Violin, RainClouds, Rangebars, CrossBar, ECDFPlot,
@@ -44,7 +44,7 @@ include("tic.jl")
 export data, mapping, visual, dims
 export density, histogram, linear, smooth, expectation, frequency
 export renamer, sorter, nonnumeric, verbatim, presorted, direct
-export scale, scales, pregrouped
+export scale, scales, pregrouped, wrapped
 # Re-export Makie plot types users need
 export Scatter, Lines, ScatterLines, BarPlot, Heatmap, BoxPlot,
     Band, HLines, VLines, Hist, Errorbars, Stairs,
