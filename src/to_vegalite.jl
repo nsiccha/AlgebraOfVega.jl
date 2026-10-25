@@ -1561,7 +1561,7 @@ does. Vega-Lite fills a wrap facet row by row only, so a column-first fill
 (`wrapped(by_col=true)`) or explicit panel positions are an `ArgumentError`: drawing
 them by rows would place the panels differently from `sdraw` (snag
 `aov-layout-facet-e1179109`). A spec without a wrap facet is left alone."""
-_apply_wrap_palette!(spec, ::Nothing) = nothing
+_apply_wrap_palette!(::Dict, ::Nothing) = nothing
 function _apply_wrap_palette!(spec::Dict, props)
     haskey(props, :palette) || return
     facet = _wrap_facet(spec)

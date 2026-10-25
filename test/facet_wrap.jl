@@ -62,9 +62,14 @@ end
     @test columns(vl) == 6 && !auto(vl)                  # 17 panels in 3 rows
     vl = to_vegalite(ribbon, scales(Layout=(; palette=wrapped(cols=2))))
     @test columns(vl) == 2 && !auto(vl)
-    # `wrapped()` without a count leaves AoG's default rule in charge, as in AoG.
+    # `wrapped()` without a count leaves AoG's default rule in charge, as in AoG,
+    # and so does any `scales(...)` term without a `Layout` scale.
     vl = to_vegalite(sized * config(scales=scales(Layout=(; palette=wrapped()))))
     @test columns(vl) == 4 && auto(vl)
+    vl = to_vegalite(sized * config(scales=scales(Y=(; scale=log10))))
+    @test columns(vl) == 4 && auto(vl)
+    vl = to_vegalite(ribbon, scales(Layout=(; categories=reverse(regions))))
+    @test columns(vl) == 4 && auto(vl) && vl["facet"]["sort"] == reverse(regions)
     # refused: Vega-Lite fills a wrap facet row by row, so a column-first fill or
     # explicit positions would place the panels unlike `sdraw` (decision `1r4o8ot`).
     @test_throws ArgumentError to_vegalite(sized * config(scales=scales(Layout=(; palette=wrapped(cols=3, by_col=true)))))
