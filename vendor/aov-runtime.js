@@ -2285,14 +2285,15 @@ window.AoV = window.AoV || {
         if (typeof match === 'function') return function(d) { return !!match(d); };
         if (typeof match !== 'object') throw new TypeError('AoV.highlight: match is {field: value | [values]}, a function or null; got ' + match);
         var fields = Object.keys(match);
+        // A set per field: a link group's hover can name every item of a group.
         var wanted = fields.map(function(f) {
-            return (Array.isArray(match[f]) ? match[f] : [match[f]]).map(String);
+            return new Set((Array.isArray(match[f]) ? match[f] : [match[f]]).map(String));
         });
         // A field the row lacks is not tested, so a row with none of them passes.
         return function(d) {
             for (var i = 0; i < fields.length; i++) {
                 if (!d || !Object.prototype.hasOwnProperty.call(d, fields[i])) continue;
-                if (wanted[i].indexOf(String(d[fields[i]])) === -1) return false;
+                if (!wanted[i].has(String(d[fields[i]]))) return false;
             }
             return true;
         };
@@ -2361,11 +2362,14 @@ window.AoV = window.AoV || {
     // --- Link groups (`config(link=(; group, key))`) ---
     // Plots and tables showing the same items join a named group. Hovering a
     // linked plot's mark announces its key on `document` as an `htmxo:link`
-    // event, detail {group, key, source} (the key as a string, null when the
-    // hover ends; `source` is the plot element), the contract HTMXObjects'
-    // tables share. Every other member of the group shows the key: a linked
-    // plot highlights its marks whose `key` field equals it, and a null key
-    // clears that. The hovered plot itself is not dimmed.
+    // event, detail {group, key, keys, source} (the key as a string, null when
+    // the hover ends; `keys` the hovered items' keys, [key] or []; `source` is
+    // the plot element), the contract HTMXObjects' tables share. A table's
+    // group row (a street of its items) announces all its members' keys, with
+    // key null. Every other member of the group shows the keys: a linked plot
+    // highlights its marks whose `key` field is one of them, and no keys
+    // clears that. An announcement without `keys` shows its `key`. The
+    // hovered plot itself is not dimmed.
     _link: function(id) {
         var cur = this._cur[id], link = cur && cur.spec && cur.spec._aov && cur.spec._aov.link;
         return link && link.group ? link : null;
@@ -2382,19 +2386,25 @@ window.AoV = window.AoV || {
         var link = this._link(id);
         if (!link) return;
         document.dispatchEvent(new CustomEvent('htmxo:link',
-            {detail: {group: link.group, key: key, source: this._els[id] || null}}));
+            {detail: {group: link.group, key: key, keys: key === null ? [] : [key], source: this._els[id] || null}}));
     },
-    // The latest announcement per group, {key, source}.
+    // The keys an announcement shows, as strings: its `keys` list, or the
+    // one `key` of a sender that has no list (none when it is null).
+    _linkKeys: function(d) {
+        var keys = Array.isArray(d.keys) ? d.keys : [d.key];
+        return keys.filter(function(k) { return k !== null && k !== undefined; }).map(String);
+    },
+    // The latest announcement per group, {keys, source}.
     _linkState: {},
-    _showLinkKey: function(id, link, key) {
-        if (key === null || key === undefined) { this.clearHighlight(id); return; }
+    _showLinkKeys: function(id, link, keys) {
+        if (!keys.length) { this.clearHighlight(id); return; }
         var m = {};
-        m[link.key] = String(key);
+        m[link.key] = keys;
         this.highlight(id, m);
     },
     _joinLinkState: function(id) {
         var link = this._link(id), st = link && this._linkState[link.group];
-        if (st && st.key !== null && st.key !== undefined && st.source !== this._els[id]) this._showLinkKey(id, link, st.key);
+        if (st && st.keys.length && st.source !== this._els[id]) this._showLinkKeys(id, link, st.keys);
     },
     _watchLinks: function() {
         if (this._linkListener) return;
@@ -2402,11 +2412,12 @@ window.AoV = window.AoV || {
         this._linkListener = function(e) {
             var d = e.detail || {};
             if (typeof d.group !== 'string') return;
-            self._linkState[d.group] = {key: d.key === undefined ? null : d.key, source: d.source || null};
+            var keys = self._linkKeys(d);
+            self._linkState[d.group] = {keys: keys, source: d.source || null};
             Object.keys(self._cur).forEach(function(id) {
                 var link = self._link(id);
                 if (!link || link.group !== d.group || (d.source && d.source === self._els[id])) return;
-                self._showLinkKey(id, link, d.key);
+                self._showLinkKeys(id, link, keys);
             });
         };
         document.addEventListener('htmxo:link', this._linkListener);

@@ -122,8 +122,8 @@
         check(view.data('source_0').some(row => row.kenn === 'b'), 'scatter: changing detail.datum changed the plot data');
         // The link announcement carries the key as a string and the plot as source.
         check(got.links.length === 1 && got.links[0].group === 'probes' && got.links[0].key === 'b' &&
-            got.links[0].source === document.getElementById('hh-scatter'),
-            'scatter hover b: announcements ' + JSON.stringify(got.links.map(l => [l.group, l.key])));
+            same(got.links[0].keys, ['b']) && got.links[0].source === document.getElementById('hh-scatter'),
+            'scatter hover b: announcements ' + JSON.stringify(got.links.map(l => [l.group, l.key, l.keys])));
         // Moving within the same mark sends nothing.
         got = await during(() => pointerAt('hh-scatter', b.x + 1, b.y));
         check(got.hovers.length === 0 && got.links.length === 0, 'scatter: moving on b sent ' + JSON.stringify(summary(got)));
@@ -142,7 +142,8 @@
         got = await during(() => pointerAt('hh-scatter', c.x, c.y));
         check(same(summary(got), ['aov:hoverend:hh-scatter:b', 'aov:hover:hh-scatter:c']),
             'scatter b → c: ' + JSON.stringify(summary(got)));
-        check(same(got.links.map(l => l.key), [null, 'c']), 'scatter b → c announced ' + JSON.stringify(got.links.map(l => l.key)));
+        check(same(got.links.map(l => l.key), [null, 'c']) && same(got.links.map(l => l.keys), [[], ['c']]),
+            'scatter b → c announced ' + JSON.stringify(got.links.map(l => [l.key, l.keys])));
         await settle();
         check(same(opacities('hh-map', 'symbol', 'kenn'), {a: 0.105, b: 0.105, c: 0.7}),
             'map while c is hovered: ' + JSON.stringify(opacities('hh-map', 'symbol', 'kenn')));
@@ -211,8 +212,9 @@
             'plain cleared: ' + JSON.stringify(opacities('hh-plain', 'symbol', 'kenn')));
 
         // --- Link group members ---
-        // A table announces b: the map dims its other probes but not its
-        // districts (they have no kenn); the lines dim the other series.
+        // A table announces b, in the old form with only `key`: the map dims
+        // its other probes but not its districts (they have no kenn); the
+        // lines dim the other series.
         const districts = () => opacities('hh-map', 'shape', 'AGS');
         const districtsBefore = districts();
         announce('probes', 'b');
@@ -256,6 +258,42 @@
             same(opacities('hh-lines', 'line', 'kenn'), {a: 1, b: 1, c: 1}),
             'members after null: ' + JSON.stringify([opacities('hh-map', 'symbol', 'kenn'), opacities('hh-lines', 'line', 'kenn')]));
 
+        // A table's group row (a street of probes) announces every member's
+        // key in `keys`, with key null: every listed mark stays bright, the
+        // rest dim, and the districts are left alone.
+        const announceKeys = (group, key, keys) => document.dispatchEvent(new CustomEvent('htmxo:link',
+            {detail: {group, key, keys, source: null}}));
+        announceKeys('probes', null, ['a', 'c']);
+        await settle();
+        check(same(opacities('hh-map', 'symbol', 'kenn'), {a: 0.7, b: 0.105, c: 0.7}),
+            'map on group row a, c: ' + JSON.stringify(opacities('hh-map', 'symbol', 'kenn')));
+        check(same(districts(), districtsBefore), 'map districts changed on a group row: ' + JSON.stringify(districts()));
+        check(same(opacities('hh-lines', 'line', 'kenn'), {a: 1, b: 0.15, c: 1}),
+            'lines on group row a, c: ' + JSON.stringify(opacities('hh-lines', 'line', 'kenn')));
+        check(same(opacities('hh-other', 'symbol', 'kenn'), plainBefore), 'other group on a group row changed');
+        // A `children=` branch row: its own key, and in `keys` its own and
+        // its descendants'. `keys` wins over `key`.
+        announceKeys('probes', 'b', ['b', 'c']);
+        await settle();
+        check(same(opacities('hh-map', 'symbol', 'kenn'), {a: 0.105, b: 0.7, c: 0.7}),
+            'map on branch row b, c: ' + JSON.stringify(opacities('hh-map', 'symbol', 'kenn')));
+        // A linked plot swapped in while the group shows a set shows the set.
+        let lines = AoV.views['hh-lines'], lineSpec = JSON.parse(JSON.stringify(AoV._origSpecs['hh-lines']));
+        let fresh = document.createElement('div');
+        fresh.id = 'hh-lines';
+        document.getElementById('hh-lines').replaceWith(fresh);
+        AoV.embed('hh-lines', lineSpec, {actions: false});
+        await ready('hh-lines', lines);
+        await settle();
+        check(same(opacities('hh-lines', 'line', 'kenn'), {a: 0.15, b: 1, c: 1}),
+            'swapped-in lines while b, c are shown: ' + JSON.stringify(opacities('hh-lines', 'line', 'kenn')));
+        // An empty list clears every member.
+        announceKeys('probes', null, []);
+        await settle();
+        check(same(opacities('hh-map', 'symbol', 'kenn'), {a: 0.7, b: 0.7, c: 0.7}) &&
+            same(opacities('hh-lines', 'line', 'kenn'), {a: 1, b: 1, c: 1}),
+            'members after an empty list: ' + JSON.stringify([opacities('hh-map', 'symbol', 'kenn'), opacities('hh-lines', 'line', 'kenn')]));
+
         // A linked plot swapped in while its group shows a key shows it too,
         // and a hover on the replaced element ends with the swap.
         view = AoV.views['hh-map'];
@@ -263,8 +301,9 @@
         got = await during(() => pointerAt('hh-map', probe.x, probe.y));
         check(same(summary(got), ['aov:hover:hh-map:a']) && same(got.links.map(l => l.key), ['a']),
             'map hover a: ' + JSON.stringify(summary(got)) + ' ' + JSON.stringify(got.links.map(l => l.key)));
-        const lines = AoV.views['hh-lines'], lineSpec = JSON.parse(JSON.stringify(AoV._origSpecs['hh-lines']));
-        const fresh = document.createElement('div');
+        lines = AoV.views['hh-lines'];
+        lineSpec = JSON.parse(JSON.stringify(AoV._origSpecs['hh-lines']));
+        fresh = document.createElement('div');
         fresh.id = 'hh-lines';
         document.getElementById('hh-lines').replaceWith(fresh);
         AoV.embed('hh-lines', lineSpec, {actions: false});
