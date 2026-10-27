@@ -403,9 +403,11 @@ Client-side API:
   alone) or a function `datum => boolean`. Repaints the live view (no re-embed) and
   is kept across re-embeds
 - Link groups: a plot with `config(link=(; group, key))` announces a hovered mark's
-  `key` as a `CustomEvent('htmxo:link', {detail: {group, key, source}})` on `document`
-  (`key: null` when the hover ends), and highlights its marks whose `key` equals a key
-  another member of the group announces — the contract HTMXObjects' tables share
+  `key` as a `CustomEvent('htmxo:link', {detail: {group, key, keys, source}})` on
+  `document` (`keys` is `[key]`; `key: null` and `keys: []` when the hover ends), and
+  highlights its marks whose `key` is one of the `keys` another member of the group
+  announces (a table's group row sends all its members' keys, with `key: null`; a
+  sender without `keys` is read as `[key]`) — the contract HTMXObjects' tables share
 - `AoV.refreshTheme()` — re-render host-themed plots whose inherited text colour,
   font or `--aov-*` look changed (automatic on `prefers-color-scheme` and
   `<html>`/`<body>` class, `data-theme` or `style` changes; call it after other

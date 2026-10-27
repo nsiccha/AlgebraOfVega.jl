@@ -5,8 +5,9 @@
 # metadata only, `_aov.link = {group, key}`; the runtime (`vendor/aov-runtime.js`,
 # `_link`/`_announce`/`_watchLinks`) announces a hovered mark's key on
 # `document` as an `htmxo:link` event and highlights the marks whose `key`
-# field equals a key another member announces. The event contract is shared
-# with HTMXObjects' tables, so neither package calls the other.
+# field is one of the keys another member announces (one item's, or every
+# member's of a table's group row). The event contract is shared with
+# HTMXObjects' tables, so neither package calls the other.
 
 """Link-group options parsed from `config(link=…)`."""
 struct LinkOptions
