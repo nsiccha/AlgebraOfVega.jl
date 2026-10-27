@@ -6,8 +6,12 @@
        HTMXObjects; this block only carries roles peculiar to
        the AoV gallery shell. */
     .aov-plot-area { width: 100%; min-width: 0; max-width: 100%; overflow-x: auto; }
-    /* cell_charts: a table cell's total and its small chart stay on one line. */
+    /* cell_charts: a table cell's total and its small chart stay on one line.
+       The total sits in a slot as wide as its column's widest total (set by
+       the runtime, `_cellAlign`), right-aligned with equal-width digits, so
+       every chart of the column starts at the same x. */
     td.aov-cells { white-space: nowrap; }
+    td.aov-cells > .aov-cell-total { display: inline-block; text-align: end; font-variant-numeric: tabular-nums; }
     /* config(frame=…) player after a plot: play/pause, slider, frame label. */
     .aov-frame { display: flex; align-items: center; gap: 0.5em; margin: 0.25em 0; }
     .aov-frame > .aov-frame-play { width: auto; margin: 0; padding: 0.2em 0.7em; line-height: 1.2; }

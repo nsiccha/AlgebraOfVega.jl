@@ -111,9 +111,22 @@ end
         late = cell_charts(cell_spec(); id="late")
         table(cells, n) = sortable_table(["Zelle", "Betriebe"],
             [h.tr(; id="row-$(s)-$(n)")(h.td(string(s)), cells[s]) for s in (11001, 11002, 11003)])
+        # Totals of different text widths (snag `cell-charts-tota-b5b30921`):
+        # every chart of a column starts at the same x.
+        area_rows = (; site=repeat(1:4, inner=2), f=repeat(["a", "b"], 4), t=[8.0, 0.3, 300.0, 80.0, 60.0, 3.0, 1000.0, 200.0])
+        area_label(x) = x >= 1000 ? format_number(x / 1000; texts=table_texts(:de), sigdigits=2) * " Mio. m²" :
+            format_number(x; texts=table_texts(:de), sigdigits=2) * " Tsd. m²"
+        area_spec = data(area_rows) * mapping(:f, :t; layout=:site) * visual(BarPlot) * config(width=150, height=34)
+        area = cell_charts(area_spec; id="area", label=area_label)
+        hidden = cell_charts(area_spec; id="hidden", label=area_label)
+        area_table(cells, n) = sortable_table(["Zelle", "Betriebe", "Geschossfläche"],
+            [h.tr(; id="area-$(k)-$(n)")(h.td(string(k)), firms[s], cells[k]) for (s, k) in zip((11001, 11002, 11003, 11001), 1:4)])
         # `#far-table` shows the first column again (its scales are known by
         # then), `#late-table` a column of its own; both start far below.
+        # `#hidden-table` is laid out only when the driver shows it.
         page = [h.div(; id="near")(table(firms, 1)), h.div(; id="own-table")(table(own, 2)),
+            h.div(; id="area-table")(area_table(area, 5)),
+            h.div(; id="hidden-table", style="display:none")(area_table(hidden, 6)),
             h.div(; style="height:6000px"), h.div(; id="far-table")(table(firms, 3)),
             h.div(; style="height:6000px"), h.div(; id="late-table")(table(late, 4))]
         mktempdir(prefix="kb-aov-cells-") do dir
@@ -129,7 +142,7 @@ end
             @test !isnothing(m)
             if !isnothing(m)
                 report = JSON.parse(replace(m[1], "&quot;" => "\"", "&lt;" => "<", "&gt;" => ">", "&amp;" => "&"))
-                @test report["checks"] >= 14
+                @test report["checks"] >= 30
                 @test isempty(report["failures"])
                 isempty(report["failures"]) || println(JSON.json(report["failures"]))
             end

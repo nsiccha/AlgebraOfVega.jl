@@ -2216,10 +2216,55 @@ window.AoV = window.AoV || {
                 }, {rootMargin: '100% 0px'});
             }
             window.addEventListener('beforeprint', function() { self._cellPending.forEach(function(c) { self._takeCell(c); }); });
+            self._cellTotals = new Map();
+            if (typeof ResizeObserver !== 'undefined') {
+                self._cellRO = new ResizeObserver(function() { self._cellAlignSoon(); });
+            }
+            if (document.fonts && document.fonts.addEventListener) {
+                document.fonts.addEventListener('loadingdone', function() { self._cellAlignSoon(); });
+            }
         }
         self._cellPending.add(el);
         if (self._cellIO) self._cellIO.observe(el);
         self._cellFillSoon();
+        var td = el.closest ? el.closest('td.aov-cells') : null;
+        var total = td && td.querySelector(':scope > .aov-cell-total');
+        if (total && !self._cellTotals.has(total)) {
+            self._cellTotals.set(total, el.getAttribute('data-aov-cells'));
+            if (self._cellRO) self._cellRO.observe(total);
+        }
+        self._cellAlignSoon();
+    },
+    // A column's totals share one slot, as wide as its widest total (the
+    // stylesheet right-aligns each total in it with equal-width digits), so
+    // every chart of the column starts at the same x, whatever the totals'
+    // lengths and the page's font. A column is a column id within one
+    // table. Measured in a task of its own: after cells arrive or leave, and
+    // when a total changes size (a hidden table shown, web fonts loaded).
+    // A table not laid out yet measures 0 and keeps its slots until then.
+    _cellAlignSoon: function() {
+        var self = this;
+        if (self._cellAligning) return;
+        self._cellAligning = setTimeout(function() { self._cellAligning = 0; self._cellAlign(); }, 0);
+    },
+    _cellAlign: function() {
+        var columns = new Map();
+        this._cellTotals.forEach(function(colId, total) {
+            if (!total.isConnected) return;
+            var table = total.closest('table'), byId = columns.get(table);
+            if (!byId) columns.set(table, byId = {});
+            (byId[colId] = byId[colId] || []).push(total);
+        });
+        var groups = [];
+        columns.forEach(function(byId) { Object.keys(byId).forEach(function(id) { groups.push(byId[id]); }); });
+        // Clear every slot, read every width, then set: one layout for all columns.
+        groups.forEach(function(totals) { totals.forEach(function(t) { t.style.minWidth = ''; }); });
+        var widths = groups.map(function(totals) {
+            return totals.reduce(function(w, t) { return Math.max(w, t.getBoundingClientRect().width); }, 0);
+        });
+        groups.forEach(function(totals, i) {
+            if (widths[i] > 0) totals.forEach(function(t) { t.style.minWidth = Math.ceil(widths[i]) + 'px'; });
+        });
     },
     _takeCell: function(el) {
         if (!this._cellPending.delete(el)) return;
@@ -2346,6 +2391,15 @@ window.AoV = window.AoV || {
             if (self._cellIO) self._cellIO.unobserve(el);
             self._cellPending.delete(el);
         });
+        // A row that left can take its column's widest total with it.
+        var left = false;
+        self._cellTotals.forEach(function(colId, total) {
+            if (total.isConnected) return;
+            if (self._cellRO) self._cellRO.unobserve(total);
+            self._cellTotals.delete(total);
+            left = true;
+        });
+        if (left) self._cellAlignSoon();
     },
 
     // A click on a data mark reaches app code as a bubbling `aov:click`
