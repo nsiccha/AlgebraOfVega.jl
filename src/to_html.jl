@@ -4,7 +4,14 @@
 Return a standalone HTML string with embedded vega-embed. `source` selects the
 script origin — `:cdn` (default), `:vendor`, or `:inline`, as in `vega_head`.
 `source=:inline` inlines AoV's vendored Vega builds, so the returned page
-renders with no network access at all.
+renders with no network access at all. This is also the `text/html` `show` of a
+spec, so it is what a notebook, or HTMXObjects' `SemanticPlot`, writes.
+
+The fragment also draws when it is inserted into a page that has already
+loaded, for example by an htmx swap into a page without `vega_head()`. There
+the browser runs the embed script before the Vega scripts above it have
+arrived, so the embed waits for them. If one of them fails to load, the plot's
+container and the console say so, naming `vega_head()`.
 """
 function to_html(spec; id=nothing, width=nothing, height=nothing,
         source::Symbol=:cdn, base::AbstractString="/vendor")
@@ -18,9 +25,41 @@ function to_html(spec; id=nothing, width=nothing, height=nothing,
     """
     <div id="$id"></div>
     $scripts
-    <script>$(_inline_text("vegaEmbed('#$id', $json, {actions: false}).catch(console.error);"))</script>
+    <script>$(_inline_text(_standalone_embed_js(id, json)))</script>
     """
 end
+
+# The embed script of `to_html(spec)`. A parsed page has run the Vega script
+# tags before this one, so `vegaEmbed` exists and it draws at once. Inserted
+# into a page that has already loaded (an htmx swap, `innerHTML` plus script
+# re-creation), it runs at once while those tags are still downloading, so it
+# draws once its own preceding `<script src>` siblings have loaded, and
+# reports in the console and in the plot's container when one fails to load.
+_standalone_embed_js(id, json) = """
+    (function (current) {
+      var id = '$id';
+      function draw() { vegaEmbed('#$id', $json, {actions: false}).catch(console.error); }
+      if (window.vegaEmbed) return draw();
+      var pending = [], settled = false;
+      for (var n = current && current.previousElementSibling; n && n.tagName === 'SCRIPT'; n = n.previousElementSibling)
+        if (n.src) pending.push(n);
+      function settle(problem) {
+        if (settled) return;
+        settled = true;
+        if (!problem && window.vegaEmbed) return draw();
+        var message = 'AlgebraOfVega could not draw plot ' + id + ': ' + (problem || 'vegaEmbed is not defined') +
+          '. Load Vega in the page head with vega_head().';
+        console.error(message);
+        var el = document.getElementById(id);
+        if (el) { el.setAttribute('role', 'alert'); el.textContent = message; }
+      }
+      var left = pending.length;
+      if (!left) return settle();
+      pending.forEach(function (script) {
+        script.addEventListener('load', function () { if (!--left) settle(); });
+        script.addEventListener('error', function () { settle(script.src + ' did not load'); });
+      });
+    })(document.currentScript);"""
 
 # Minimal HTML escaping for interpolated page metadata (titles). Fragment
 # bodies are trusted HTMX nodes, rendered by HTMX itself.
