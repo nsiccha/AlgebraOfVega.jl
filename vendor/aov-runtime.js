@@ -30,6 +30,9 @@ window.AoV = window.AoV || {
     // under the pointer, and the key it announced to its link group.
     _highlights: {},
     _hovers: {},
+    // Touch input: the press in progress, the tooltip a tap left open, and
+    // when the browser last emulated mouse events after one (see _attachTouch).
+    _touches: {},
     // Container-sized plots last embedded while their container offered no
     // width (a hidden tab panel, a closed <details>; see _measurableAgain).
     _unmeasured: {},
@@ -43,7 +46,7 @@ window.AoV = window.AoV || {
         '_signals', '_liveRows', '_specRows', '_origSpecs', '_droppedLegends',
         '_embedOpts', '_observers', '_computedWidths', '_corrections', '_correctedRegime',
         '_cur', '_pickers', '_mappings', '_themeKeys', '_reembeds', '_frames',
-        '_highlights', '_hovers', '_unmeasured', '_ribbonViews'],
+        '_highlights', '_hovers', '_touches', '_unmeasured', '_ribbonViews'],
 
     // Whether the runtime sizes this spec to its container: Julia's
     // `_embed_spec` marks a responsive layered/faceted/per-column spec with
@@ -776,6 +779,7 @@ window.AoV = window.AoV || {
         if (!sameEl) {
             // A hover on the replaced element ends (its link group hears the
             // key go), and a highlight set on it does not carry over.
+            self._touchReset(id);
             self._hoverEnd(id, null);
             delete self._highlights[id];
             delete self._signals[id];
@@ -878,6 +882,7 @@ window.AoV = window.AoV || {
                 });
                 self._attachClick(id, view);
                 self._attachHover(id, view);
+                self._attachTouch(id, view);
                 self._frameSync(id, view);
                 // Run anything queued before the view was ready (e.g. appendData)
                 var pending = self._pending[id] || [];
@@ -1231,6 +1236,7 @@ window.AoV = window.AoV || {
     // embed still in flight is finalized when it resolves.
     dispose: function(id) {
         var self = this;
+        self._touchReset(id);
         self._hoverEnd(id, null);
         self._frameStop(id);
         self._finalizeView(id);
@@ -2410,10 +2416,13 @@ window.AoV = window.AoV || {
     // update_spec re-embeds. Legend, axis and title items have their own
     // roles, and an empty facet cell is a group ('scope'): none of them is
     // reported. A nearest-point overlay item's datum is the scenegraph item
-    // of the point under it, whose own datum is the row.
+    // of the point under it, whose own datum is the row. On touch input a
+    // long press is the click and a tap is not (see _attachTouch), so the
+    // click a browser sends after a touch is not reported here.
     _attachClick: function(id, view) {
         var self = this;
         view.addEventListener('click', function(event, item) {
+            if (self._fromTouch(id, event)) return;
             if (!item || !item.mark || item.mark.role !== 'mark') return;
             var datum = item.datum;
             while (datum && datum.mark && datum.mark.marktype && datum.datum) datum = datum.datum;
@@ -2445,20 +2454,22 @@ window.AoV = window.AoV || {
     // nearest point. Vega reports an item change as mouseout then mouseover
     // in one go, so a mouseout ends the hover only if no mouseover of the
     // same row follows it; leaving the plot element ends it at once, which
-    // also covers a view replaced while the pointer was over it.
+    // also covers a view replaced while the pointer was over it. A finger
+    // hovers by a tap instead (see _attachTouch): a finger dragging over
+    // the plot hovers nothing.
     _attachHover: function(id, view) {
         var self = this, el = self._els[id];
         view.addEventListener('mouseover', function(event, item) {
             var row = self._markRow(item);
-            if (row) self._hoverStart(id, row, event);
+            if (row && !self._fromTouch(id, event)) self._hoverStart(id, row, event);
         });
         view.addEventListener('mouseout', function(event, item) {
-            if (self._markRow(item)) self._hoverLeave(id, event);
+            if (self._markRow(item) && !self._fromTouch(id, event)) self._hoverLeave(id, event);
         });
         if (el && !el._aovHoverLeave) {
             el._aovHoverLeave = true;
             el.addEventListener('pointerleave', function(event) {
-                if (self._els[id] === el) self._hoverEnd(id, event);
+                if (self._els[id] === el && !self._fromTouch(id, event)) self._hoverEnd(id, event);
             });
         }
     },
@@ -2485,6 +2496,208 @@ window.AoV = window.AoV || {
         delete this._hovers[id];
         this._dispatch(id, 'aov:hoverend', {id: id, datum: Object.assign({}, h.row), event: event});
         if (h.key !== null) this._announceKey(id, null);
+    },
+
+    // --- Touch input ---
+    // A finger has no hover, and Vega picks a canvas mark only on
+    // pointermove, which a tap never sends: a tap's click names no mark,
+    // and a tooltip shows only while a finger drags over its mark, under
+    // the finger. So the runtime reads touches itself, through Vega's
+    // touchstart, for which Vega picks the item under the finger (canvas
+    // and SVG alike):
+    // - A tap on a data mark opens its tooltip above the finger and hovers
+    //   its row (`aov:hover`, link groups), as a mouse over the mark does.
+    //   Both stay after the finger lifts and follow the tapped spot when the
+    //   page scrolls. They end (`aov:hoverend`) on a tap on empty plot
+    //   space, a press outside the plot, a finger dragging on the plot, or
+    //   once the tapped spot leaves the window; a tap on another mark moves
+    //   them there.
+    // - A long press on a data mark (_TOUCH_HOLD_MS, the finger within
+    //   _TOUCH_SLOP px) opens them too and is the mark's click: one
+    //   `aov:click`, detail.event the touchstart. The context menu over the
+    //   mark and the click the browser sends on release are suppressed.
+    // - A tap never sends `aov:click`, so the tooltip can be read before an
+    //   app acts on the mark. Scrolling and pinch zoom that start on the
+    //   plot keep working: no touchstart or touchmove is prevented, and the
+    //   plot sets no touch-action.
+    // Mouse input is unchanged, and so is a pen that hovers.
+    _TOUCH_HOLD_MS: 500,
+    _TOUCH_SLOP: 10,
+    _TOUCH_TIP_GAP: 24,
+    _attachTouch: function(id, view) {
+        var self = this, el = self._els[id], t = self._touches[id];
+        // A press or an open tooltip holds an item of the view a re-embed replaced.
+        if (t && t.press && t.press.view !== view) self._touchCancel(id);
+        if (t && t.tip && t.tip.view !== view) self._touchClose(id, null);
+        view.addEventListener('touchstart', function(event, item) {
+            self._touchStart(id, view, event, item);
+        });
+        if (!el || el._aovTouch) return;
+        el._aovTouch = true;
+        var mine = function() { return self._els[id] === el; };
+        el.addEventListener('touchmove', function(event) { if (mine()) self._touchMove(id, event); }, {passive: true});
+        el.addEventListener('touchend', function(event) { if (mine()) self._touchEnd(id, event); });
+        el.addEventListener('touchcancel', function() { if (mine()) self._touchCancel(id); }, {passive: true});
+        el.addEventListener('contextmenu', function(event) { if (mine()) self._touchMenu(id, event); });
+    },
+    _touchStart: function(id, view, event, item) {
+        var self = this, el = self._els[id], p = event.changedTouches && event.changedTouches[0];
+        var t = self._touches[id] || (self._touches[id] = {press: null, tip: null, emulatedAt: 0, heldAt: 0});
+        self._touchCancel(id);
+        // A second finger (a pinch) presses nothing.
+        if (!p || (event.touches && event.touches.length > 1)) return;
+        if (el && !el._aovTouchStyled) {
+            // No text selection or iOS callout over the plot on a long press.
+            el._aovTouchStyled = true;
+            el.style.setProperty('-webkit-touch-callout', 'none');
+            el.style.setProperty('-webkit-user-select', 'none');
+            el.style.setProperty('user-select', 'none');
+        }
+        var press = t.press = {view: view, item: item, row: self._markRow(item), x: p.clientX, y: p.clientY,
+            event: event, held: false, timer: null};
+        if (press.row) press.timer = setTimeout(function() {
+            if (t.press === press) self._touchHold(id);
+        }, self._TOUCH_HOLD_MS);
+    },
+    _touchMove: function(id, event) {
+        var t = this._touches[id], press = t && t.press, p = event.changedTouches && event.changedTouches[0];
+        if (!press) return;
+        var dx = p ? p.clientX - press.x : 0, dy = p ? p.clientY - press.y : 0;
+        if (p && event.touches.length < 2 && dx * dx + dy * dy <= this._TOUCH_SLOP * this._TOUCH_SLOP) return;
+        // A finger dragging on the plot (a scroll, a pan, a pinch) presses
+        // nothing and closes the plot's tooltip.
+        this._touchCancel(id);
+        this._touchClose(id, event);
+    },
+    _touchEnd: function(id, event) {
+        var self = this, t = self._touches[id], press = t && t.press;
+        if (!press) return;
+        self._touchCancel(id);
+        // A long press was the click, and a tap on a mark is none: the
+        // browser sends neither its click nor the mouse events it emulates
+        // after a touch, whose mouseout over a mark (SVG) would hide the
+        // tooltip and end the hover again. A touchend the browser does not
+        // let us cancel still gets them (see _fromTouch).
+        if (press.held || press.row) {
+            if (event.cancelable) event.preventDefault(); else t.emulatedAt = Date.now();
+        }
+        if (press.held) return;
+        // A tap. It takes effect once the browser has sent the pointer
+        // events that end the touch, whose mouseout hides a tooltip Vega
+        // showed while the finger moved.
+        setTimeout(function() {
+            if (self._touches[id] !== t) return;
+            if (press.row) self._touchOpen(id, press); else self._touchClose(id, event);
+        }, 0);
+    },
+    _touchHold: function(id) {
+        var t = this._touches[id], press = t && t.press, el = this._els[id];
+        if (!press || press.held || !press.row) return;
+        press.held = true;
+        clearTimeout(press.timer);
+        t.heldAt = Date.now();
+        // As with a mouse, the clicked mark is the hovered one.
+        this._touchOpen(id, press);
+        if (el) el.dispatchEvent(new CustomEvent('aov:click', {bubbles: true,
+            detail: {id: id, datum: Object.assign({}, press.row), event: press.event}}));
+    },
+    // No context menu over a pressed mark. A browser that opens it before
+    // _TOUCH_HOLD_MS (Android's long press) makes it the long press; one
+    // that opens it on release (after the hold) is prevented as well.
+    _touchMenu: function(id, event) {
+        var t = this._touches[id];
+        if (!t) return;
+        if (t.press && t.press.row) {
+            event.preventDefault();
+            this._touchHold(id);
+        } else if (t.heldAt && Date.now() - t.heldAt < 1000) event.preventDefault();
+    },
+    _touchCancel: function(id) {
+        var t = this._touches[id];
+        if (!t || !t.press) return;
+        clearTimeout(t.press.timer);
+        t.press = null;
+    },
+    // Whether a pointer or mouse event comes from a finger: its pointerType
+    // says so, or it is one of the mouse events (and the click) a browser
+    // emulates after a touch it did not let _touchEnd cancel, which carry
+    // no pointerType.
+    _fromTouch: function(id, event) {
+        var t = this._touches[id];
+        if (event && event.pointerType === 'touch') return true;
+        return !!(t && t.emulatedAt && Date.now() - t.emulatedAt < 1000);
+    },
+    _touchOpen: function(id, press) {
+        var t = this._touches[id], el = this._els[id];
+        if (!t || !el || this.views[id] !== press.view) return;
+        var prev = t.tip, r = el.getBoundingClientRect();
+        if (prev) prev.view._handler.handleTooltip({clientX: 0, clientY: 0}, prev.item, false);
+        t.tip = {view: press.view, item: press.item, row: press.row, dx: press.x - r.left, dy: press.y - r.top};
+        this._watchTouchTips();
+        // Vega's own tooltip path: the embed's handler, its formatting and
+        // theme, and the nearest point of a line or area under the finger.
+        press.view._handler.handleTooltip({clientX: press.x, clientY: press.y}, press.item, true);
+        this._placeTouchTip(press.x, press.y);
+        this._hoverStart(id, press.row, press.event);
+    },
+    _touchClose: function(id, event) {
+        var t = this._touches[id], tip = t && t.tip;
+        if (!tip) return;
+        t.tip = null;
+        tip.view._handler.handleTooltip({clientX: 0, clientY: 0}, tip.item, false);
+        var h = this._hovers[id];
+        if (h && h.row === tip.row) this._hoverEnd(id, event);
+    },
+    _touchReset: function(id) {
+        this._touchCancel(id);
+        this._touchClose(id, null);
+        delete this._touches[id];
+    },
+    // Move the shown tooltip next to client point (x, y), where a finger on
+    // it does not cover it: above it, else beside it, else below it, inside
+    // the window. Vega's tooltip handler puts it below and to the right.
+    _placeTouchTip: function(x, y) {
+        var tip = document.querySelector('.vg-tooltip.visible');
+        if (!tip) return;
+        var b = tip.getBoundingClientRect(), w = b.width, h = b.height, g = this._TOUCH_TIP_GAP;
+        var W = window.innerWidth, H = window.innerHeight;
+        var cx = Math.max(0, Math.min(W - w, x - w / 2)), cy = Math.max(0, Math.min(H - h, y - h / 2));
+        var spots = [[cx, y - g - h], [x + g, cy], [x - g - w, cy], [cx, y + 2 * g]], at = [cx, Math.max(0, y - g - h)];
+        for (var i = 0; i < spots.length; i++) {
+            var s = spots[i];
+            if (s[0] >= 0 && s[1] >= 0 && s[0] + w <= W && s[1] + h <= H) { at = s; break; }
+        }
+        tip.style.left = at[0] + 'px';
+        tip.style.top = at[1] + 'px';
+    },
+    // Installed by the first tooltip a tap opens: a press outside its plot
+    // (any mouse press) closes it; a scroll or resize moves it with the
+    // tapped spot and closes it once that spot leaves the window.
+    _watchTouchTips: function() {
+        if (this._touchTipListeners) return;
+        var self = this;
+        var each = function(fn) {
+            Object.keys(self._touches).forEach(function(id) {
+                var t = self._touches[id], el = self._els[id];
+                if (t && t.tip && el) fn(id, t.tip, el);
+            });
+        };
+        var press = function(event) {
+            each(function(id, tip, el) {
+                if (event.pointerType === 'mouse' || !el.contains(event.target)) self._touchClose(id, event);
+            });
+        };
+        var follow = function(event) {
+            each(function(id, tip, el) {
+                var r = el.getBoundingClientRect(), x = r.left + tip.dx, y = r.top + tip.dy;
+                if (x < 0 || y < 0 || x > window.innerWidth || y > window.innerHeight) self._touchClose(id, event);
+                else self._placeTouchTip(x, y);
+            });
+        };
+        this._touchTipListeners = {press: press, follow: follow};
+        document.addEventListener('pointerdown', press, true);
+        window.addEventListener('scroll', follow, {capture: true, passive: true});
+        window.addEventListener('resize', follow, {passive: true});
     },
 
     // --- Keyed highlight ---
