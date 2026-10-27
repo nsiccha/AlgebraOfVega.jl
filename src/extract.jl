@@ -1,7 +1,24 @@
 # --- Extract components from AoG Layer ---
 
-extract_visual(layer::AlgebraOfGraphics.Layer) =
-    extract_transformation(layer, AlgebraOfGraphics.Visual)
+# A layer's `visual(...)` terms, combined as AoG applies them to its processed
+# layer (`Visual(::ProcessedLayer)`, in chain order): a specific plot type replaces
+# the default `Plot{plot}`, and a later term's attributes win. So a library can add
+# `visual(; clip=true)` to an app's `visual(Scatter)` layer. A single term is
+# returned as it is; `nothing` when the layer has none.
+function extract_visual(layer::AlgebraOfGraphics.Layer)
+    visuals = _chain_parts(AlgebraOfGraphics.Visual, layer.transformation)
+    isempty(visuals) && return nothing
+    length(visuals) == 1 && return only(visuals)
+    pl = foldl((pl, v) -> v(pl), visuals; init=AlgebraOfGraphics.ProcessedLayer())
+    AlgebraOfGraphics.Visual(pl.plottype, pl.attributes, nothing)
+end
+
+# Every `T` in a transformation chain, in the order AoG applies them
+# (`l * l′` composes `l′.transformation ∘ l.transformation`, so inner first).
+_chain_parts(::Type{T}, t::T) where {T} = T[t]
+_chain_parts(::Type{T}, t::ComposedFunction) where {T} =
+    vcat(_chain_parts(T, t.inner), _chain_parts(T, t.outer))
+_chain_parts(::Type{T}, _) where {T} = T[]
 
 _unwrap_columns(cols::AlgebraOfGraphics.Columns) = cols.columns
 _unwrap_columns(cols) = cols
