@@ -155,22 +155,60 @@ function _map_layer_to_vl(layer::AlgebraOfGraphics.Layer)
     spec
 end
 
-# Every unit of a map figure draws through the geoshape's projection, which
-# Vega-Lite then fits to the polygons and the points together. Two geoshape
-# layers asking for different projections cannot share one map.
+# Every unit of a map figure draws through one projection, which Vega-Lite then
+# fits to the polygons and the points together, as on an AlgebraOfGraphics
+# `GeoAxis`. A geoshape layer that sets `projection=` sets the map's, and every
+# other layer draws through it, a geoshape that left it out included (else
+# through the default such a geoshape lowered with). Two geoshape layers that
+# set different projections cannot share one map.
 function _share_map_projection!(layers, units)
-    projs = unique(u["projection"] for (l, us) in zip(layers, units)
-        if _is_geoshape_layer(l) for u in us if haskey(u, "projection"))
-    length(projs) > 1 && throw(ArgumentError(
-        "geoshape: the geoshape layers of one map must share a projection; got $(join((get(p, "type", "custom") for p in projs), ", "))."))
-    isempty(projs) && return
+    sets = unique((i, u["projection"]) for (i, (l, us)) in enumerate(zip(layers, units))
+        if _sets_projection(l) for u in us if haskey(u, "projection"))
+    projs = unique(last.(sets))
+    length(projs) > 1 && throw(ArgumentError(_projection_conflict_message(sets)))
+    shared = isempty(projs) ? [u["projection"] for (l, us) in zip(layers, units)
+        if _is_geoshape_layer(l) for u in us if haskey(u, "projection")] : projs
+    isempty(shared) && return
     for (l, us) in zip(layers, units)
-        _is_geoshape_layer(l) && continue
+        _sets_projection(l) && continue
         for u in us
-            u["projection"] = _owned_copy(only(projs))
+            u["projection"] = _owned_copy(first(shared))
         end
     end
 end
+
+# Whether a layer sets the map's projection: a geoshape given `projection=`
+# (`nothing` included, which emits none).
+_sets_projection(layer::AlgebraOfGraphics.Layer) =
+    _sets_projection(extract_transformation(layer, GeoShapeAnalysis))
+_sets_projection(::Nothing) = false
+_sets_projection(a::GeoShapeAnalysis) = !(a.projection isa Makie.Automatic)
+
+# Names the projection properties two geoshape layers disagree on, then each
+# layer's projection, so that two projections of one type read apart.
+function _projection_conflict_message(sets)
+    props = unique(Iterators.flatten(keys(p) for (_, p) in sets))
+    differ = sort!([k for k in props if !allequal(get(p, k, missing) for (_, p) in sets)];
+        by=k -> (k != "type", k))
+    "geoshape: one map draws through one projection, but its geoshape layers set different ones, " *
+        "which differ in $(join(("`$k`" for k in differ), ", ", " and ")):\n" *
+        join(("  layer $i of the sum: projection = $(_projection_text(p))" for (i, p) in sets), "\n") *
+        "\nSet `projection=` on one geoshape layer and leave it out on the others, which then draw " *
+        "through it, or give every geoshape layer the same `projection=`."
+end
+
+_projection_text(p::AbstractDict) = "{" * join(("$k: $(_projection_value_text(p[k]))"
+    for k in sort!(collect(keys(p)); by=k -> (k != "type", k))), ", ") * "}"
+
+# A GeoJSON value (a `fit`) can hold thousands of coordinates, so it is named
+# by its GeoJSON type instead of printed.
+const _GEOJSON_TYPES = ("Feature", "FeatureCollection", "GeometryCollection", "Point",
+    "MultiPoint", "LineString", "MultiLineString", "Polygon", "MultiPolygon")
+_is_geojson(v) = v isa AbstractDict && get(v, "type", nothing) in _GEOJSON_TYPES
+_projection_value_text(v) = JSON.json(v)
+_projection_value_text(v::AbstractDict) = _is_geojson(v) ? "a GeoJSON $(v["type"])" : JSON.json(v)
+_projection_value_text(v::AbstractVector) =
+    !isempty(v) && all(_is_geojson, v) ? "$(length(v)) GeoJSON objects" : JSON.json(v)
 
 # Vega-Lite cannot compile a geoshape's `lookup` inside a layered facet: the
 # projection the layers share is fitted from outside the facet, and the fit

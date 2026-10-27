@@ -396,9 +396,70 @@ end
     @test_throws ArgumentError to_vegalite(kreis_map + data(sites) * mapping(:lon, :lat, :name) * visual(Scatter))
     @test_throws ArgumentError to_vegalite(kreis_map + data(sites) * mapping(:name, :lat) * visual(Scatter))
     @test_throws ArgumentError to_vegalite(kreis_map + data(sites) * mapping(; x=:lon, y=:lat) * visual(Scatter))
-    # refused: one map draws through one projection (design decision `0or46rr`).
-    @test_throws ArgumentError to_vegalite(kreis_map +
+    # refused: one map draws through one projection (design decision `0or46rr`),
+    # and these two geoshapes each set a different one.
+    @test_throws ArgumentError to_vegalite(
+        data(kreise) * mapping(:AGS; color=:effect) * geoshape(kreise_geo; projection=:mercator) +
         data(kreise) * mapping(:AGS) * geoshape(kreise_geo; projection=:albers))
+end
+
+# A map with an outline over a fitted choropleth (snag `lower-a-map-with-1d819e87`,
+# reporter RegionExplorer): before, a geoshape that left `projection=` out set
+# the default `:mercator`, so beside one fitted with
+# `projection=(; type="mercator", fit)` the map was refused with
+# "must share a projection; got mercator, mercator.", naming neither the `fit`
+# that differed nor a fix.
+@testitem "geoshape map: a geoshape without projection= draws through the map's" setup=[AoVGeoshapeMapFixtures] tags=[:translation, :geoshape] begin
+    region = Dict{String,Any}("type" => "Feature", "properties" => Dict{String,Any}(),
+        "geometry" => Dict{String,Any}("type" => "MultiPoint", "coordinates" => [[10.1, 54.1], [11.9, 54.9]]))
+    fitted = (; type="mercator", fit=region)
+    choropleth = data(kreise) * mapping(:AGS; color=:effect) * geoshape(kreise_geo; projection=fitted)
+    outline = data((; AGS=["01002"])) * mapping(:AGS) * geoshape(kreise_geo) *
+        visual(; fill=nothing, stroke="red")
+    want = Dict{String,Any}("type" => "mercator", "fit" => region)
+    for spec in (choropleth + outline, outline + choropleth, choropleth + outline + points)
+        @test all(l -> l["projection"] == want, to_vegalite(spec)["layer"])
+    end
+    # Each unit owns its copy, so a later pass that edits one leaves the rest.
+    l1, l2 = to_vegalite(choropleth + outline)["layer"]
+    @test l1["projection"] !== l2["projection"]
+    # Leaving it out emits exactly what repeating it on every geoshape emits.
+    @test to_vegalite(choropleth + outline) == to_vegalite(choropleth +
+        data((; AGS=["01002"])) * mapping(:AGS) * geoshape(kreise_geo; projection=fitted) *
+        visual(; fill=nothing, stroke="red"))
+    # A map where no geoshape sets one draws through the default.
+    @test all(l -> l["projection"] == Dict{String,Any}("type" => "mercator"),
+        to_vegalite(kreis_map + outline + points)["layer"])
+    # `nothing` still emits no projection on that geoshape.
+    bare = to_vegalite(choropleth + data(kreise) * mapping(:AGS) * geoshape(kreise_geo; projection=nothing))
+    @test !haskey(bare["layer"][2], "projection")
+end
+
+@testitem "geoshape map: geoshapes that set different projections name what differs" setup=[AoVGeoshapeMapFixtures] tags=[:translation, :geoshape] begin
+    region = Dict{String,Any}("type" => "Feature", "properties" => Dict{String,Any}(),
+        "geometry" => Dict{String,Any}("type" => "MultiPoint", "coordinates" => [[10.1, 54.1], [11.9, 54.9]]))
+    fitted = data(kreise) * mapping(:AGS; color=:effect) *
+        geoshape(kreise_geo; projection=(; type="mercator", fit=region))
+    outline(projection) = data((; AGS=["01002"])) * mapping(:AGS) * geoshape(kreise_geo; projection)
+    message(spec) = try
+        to_vegalite(spec)
+        ""
+    catch err
+        err isa ArgumentError ? sprint(showerror, err) : rethrow()
+    end
+    # refused: one map draws through one projection (design decision `0or46rr`).
+    m = message(fitted + points + outline(:mercator))
+    @test occursin("differ in `fit`:", m)
+    @test occursin("layer 1 of the sum: projection = {type: \"mercator\", fit: a GeoJSON Feature}", m)
+    @test occursin("layer 3 of the sum: projection = {type: \"mercator\"}", m)
+    @test occursin("leave it out on the others", m)
+    # The GeoJSON is named, not printed.
+    @test !occursin("coordinates", m)
+    m = message(outline(:albers) + fitted)
+    @test occursin("differ in `type` and `fit`:", m)
+    @test occursin("layer 1 of the sum: projection = {type: \"albers\"}", m)
+    m = message(outline((; type="mercator", center=[10, 54])) + outline(:mercator))
+    @test occursin("projection = {type: \"mercator\", center: [10,54]}", m)
 end
 
 @testitem "geoshape map in the browser: points stand inside their districts" tags=[:regression, :browser, :geoshape, :facet] begin
