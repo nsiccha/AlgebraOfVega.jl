@@ -15,6 +15,23 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
+## 0.2.4
+
+- Plots answer touch input. On the default canvas renderer a finger tap
+  used to report no mark at all: no `aov:click` (so no map drill-down on a
+  phone), no `aov:hover`, and a tooltip only while a finger dragged over the
+  mark, under the finger. Now a **tap** on a data mark opens its tooltip
+  above the finger and hovers its row (`aov:hover`, `config(link=…)`
+  groups); both stay after the finger lifts, follow the tapped spot when the
+  page scrolls, and end (`aov:hoverend`) on a tap on empty plot space, a
+  press outside the plot, a finger drag on the plot, or when the spot leaves
+  the window. A **long press** (about half a second, the finger held still)
+  is the mark's click: one `aov:click`, whose `detail.event` is the
+  `touchstart`, with the context menu over the mark suppressed. A tap never
+  sends `aov:click`, so the tooltip can be read before an app acts on the
+  mark. Scrolling and pinch zoom that start on a plot keep working. Mouse
+  input is unchanged.
+
 ## 0.2.3
 
 - A spec's HTML fragment (`to_html(spec)`, which is also the spec's
