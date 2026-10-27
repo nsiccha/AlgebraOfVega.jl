@@ -15,6 +15,21 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
+## 0.2.2
+
+- A `geoshape` layer that leaves `projection=` out draws through the map's
+  projection: the one another geoshape layer of the same map sets, else
+  `:mercator` as before. The default is now `automatic` instead of
+  `:mercator`. A choropleth fitted with
+  `projection=(; type="mercator", fit=region)` plus an outline geoshape with no
+  `projection=` now draws, where it was refused with
+  `got mercator, mercator.`; setting the projection once is enough, and
+  repeating it on every geoshape still works and emits the same spec.
+- Two geoshape layers that set different projections are still refused, and
+  the `ArgumentError` now names the properties they differ in, lists each
+  layer's projection (a GeoJSON `fit` by its GeoJSON type) and says how to
+  fix it.
+
 ## 0.2.1
 
 - Two configs compose into one. For two `config(...)` terms `a` and `b`,
