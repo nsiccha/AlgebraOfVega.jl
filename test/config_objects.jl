@@ -174,3 +174,47 @@ end
     @test vl["title"] == "second"
     @test vl["transform"] == [Dict("filter" => "datum.x > 2")]
 end
+
+# Two configs compose into one, so an app can extend a shared config with its own
+# settings and use the result at every `spec * SHARED` call site. Before,
+# `SHARED * config(...)` threw `MethodError: no method matching
+# *(::AlgebraOfVega.Config, ::AlgebraOfVega.Config)`, so the app copied the shared
+# config whole (snag `extend-a-shared-a232bbae`).
+@testitem "two configs compose into the config spec * a * b applies" setup=[AoVConfigObjectFixtures] tags=[:translation, :config, :regression] begin
+    shared = config(config = Dict("locale" => Dict("number" => Dict("decimal" => ",", "thousands" => ".")),
+                                  "axisX" => Dict("labelAngle" => 0)))
+    extra = config(config = Dict("axisTemporal" => Dict("format" => "%a %d.%m. %H:%M"),
+                                 "legend" => Dict("orient" => "top")))
+    extended = shared * extra
+    @test extended isa AlgebraOfVega.Config
+    vl = to_vegalite(base * extended)
+    @test vl == to_vegalite(base * shared * extra)
+    @test vl["config"]["locale"]["number"]["decimal"] == ","
+    @test vl["config"]["axisX"]["labelAngle"] == 0
+    @test vl["config"]["axisTemporal"]["format"] == "%a %d.%m. %H:%M"
+    @test vl["config"]["legend"]["orient"] == "top"
+    @test vl["config"]["legend"]["labelLimit"] == 0   # AoV's defaults survive
+    # Every merged property, and the replaced ones, compose as they do on a spec.
+    faceted = data(rows) * mapping(:x, :y; col=:group, color=:group) * visual(Scatter)
+    a = config(facet = (; linkxaxes = :none), axis = (; limits = ((1, 100), nothing)),
+        scales = scales(Y = (; scale = log10)), encoding = (; tooltip = [(; field=:group)]),
+        width = 100, title = "first")
+    b = config(facet = (; linkyaxes = :none), axis = (; clamp = true),
+        scales = scales(Y = (; nice = false)), encoding = (; y = (; sort = "descending")),
+        width = 200)
+    @test to_vegalite(faceted * (a * b)) == to_vegalite(faceted * a * b)
+    @test to_vegalite((a * b) * faceted) == to_vegalite(faceted * a * b)
+    # Grouping does not matter.
+    @test to_vegalite(base * ((shared * extra) * a)) == to_vegalite(base * (shared * (extra * a)))
+    @test to_vegalite(base * shared * extra * a) == to_vegalite(base * (shared * extra * a))
+    # The right one wins a conflicting key; the left one's sibling keys stay.
+    tilted = to_vegalite(base * (shared * config(config = (; axisX = (; labelAngle = 45)))))
+    @test tilted["config"]["axisX"]["labelAngle"] == 45
+    @test tilted["config"]["locale"]["number"]["thousands"] == "."
+    # On one summand of a sum it behaves as the two terms would.
+    lines = data(rows) * mapping(:x, :y) * visual(Lines)
+    @test to_vegalite(base * extended + lines) == to_vegalite(base * shared * extra + lines)
+    # Composing leaves both operands as they were.
+    @test !haskey(to_vegalite(base * shared)["config"], "axisTemporal")
+    @test !haskey(to_vegalite(base * extra)["config"], "locale")
+end

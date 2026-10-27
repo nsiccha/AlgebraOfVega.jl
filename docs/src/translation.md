@@ -86,6 +86,14 @@ spec * config(config=(; legend=(; orient="bottom"), mark=(; cursor="pointer"))) 
 
 Any other property (`width`, `title`, `params`, `transform`, …) takes the later term's value.
 
+Two configs compose the same way before they meet a spec: `a * b` is the `Config` that `spec * a * b` applies, so `spec * (a * b) == spec * a * b`. An app can extend a config it shares with other apps once, and use the result wherever it used the shared one:
+
+```julia
+const LOCALE = config(config=(; locale=(; number=(; decimal=",", thousands="."))))  # shared
+const APP = LOCALE * config(config=(; legend=(; orient="top")))  # plus this app's settings
+spec * APP  # the same chart as spec * LOCALE * config(config=(; legend=(; orient="top")))
+```
+
 ### Per-layer overrides
 
 An encoding override multiplied onto one summand of a `+` sum applies to that summand's layers only, just as `a * visual(...) + b` styles only `a`. Multiply it onto the whole sum to reach every layer:

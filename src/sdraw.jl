@@ -270,10 +270,23 @@ A VL-spelled `size` on a Scatter is a Vega area (px²); Makie `markersize` is a
 length (px), so the value is converted back with `_vl_size_to_markersize` —
 the inverse of the forward `_markersize_to_vl_size` — keeping one spec
 visually identical on both renderers.
+
+Each `visual(...)` term in the layer is rewritten in place, so AoG still
+combines them as authored; whether the layer is a Scatter is read from their
+combination (`extract_visual`).
 """
 function _fix_visual_attrs(layer::AlgebraOfGraphics.Layer)
     vis = extract_visual(layer)
     isnothing(vis) && return layer
+    scatter = vis.plottype <: Scatter
+    t = _map_visuals(v -> _fix_visual(v, scatter), layer.transformation)
+    t === layer.transformation && return layer
+    AlgebraOfGraphics.Layer(t, layer.data, layer.positional, layer.named)
+end
+
+# One `visual(...)` term with its VL-style attributes renamed; the term itself
+# when nothing needs it.
+function _fix_visual(vis::AlgebraOfGraphics.Visual, scatter::Bool)
     attrs = Dict(pairs(vis.attributes))
     changed = false
     if get(attrs, :color, nothing) === :ink
@@ -283,7 +296,7 @@ function _fix_visual_attrs(layer::AlgebraOfGraphics.Layer)
     if haskey(attrs, :size) && !haskey(attrs, :markersize)
         v = pop!(attrs, :size)
         # Only a true Scatter takes a marker size; other marks keep the value.
-        attrs[:markersize] = (vis.plottype <: Scatter && v isa Real) ?
+        attrs[:markersize] = (scatter && v isa Real) ?
             _vl_size_to_markersize(v) : v
         changed = true
     end
@@ -300,11 +313,8 @@ function _fix_visual_attrs(layer::AlgebraOfGraphics.Layer)
         attrs[:alpha] = pop!(attrs, :opacity)
         changed = true
     end
-    !changed && return layer
-    new_vis = AlgebraOfGraphics.Visual(vis.plottype; attrs...)
-    # Rebuild layer with new visual in the transformation
-    new_t = _swap_visual(layer.transformation, new_vis)
-    AlgebraOfGraphics.Layer(new_t, layer.data, layer.positional, layer.named)
+    !changed && return vis
+    AlgebraOfGraphics.Visual(vis.plottype, AlgebraOfGraphics.NamedArguments(attrs), vis.target)
 end
 
 # Static output has no CSS host, so the theme-following `:ink` becomes the
@@ -316,10 +326,14 @@ _static_color(color) = color === :ink ?
 _to_linestyle(v::AbstractVector{<:Real}) = Makie.Linestyle(collect(Float64, v))
 _to_linestyle(v) = v
 
-_swap_visual(::AlgebraOfGraphics.Visual, new_vis) = new_vis
-_swap_visual(t::ComposedFunction{<:AlgebraOfGraphics.Visual}, new_vis) = new_vis ∘ t.inner
-_swap_visual(t::ComposedFunction, new_vis) = t.outer ∘ new_vis
-_swap_visual(_, new_vis) = new_vis
+# The transformation chain with `f` applied to every `visual(...)` term. An
+# unchanged chain comes back `===` the original.
+_map_visuals(f, v::AlgebraOfGraphics.Visual) = f(v)
+function _map_visuals(f, t::ComposedFunction)
+    outer, inner = _map_visuals(f, t.outer), _map_visuals(f, t.inner)
+    outer === t.outer && inner === t.inner ? t : outer ∘ inner
+end
+_map_visuals(f, t) = t
 
 _convert_drawable(d::AlgebraOfGraphics.Layers) = _to_aog_drawable(d)
 _convert_drawable(d::AlgebraOfGraphics.Layer) = _convert_single_layer(d)

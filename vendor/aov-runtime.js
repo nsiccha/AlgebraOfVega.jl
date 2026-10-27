@@ -578,6 +578,7 @@ window.AoV = window.AoV || {
             var el = self._els[id];
             if (el && !el.isConnected) self.dispose(id);
         });
+        self._sweepCells();
     },
     _watchRemovals: function() {
         if (this._removalObserver || typeof MutationObserver === 'undefined' || !document.documentElement) return;
@@ -1170,6 +1171,7 @@ window.AoV = window.AoV || {
             if (!el || !el.isConnected || !again) return;
             if (JSON.stringify(self.hostThemeConfig(el)) !== self._themeKeys[id]) again();
         });
+        self._refreshCellThemes();
     },
     _watchTheme: function() {
         if (this._themeWatch || typeof document === 'undefined') return;
@@ -2169,6 +2171,181 @@ window.AoV = window.AoV || {
             'frames and shared scales come from all of its rows, so rows cannot be changed in place: send ' +
             'update_spec(id, spec) with the new rows instead. Data left unchanged.');
         return true;
+    },
+
+    // --- Cell charts: cell_charts(spec) (src/cell_charts.jl) ---
+    // A table column of small charts is a figure stepped one frame per table
+    // row key (config(frame=…) lowering). `cellColumn` registers the column's
+    // figure once per page; each cell (`AoV.cell(el)`: el carries the column
+    // id in data-aov-cells and its key as JSON in data-aov-key) gets its own
+    // light vega.View of the column's Vega, parsed once per column and host
+    // theme, fed only its own rows. The frame plan pins every scale to what
+    // all keys share, except the axes the figure unlinks (`_aov.cells.own`).
+    // Cells near the viewport draw first; the rest draw while the browser is
+    // idle, so a printed page has them all. Cells are no plots: their views
+    // live in _cellViews (element → {view, colId, theme}), not in the
+    // per-plot maps, and the removal sweep finalizes the view of a cell that
+    // left the page.
+    _cellCols: {},
+    _cellWaiting: {},
+    _cellViews: null,
+    _cellPending: null,
+    cellColumn: function(colId, spec) {
+        var self = this;
+        spec = self._expandSpecData(JSON.parse(JSON.stringify(spec)));
+        var known = self._cellCols[colId];
+        // The same column sent again with a re-rendered row keeps its parsed Vega.
+        if (!known || JSON.stringify(known.spec) !== JSON.stringify(spec)) {
+            self._cellCols[colId] = {spec: spec, plan: null, built: {}, inline: null};
+        }
+        var waiting = self._cellWaiting[colId] || [];
+        delete self._cellWaiting[colId];
+        waiting.forEach(function(el) { self._drawCell(el); });
+    },
+    cell: function(el) {
+        var self = this;
+        if (!el) return;
+        self._watchRemovals();
+        self._watchTheme();
+        if (!self._cellViews) {
+            self._cellViews = new Map();
+            self._cellPending = new Set();
+            if (typeof IntersectionObserver !== 'undefined') {
+                self._cellIO = new IntersectionObserver(function(entries) {
+                    entries.forEach(function(e) { if (e.isIntersecting) self._takeCell(e.target); });
+                }, {rootMargin: '100% 0px'});
+            }
+            window.addEventListener('beforeprint', function() { self._cellPending.forEach(function(c) { self._takeCell(c); }); });
+        }
+        self._cellPending.add(el);
+        if (self._cellIO) self._cellIO.observe(el);
+        self._cellFillSoon();
+    },
+    _takeCell: function(el) {
+        if (!this._cellPending.delete(el)) return;
+        if (this._cellIO) this._cellIO.unobserve(el);
+        this._drawCell(el);
+    },
+    // Draw the cells no one has scrolled to yet, a few per idle period.
+    _cellFillSoon: function() {
+        var self = this;
+        if (self._cellFilling) return;
+        self._cellFilling = true;
+        var idle = window.requestIdleCallback ? function(fn) { window.requestIdleCallback(fn, {timeout: 1000}); } :
+            function(fn) { setTimeout(fn, 50); };
+        idle(function step() {
+            var batch = [];
+            self._cellPending.forEach(function(el) { if (batch.length < 8) batch.push(el); });
+            batch.forEach(function(el) { self._takeCell(el); });
+            if (self._cellPending.size) idle(step); else self._cellFilling = false;
+        });
+    },
+    _drawCell: function(el) {
+        var self = this;
+        if (!el.isConnected) return;
+        var colId = el.getAttribute('data-aov-cells'), col = self._cellCols[colId];
+        if (!col) { (self._cellWaiting[colId] = self._cellWaiting[colId] || []).push(el); return; }
+        var key;
+        try { key = JSON.parse(el.getAttribute('data-aov-key')); }
+        catch (err) { console.error('AoV: a cell of column "' + colId + '" has no readable key:', err); return; }
+        if (!col.plan) col.plan = self._framePlan(colId, col.spec);
+        return Promise.all([col.plan, self._cellTooltip()]).then(function(r) {
+            return self._cellView(col, colId, el, key, r[0], r[1]);
+        });
+    },
+    // The column's Vega for the host theme of `el`, parsed once: compiled as
+    // vega-embed compiles a plot (the theme as the config the spec's own
+    // config overrides), with the shared domains of `plan` pinned and its
+    // inline datasets emptied. Their rows are kept per key (`col.inline`),
+    // each with the rows that carry no key, which every cell draws.
+    _cellRuntime: function(col, el, plan) {
+        var spec = col.spec;
+        var theme = this._themeOn(spec) ? this.hostThemeConfig(el) : null;
+        var tkey = JSON.stringify(theme);
+        if (col.built[tkey]) return col.built[tkey];
+        var s = JSON.parse(JSON.stringify(spec));
+        var ink = theme && s.config && s.config.style && s.config.style['aov-ink'];
+        if (ink && ink.color === '#333') ink.color = theme.style['aov-ink'].color;
+        var vg = vegaLite.compile(s, theme ? {config: theme} : {}).spec;
+        var own = (spec._aov && spec._aov.cells && spec._aov.cells.own) || [];
+        if (plan) (vg.scales || []).forEach(function(sc) {
+            var d = plan.domains[sc.name];
+            if (!d || own.indexOf(sc.name) !== -1) return;
+            if (sc.domain && typeof sc.domain === 'object' && !Array.isArray(sc.domain) && !sc.domain.signal) sc.domain = d.slice();
+        });
+        var field = spec._aov.frame.field, inline = [];
+        (vg.data || []).forEach(function(d) {
+            if (!Array.isArray(d.values)) return;
+            var byKey = new Map(), shared = [];
+            d.values.forEach(function(row) {
+                var k = row && row[field];
+                if (k === undefined || k === null || (typeof k === 'number' && !isFinite(k))) { shared.push(row); return; }
+                var tok = JSON.stringify(k);
+                if (!byKey.has(tok)) byKey.set(tok, []);
+                byKey.get(tok).push(row);
+            });
+            inline.push({name: d.name, byKey: byKey, shared: shared});
+            d.values = [];
+        });
+        col.inline = inline;
+        return (col.built[tkey] = {runtime: vega.parse(vg), theme: tkey});
+    },
+    // vega-embed's tooltip handler, the one every AoV plot shows: vega-embed
+    // exports no constructor for it, so a view embedded once into a detached
+    // element hands it over. A cell's view takes it when it is built: setting
+    // a handler on a drawn view resets its renderer and leaves it blank.
+    _cellTooltip: function() {
+        if (!this._cellTip) {
+            this._cellTip = vegaEmbed(document.createElement('div'), {}, {mode: 'vega', renderer: 'none', actions: false})
+                .then(function(r) { var handler = r.view.tooltip(); r.finalize(); return handler; })
+                .catch(function(err) { console.error('AoV: cell charts show no tooltips:', err); return null; });
+        }
+        return this._cellTip;
+    },
+    _cellView: function(col, colId, el, key, plan, tooltip) {
+        var self = this;
+        if (!el.isConnected) return;
+        var built;
+        try { built = self._cellRuntime(col, el, plan); }
+        catch (err) { console.error('AoV: cell charts of column "' + colId + '" cannot be drawn:', err); return; }
+        var prev = self._cellViews.get(el);
+        if (prev) prev.view.finalize();
+        var opts = {renderer: 'svg', container: el, hover: true};
+        if (tooltip) opts.tooltip = tooltip;
+        var view = new vega.View(built.runtime, opts);
+        var tok = JSON.stringify(key);
+        col.inline.forEach(function(ds) { view.data(ds.name, (ds.byKey.get(tok) || []).concat(ds.shared)); });
+        view.signal(self._FRAME_PARAM, key);
+        self._cellViews.set(el, {view: view, colId: colId, theme: built.theme});
+        return view.runAsync().then(function() { return view; })
+            .catch(function(err) { console.error('AoV: a cell of column "' + colId + '" cannot be drawn:', err); });
+    },
+    // Redraw the cells of every column whose host theme changed (refreshTheme).
+    _refreshCellThemes: function() {
+        var self = this;
+        if (!self._cellViews) return;
+        var current = {};
+        self._cellViews.forEach(function(c, el) {
+            var col = self._cellCols[c.colId];
+            if (!col || !el.isConnected) return;
+            if (!(c.colId in current)) current[c.colId] = JSON.stringify(self._themeOn(col.spec) ? self.hostThemeConfig(el) : null);
+            if (current[c.colId] !== c.theme) self._drawCell(el);
+        });
+    },
+    // Release the views of cells that left the page (the removal sweep).
+    _sweepCells: function() {
+        var self = this;
+        if (!self._cellViews) return;
+        self._cellViews.forEach(function(c, el) {
+            if (el.isConnected) return;
+            c.view.finalize();
+            self._cellViews.delete(el);
+        });
+        self._cellPending.forEach(function(el) {
+            if (el.isConnected) return;
+            if (self._cellIO) self._cellIO.unobserve(el);
+            self._cellPending.delete(el);
+        });
     },
 
     // A click on a data mark reaches app code as a bubbling `aov:click`

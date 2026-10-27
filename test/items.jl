@@ -624,6 +624,63 @@ emitted where Vega-Lite drops it without a word.
     @test static_attrs[:fontsize] == 18 && static_attrs[:align] == (:left, :center)
 end
 
+"""
+A layer's `visual(...)` terms combine as AoG applies them (`Visual(::ProcessedLayer)`
+in chain order): the specific plot type is kept and a later term's attributes win,
+so a library can add `visual(; clip=true)` to an app's `visual(Scatter)` layer.
+Before, only the outermost term was read, and `visual(Scatter) * visual(; color="red")`
+failed with "Unsupported plot type for Vega-Lite: Makie.Plot{Makie.plot}"
+(snag `lower-a-layer-wi-08f4cedd`).
+"""
+@testitem "composed visual terms combine as in AoG" setup=[AoVTestImports] tags=[:translation, :static, :regression] begin
+    import Makie
+    df = (; x=[1.0, 2.0], y=[2.0, 3.0])
+    pts = data(df) * mapping(:x, :y)
+    mark(vis) = to_vegalite(pts * vis; interactive=false)["mark"]
+    lay(spec) = spec isa AlgebraOfGraphics.Layer ? spec : only(spec.layers)
+
+    # The reporter's shapes: an attribute added to a Scatter layer.
+    @test mark(visual(Scatter) * visual(; color="red")) == mark(visual(Scatter; color="red"))
+    @test mark(visual(Scatter) * visual(; clip=true)) ==
+          Dict{String,Any}("type" => "point", "filled" => true, "clip" => true)
+    # Term order does not lose the plot type; a later attribute wins.
+    @test mark(visual(; color="red") * visual(Scatter)) == mark(visual(Scatter; color="red"))
+    @test mark(visual(Scatter; color="red", markersize=8) * visual(; color="blue")) ==
+          mark(visual(Scatter; color="blue", markersize=8))
+    # A later specific plot type replaces an earlier one, as Makie.plottype does.
+    @test mark(visual(Scatter) * visual(Lines; color="red")) == mark(visual(Lines; color="red"))
+    # Multiplying a sum reaches every summand, keeping each one's plot type.
+    vl = to_vegalite((pts * visual(Scatter) + pts * visual(Lines)) * visual(; color="red"); interactive=false)
+    @test [l["mark"] for l in vl["layer"]] == [mark(visual(Scatter; color="red")), mark(visual(Lines; color="red"))]
+
+    # The combination is AoG's own: the plot type and attributes of AoG's
+    # processed layer for the same chain.
+    for spec in (pts * visual(Scatter) * visual(; color="red"),
+                 pts * visual(; color="red") * visual(Scatter),
+                 pts * visual(; markersize=8) * visual(Scatter; color="red") * visual(; color="blue"),
+                 pts * visual(Scatter; markersize=8) * visual(Lines; linewidth=2))
+        layer = lay(spec)
+        vis, processed = AlgebraOfVega.extract_visual(layer), AlgebraOfGraphics.ProcessedLayer(layer)
+        @test vis.plottype == processed.plottype
+        @test Dict(pairs(vis.attributes)) == Dict(pairs(processed.attributes))
+    end
+    single = visual(Scatter; color="red")
+    @test AlgebraOfVega.extract_visual(lay(pts * single)) === single.transformation
+
+    # Static path: each term is rewritten in place, so a VL spelling in an inner
+    # term is renamed too (it used to reach Makie as `size`), and whether `size`
+    # is a Scatter area comes from the combined plot type.
+    static(spec) = AlgebraOfVega.extract_visual(AlgebraOfVega._fix_visual_attrs(lay(spec)))
+    s = static(pts * visual(; size=50) * visual(Scatter; color=:ink))
+    @test s.plottype == Scatter
+    @test Dict(pairs(s.attributes)) ==
+          Dict(:markersize => AlgebraOfVega._vl_size_to_markersize(50), :color => AlgebraOfVega._static_color(:ink))
+    unchanged = lay(pts * visual(Scatter) * visual(; color="red"))
+    @test AlgebraOfVega._fix_visual_attrs(unchanged) === unchanged
+    fig = Makie.Figure()
+    @test length(sdraw!(fig[1, 1], pts * visual(; size=50) * visual(Scatter) * visual(; color="red"))) == 1
+end
+
 @testitem "Band lowers to an unstacked absolute range" setup=[AoVTestImports] tags=[:translation, :regression] begin
     rows = (; x=[1.0, 2.0, 3.0, 1.0, 2.0, 3.0],
               lo=[0.1, 0.2, 0.3, 0.5, 0.6, 0.7],
