@@ -231,7 +231,7 @@ struct GeoShapeAnalysis
 end
 
 """
-    geoshape(geometry; key=nothing, projection=:mercator)
+    geoshape(geometry; key=nothing, projection=automatic)
 
 Choropleth polygons: fill GeoJSON region shapes by a data column joined on a
 shared key. The geometry source owns the polygons; the layer's `data(...)`
@@ -254,7 +254,9 @@ be drawn. `key` names the join field: a single name used on both sides
 or omitted, in which case the mapping's single positional is the key
 (`mapping(:AGS; color=:effect)`). `projection` is a Vega-Lite projection:
 a symbol/string type name (`:mercator`, `:albers`, …), a Dict/NamedTuple of
-projection properties, or `nothing` to emit no projection.
+projection properties, or `nothing` to emit no projection. Left out, it is the
+map's projection: the one another geoshape layer of the map sets, else
+`:mercator`.
 
     data(effects) * mapping(:AGS; color=:effect) *
         geoshape("https://example.invalid/districts.geojson")
@@ -276,14 +278,25 @@ marks together:
         data(sites) * mapping(:lon, :lat; color=:kind) * visual(Scatter)
 
 Such a layer takes plain point-like marks (`Scatter`, `Lines`, `Text`) with
-the usual named channels and tooltips; an analysis layer, an x/y channel, a
-mark that cannot stand at a point, or two geoshapes with different
-projections fail with an `ArgumentError`. This is a Vega-Lite-only plot type: the static
+the usual named channels and tooltips; an analysis layer, an x/y channel, or a
+mark that cannot stand at a point fail with an `ArgumentError`.
+
+A map draws through one projection. Set `projection=` on one geoshape layer and
+leave it out on the others, which then draw through it (an outline over a
+fitted choropleth):
+
+    data(effects) * mapping(:AGS; color=:effect) *
+        geoshape(geojson; projection=(; type="mercator", fit=region)) +
+    data(outline) * mapping(:AGS) * geoshape(outline_geo) *
+        visual(; fill=nothing, stroke="red")
+
+Two geoshape layers that set different projections fail with an
+`ArgumentError` naming the properties they differ in. This is a Vega-Lite-only plot type: the static
 `sdraw` path refuses it loudly, [`vsave`](@ref) writes it to a PDF/SVG/PNG file,
 and a mounted map refreshes with `update_spec`. The channel picker keeps its x/y
 channels disabled for a geoshape layer, as for the interval analyses.
 """
-function geoshape(geometry; key=nothing, projection=:mercator)
+function geoshape(geometry; key=nothing, projection=Makie.automatic)
     _check_geoshape_geometry(geometry)
     _check_geoshape_key(key)
     _check_geoshape_projection(projection)
@@ -312,7 +325,7 @@ _check_geoshape_key(k::Pair) =
 _check_geoshape_key(k) = throw(ArgumentError(
     "geoshape: `key` must be a column name, a `data_column => geo_property` pair, or omitted; got $(typeof(k))."))
 
-_check_geoshape_projection(::Nothing) = nothing
+_check_geoshape_projection(::Union{Nothing,Makie.Automatic}) = nothing
 _check_geoshape_projection(::Union{Symbol,AbstractString,AbstractDict,NamedTuple}) = nothing
 _check_geoshape_projection(p) = throw(ArgumentError(
     "geoshape: `projection` must be a projection type name, a Dict/NamedTuple of Vega-Lite projection properties, or `nothing`; got $(typeof(p))."))

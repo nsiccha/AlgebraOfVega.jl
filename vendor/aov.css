@@ -6,6 +6,8 @@
        HTMXObjects; this block only carries roles peculiar to
        the AoV gallery shell. */
     .aov-plot-area { width: 100%; min-width: 0; max-width: 100%; overflow-x: auto; }
+    /* cell_charts: a table cell's total and its small chart stay on one line. */
+    td.aov-cells { white-space: nowrap; }
     /* config(frame=…) player after a plot: play/pause, slider, frame label. */
     .aov-frame { display: flex; align-items: center; gap: 0.5em; margin: 0.25em 0; }
     .aov-frame > .aov-frame-play { width: auto; margin: 0; padding: 0.2em 0.7em; line-height: 1.2; }

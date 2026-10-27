@@ -3,7 +3,8 @@ module AlgebraOfVegaHTMXObjectsExt
 using AlgebraOfVega
 using HTMXObjects
 using HTMXObjects: CaptionSpec, render_caption, render_table,
-    caption_style, sortable_table_js, html_only
+    caption_style, sortable_table_js, html_only, markdown_only,
+    format_number, table_texts, TableTexts
 using HTMX: h
 import Tables
 import Statistics
@@ -11,7 +12,8 @@ import AlgebraOfVega: with_plot_caption, draws_summary_table, _sanitize_id,
                       _auto_summary_args, _auto_remap_parts, to_node, to_html,
                       VegaSpec, caption_share_button, _vl_json,
                       PlotTexts, _EN_PLOT_TEXTS, _plot_text, _runtime_texts_attrs,
-                      _static_img, _MarkdownView
+                      _static_img, _MarkdownView, cell_charts, CellColumn,
+                      _cell_column, _wire_spec, _vl_safe, _inline_script
 
 # HTMX 1.0 escapes attribute values itself (`&`, `"`, `'`, `<`, `>`), and the
 # HTML parser decodes them back before JS/`dataset` ever sees them — so JSON
@@ -481,6 +483,65 @@ function draws_summary_table(table;
     pivoted = (; col_pairs...)
 
     render_table(pivoted; caption, kwargs...)
+end
+
+# --- Cell charts (`cell_charts`, src/cell_charts.jl) ---
+
+"""
+    CellCharts
+
+The cells of one `cell_charts` column: `cells[key]` is the `<td>` of the row
+`key`. The column's figure goes into the first cell built; every cell after it
+refers to it by the column's id, so the figure is sent once per page.
+"""
+mutable struct CellCharts
+    column::CellColumn
+    texts::TableTexts
+    sigdigits::Int
+    total::Any
+    label::Any
+    text::Any
+    sent::Bool
+end
+
+Base.keys(c::CellCharts) = c.column.keys
+Base.haskey(c::CellCharts, key) = haskey(c.column.rows, key)
+Base.length(c::CellCharts) = length(c.column.keys)
+
+function cell_charts(spec, scales=nothing; texts::TableTexts=table_texts(), sigdigits::Integer=3,
+                     id=nothing, total=nothing, label=nothing, text=nothing)
+    CellCharts(_cell_column(spec, scales; id), texts, sigdigits, total, label, text, false)
+end
+
+# A total as the sort value and the CSV field: the exact number, an integral
+# one without a decimal point.
+_cell_number(x::Real) = isinteger(x) && abs(x) < 1e15 ? string(round(Int, x)) : string(x)
+
+_cell_shown(c::CellCharts, x) =
+    isnothing(c.label) ? format_number(x; texts=c.texts, sigdigits=c.sigdigits) : string(c.label(x))
+
+function _cell_text(c::CellCharts, key, rows)
+    isnothing(c.text) || return string(c.text(rows))
+    parts = get(c.column.parts, key, Pair{Any,Float64}[])
+    join(("$(cat): $(format_number(v; texts=c.texts, sigdigits=c.sigdigits))" for (cat, v) in parts if v != 0), "; ")
+end
+
+function Base.getindex(c::CellCharts, key)
+    col = c.column
+    rows = get(col.rows, key, Any[])
+    x = isnothing(c.total) ? get(col.totals, key, 0.0) : Float64(c.total(rows))
+    shown = _cell_shown(c, x)
+    text = _cell_text(c, key, rows)
+    chart = h.span(; class="aov-cell", data_aov_cells=col.id, data_aov_key=_vl_json(_vl_safe(key)),
+        role="img", aria_label=isempty(text) ? shown : text,
+        style="display:inline-block;width:$(col.width)px;height:$(col.height)px;vertical-align:middle")
+    js = "AoV.cell(document.currentScript.previousElementSibling);"
+    c.sent || (js = "AoV.cellColumn($(_vl_json(col.id)), $(_vl_json(_wire_spec(col.vl))));" * js)
+    c.sent = true
+    h.td(; class="aov-cells", data_sort_value=_cell_number(x), data_htmxo_number=_cell_number(x))(
+        h.span(; class="aov-cell-total")(shown), " ",
+        html_only(h.span(; class="aov-cell-chart")(chart, _inline_script(js))),
+        markdown_only(isempty(text) ? "" : "($text)"))
 end
 
 end # module
