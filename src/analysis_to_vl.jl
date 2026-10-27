@@ -1635,6 +1635,9 @@ _geoshape_data(g::AbstractVector) = Dict{String,Any}("values" => _rewind_geojson
 const _GEOSHAPE_FIELD = "__geometry__"
 
 _geoshape_projection(::Nothing) = nothing
+# Left out: the map's default. On a map with a geoshape that sets one,
+# `_share_map_projection!` replaces it with that one.
+_geoshape_projection(::Makie.Automatic) = Dict{String,Any}("type" => "mercator")
 _geoshape_projection(p::Union{Symbol,AbstractString}) = Dict{String,Any}("type" => string(p))
 _geoshape_projection(p::Union{AbstractDict,NamedTuple}) = _owned_copy(p)
 
