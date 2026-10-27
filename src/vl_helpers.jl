@@ -169,6 +169,11 @@ both. `encoding`, `config`, `facet`, `axis` and `scales` merge key by key (`enco
 `config` recursively, `scales` scale by scale), with the later term winning on a
 conflicting key; any other property (`width`, `title`, `params`, `transform`, …) takes the
 later term's value.
+
+Two configs compose the same way on their own: `a * b` is the `Config` that `spec * a * b`
+applies, so `spec * (a * b) == spec * a * b`. A shared config extended with an app's own
+settings, `SHARED * config(config=(; legend=(; orient="top")))`, stands in wherever
+`SHARED` was used.
 """
 function config(; kwargs...)
     props = Dict{Symbol,Any}(pairs(kwargs)...)
@@ -276,6 +281,11 @@ Base.:*(c::Config, a::AlgebraOfGraphics.AbstractAlgebraic) = VegaSpec(a, c)
 # so the right one takes precedence.
 Base.:*(v::VegaSpec, c::Config) = VegaSpec(v.drawable, _merge_configs(v.config, c), v.layer_encodings)
 Base.:*(c::Config, v::VegaSpec) = VegaSpec(v.drawable, _merge_configs(c, v.config), v.layer_encodings)
+# Two configs compose into the one config `spec * a * b` applies, so
+# `spec * (a * b) == spec * a * b`: an app extends a shared config with its own
+# settings once (`const GERMAN = SHARED * config(config=…)`) and uses the result
+# wherever it used the shared one, instead of copying it or changing every call site.
+Base.:*(a::Config, b::Config) = _merge_configs(a, b)
 
 # Facet channels configure the one facet operator every layer shares, so a
 # summand's override of them stays spec-level.
