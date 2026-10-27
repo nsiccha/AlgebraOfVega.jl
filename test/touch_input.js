@@ -163,6 +163,19 @@
         document.dispatchEvent(new Event('scroll', {bubbles: true}));
         await sleep(30);
 
+        // A visible area smaller than the window (a desktop-width page on a
+        // phone, a pinch zoom), starting just above the finger: the tooltip
+        // goes where the reader sees it, not above that area's top.
+        const area = {offsetLeft: 0, offsetTop: f.p.y - 40, width: 360, height: 500, addEventListener() {}};
+        Object.defineProperty(window, 'visualViewport', {configurable: true, value: area});
+        AoV._placeTouchTip(f.p.x, f.p.y);
+        t = tip();
+        delete window.visualViewport;
+        check(t && t.top >= area.offsetTop - 0.5 && t.bottom <= area.offsetTop + area.height + 0.5 &&
+            t.left >= -0.5 && t.right <= area.width + 0.5,
+            'map tap in a smaller visible area from y ' + area.offsetTop + ': tooltip ' + JSON.stringify(t));
+        AoV._placeTouchTip(f.p.x, f.p.y);
+
         // A tap on the same district keeps it; a tap on another moves both.
         links.length = 0;
         await tap('tt-map', d2);

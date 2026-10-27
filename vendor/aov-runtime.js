@@ -2510,8 +2510,8 @@ window.AoV = window.AoV || {
     //   Both stay after the finger lifts and follow the tapped spot when the
     //   page scrolls. They end (`aov:hoverend`) on a tap on empty plot
     //   space, a press outside the plot, a finger dragging on the plot, or
-    //   once the tapped spot leaves the window; a tap on another mark moves
-    //   them there.
+    //   once the tapped spot leaves the visible area; a tap on another mark
+    //   moves them there.
     // - A long press on a data mark (_TOUCH_HOLD_MS, the finger within
     //   _TOUCH_SLOP px) opens them too and is the mark's click: one
     //   `aov:click`, detail.event the touchstart. The context menu over the
@@ -2653,26 +2653,35 @@ window.AoV = window.AoV || {
         this._touchClose(id, null);
         delete this._touches[id];
     },
+    // The part of the page the reader sees, in client coordinates: the
+    // visual viewport. On a phone it is smaller than the layout viewport
+    // (innerWidth × innerHeight) whenever the page is wider than the screen
+    // (a desktop layout, a desktop-view page) or zoomed in.
+    _visibleArea: function() {
+        var vv = window.visualViewport;
+        if (!vv) return {left: 0, top: 0, right: window.innerWidth, bottom: window.innerHeight};
+        return {left: vv.offsetLeft, top: vv.offsetTop, right: vv.offsetLeft + vv.width, bottom: vv.offsetTop + vv.height};
+    },
     // Move the shown tooltip next to client point (x, y), where a finger on
     // it does not cover it: above it, else beside it, else below it, inside
-    // the window. Vega's tooltip handler puts it below and to the right.
+    // the visible area. Vega's tooltip handler puts it below and to the right.
     _placeTouchTip: function(x, y) {
         var tip = document.querySelector('.vg-tooltip.visible');
         if (!tip) return;
-        var b = tip.getBoundingClientRect(), w = b.width, h = b.height, g = this._TOUCH_TIP_GAP;
-        var W = window.innerWidth, H = window.innerHeight;
-        var cx = Math.max(0, Math.min(W - w, x - w / 2)), cy = Math.max(0, Math.min(H - h, y - h / 2));
-        var spots = [[cx, y - g - h], [x + g, cy], [x - g - w, cy], [cx, y + 2 * g]], at = [cx, Math.max(0, y - g - h)];
+        var b = tip.getBoundingClientRect(), w = b.width, h = b.height, g = this._TOUCH_TIP_GAP, v = this._visibleArea();
+        var cx = Math.max(v.left, Math.min(v.right - w, x - w / 2)), cy = Math.max(v.top, Math.min(v.bottom - h, y - h / 2));
+        var spots = [[cx, y - g - h], [x + g, cy], [x - g - w, cy], [cx, y + 2 * g]], at = [cx, Math.max(v.top, y - g - h)];
         for (var i = 0; i < spots.length; i++) {
             var s = spots[i];
-            if (s[0] >= 0 && s[1] >= 0 && s[0] + w <= W && s[1] + h <= H) { at = s; break; }
+            if (s[0] >= v.left && s[1] >= v.top && s[0] + w <= v.right && s[1] + h <= v.bottom) { at = s; break; }
         }
         tip.style.left = at[0] + 'px';
         tip.style.top = at[1] + 'px';
     },
     // Installed by the first tooltip a tap opens: a press outside its plot
-    // (any mouse press) closes it; a scroll or resize moves it with the
-    // tapped spot and closes it once that spot leaves the window.
+    // (any mouse press) closes it; a scroll, resize, pinch zoom or pan moves
+    // it with the tapped spot and closes it once that spot leaves the
+    // visible area.
     _watchTouchTips: function() {
         if (this._touchTipListeners) return;
         var self = this;
@@ -2688,9 +2697,10 @@ window.AoV = window.AoV || {
             });
         };
         var follow = function(event) {
+            var v = self._visibleArea();
             each(function(id, tip, el) {
                 var r = el.getBoundingClientRect(), x = r.left + tip.dx, y = r.top + tip.dy;
-                if (x < 0 || y < 0 || x > window.innerWidth || y > window.innerHeight) self._touchClose(id, event);
+                if (x < v.left || y < v.top || x > v.right || y > v.bottom) self._touchClose(id, event);
                 else self._placeTouchTip(x, y);
             });
         };
@@ -2698,6 +2708,10 @@ window.AoV = window.AoV || {
         document.addEventListener('pointerdown', press, true);
         window.addEventListener('scroll', follow, {capture: true, passive: true});
         window.addEventListener('resize', follow, {passive: true});
+        if (window.visualViewport) {
+            window.visualViewport.addEventListener('scroll', follow, {passive: true});
+            window.visualViewport.addEventListener('resize', follow, {passive: true});
+        }
     },
 
     // --- Keyed highlight ---

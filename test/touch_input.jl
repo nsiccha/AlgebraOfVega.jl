@@ -52,7 +52,7 @@ using TestItemRunner
             if !isnothing(result)
                 report = JSON.parse(replace(result[1], "&quot;" => "\"", "&lt;" => "<",
                     "&gt;" => ">", "&amp;" => "&"))
-                @test report["checks"] >= 40
+                @test report["checks"] >= 41
                 @test isempty(report["failures"])
                 @info "touch input browser checks" checks=report["checks"]
                 isempty(report["failures"]) || println(JSON.json(report["failures"]))
