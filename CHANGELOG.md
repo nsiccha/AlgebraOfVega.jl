@@ -41,6 +41,21 @@ failing at run time with a `MethodError`.
   the `ArgumentError` now names the properties they differ in, lists each
   layer's projection (a GeoJSON `fit` by its GeoJSON type) and says how to
   fix it.
+- A table column can show a small chart in each row, on a scale the whole
+  column shares: `cell_charts(spec)`. `spec` is a figure faceted by the table's
+  row key, for example
+  `data(rows) * mapping(:klasse, :n; layout=:vb_nr) * visual(BarPlot)`. With
+  HTMXObjects loaded, `cells = cell_charts(spec; texts=table_texts(:de))` gives
+  `cells[key]`, the `<td>` of that row: its total, then a 120×24 px chart with
+  no axes or legend and a tooltip on each mark (`config(width=…, height=…)`
+  sets the size). The cell sorts and exports to CSV by its total, and the
+  Markdown view (and so a `pdf_report`) shows it as text, such as
+  `4 (200–499: 3; 1000–2499: 1)`. The browser parses the column's chart once
+  and gives each cell a light view of its own rows, drawing the cells near the
+  viewport first.
+  `config(facet=(; linkyaxes=:none))` lets each cell fit its own y axis, and
+  `total=`, `label=` and `text=` replace the total, its shown text and the
+  Markdown text.
 
 ## 0.2.1
 
