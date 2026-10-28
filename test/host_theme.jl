@@ -60,6 +60,73 @@ with a Vega-Lite config for the chrome on a transparent background (theme
 end
 
 """
+`:ink` on one side of a mark: `stroke`, `strokecolor` and `fill`.
+
+Regression (snag `visual-stroke-in-91baea43`): only `color=:ink` lowered to the
+theme ink; `visual(; stroke=:ink)` reached the mark as the colour name `"ink"`,
+which is no CSS colour, so the stroke was invalid paint (dropped by Vega's SVG
+renderer, left at the previous stroke on canvas), with no warning. Each side has
+its own style, and its colour is also written onto the mark: Vega-Lite leaves a
+style's `stroke`/`fill` below the colour it gives that side itself.
+"""
+@testitem "stroke and fill ink paint one side of the mark" tags=[:theme, :regression] begin
+    using AlgebraOfVega
+    import Makie
+    xy = data((; x=[1.0, 2.0], y=[2.0, 3.0])) * mapping(:x, :y)
+    vl(spec) = to_vegalite(spec)
+
+    # The reported shape: a geoshape outline with no fill.
+    geo = Dict{String,Any}("type" => "FeatureCollection", "features" => [Dict{String,Any}(
+        "type" => "Feature", "properties" => Dict{String,Any}("ags" => "a"),
+        "geometry" => Dict{String,Any}("type" => "Polygon",
+            "coordinates" => [[[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0], [0.0, 0.0]]]))])
+    outline = vl(data((; ags=["a"])) * mapping(:ags) * geoshape(geo; key=:ags) *
+        visual(; fill=nothing, stroke=:ink, strokeWidth=2))
+    @test outline["mark"] == Dict("type" => "geoshape", "fill" => nothing, "stroke" => "#333",
+        "strokeWidth" => 2, "style" => "aov-ink-stroke")
+    @test outline["config"]["style"]["aov-ink-stroke"] == Dict("stroke" => "#333")
+    @test !haskey(outline["config"]["style"], "aov-ink")
+
+    # Makie's `strokecolor` and Vega-Lite's `stroke` are one side; `fill` the other.
+    for spelling in (:stroke, :strokecolor)
+        m = vl(xy * visual(Lines; NamedTuple{(spelling,)}((:ink,))...))["mark"]
+        @test m["style"] == "aov-ink-stroke" && m["stroke"] == "#333" && !haskey(m, "color")
+    end
+    dot = vl(xy * visual(Scatter; fill=:ink, strokecolor="red", strokewidth=2))
+    @test dot["mark"]["fill"] == "#333" && dot["mark"]["stroke"] == "red" && dot["mark"]["style"] == "aov-ink-fill"
+    @test dot["config"]["style"] == Dict("aov-ink-fill" => Dict("fill" => "#333"))
+    # Several sides: one style each, after the caller's own; `color=:ink` stays a style only.
+    both = vl(xy * visual(Scatter; color=:ink, strokecolor=:ink, stroke=:ink, style="mine"))
+    @test both["mark"]["style"] == ["mine", "aov-ink", "aov-ink-stroke"]
+    @test both["mark"]["stroke"] == "#333" && !haskey(both["mark"], "color") && !haskey(both["mark"], "fill")
+    @test both["config"]["style"]["aov-ink"] == Dict("color" => "#333")
+    # A spec's own style colour reaches the marks; a literal on the other spelling wins.
+    own = vl(xy * visual(Lines; stroke=:ink) *
+        config(config=Dict("style" => Dict("aov-ink-stroke" => Dict("stroke" => "teal")))))
+    @test own["mark"]["stroke"] == "teal"
+    @test vl(xy * visual(Lines; stroke=:ink, strokecolor="red"))["mark"]["stroke"] == "red"
+    # Literal paint is unchanged.
+    @test vl(xy * visual(Lines; stroke="black"))["mark"] == Dict("type" => "line", "stroke" => "black")
+    @test vl(xy * visual(Lines; strokecolor=:black))["mark"] == Dict("type" => "line", "stroke" => "black")
+    # A composite mark's parts carry the style and the paint.
+    bars = data((; x=[1.0, 2.0], lo=[0.5, 1.5], hi=[1.5, 2.5])) * mapping(:x, :lo, :hi)
+    @test vl(bars * visual(Rangebars; stroke=:ink))["mark"] == Dict("type" => "errorbar",
+        "rule" => Dict("style" => ["errorbar-rule", "aov-ink-stroke"], "stroke" => "#333"))
+    # A picker figure and a layered sum are finished the same way.
+    summed = vl(xy * visual(Lines; stroke=:ink) + xy * visual(Scatter))
+    @test only(l["mark"]["stroke"] for l in summed["layer"] if l["mark"]["type"] == "line") == "#333"
+    picked = to_vegalite(data((; x=[1.0, 2.0], y=[2.0, 3.0], g=["a", "b"])) * mapping(:x, :y; color=:g) *
+        visual(Lines; stroke=:ink); auto_remap=(; dims=["g" => "G"]))
+    @test picked["mark"]["stroke"] == "#333"
+
+    # Static output: Makie's `strokecolor` takes the theme's text colour.
+    Makie.with_theme(Makie.theme_black()) do
+        fixed = AlgebraOfVega._fix_visual_attrs(xy * visual(Scatter; strokecolor=:ink))
+        @test AlgebraOfVega.extract_visual(fixed).attributes[:strokecolor] == :white
+    end
+end
+
+"""
 Composite marks take fixed ink on the parts they draw.
 
 Regression (snag `rangebars-ink-er-e2c73e9e`): Vega-Lite drops a composite
@@ -130,6 +197,16 @@ end
     black_bars = data(bar_rows) * mapping(:x, :lo, :hi) * visual(Rangebars; color="black") * config(height=120)
     ink_box = data((; g=repeat(["a", "b"], 6), v=collect(1.0:12.0))) * mapping(:g, :v) *
         visual(BoxPlot; color=:ink) * config(height=120)
+    # One side of a mark in the ink (snag `visual-stroke-in-91baea43`).
+    square = Dict{String,Any}("type" => "FeatureCollection", "features" => [Dict{String,Any}(
+        "type" => "Feature", "properties" => Dict{String,Any}("ags" => "a"),
+        "geometry" => Dict{String,Any}("type" => "Polygon",
+            "coordinates" => [[[0.0, 0.0], [0.0, 1.0], [1.0, 1.0], [1.0, 0.0], [0.0, 0.0]]]))])
+    ink_outline = data((; ags=["a"])) * mapping(:ags) * geoshape(square; key=:ags) *
+        visual(; fill=nothing, stroke=:ink, strokeWidth=2) * config(height=120)
+    ink_stroke_line = data(line_rows) * mapping(:x, :y) * visual(Lines; strokecolor=:ink, linewidth=3) * config(height=120)
+    ink_fill_point = data(line_rows) * mapping(:x, :y) *
+        visual(Scatter; fill=:ink, strokecolor="red", strokewidth=2) * config(height=120)
 
     updates = Dict(
         "append" => script(append_data("theme-live", (; x=[1.0, 2.0, 3.0], y=[1.0, 4.0, 9.0]))),
@@ -150,6 +227,9 @@ end
                 vdraw(black_line; id="theme-line-black"),
                 vdraw(ink_bars; id="theme-bars-ink"),
                 vdraw(ink_box; id="theme-box-ink"),
+                vdraw(ink_outline; id="theme-geo-stroke-ink"),
+                vdraw(ink_stroke_line; id="theme-line-stroke-ink"),
+                vdraw(ink_fill_point; id="theme-point-fill-ink"),
                 vdraw(black_bars; id="theme-bars-black")]
             style = "<style>body{color:rgb(30,40,50);background:rgb(250,250,250)}" *
                 "html[data-theme=dark] body{color:rgb(200,210,220);background:rgb(20,24,31)}</style>"

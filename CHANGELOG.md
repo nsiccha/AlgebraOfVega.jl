@@ -15,6 +15,19 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
+## 0.2.7
+
+- `visual(...; stroke = :ink)` (or Makie's `strokecolor = :ink`) and
+  `visual(...; fill = :ink)` paint that side of the mark in the theme-following
+  ink, as `color = :ink` paints the mark: the page's text colour in the
+  browser, and `#333` in `vsave` files and bare `to_vegalite` exports. The
+  other side keeps its own colour, so `visual(; fill = nothing, stroke = :ink)`
+  draws a map outline in the ink with no fill. `sdraw` takes
+  `strokecolor = :ink` as the Makie theme's text colour. Before, only
+  `color = :ink` was understood: `stroke = :ink` and `fill = :ink` reached
+  Vega-Lite as the colour name `"ink"`, which is no CSS colour, so that side
+  was not painted in any colour the figure asked for, with no warning.
+
 ## 0.2.6
 
 - `config(facet = (; linkxaxes = :none, linkyaxes = :none))` unlinks the axes

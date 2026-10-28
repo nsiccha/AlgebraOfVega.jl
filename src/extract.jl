@@ -296,20 +296,18 @@ function visual_attrs_to_mark_props(vis::AlgebraOfGraphics.Visual)
     # (ScatterLines lowers to a line mark, where `size` is a stroke width.)
     scatter = vis.plottype <: Scatter
     text = vis.plottype <: Makie.Text
-    theme_ink = false
+    inks = String[]
     ignored = Symbol[]
     for (k, v) in pairs(vis.attributes)
         sk = string(k)
         text_props = text ? _text_mark_props(Val(k), v) : missing
         # Map Makie attribute names to Vega mark properties
-        if k === :opacity || k === :fillOpacity || k === :alpha
+        if v === :ink && haskey(_AOV_INK_ATTRS, k)
+            push!(inks, _AOV_INK_ATTRS[k])
+        elseif k === :opacity || k === :fillOpacity || k === :alpha
             props["opacity"] = v
         elseif k === :color
-            if v === :ink
-                theme_ink = true
-            else
-                props["color"] = string(v)
-            end
+            props["color"] = string(v)
         elseif k === :strokecolor
             props["stroke"] = string(v)
         elseif k === :strokeDash || k === :linestyle
@@ -332,13 +330,14 @@ function visual_attrs_to_mark_props(vis::AlgebraOfGraphics.Visual)
         end
     end
     isempty(ignored) || @warn "AlgebraOfVega: `$(_visual_name(vis))` sets $(join(("`$k`" for k in ignored), ", ")) with no Vega-Lite mark counterpart; vdraw and vsave ignore $(length(ignored) == 1 ? "it" : "them")." _id=(:aov_unread_visual_attrs, vis.plottype, Tuple(ignored)) maxlog=1
-    if theme_ink
+    if !isempty(inks)
         # A named style lets the host runtime resolve the inherited CSS colour
         # at embed time. Keep any caller-authored styles, with ink last so the
-        # explicit `color=:ink` choice wins over their colour defaults.
+        # explicit `:ink` choice wins over their colour defaults.
         styles = get(props, "style", nothing)
-        props["style"] = isnothing(styles) ? _AOV_INK :
-            vcat(styles isa AbstractVector ? string.(styles) : [string(styles)], [_AOV_INK])
+        unique!(inks)
+        props["style"] = isnothing(styles) && length(inks) == 1 ? only(inks) :
+            vcat(isnothing(styles) ? String[] : _style_list(styles), inks)
     end
     props
 end
