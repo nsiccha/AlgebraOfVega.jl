@@ -119,13 +119,26 @@ end
 _new_scale_group!(groups) = (push!(groups, Dict[]); length(groups))
 
 # AoV's neutral ink: marks AoV draws in a fixed text-like colour (dot-interval
-# rules) carry `style: "aov-ink"` instead of a literal colour, and the top-level
-# config defines that style as `#333`. The JS runtime's host theme redraws the
-# style in the page's text colour, so the marks stay visible on a dark page; any
-# other renderer gets `#333` exactly as before. A spec that sets its own
-# `aov-ink` colour keeps it.
+# rules, `visual(...; color=:ink)`) carry `style: "aov-ink"` instead of a literal
+# colour, and the top-level config defines that style as `#333`. The JS runtime's
+# host theme redraws the style in the page's text colour, so the marks stay
+# visible on a dark page; any other renderer gets `#333` exactly as before. A
+# spec that sets its own `aov-ink` colour keeps it.
+#
+# `stroke=:ink` (or `strokecolor=:ink`) and `fill=:ink` paint one side of a mark,
+# through styles of their own. Vega-Lite resolves a style's `color` itself but
+# leaves its `stroke` and `fill` to Vega, below the colour Vega-Lite gives that
+# side (a line's stroke, a filled mark's fill), so the style's colour is also
+# written onto each mark that carries it (`_apply_ink_paint!`).
+# LOCKSTEP: `hostThemeConfig` and `_hostInk` (vendor/aov-runtime.js).
 const _AOV_INK = "aov-ink"
 const _AOV_INK_COLOR = "#333"
+# Each theme-ink style and the Vega-Lite mark property it sets.
+const _AOV_INK_STYLES = (_AOV_INK => "color", "aov-ink-stroke" => "stroke", "aov-ink-fill" => "fill")
+# The theme-ink style of each `visual(...)` paint attribute that takes `:ink`.
+const _AOV_INK_ATTRS = Dict{Symbol,String}(
+    :color => _AOV_INK, :strokecolor => "aov-ink-stroke", :stroke => "aov-ink-stroke",
+    :fill => "aov-ink-fill")
 _uses_style(x, name) = false
 _uses_style(v::AbstractVector, name) = any(x -> _uses_style(x, name), v)
 _uses_style(d::AbstractDict, name) = _uses_style_name(get(d, "style", nothing), name) ||
@@ -134,11 +147,39 @@ _uses_style_name(style, name) = style == name
 _uses_style_name(styles::AbstractVector, name) = name in styles
 _apply_ink_default!(_) = nothing
 function _apply_ink_default!(spec::Dict)
-    _uses_style(spec, _AOV_INK) || return spec
-    cfg = get!(spec, "config", Dict{String,Any}())
-    style = get!(get!(cfg, "style", Dict{String,Any}()), _AOV_INK, Dict{String,Any}())
-    haskey(style, "color") || (style["color"] = _AOV_INK_COLOR)
+    for (name, prop) in _AOV_INK_STYLES
+        _uses_style(spec, name) || continue
+        cfg = get!(spec, "config", Dict{String,Any}())
+        style = get!(get!(cfg, "style", Dict{String,Any}()), name, Dict{String,Any}())
+        haskey(style, prop) || (style[prop] = _AOV_INK_COLOR)
+    end
     spec
+end
+
+# The stroke and fill inks' colours — the spec's config, which a caller's
+# `config(config=…)` may have set — onto each mark (or composite-mark part) that
+# carries their style and does not set that side itself. A finishing pass: it
+# runs after the caller's config is merged.
+_apply_ink_paint!(spec) = spec
+function _apply_ink_paint!(spec::Dict)
+    cfg = get(spec, "config", nothing)
+    styles = cfg isa AbstractDict ? get(cfg, "style", nothing) : nothing
+    styles isa AbstractDict || return spec
+    for (name, prop) in _AOV_INK_STYLES
+        prop == "color" && continue
+        style = get(styles, name, nothing)
+        style isa AbstractDict && haskey(style, prop) && _set_style_paint!(spec, name, prop, style[prop])
+    end
+    spec
+end
+_set_style_paint!(x, name, prop, color) = nothing
+_set_style_paint!(v::AbstractVector, name, prop, color) =
+    foreach(x -> _set_style_paint!(x, name, prop, color), v)
+function _set_style_paint!(d::AbstractDict, name, prop, color)
+    _uses_style_name(get(d, "style", nothing), name) && !haskey(d, prop) && (d[prop] = color)
+    for (k, x) in d
+        k in ("data", "datasets", "config") || _set_style_paint!(x, name, prop, color)
+    end
 end
 
 # AoV default: never silently truncate the LABELS of user-read guides. Vega-Lite
@@ -1840,7 +1881,7 @@ end
 # `scales(Layout=…)`), so it only fills a count nobody set.
 _finish_vegalite!(spec, ::Dict) = spec
 _finish_vegalite!(spec, _) = _finish_ribbon_views!(_each_ribbon_view!(_apply_finish_defaults!, spec))
-_apply_finish_defaults!(spec) = _apply_no_zero_default!(_apply_wrap_default!(spec))
+_apply_finish_defaults!(spec) = _apply_ink_paint!(_apply_no_zero_default!(_apply_wrap_default!(spec)))
 
 """
     add_select_filters!(spec, drawable, fields)

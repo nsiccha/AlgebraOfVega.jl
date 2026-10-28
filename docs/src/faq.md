@@ -48,7 +48,9 @@ dark card) reads as part of it. Palettes and literal mark colours stay fixed.
 For a fixed line or point that should use the page's foreground ink, write
 `visual(Lines; color=:ink)` (or use another mark type, a ribbon —
 `lineribbon(...) * visual(; color=:ink)` — or an interval analysis:
-`pointinterval() * visual(; color=:ink)`). The same spec uses the
+`pointinterval() * visual(; color=:ink)`). To ink one side of a mark only,
+write `stroke=:ink` (or Makie's `strokecolor=:ink`) or `fill=:ink`, as in
+`visual(; fill=nothing, stroke=:ink)` for a map outline. The same spec uses the
 active Makie theme's text colour with `sdraw` (where the analysis has a static
 lowering); PNG/SVG browser downloads use
 the page's colour and background. When the page switches theme

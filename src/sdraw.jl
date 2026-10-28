@@ -289,9 +289,11 @@ end
 function _fix_visual(vis::AlgebraOfGraphics.Visual, scatter::Bool)
     attrs = Dict(pairs(vis.attributes))
     changed = false
-    if get(attrs, :color, nothing) === :ink
-        attrs[:color] = _static_color(:ink)
-        changed = true
+    for k in (:color, :strokecolor)
+        if get(attrs, k, nothing) === :ink
+            attrs[k] = _static_color(:ink)
+            changed = true
+        end
     end
     if haskey(attrs, :size) && !haskey(attrs, :markersize)
         v = pop!(attrs, :size)

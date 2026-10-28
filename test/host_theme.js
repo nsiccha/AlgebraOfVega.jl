@@ -10,7 +10,7 @@
     const send = name => (0, eval)(fixture.updates[name]);
     const LIGHT = 'rgba(30,40,50,1)', DARK = 'rgba(200,210,220,1)';
     const themed = ['theme-picker', 'theme-live', 'theme-authored', 'theme-ink', 'theme-line-ink', 'theme-point-ink', 'theme-line-black',
-        'theme-bars-ink', 'theme-box-ink', 'theme-bars-black'];
+        'theme-bars-ink', 'theme-box-ink', 'theme-bars-black', 'theme-geo-stroke-ink', 'theme-line-stroke-ink', 'theme-point-fill-ink'];
     async function ready(id, previous) {
         for (let i = 0; i < 300; i++) {
             const view = AoV.views[id];
@@ -47,6 +47,18 @@
             label + ': fixed ink BoxPlot box/median ' + JSON.stringify(rectFills(views['theme-box-ink'])));
         const black = ruleStrokes(views['theme-bars-black']);
         check(black.length === 3 && black.every(c => c === 'black'), label + ': fixed black Rangebars ' + JSON.stringify(black));
+    }
+    // `stroke=:ink` / `strokecolor=:ink` / `fill=:ink` paint that side in the
+    // host ink and leave the other side as authored.
+    function sideInk(views, ink, label) {
+        const outline = dataItems(views['theme-geo-stroke-ink'], 'shape');
+        check(outline.length === 1 && outline.every(i => i.stroke === ink && i.fill == null),
+            label + ': ink geoshape outline ' + JSON.stringify(outline.map(i => [i.fill, i.stroke])));
+        const line = lineStrokes(views['theme-line-stroke-ink']);
+        check(line.length > 0 && line.every(c => c === ink), label + ': strokecolor ink line ' + JSON.stringify(line));
+        const dots = dataItems(views['theme-point-fill-ink'], 'symbol');
+        check(dots.length === 3 && dots.every(i => i.fill === ink && i.stroke === 'red'),
+            label + ': fill ink points ' + JSON.stringify(dots.map(i => [i.fill, i.stroke])));
     }
     const legendLabels = view => role(view, 'legend-label').map(i => i.text).sort().join(',');
 
@@ -106,6 +118,7 @@
         check(lineStrokes(views['theme-line-black']).length > 0 && lineStrokes(views['theme-line-black']).every(c => c === 'black'),
             'light: fixed black line ' + JSON.stringify(lineStrokes(views['theme-line-black'])));
         compositeInk(views, LIGHT, 'light');
+        sideInk(views, LIGHT, 'light');
         // A colour remap leaves a fixed-ink composite alone: its ink sits on the parts.
         check(AoV._fixedMarkColor({mark: {type: 'errorbar', rule: {style: ['errorbar-rule', 'aov-ink']}}}),
             'fixed ink errorbar not recognised as fixed colour');
@@ -159,6 +172,7 @@
         check(lineStrokes(views['theme-line-black']).length > 0 && lineStrokes(views['theme-line-black']).every(c => c === 'black'),
             'dark: fixed black line changed ' + JSON.stringify(lineStrokes(views['theme-line-black'])));
         compositeInk(views, DARK, 'dark');
+        sideInk(views, DARK, 'dark');
         // Back to the authored colour field: the palette survives the theme.
         const remapped = AoV.views['theme-picker'];
         AoV.remapEncoding('theme-picker', {color: 'state'});
@@ -201,6 +215,7 @@
         views = await switchTheme(false);
         for (const id of ['theme-picker', 'theme-live', 'theme-ink']) chrome(id, views[id], LIGHT, 'back to light');
         compositeInk(views, LIGHT, 'back to light');
+        sideInk(views, LIGHT, 'back to light');
         check(views['theme-live'].data('source_0').length === 3, 'light again: streamed rows lost');
         palette(views['theme-picker'], 'light again');
 

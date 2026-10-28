@@ -1024,7 +1024,7 @@ window.AoV = window.AoV || {
             header: {labelColor: text, titleColor: text},
             view: {stroke: faint},
             text: {color: text},
-            style: {'aov-ink': {color: text}}
+            style: {'aov-ink': {color: text}, 'aov-ink-stroke': {stroke: text}, 'aov-ink-fill': {fill: text}}
         };
         if (cs) this._hostLook(cfg, el, cs);
         return cfg;
@@ -1153,16 +1153,43 @@ window.AoV = window.AoV || {
         }, this);
         return out;
     },
+    // AoV's theme inks in `spec` (a copy being embedded) take the host
+    // theme's colour unless the spec set a colour other than AoV's `#333`:
+    // `aov-ink` (`color=:ink`, dot-interval rules), a style Vega-Lite
+    // resolves, and `aov-ink-stroke` / `aov-ink-fill` (`stroke=:ink`,
+    // `fill=:ink`), whose colour the server also wrote onto every mark that
+    // carries them. LOCKSTEP: `_AOV_INK_STYLES` (src/to_vegalite.jl).
+    _hostInk: function(spec, theme) {
+        var styles = spec.config && spec.config.style;
+        if (!styles) return;
+        var paint = [];
+        Object.keys(theme.style).forEach(function(name) {
+            var prop = Object.keys(theme.style[name])[0], own = styles[name];
+            if (!own || own[prop] !== '#333') return;
+            own[prop] = theme.style[name][prop];
+            if (prop !== 'color') paint.push([name, prop, own[prop]]);
+        });
+        if (!paint.length) return;
+        (function walk(node) {
+            if (Array.isArray(node)) { node.forEach(walk); return; }
+            if (!node || typeof node !== 'object') return;
+            var style = node.style;
+            paint.forEach(function(p) {
+                var styled = style === p[0] || (Array.isArray(style) && style.indexOf(p[0]) !== -1);
+                if (styled && node[p[1]] === '#333') node[p[1]] = p[2];
+            });
+            Object.keys(node).forEach(function(k) {
+                if (k !== 'data' && k !== 'datasets' && k !== 'config') walk(node[k]);
+            });
+        })(spec);
+    },
     // `opts` for one embed of `spec` into plot `id`, with the host theme
     // applied. Records the theme so refreshTheme can tell when it changed.
-    // AoV's own neutral ink (`style: "aov-ink"`, e.g. dot-interval rules)
-    // follows the theme too unless the spec set a colour other than AoV's.
     _themedOpts: function(id, spec, opts) {
         if (!this._themeOn(spec)) { delete this._themeKeys[id]; return opts; }
         var cfg = this.hostThemeConfig(this._els[id] || document.getElementById(id));
         this._themeKeys[id] = JSON.stringify(cfg);
-        var ink = spec.config && spec.config.style && spec.config.style['aov-ink'];
-        if (ink && ink.color === '#333') ink.color = cfg.style['aov-ink'].color;
+        this._hostInk(spec, cfg);
         return Object.assign({}, opts, {config: this._deepMerge(cfg, opts.config)});
     },
     // Re-embed every themed plot whose host colours, font or look changed. Runs on
@@ -2315,8 +2342,7 @@ window.AoV = window.AoV || {
         var tkey = JSON.stringify(theme);
         if (col.built[tkey]) return col.built[tkey];
         var s = JSON.parse(JSON.stringify(spec));
-        var ink = theme && s.config && s.config.style && s.config.style['aov-ink'];
-        if (ink && ink.color === '#333') ink.color = theme.style['aov-ink'].color;
+        if (theme) this._hostInk(s, theme);
         var vg = vegaLite.compile(s, theme ? {config: theme} : {}).spec;
         var own = (spec._aov && spec._aov.cells && spec._aov.cells.own) || [];
         if (plan) (vg.scales || []).forEach(function(sc) {
