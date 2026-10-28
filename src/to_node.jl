@@ -495,8 +495,7 @@ function _embed_spec(spec; width=nothing, height=nothing, fit_width=true)
         # the runtime sizes every child from the container.
         vl["_aov"] = _aov_hint_with(vl, "fitWidth" => true)
     elseif fit && !haskey(vl, "hconcat") && !haskey(vl, "vconcat")
-        # Detect faceting: explicit facet key, nested spec, or row/column encoding channels
-        is_faceted = haskey(vl, "facet") || haskey(vl, "spec") || _has_encoding_facet(vl)
+        is_faceted = _is_faceted(vl)
         is_layered = haskey(vl, "layer") || is_faceted || haskey(vl, "concat")
         # VL composite marks (boxplot, errorbar, errorband) internally create layers —
         # "width: container" and "autosize: fit" don't work for them

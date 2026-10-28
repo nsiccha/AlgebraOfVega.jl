@@ -704,8 +704,10 @@ end
 end
 
 """
-`config(independent_scales=...)` lowers to a Vega-Lite `resolve.scale` block —
-`true` frees both axes, a `Symbol` or tuple frees the named ones.
+`config(independent_scales=...)` lowers to a Vega-Lite `resolve.scale` block on a
+faceted spec — `true` frees both axes, a `Symbol` or tuple frees the named ones.
+Like `facet=(; linkxaxes, linkyaxes)`, which it is the deprecated spelling of, it
+does nothing without a facet (snag an-unfaceted-col-b5f78313).
 """
 @testitem "independent_scales config" setup=[AoVTestImports] tags=[:translation, :config] begin
     df = (; x=[1, 2], y=[3, 4], g=["a", "b"])
@@ -717,16 +719,18 @@ end
     @test haskey(vl, "resolve")
     @test vl["resolve"]["scale"]["x"] == "independent"
     @test vl["resolve"]["scale"]["y"] == "independent"
+    @test !haskey(to_vegalite(data(df) * mapping(:x, :y) * visual(Scatter) *
+        config(independent_scales=true)), "resolve")
 
     # independent_scales=:x → only x
-    spec2 = data(df) * mapping(:x, :y) * visual(Scatter) *
+    spec2 = data(df) * mapping(:x, :y, col=:g) * visual(Scatter) *
         config(independent_scales=:x)
     vl2 = to_vegalite(spec2)
     @test vl2["resolve"]["scale"]["x"] == "independent"
     @test !haskey(vl2["resolve"]["scale"], "y")
 
     # independent_scales=(:x, :y) → explicit tuple
-    spec3 = data(df) * mapping(:x, :y) * visual(Scatter) *
+    spec3 = data(df) * mapping(:x, :y, col=:g) * visual(Scatter) *
         config(independent_scales=(:x, :y))
     vl3 = to_vegalite(spec3)
     @test vl3["resolve"]["scale"]["x"] == "independent"
@@ -821,6 +825,32 @@ legacy `independent_scales=true` path still works (with a deprecation warning).
     vl6 = (@test_logs (:warn, r"deprecated") match_mode=:any to_vegalite(spec6))
     @test vl6["resolve"]["scale"]["x"] == "independent"
     @test vl6["resolve"]["scale"]["y"] == "independent"
+
+    # Without a facet there are no panels to unlink: as in AoG the setting does
+    # nothing. A `resolve` beside `layer` would give the median line and each
+    # band its own y scale and axis (snag an-unfaceted-col-b5f78313). The runtime
+    # gets it as `_aovFacetResolve`, for a remap that facets the plot.
+    bands = (; x=[1.0, 2.0, 1.0, 2.0], y=[1.0, 2.0, 10.0, 20.0], lo=[0.5, 1.0, 5.0, 10.0],
+             hi=[2.0, 3.0, 20.0, 30.0], g=["a", "a", "b", "b"], r=["p", "q", "p", "q"])
+    ribbon = data(bands) * mapping(:x, :y; color=:g) * lineribbon(bands=[:lo => :hi])
+    flat = to_vegalite(ribbon * config(facet=(; linkyaxes=:none)))
+    @test !haskey(flat, "resolve")
+    @test flat["_aovFacetResolve"] == Dict("scale" => Dict("y" => "independent"))
+    @test flat["layer"] == to_vegalite(ribbon)["layer"]
+    # The ribbon's interval view, which the runtime can switch to, too.
+    alt = flat["_aov"]["ribbonView"]["alt"]
+    @test !haskey(alt, "resolve")
+    @test alt["_aovFacetResolve"] == flat["_aovFacetResolve"]
+    rowed = data(bands) * mapping(:x, :y; color=:g, row=:r) * lineribbon(bands=[:lo => :hi])
+    rvl = to_vegalite(rowed * config(facet=(; linkyaxes=:none)))
+    @test rvl["resolve"]["scale"] == Dict("y" => "independent")
+    @test !haskey(rvl, "_aovFacetResolve")
+    # The deprecated spelling is the same setting (the static path passes it to
+    # AoG as `facet=`).
+    flat6 = (@test_logs match_mode=:any to_vegalite(data(df) * mapping(:x, :y) *
+        (visual(Scatter) + visual(Lines)) * config(independent_scales=true)))
+    @test !haskey(flat6, "resolve")
+    @test flat6["_aovFacetResolve"]["scale"] == Dict("x" => "independent", "y" => "independent")
 
     # axis=(; limits=((xlo, xhi), nothing)) → encoding.x.scale.domain
     spec7 = data(df) * mapping(:x, :y) * visual(Scatter) *
@@ -1340,10 +1370,15 @@ color channel; it composes with `config`.
     layers = ppc_overlay(obs, pred; x=:x, y=:y, group=:draw)
     @test layers isa AlgebraOfGraphics.Layers
 
-    # Composable with config
-    spec = layers * config(width=300, height=200, facet=(; linkxaxes=:none, linkyaxes=:none))
-    vl = to_vegalite(spec)
-    @test haskey(vl, "resolve")
+    # Composable with config. The overlay has no facet, so unlinking facet axes
+    # does nothing there (as in AoG); with `col=` it unlinks the panels.
+    unlink = config(width=300, height=200, facet=(; linkxaxes=:none, linkyaxes=:none))
+    vl = to_vegalite(layers * unlink)
+    @test vl["width"] == 300
+    @test !haskey(vl, "resolve")
+    cols = ppc_overlay(merge(obs, (; p=["a", "b", "a"])), merge(pred, (; p=repeat(["a", "b", "a"], inner=2)));
+                       x=:x, y=:y, group=:draw, col=:p)
+    @test to_vegalite(cols * unlink)["resolve"]["scale"] == Dict("x" => "independent", "y" => "independent")
 
     # With truth data
     truth = (; x=[1.0, 2.0, 3.0], y=[4.1, 5.1, 6.1])

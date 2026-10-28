@@ -35,6 +35,12 @@
             // Native autosize:"fit" includes the axes in the authored height;
             // the data rectangle can be smaller than that outer budget.
             check(AoV._results[id].spec.height === 140, id + ': authored flat height lost');
+            // Every plot here unlinks its facet axes. Without a facet that
+            // must not split the layers onto their own scales (`layer_0_y`,
+            // `layer_1_y`, …, each with its own axis): one y scale
+            // (snag an-unfaceted-col-b5f78313).
+            const ys = Object.keys(view._runtime.scales).filter(n => /(^|_)y$/.test(n));
+            check(ys.length === 1, id + ': flat plot has y scales ' + ys.join(', '));
         }
         const svg = document.getElementById(id).querySelector('svg');
         check(svg && +svg.getAttribute('width') > 100 && +svg.getAttribute('height') > 100,
@@ -78,6 +84,10 @@
         verify(id, view, 9, 2);
         check(AoV._plotData(id).length === 9, id + ': re-faceting lost streamed rows');
 
+        const unlinked = id => {
+            const scale = (AoV._results[id].spec.resolve || {}).scale || {};
+            return scale.x === 'independent' && scale.y === 'independent';
+        };
         for (const id of ['sizing-single', 'sizing-layered']) {
             let view = await ready(id);
             const height = view.height();
@@ -85,6 +95,7 @@
             AoV.remapEncoding(id, {row:'family'});
             view = await ready(id, view);
             verify(id, view, 6, 3);
+            check(unlinked(id), id + ': the facet a remap added kept its panels linked');
             AoV.remapEncoding(id, {row:null});
             view = await ready(id, view);
             verify(id, view, 6, 0);
@@ -92,6 +103,7 @@
         }
         view = await ready('sizing-faceted-layered');
         verify('sizing-faceted-layered', view, 6, 2);
+        check(unlinked('sizing-faceted-layered'), 'sizing-faceted-layered: panels linked');
         AoV.remapEncoding('sizing-faceted-layered', {row:null, column:null});
         view = await ready('sizing-faceted-layered', view);
         verify('sizing-faceted-layered', view, 6, 0);

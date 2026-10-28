@@ -1627,9 +1627,27 @@ function _apply_wrap_default!(spec::Dict)
     spec
 end
 
+"""Unlink facet panels' axes: merge `resolve_scale` (`"x"`/`"y"` => `"independent"`) into
+`spec`'s `resolve.scale` when `spec` is faceted. As in AoG, a spec without a facet has no
+panels to unlink and draws as if the setting were absent; a `resolve` beside its `layer`
+would give every layer its own scale and axis instead (snag `an-unfaceted-col-b5f78313`).
+Such a spec carries the resolve as `_aovFacetResolve` for the runtime, which applies it
+when a remap facets the plot in the browser. It stays outside `_aov`, whose presence
+alone makes the runtime size a single view itself."""
+function _merge_facet_resolve!(spec::Dict, resolve_scale::Dict)
+    isempty(resolve_scale) && return
+    if _is_faceted(spec)
+        _merge_resolve_scale!(spec, resolve_scale)
+    else
+        hint = get!(spec, "_aovFacetResolve", Dict{String,Any}())
+        merge!(get!(hint, "scale", Dict{String,Any}()), resolve_scale)
+    end
+    return
+end
+
 _apply_facet_sugar!(args...) = nothing
 _apply_facet_sugar!(spec, nt::NamedTuple) =
-    _merge_resolve_scale!(spec, _facet_nt_to_resolve_scale(nt))
+    _merge_facet_resolve!(spec, _facet_nt_to_resolve_scale(nt))
 
 _apply_axis_sugar!(args...) = nothing
 _apply_axis_sugar!(spec, nt::NamedTuple) =
@@ -1705,7 +1723,7 @@ function _lower_vegaspec(v::VegaSpec; interactive::Bool=true)
             elseif sk == "independent_scales"
                 @warn "AlgebraOfVega: `config(independent_scales=$(repr(val)))` is deprecated; use `config(facet=(; linkxaxes=:none, linkyaxes=:none))` to mirror AlgebraOfGraphics." maxlog=1
                 axes = _independent_axes(val)
-                _merge_resolve_scale!(spec, Dict{String,Any}(ax => "independent" for ax in axes))
+                _merge_facet_resolve!(spec, Dict{String,Any}(ax => "independent" for ax in axes))
             elseif sk == "font_scale"
                 # Scale all default VL font sizes by val
                 fs = Float64(val)
