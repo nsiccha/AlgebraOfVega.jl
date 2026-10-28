@@ -108,6 +108,18 @@ posterior + observed * config(encoding=Dict(:tooltip => [Dict("field" => "label"
 
 `row`/`column`/`facet` overrides always configure the one facet every layer shares, and every other `config` property (`width`, `title`, `scales`, `params`, …) describes the whole figure whichever summand carries it. Scales, axes and legends are still shared between layers: Vega-Lite merges a per-layer scale override into the shared scale.
 
+A configured spec still takes further algebra terms, and each layer keeps its own override, as AlgebraOfGraphics distributes `*` over `+`. Library code can therefore add a mark property to layers an app built:
+
+```julia
+routes = data(legs) * mapping(:x, :y; group=:route) * visual(Lines)
+stops = data(stations) * mapping(:x, :y) * visual(Scatter) *
+    config(encoding=Dict(:tooltip => [Dict("field" => "name")]))
+# Both layers are clipped at the plot's edge, and the stops keep their own tooltip.
+(routes + stops) * visual(; clip=true)
+```
+
+The term may stand on either side and may carry a config of its own; configs merge left to right, so a later override wins a conflicting key.
+
 ## Confidence bands
 
 Vega-Lite's native `errorband` requires multiple observations per x value, which typical scatter data doesn't have. When `interval=:confidence` is set on `linear()` or `smooth()`, the CI is computed in Julia:
