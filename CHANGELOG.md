@@ -15,6 +15,22 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
+## 0.2.5
+
+- A configured spec takes further algebra terms. A `visual(...)`, `data(...)`
+  or `mapping(...)` term multiplied onto a spec that already carries
+  `config(...)` reaches its layers as AlgebraOfGraphics distributes `*` over
+  `+`, and each summand keeps its own `config(encoding = …)` override:
+  `(a * config(encoding = E) + b) * visual(; clip = true)` draws exactly like
+  `a * visual(; clip = true) * config(encoding = E) + b * visual(; clip = true)`.
+  The term may stand on either side, and may itself carry a config
+  (`layer * (visual(...) * config(...))`); configs still merge left to right,
+  the later one winning a conflicting key. So library code can add a mark
+  property to an app's layers that show their own tooltip, and a config
+  written before the algebra terms applies like one written last. Before,
+  such a product threw
+  `MethodError: no method matching *(::AlgebraOfVega.VegaSpec, ::AlgebraOfGraphics.Layer)`.
+
 ## 0.2.4
 
 - Plots answer touch input. On the default canvas renderer a finger tap

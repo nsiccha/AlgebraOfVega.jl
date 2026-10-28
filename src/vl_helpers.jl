@@ -164,6 +164,11 @@ Create a `Config` with Vega-Lite properties. Common options:
 
 Config is applied to a spec via `*`: `data(df) * mapping(:x, :y) * visual(Scatter) * config(width=500)`.
 
+A configured spec still takes further algebra terms, which reach its layers as AoG
+distributes `*` over `+`: `(a * config(encoding=E) + b) * visual(; clip=true)` is
+`a * visual(; clip=true) * config(encoding=E) + b * visual(; clip=true)`, each summand
+keeping its own override.
+
 Successive terms accumulate: `spec * config(a...) * config(b...)` keeps every property of
 both. `encoding`, `config`, `facet`, `axis` and `scales` merge key by key (`encoding` and
 `config` recursively, `scales` scale by scale), with the later term winning on a
@@ -344,3 +349,25 @@ end
 Base.:+(a::VegaSpec, b::VegaSpec) = _sum_specs(a, b)
 Base.:+(a::VegaSpec, b::AlgebraOfGraphics.AbstractAlgebraic) = _sum_specs(a, b)
 Base.:+(a::AlgebraOfGraphics.AbstractAlgebraic, b::VegaSpec) = _sum_specs(a, b)
+
+# A further algebra term reaches a configured spec's layers as an unconfigured
+# one's: AoG distributes `*` over `+`, so `(a * config(encoding=E) + b) * v`
+# lowers like `a * v * config(encoding=E) + b * v`. Product layer (i, j) keeps
+# the per-layer overrides of the left factor's layer i and then the right
+# factor's layer j, in AoG's product order (the left factor's layers outer), and
+# the view-level configs merge left to right. When the right factor carries
+# per-layer overrides, the left factor's own encoding moves onto its layers
+# first (`_summand_parts`), so a right-hand override still comes later and wins
+# a conflicting key, as in the expanded expression.
+function _mul_specs(a, b)
+    ca, ea = isempty(_spec_layer_encodings(b)) ?
+        (_summand_config(a), _layer_encodings(a)) : _summand_parts(a)
+    eb = _layer_encodings(b)
+    encs = Any[isnothing(e′) ? e : _merge_vl_objects(e, e′) for e in ea for e′ in eb]
+    VegaSpec(_spec_drawable(a) * _spec_drawable(b), _merge_configs(ca, _summand_config(b)),
+        all(isnothing, encs) ? Any[] : encs)
+end
+
+Base.:*(a::VegaSpec, b::VegaSpec) = _mul_specs(a, b)
+Base.:*(a::VegaSpec, b::AlgebraOfGraphics.AbstractAlgebraic) = _mul_specs(a, b)
+Base.:*(a::AlgebraOfGraphics.AbstractAlgebraic, b::VegaSpec) = _mul_specs(a, b)
