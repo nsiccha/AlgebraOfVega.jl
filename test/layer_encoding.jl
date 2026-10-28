@@ -211,3 +211,54 @@ end
     html = repr(MIME"text/html"(), update_spec("fig", spec; auto_remap=remap))
     @test occursin("\"title\":\"LABEL\"", html)
 end
+
+# A further algebra term multiplied onto a configured spec reaches its layers as
+# AoG distributes `*` over `+`, each layer keeping its own encoding override.
+# Before, `config(...)` was a terminal factor: `spec * visual(...)` threw
+# `MethodError: no method matching *(::VegaSpec, ::Layer)`, so library code could
+# not add a mark property (RegionExplorer's `visual(; clip=true)` on a framed
+# map's marks) to an app layer carrying its own tooltip
+# (snag `vegaspec-times-l-9296bb34`).
+@testitem "a further term multiplied onto a configured spec reaches its layers" setup=[AoVLayerEncodingFixtures] tags=[:translation, :config] begin
+    same(x, y) = to_vegalite(x) == to_vegalite(y)
+    pts = data(observed_rows) * mapping(:group, :value) * visual(Scatter)
+    line = data(observed_rows) * mapping(:group, :value) * visual(Lines)
+    tipped = config(encoding=Dict(:tooltip => tip("group", "label")))
+    clip = visual(; clip=true)
+
+    # The snag's shapes, each against the expression with the term written first.
+    @test same((pts * tipped) * clip, pts * clip * tipped)
+    @test same(clip * (pts * tipped), clip * pts * tipped)
+    @test same(pts * (clip * tipped), pts * clip * tipped)
+    @test same((pts * tipped + pts * tipped) * clip, pts * clip * tipped + pts * clip * tipped)
+    us = units(to_vegalite((pts * tipped + line) * clip))
+    @test length(us) == 2
+    @test all(u -> u["mark"]["clip"] == true, us)
+    @test tooltip_fields(us[1]) == ["group", "label"]
+    @test "label" ∉ tooltip_fields(us[2])
+
+    # Every summand keeps its own override and the whole-view config.
+    other = config(encoding=Dict(:tooltip => tip("n_obs")))
+    @test same((pts * tipped + line * other) * config(height=200) * clip,
+               (pts * clip * tipped + line * clip * other) * config(height=200))
+
+    # A product of sums: AoG's order, the left factor's layers outer.
+    big = visual(; markersize=8)
+    @test same((pts * tipped + line) * (clip + big),
+               pts * clip * tipped + pts * big * tipped + line * clip + line * big)
+    @test length(units(to_vegalite((pts * tipped + line) * (clip + big)))) == 4
+
+    # Two configured factors: on a conflicting key the later one wins on every
+    # layer, whichever factor carries the per-layer overrides.
+    @test same((pts * tipped + line) * (clip * other),
+               pts * clip * tipped * other + line * clip * other)
+    @test same((clip * other) * (pts * tipped + line),
+               clip * pts * other * tipped + clip * line * other)
+    us = units(to_vegalite((clip * other) * (pts * tipped + line)))
+    @test tooltip_fields(us[1]) == ["group", "label"]
+    @test tooltip_fields(us[2]) == ["n_obs"]
+
+    # A config written before the algebra terms applies like one written last.
+    @test same(config(width=300) * data(observed_rows) * mapping(:group, :value) * visual(Scatter),
+               pts * config(width=300))
+end
