@@ -661,17 +661,10 @@ end
 # plain layered spec VL applies them per-layer, giving each sublayer its own
 # x/y scale + axis (axes stack at the top of the chart).
 function _scrub_independent_resolve_if_unfaceted!(vl::Dict)
-    haskey(vl, "facet") && return
-    haskey(vl, "spec") && !isnothing(_as_dict(vl["spec"])) && return
+    _is_faceted(vl) && return
     # A per-column-Y concat (`hconcat` of per-column facet views) is faceted by
     # construction — every child carries its own facet + resolve. Don't strip.
     haskey(vl, "hconcat") && return
-    # Encoding-faceted specs (row=/col= → encoding.row/encoding.column) are
-    # genuinely faceted even with no top-level `facet` key and no nested `spec`.
-    # Don't strip a legitimate `resolve.scale.{x,y} = "independent"` the user
-    # authored via `config(facet=(; linkxaxes=:none, linkyaxes=:none))` — there it
-    # really does mean "independent across facet rows/columns".
-    _has_encoding_facet(vl) && return
     resolve = _as_dict(get(vl, "resolve", nothing))
     isnothing(resolve) && return
     scale = _as_dict(get(resolve, "scale", nothing))

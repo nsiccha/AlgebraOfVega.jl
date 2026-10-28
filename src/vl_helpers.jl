@@ -53,6 +53,13 @@ function _has_encoding_facet(vl::Dict)
     !isnothing(enc) && (haskey(enc, "row") || haskey(enc, "column") || haskey(enc, "facet"))
 end
 
+# Faceted? The facet operator (`facet` + nested `spec`) or an encoding-faceted single
+# view. Only there does `resolve.scale.<axis> = "independent"` mean "per facet panel":
+# beside a plain `layer` Vega-Lite gives every layer its own scale and axis instead.
+# The AoG-drawable methods (`row`/`col`/`layout` mappings) are in src/sdraw.jl.
+_is_faceted(vl::Dict) = haskey(vl, "facet") || !isnothing(_as_dict(get(vl, "spec", nothing))) ||
+    _has_encoding_facet(vl)
+
 # The wrap facet of a spec (`layout=`): the facet operator's single-field form
 # (`facet: {field}`, analysis and multi-layer figures) or a single view's
 # `encoding.facet` channel. Returns that field def, or `nothing` for any other spec
@@ -153,7 +160,10 @@ Create a `Config` with Vega-Lite properties. Common options:
   optionally with `constant=` to tune the linear-region half-width (VL default 1):
   `config(scales=scales(X=(; scale=symlog, constant=2)))`.
 - `facet` — an AoG-style NamedTuple passed to `draw(; facet=...)`. `linkxaxes=:none` /
-  `linkyaxes=:none` translate to VL `resolve.scale.<axis>="independent"`.
+  `linkyaxes=:none` unlink the facet panels' axes (VL `resolve.scale.<axis>="independent"`
+  on the facet). As in AoG, a spec without a facet ignores them, so a shared config may
+  carry them whether or not the figure is faceted; a remap that facets the plot in the
+  browser applies them.
   Example: `config(facet=(; linkxaxes=:none, linkyaxes=:none))`.
 - `axis` — an AoG-style NamedTuple passed to `draw(; axis=...)`. `limits=((xlo, xhi),
   (ylo, yhi))` (each side may be `nothing`) translates to VL `encoding[x/y].scale.domain`;

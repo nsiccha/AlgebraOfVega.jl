@@ -3795,6 +3795,28 @@ window.AoV = window.AoV || {
             return Math.max(self._distinctCount(spec.data && spec.data.values, field), 1);
         }
 
+        // Unlinked facet axes (`config(facet=(; linkyaxes=:none))`) belong to
+        // the facet: beside a flat `layer`, an independent x/y scale gives every
+        // layer its own scale and axis. Julia keeps them off a flat spec and
+        // records them as `_aovFacetResolve` (`_merge_facet_resolve!`), so they
+        // come with the facet a remap adds and go with the one it removes.
+        function facetResolve(faceted) {
+            var scale = spec.resolve && spec.resolve.scale;
+            if (faceted) {
+                var unlinked = spec._aovFacetResolve && spec._aovFacetResolve.scale;
+                if (!unlinked) return;
+                spec.resolve = Object.assign({}, spec.resolve,
+                    {scale: Object.assign({}, scale, unlinked)});
+                return;
+            }
+            if (!scale) return;
+            ['x', 'y'].forEach(function(ax) {
+                if (scale[ax] === 'independent') delete scale[ax];
+            });
+            if (!Object.keys(scale).length) delete spec.resolve.scale;
+            if (!Object.keys(spec.resolve).length) delete spec.resolve;
+        }
+
         // Helper: wrap a non-faceted spec into faceted structure
         function wrapFaceted() {
             if (isFaceted) return;
@@ -3831,6 +3853,7 @@ window.AoV = window.AoV || {
                 if (spec[k] !== undefined) { spec.spec[k] = spec[k]; delete spec[k]; }
             });
             spec.facet = {};
+            facetResolve(true);
             // Remove single-view-only properties from outer spec
             delete spec.autosize;
             // Add _aov hint for responsive faceted sizing
@@ -3858,6 +3881,7 @@ window.AoV = window.AoV || {
             }
             delete spec.spec;
             delete spec.facet;
+            facetResolve(false);
             if (!spec.layer) {
                 if (spec._aov && spec._aov.fitWidth) {
                     // Single-view: use VL native responsive width
