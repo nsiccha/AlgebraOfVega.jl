@@ -294,6 +294,32 @@ window.AoV = window.AoV || {
         reembed(info.budget);
     },
 
+    // Run a view whose data changed, laying it out again. Vega sizes the
+    // view (autosize padding, and the plot width of an autosize "fit" view)
+    // only when it is embedded or resized: its `autosize.resize` is false,
+    // so a plain run keeps the layout of the rows it was embedded with. A
+    // plot that starts empty has no axis labels then, and its axis titles
+    // and the labels new rows bring end up outside the canvas. Only data
+    // changes lay out again; pan and zoom keep the plot in place.
+    _runRelayout: function(view) {
+        view.resize().run();
+    },
+
+    // The relayout of a JS-sized plot can widen its chrome past the budget
+    // it was sized for (an empty first paint has no axis labels). Vega calls
+    // a view's resize listeners when it resizes the canvas, which after the
+    // embed only a relayout does, and the overshoot is corrected as a first
+    // paint's is, once for each data change that brings it.
+    _refitOnRelayout: function(id, view, reembed) {
+        var self = this;
+        if (!(self._computedWidths || {})[id]) return;
+        view.addResizeListener(function() {
+            if (self.views[id] !== view) return;
+            if (self._correctedRegime) delete self._correctedRegime[id];
+            self._fitCorrection(id, reembed);
+        });
+    },
+
     // ggplot-style "broadcast across all facet panels" pass.
     // AoV merges layered data into a single spec.data.values with a __src
     // discriminator column when outer faceting is needed. When a facet field
@@ -891,6 +917,7 @@ window.AoV = window.AoV || {
                 // One bounded correction pass for JS-sized specs whose
                 // rendered chrome overshoots the computed budget.
                 self._fitCorrection(id, function(budget) { doEmbed(budget); });
+                self._refitOnRelayout(id, view, function(budget) { doEmbed(budget); });
                 return result;
             }).catch(function(err) { settle(); self._console.error.call(console, '[' + id + ']', err); });
         };
@@ -1451,7 +1478,7 @@ window.AoV = window.AoV || {
         var live = this._liveRows[id] = this._liveRows[id] || {};
         live[name] = rows;
         if (!this._regroupRibbons(id, name)) {
-            view.change(name, changeset).run();
+            this._runRelayout(view.change(name, changeset));
             this._maybeRestoreLegends(id);
         }
         this._dataChanged(id);
@@ -1756,7 +1783,7 @@ window.AoV = window.AoV || {
             specRows[d.name] = rows;
             view.change(d.name, vega.changeset().remove(function() { return true; }).insert(rows));
         });
-        view.run();
+        self._runRelayout(view);
         return true;
     },
 

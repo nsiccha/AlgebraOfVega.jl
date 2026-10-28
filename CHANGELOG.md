@@ -15,6 +15,19 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
+## 0.2.8
+
+- A plot whose rows change in the browser (`append_data`, `update_data`,
+  `replace_data`, `remove_data`, and `update_spec` when only the rows differ)
+  is laid out again for its new rows, as a render of the same rows is: the
+  room around the plot grows to fit the axis labels, so the axis titles and
+  labels stay inside the figure. Before, the figure kept the layout of the
+  rows it was drawn with: a plot drawn from a typed-empty table, the §11b
+  streaming pattern, lost both axis titles once its first rows arrived and
+  cut off the left of its y labels, and rows with wider labels than the first
+  ones were cut off the same way. A plot sized to its container that the new
+  labels widen past its column is narrowed to fit, as at its first render.
+
 ## 0.2.7
 
 - `visual(...; stroke = :ink)` (or Makie's `strokecolor = :ink`) and
