@@ -15,6 +15,20 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
+## 0.2.6
+
+- `config(facet = (; linkxaxes = :none, linkyaxes = :none))` unlinks the axes
+  of facet panels and does nothing on a figure without a facet, as in
+  AlgebraOfGraphics, so one config can serve faceted and unfaceted figures.
+  Before, an unfaceted figure with several layers (a `lineribbon` and its
+  bands, `Scatter` + `Lines`) got `resolve.scale.y = "independent"` beside
+  its layers, and Vega-Lite gave every layer its own y scale and axis: a band
+  filled the plot, the y axis stopped short of the data, and extra y axes
+  stacked at the right edge. The deprecated `config(independent_scales = …)`
+  follows the same rule. A remap that adds or removes a facet in the browser
+  (the channel picker, `AoV.remapEncoding`) now adds or removes the unlinked
+  axes with it; removing a facet used to leave the same per-layer axes.
+
 ## 0.2.5
 
 - A configured spec takes further algebra terms. A `visual(...)`, `data(...)`
