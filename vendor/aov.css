@@ -73,6 +73,30 @@
     div.aov-ribbon-view[role="group"] > button:not(:last-child) {
         border-top-right-radius: 0; border-bottom-right-radius: 0;
     }
+    /* A caption's download menu (`with_plot_caption`). The runtime sets its
+       top and right (`_downloadMenuToggle`). With a fixed left too, the auto
+       left margin holds a menu narrower than that room against its button's
+       right edge, and a wider one against the viewport's left edge. The rows
+       read as a list, not as a stack of buttons, and take the page's colours:
+       these rules outrank Pico's `button` and `[type=button]` in any order. */
+    .aov-download-menu {
+        inset: auto; left: 4px; width: max-content; margin: 0 0 0 auto;
+        padding: 0.25rem; overflow-y: auto; border-radius: 0.25rem;
+        border: 1px solid var(--pico-muted-border-color, color-mix(in srgb, currentColor 30%, transparent));
+        background-color: var(--pico-background-color, Canvas);
+        color: var(--pico-color, CanvasText);
+        box-shadow: 0 2px 8px rgb(0 0 0 / 25%);
+    }
+    .aov-download-menu > button {
+        display: block; width: 100%; margin: 0; padding: 0.25rem 0.5rem;
+        font-size: 0.85em; text-align: start; white-space: nowrap;
+        border: 0; border-radius: 0.2rem; box-shadow: none;
+        background-color: transparent; color: inherit;
+    }
+    .aov-download-menu > button:is(:hover, :focus-visible) {
+        background-color: color-mix(in srgb, currentColor 12%, transparent);
+    }
+    .aov-download-menu > button:focus-visible { outline: 2px solid currentColor; outline-offset: -2px; }
     .aov-grid-page { width: 100vw; padding: 0.5rem; font-size: 0.5em; }
     /* Dense compact grid (16 cols) and gallery static grid (4 cols).
        Both compose with upstream `.htmxo-grid`, supplying only the

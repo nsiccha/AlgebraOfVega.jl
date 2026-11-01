@@ -90,7 +90,7 @@ const symlog = Makie.pseudolog10
     with_plot_caption(plot_node, caption; plot_id, kwargs...)
 
 Wrap an AoV plot node (built via `to_node` or `auto_remap_node`) in a `<figure>`
-with a caption header that includes a CSV-download button (and optionally a
+with a caption header that includes a menu of its downloads (and optionally a
 lazy "Show data" details). Implementation lives in the
 `AlgebraOfVegaHTMXObjectsExt` extension and requires `using HTMXObjects` to be
 loaded; see that extension's docstring for the full kwargs.

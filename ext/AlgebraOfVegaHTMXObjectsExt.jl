@@ -30,6 +30,7 @@ _ci_str(s) = s
     with_plot_caption(plot_node, caption::CaptionSpec; plot_id,
                       data_download=true,
                       data_preview=true,
+                      download_menu=true,
                       filename_base=nothing,
                       layer_labels=nothing,
                       extra_actions=(),
@@ -39,7 +40,10 @@ _ci_str(s) = s
 Wrap `plot_node` (the result of `to_node(spec; id=plot_id)` or
 `auto_remap_node(plot_id, spec; ...)`) in a `<figure>` with a caption header.
 
-Buttons added to the caption actions (in order):
+The downloads below share one "⬇ Export ▾" button in the caption row, which
+opens a menu of them, so they leave the caption's title its room. A figure with
+a single download shows it as a plain button, and `download_menu=false` shows
+each as its own button. The downloads, in order:
 - "⬇ CSV" download per layer (when `data_download=true`). For multi-source
   specs (i.e. data with a `__src` discriminator column), triggers one CSV per source.
 - "⬇ PNG" / "⬇ SVG" image download per format in `images` (default `(:png, :svg)`).
@@ -47,10 +51,12 @@ Buttons added to the caption actions (in order):
 - "⬇ HTML" standalone-page download (when `html_download=true`): the whole
   card as one `.html` file via `AoV.downloadPlotHtml`, client-side, no server
   round-trip.
+
+Also added:
 - A lazy "Show data" `<details>` rendered below the plot (when `data_preview=true`),
   populated on first expand via the Vega view.
 - "Share" clipboard button (when `share_url` is given): copies the absolute
-  card URL; appended after `extra_actions`.
+  card URL; appended after `extra_actions` in the caption row.
 
 The plot's own Vega-Lite title (if set) is preserved so PNG/SVG exports retain
 it; the figcaption sits above the plot, which may visually duplicate. Callers
@@ -58,17 +64,20 @@ who don't want that should not set the VL title.
 
 # Keyword arguments
 - `plot_id::AbstractString` (required): the same id passed to `to_node` / `auto_remap_node`
-- `data_download::Bool=true`: add the "⬇ CSV" button
+- `data_download::Bool=true`: add the "⬇ CSV" download
 - `data_preview::Bool=true`: add the lazy preview details below the plot
-- `images=(:png, :svg)`: image format buttons; pass `()` / `nothing` to disable
-- `html_download::Bool=true`: add the "⬇ HTML" standalone-page button
+- `images=(:png, :svg)`: image formats to download; pass `()` / `nothing` to disable
+- `html_download::Bool=true`: add the "⬇ HTML" standalone-page download
+- `download_menu::Bool=true`: put the downloads into one "⬇ Export ▾" menu;
+  `false` shows each as its own button in the caption row
 - `share_url=nothing`: when given, append a "Share" clipboard button for this URL
 - `filename_base`: base for downloaded filenames (defaults to `plot_id`)
 - `layer_labels::Union{Nothing,Dict}=nothing`: map from raw `__src` value → human label,
   used both in download filenames and preview headings
-- `extra_actions`: iterable of additional action nodes for the caption header
+- `extra_actions`: iterable of additional action nodes for the caption row,
+  beside the menu
 - `texts::PlotTexts=plot_texts()`: the words of the caption's "More" toggle,
-  the buttons, the data preview and its summary, and of a standalone HTML
+  the buttons and the menu, the data preview and its summary, and of a standalone HTML
   download — `plot_texts(:de)` for a German page, with per-text overrides (see
   [`plot_texts`](@ref)). The caption's own title, summary and long text are
   `caption`'s. A non-English "More" needs HTMXObjects' `caption_texts`
@@ -91,6 +100,7 @@ function with_plot_caption(plot_node, caption::CaptionSpec;
                             data_preview::Bool=true,
                             images=(:png, :svg),
                             html_download::Bool=true,
+                            download_menu::Bool=true,
                             share_url::Union{Nothing,AbstractString}=nothing,
                             filename_base::Union{Nothing,AbstractString}=nothing,
                             layer_labels::Union{Nothing,AbstractDict}=nothing,
@@ -103,28 +113,8 @@ function with_plot_caption(plot_node, caption::CaptionSpec;
     fname = something(filename_base, plot_id)
     labels_js = isnothing(layer_labels) ? "{}" : _vl_json(Dict(string(k) => string(v) for (k, v) in layer_labels))
 
-    actions = Any[]
-    if data_download
-        push!(actions,
-            h.button(texts.csv;
-                type="button", class="outline caption-action",
-                onclick="AoV.downloadPlotData('$(plot_id)', '$(fname)', $(labels_js))"))
-    end
-    if !isnothing(images)
-        for fmt in images
-            fmt_str = lowercase(String(fmt))
-            push!(actions,
-                h.button(_plot_text(texts, :image; format=uppercase(fmt_str));
-                    type="button", class="outline caption-action",
-                    onclick="AoV.downloadPlotImage('$(plot_id)', '$(fmt_str)', '$(fname)')"))
-        end
-    end
-    if html_download
-        push!(actions,
-            h.button(texts.html;
-                type="button", class="outline caption-action",
-                onclick="AoV.downloadPlotHtml('$(plot_id)', '$(fname)')"))
-    end
+    downloads = _downloads(plot_id, fname, labels_js, texts; data_download, images, html_download)
+    actions = Any[_download_actions(downloads, plot_id, texts, download_menu)...]
     for ea in extra_actions
         push!(actions, ea)
     end
@@ -181,6 +171,36 @@ function with_plot_caption(plot_node, caption::CaptionSpec;
     # The figure carries non-English `texts` for the runtime, which writes the
     # preview contents and the HTML download's `lang` and title.
     h.figure(; class="captioned", _runtime_texts_attrs(texts)...)(body...)
+end
+
+# A figure's downloads in row order, each its button's words and its action.
+function _downloads(plot_id, fname, labels_js, texts; data_download, images, html_download)
+    downloads = Tuple{String,String}[]
+    data_download && push!(downloads,
+        (texts.csv, "AoV.downloadPlotData('$(plot_id)', '$(fname)', $(labels_js))"))
+    for fmt in something(images, ())
+        fmt_str = lowercase(String(fmt))
+        push!(downloads, (_plot_text(texts, :image; format=uppercase(fmt_str)),
+            "AoV.downloadPlotImage('$(plot_id)', '$(fmt_str)', '$(fname)')"))
+    end
+    html_download && push!(downloads, (texts.html, "AoV.downloadPlotHtml('$(plot_id)', '$(fname)')"))
+    downloads
+end
+
+# The downloads as caption-row nodes: one button that opens a menu of them, or,
+# for a single download or `download_menu=false`, a button each. The menu is an
+# auto popover, so the browser opens and closes it (the button, a click
+# elsewhere, Escape, a chosen format) and no scroll box or sticky pane clips it.
+function _download_actions(downloads, plot_id, texts, download_menu)
+    (download_menu && length(downloads) > 1) || return [h.button(label;
+        type="button", class="outline caption-action", onclick) for (label, onclick) in downloads]
+    menu_id = plot_id * "-download-menu"
+    rows = [h.button(label; type="button", popovertarget=menu_id, popovertargetaction="hide", onclick)
+            for (label, onclick) in downloads]
+    [html_only(h.button(texts.download, " ", h.span("▾"; aria_hidden="true");
+         type="button", class="outline caption-action", popovertarget=menu_id)),
+     html_only(h.div(rows...; id=menu_id, class="aov-download-menu", popover="auto",
+         onbeforetoggle="AoV._downloadMenuToggle(this, event)"))]
 end
 
 # The caption's own word ("More") is HTMXObjects' `caption_texts`, which
@@ -330,7 +350,7 @@ end
 
 Serialize a full captioned + auto-remap fragment — the `with_plot_caption`
 spec form (channel picker + plot + `CaptionSpec` + CSV/PNG/SVG/HTML download
-buttons + summary table + raw-data preview) — as ONE standalone `.html`
+menu + summary table + raw-data preview) — as ONE standalone `.html`
 document string. Opening the saved file with no server keeps working: picker
 re-facets, CSV/PNG/SVG download, caption/summary render. `kwargs` forward to
 `with_plot_caption` (e.g. `filename_base`, `share_url`, `html_download`).
