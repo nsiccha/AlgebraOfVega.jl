@@ -5,7 +5,8 @@ using TestItemRunner
 # only: a choropleth stroked in its own colours got a scale on the fill and Vega-Lite's
 # default on the stroke, so the cells took a differently coloured lattice and a second
 # legend, and a stroke-only figure lost the scale without a word (snag
-# `geoshape-strokec-3ca728d0`).
+# `geoshape-strokec-3ca728d0`). A stroke that paints what the fill paints adds no legend,
+# and the two draw the fill's colour bar: Vega draws a legend of two scales as symbols.
 @testsnippet AoVStrokeScaleFixtures begin
     using AlgebraOfVega
     using AlgebraOfGraphics
@@ -26,19 +27,27 @@ end
 
 @testitem "a Color scale reaches a mapped stroke" setup=[AoVStrokeScaleFixtures] tags=[:regression, :translation, :geoshape] begin
     resolved = Dict{String,Any}("scheme" => "viridis", "domain" => [0.0, 3.0], "clamp" => true)
+    # The stroke on the fill's column: the same scale, its fixed range spelled so the two
+    # scales keep one colour bar.
+    resolved_stroke = Dict{String,Any}("scheme" => "viridis", "domainMin" => 0.0, "domainMax" => 3.0, "clamp" => true)
 
     # The reported figure, inline and in the positional form.
     for vl in (to_vegalite(seamless(viridis)),
                to_vegalite(data(cells) * mapping(:k; color=:v, strokecolor=:v) * geoshape(grid(ks)), viridis))
         @test vl["encoding"]["color"]["scale"] == resolved
-        @test vl["encoding"]["stroke"]["scale"] == resolved
+        @test vl["encoding"]["stroke"]["scale"] == resolved_stroke
+        @test isnothing(vl["encoding"]["stroke"]["legend"])
+        @test !haskey(vl["encoding"]["color"], "legend")
     end
 
-    # A stroke alone, and a stroke on another column: `Color` is the one colour scale.
+    # A stroke alone, and a stroke on another column: `Color` is the one colour scale, and
+    # each keeps its legend.
     alone = data(cells) * mapping(:k; strokecolor=:v) * geoshape(grid(ks)) * config(scales=viridis)
     @test to_vegalite(alone)["encoding"]["stroke"]["scale"] == resolved
+    @test !haskey(to_vegalite(alone)["encoding"]["stroke"], "legend")
     other = data(cells) * mapping(:k; color=:v, strokecolor=:w) * geoshape(grid(ks)) * config(scales=viridis)
     @test to_vegalite(other)["encoding"]["stroke"]["scale"] == resolved
+    @test !haskey(to_vegalite(other)["encoding"]["stroke"], "legend")
 
     # Not map-specific: categories and palette, every layer, and each facet's inner spec.
     cat_scale = scales(Color=(; categories=["y", "x"], palette=["red", "blue"]))
@@ -50,12 +59,41 @@ end
     faceted = data(merge(cells, (; year=[1, 1, 2, 2, 2]))) *
         mapping(:k; color=:v, strokecolor=:v, col=:year) * geoshape(grid(ks)) * config(scales=viridis)
     inner = to_vegalite(faceted)["spec"]
-    @test inner["encoding"]["stroke"]["scale"] == resolved
+    @test inner["encoding"]["stroke"]["scale"] == resolved_stroke
+
+    # A categorical stroke keeps the merged legend: symbols are what its colour draws.
+    both_cat = to_vegalite(data(cells) * mapping(:k; color=:g, strokecolor=:g) * geoshape(grid(ks)) * config(scales=cat_scale))
+    @test both_cat["encoding"]["stroke"]["scale"] == pinned
+    @test !haskey(both_cat["encoding"]["stroke"], "legend")
 
     # The channel picker's lowering keeps it.
     picked = to_vegalite(seamless(viridis); auto_remap=(; dims=["g" => "G"], pinned=:row))
     enc = haskey(picked, "spec") ? picked["spec"]["encoding"] : picked["encoding"]
-    @test enc["stroke"]["scale"] == resolved
+    @test enc["stroke"]["scale"] == resolved_stroke
+end
+
+@testitem "a stroke on the fill's column draws one colour bar" setup=[AoVStrokeScaleFixtures] tags=[:regression, :translation, :geoshape] begin
+    stroke_of(x) = to_vegalite(x)["encoding"]["stroke"]
+    plain = data(cells) * mapping(:k; color=:v, strokecolor=:v) * geoshape(grid(ks))
+
+    # A range from the data: the empty union adds no value and only tells the scales apart.
+    union_scale = Dict{String,Any}("domain" => Dict{String,Any}("unionWith" => Any[]))
+    @test stroke_of(plain)["scale"] == union_scale
+    @test isnothing(stroke_of(plain)["legend"])
+    @test stroke_of(plain * config(scales=scales(Color=(; colormap=:viridis))))["scale"] ==
+        merge(union_scale, Dict{String,Any}("scheme" => "viridis"))
+    @test stroke_of(plain * config(scales=scales(Color=(; scale=log10))))["scale"] ==
+        merge(union_scale, Dict{String,Any}("type" => "log"))
+
+    # A stroke that paints otherwise, or says what its legend is, is left as written.
+    written = Dict("field" => "v", "type" => "quantitative", "legend" => Dict("title" => "Edge"))
+    @test stroke_of(data(cells) * mapping(:k; color=:v) * geoshape(grid(ks)) *
+        config(encoding=Dict("stroke" => written)))["legend"] == Dict{String,Any}("title" => "Edge")
+    own = Dict("field" => "v", "type" => "quantitative", "scale" => Dict("scheme" => "magma"))
+    drawn = stroke_of(data(cells) * mapping(:k; color=:v) * geoshape(grid(ks)) *
+        config(encoding=Dict("stroke" => own)) * config(scales=viridis))
+    @test drawn["scale"] == Dict{String,Any}("scheme" => "magma")
+    @test !haskey(drawn, "legend")
 end
 
 @testitem "lowclip, highclip and nan_color reach a mapped stroke" setup=[AoVStrokeScaleFixtures] tags=[:regression, :translation, :geoshape] begin
@@ -93,9 +131,11 @@ end
 end
 
 @testitem "everything else about a stroke stays as written" setup=[AoVStrokeScaleFixtures] tags=[:regression, :translation, :geoshape] begin
-    # No `Color` scale: no scale on either channel.
-    plain = data(cells) * mapping(:k; color=:v, strokecolor=:v) * geoshape(grid(ks))
-    @test !haskey(to_vegalite(plain)["encoding"]["stroke"], "scale")
+    # No `Color` scale: no scheme or range on either channel, and a stroke on another
+    # column has no scale at all.
+    plain = to_vegalite(data(cells) * mapping(:k; color=:v, strokecolor=:w) * geoshape(grid(ks)))
+    @test !haskey(plain["encoding"]["color"], "scale")
+    @test !haskey(plain["encoding"]["stroke"], "scale")
 
     # A fixed border is a mark property, never an encoding.
     fixed = to_vegalite(data(cells) * mapping(:k; color=:v) * geoshape(grid(ks)) *
@@ -135,11 +175,21 @@ end
                     visual(; strokeWidth=2) * config(width=300, height=80, scales=cat_scale); id="st-cat"),
                 vdraw(data(framed) * mapping(:k; color=:v => "W", strokecolor=:v => "W") * geoshape(grid(ks[1:3])) *
                     visual(; strokeWidth=2) *
-                    config(width=300, height=80, scales=scales(Color=(; colormap=:viridis)), frame=:year); id="st-frame")]
+                    config(width=300, height=80, scales=scales(Color=(; colormap=:viridis)), frame=:year); id="st-frame"),
+                vdraw(data(framed) * mapping(:k; color=:v => "W", strokecolor=:v => "W") * geoshape(grid(ks[1:3])) *
+                    visual(; strokeWidth=2) * config(width=300, height=80, scales=viridis, frame=:year); id="st-frame-fixed"),
+                vdraw(data(cells) * mapping(:k; color=:w => "W", strokecolor=:w => "W") * geoshape(grid(ks)) *
+                    visual(; strokeWidth=2) * config(width=300, height=80); id="st-plain"),
+                vdraw(data(cells) * mapping(:k; color=:w => "W", strokecolor=:w => "W") * geoshape(grid(ks)) *
+                    visual(; strokeWidth=2) *
+                    config(width=300, height=80, scales=scales(Color=(; colormap=:viridis, scale=log10))); id="st-log")]
             head = join(html(n) for n in vega_head(; source=:inline))
             driver = read(joinpath(@__DIR__, "stroke_color_scale.js"), String)
+            # SVG, so the driver can click a legend label as a reader does.
+            svg = "<script>const originalEmbed=vegaEmbed;vegaEmbed=(el,spec,opts)=>" *
+                "originalEmbed(el,spec,Object.assign({},opts,{renderer:'svg'}));</script>"
             write(joinpath(dir, "page.html"), "<!doctype html><meta charset='utf-8'>" * head *
-                "<body>" * join(html(p) for p in page) * "<script>" * driver * "</script></body>")
+                "<body>" * svg * join(html(p) for p in page) * "<script>" * driver * "</script></body>")
             output = read(pipeline(`$chrome --headless=new --no-sandbox --disable-gpu
                 --user-data-dir=$(joinpath(dir, "profile")) --window-size=1200,1400
                 --virtual-time-budget=20000 --dump-dom $("file://" * joinpath(dir, "page.html"))`,
@@ -149,10 +199,35 @@ end
             if !isnothing(result)
                 report = JSON.parse(replace(result[1], "&quot;" => "\"", "&lt;" => "<",
                     "&gt;" => ">", "&amp;" => "&"))
-                @test report["checks"] >= 20
+                @test report["checks"] >= 50
                 @test isempty(report["failures"])
                 @info "mapped stroke browser checks" checks=report["checks"]
                 isempty(report["failures"]) || println(JSON.json(report["failures"]))
+            end
+        end
+    end
+end
+
+@testitem "vsave writes one colour bar and the fill's colours on the stroke" setup=[AoVStrokeScaleFixtures] tags=[:regression, :static, :geoshape, :vsave] begin
+    if isnothing(Sys.which("vl-convert")) && !haskey(ENV, "AOV_VL_CONVERT")
+        @test_skip "vl-convert is not installed"
+    else
+        mktempdir(prefix="kb-stroke-scale-") do dir
+            function shapes(path)
+                svg = read(path, String)
+                cells = [m for m in eachmatch(r"<path [^>]*?aria-roledescription=\"geoshape\"[^>]*>", svg)]
+                paint(c, k) = match(Regex("\\b$k=\"([^\"]*)\""), c.match)
+                (; svg, paints=[(paint(c, "fill")[1], paint(c, "stroke")[1]) for c in cells])
+            end
+            # A fixed range, and a range from the data with no colorrange.
+            for sc in (viridis, scales(Color=(; colormap=:viridis)))
+                path = joinpath(dir, "map.svg")
+                vsave(seamless(sc), path)
+                drawn = shapes(path)
+                @test length(drawn.paints) == 5
+                @test all(p -> p[1] == p[2], drawn.paints)
+                @test length(unique(first.(drawn.paints))) > 1
+                @test count("<linearGradient", drawn.svg) == 1
             end
         end
     end
