@@ -1359,6 +1359,10 @@ _merge_color_scale!(spec::Dict, ::Nothing) = nothing
 
 const _CONTINUOUS_VL_TYPES = ("quantitative", "temporal")
 
+# The channels a `scales(Color=…)` override reaches: AlgebraOfGraphics scales `color` and
+# `strokecolor` with one `AesColor` scale, and `_CHANNEL_MAP` lowers them to these two.
+const _COLOR_SCALE_CHANNELS = ("color", "stroke")
+
 """The kind of colour scale an encoding takes, as AlgebraOfGraphics reads it: `:continuous`
 for a quantitative or temporal encoding, `:categorical` for a nominal or ordinal one. An
 untyped encoding follows Vega-Lite's default type (quantitative under `aggregate`/`bin`,
@@ -1380,16 +1384,23 @@ const _COLOR_KIND_HINT = (;
 """Merge a `scales(Color=…)` override into the colour encodings that carry a `field`, each
 part into the encodings of its kind only. A figure that colours one layer by a category and
 another by a number thus gets its categorical keys on the first and its continuous keys on
-the second. Authored keys of a kind no colour encoding has are an `ArgumentError`, as in
-AlgebraOfGraphics; a figure with no colour encoding at all (a picker state with colour off)
-is left alone."""
+the second. A mapped stroke is a colour encoding too (`_COLOR_SCALE_CHANNELS`), so a stroke
+on the same column paints what the fill paints, and Vega-Lite draws their one legend: it
+merges legends whose scales share a domain (snag `geoshape-strokec-3ca728d0`). Authored keys
+of a kind no colour encoding has are an `ArgumentError`, as in AlgebraOfGraphics; a figure
+with no colour encoding at all (a picker state with colour off) is left alone."""
 function _merge_color_scale!(spec::Dict, c::_ColorScaleVL)
     fields = (; categorical=String[], continuous=String[])
-    _foreach_field_encoding(spec, "color") do col
-        kind = _color_kind(col)
-        push!(fields[kind], string(col["field"]))
-        isempty(c.scale[kind]) || _merge_scale_props!(col, c.scale[kind])
-        kind === :continuous && !isempty(c.clips) && _add_clip_conditions!(col, c.clips)
+    continuous_channels = String[]
+    for channel in _COLOR_SCALE_CHANNELS
+        _foreach_field_encoding(spec, channel) do col
+            kind = _color_kind(col)
+            push!(fields[kind], string(col["field"]))
+            isempty(c.scale[kind]) || _merge_scale_props!(col, c.scale[kind])
+            kind === :continuous || return
+            channel in continuous_channels || push!(continuous_channels, channel)
+            isempty(c.clips) || _add_clip_conditions!(col, c.clips)
+        end
     end
     all(isempty, fields) && return
     for (kind, other) in ((:categorical, :continuous), (:continuous, :categorical))
@@ -1404,12 +1415,15 @@ function _merge_color_scale!(spec::Dict, c::_ColorScaleVL)
             ". AlgebraOfGraphics refuses " * (length(authored) == 1 ? "it" : "them") * " too. " *
             _COLOR_KIND_HINT[other]))
     end
-    if !isempty(fields.continuous) && !isnothing(c.nan_color)
+    if !isempty(continuous_channels) && !isnothing(c.nan_color)
         # Vega-Lite drops a mark whose continuous colour value is invalid (AoG's
         # default transparent `nan_color`); this paints it instead, and leaves a
-        # mark with an invalid position dropped.
+        # mark with an invalid position dropped. The config is keyed per channel.
         scale_cfg = get!(get!(spec, "config", Dict{String,Any}()), "scale", Dict{String,Any}())
-        get!(scale_cfg, "invalid", Dict{String,Any}())["color"] = Dict{String,Any}("value" => c.nan_color)
+        invalid = get!(scale_cfg, "invalid", Dict{String,Any}())
+        for channel in continuous_channels
+            invalid[channel] = Dict{String,Any}("value" => c.nan_color)
+        end
     end
     return
 end
@@ -1480,8 +1494,8 @@ function _apply_scales_sugar!(spec, s::AlgebraOfGraphics.Scales)
     # X/Y/Z axis scales broadcast into every matching positional encoding.
     override = _scales_to_encoding_override(s)
     isempty(override) || _merge_encoding_config!(spec, override)
-    # A `Color` scale is applied ONLY to colour encodings that carry a `field`
-    # — never broadcast onto a field-less layer.
+    # A `Color` scale is applied ONLY to colour and stroke encodings that carry a
+    # `field` — never broadcast onto a field-less layer.
     _merge_color_scale!(spec, _scales_to_color_scale(s))
     # So are the Makie-vocabulary categorical scales.
     for (name, channel) in _MAKIE_CATEGORICAL_SCALES
