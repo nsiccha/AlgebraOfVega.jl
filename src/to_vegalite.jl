@@ -1861,8 +1861,8 @@ Handles X/Y/Z axis scales (log/log2/log10/sqrt/symlog + `nice`/`zero`/`domain`/
 colormap's end colours, or `lowclip`/`highclip`), `scale` (log/sqrt/symlog) and
 `nan_color`. Any other AlgebraOfGraphics colour attribute warns that it is not lowered,
 and a key AoG rejects (including `clamp`) is an `ArgumentError`. The `Color` override is merged
-only into colour encodings that carry a `field`, so a layer with a deliberate
-field-less colour (e.g. a `pointinterval()` median dot) is never given a bare,
+only into `color=` and `strokecolor=` encodings that carry a `field`, so a layer with a
+deliberate field-less colour (e.g. a `pointinterval()` median dot) is never given a bare,
 VL-dropped colour encoding. Each key reaches only colour encodings of its kind:
 `categories`/`palette` the nominal/ordinal ones, the continuous keys the
 quantitative/temporal ones, so one override configures both colours of a figure that
