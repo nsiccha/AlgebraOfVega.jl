@@ -15,6 +15,15 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
+## 0.2.11
+
+- A plot that scrolls inside its frame can be reached from the keyboard in every
+  browser: while it is wider than the frame, the frame is a tab stop named
+  "Scrollable plot", followed by the caption's or spec's title, and the arrow
+  keys scroll it. A plot that fits adds no tab stop. `plot_texts` has the new
+  text `scrollable` (German "Scrollbare Grafik"); as with the frame player, a
+  plot without `texts=` uses the English word.
+
 ## 0.2.10
 
 - `with_plot_caption` and the captioned `to_html` show a figure's downloads in

@@ -6,6 +6,10 @@
        HTMXObjects; this block only carries roles peculiar to
        the AoV gallery shell. */
     .aov-plot-area { width: 100%; min-width: 0; max-width: 100%; overflow-x: auto; }
+    /* A plot that scrolls in its frame is a tab stop (the runtime's
+       _syncScrollFrame). The ring stays inside the frame, where a clipping
+       ancestor cannot cut it off, and follows the text colour in both themes. */
+    .aov-plot-area:focus-visible { outline: 2px solid currentColor; outline-offset: -2px; }
     /* cell_charts: a table cell's total and its small chart stay on one line.
        The total sits in a slot as wide as its column's widest total (set by
        the runtime, `_cellAlign`), right-aligned with equal-width digits, so

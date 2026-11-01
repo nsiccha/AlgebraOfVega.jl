@@ -39,6 +39,9 @@ window.AoV = window.AoV || {
     // Coloured ribbons drawn either as ribbons or as point-intervals: both
     // drawings, the one shown, and the overlap score (see setRibbonView).
     _ribbonViews: {},
+    // The observers that keep a plot's scroll frame keyboard-reachable while
+    // it scrolls (see _syncScrollFrame).
+    _scrollFrames: {},
 
     // Every map keyed by plot id; dispose() clears each. A new per-plot
     // map belongs in this list.
@@ -46,7 +49,7 @@ window.AoV = window.AoV || {
         '_signals', '_liveRows', '_specRows', '_origSpecs', '_droppedLegends',
         '_embedOpts', '_observers', '_computedWidths', '_corrections', '_correctedRegime',
         '_cur', '_pickers', '_mappings', '_themeKeys', '_reembeds', '_frames',
-        '_highlights', '_hovers', '_touches', '_unmeasured', '_ribbonViews'],
+        '_highlights', '_hovers', '_touches', '_unmeasured', '_ribbonViews', '_scrollFrames'],
 
     // Whether the runtime sizes this spec to its container: Julia's
     // `_embed_spec` marks a responsive layered/faceted/per-column spec with
@@ -918,6 +921,7 @@ window.AoV = window.AoV || {
                 // rendered chrome overshoots the computed budget.
                 self._fitCorrection(id, function(budget) { doEmbed(budget); });
                 self._refitOnRelayout(id, view, function(budget) { doEmbed(budget); });
+                self._watchScrollFrame(id);
                 return result;
             }).catch(function(err) { settle(); self._console.error.call(console, '[' + id + ']', err); });
         };
@@ -982,6 +986,67 @@ window.AoV = window.AoV || {
                 self._observers[id] = ro;
             }
         }
+    },
+
+    // --- Keyboard access to a plot's scroll frame ---
+    // A plot wider than its `.aov-plot-area` scrolls inside it (aov.css), and a
+    // canvas holds nothing that takes the focus. So while the frame scrolls it
+    // is a named tab stop itself, where the arrow keys scroll it; Safari would
+    // otherwise never reach it, and Chrome reaches it as a stop without a name.
+    // A plot that fits adds no stop. The frame outlives a re-embed, so the
+    // reader's focus and scroll position do too. A name needs a role, and
+    // `figure` is what the frame holds. Not `group`: Pico lays `[role=group]`
+    // out as an inline-flex button row. Not `region`: a landmark per plot, and
+    // two untitled plots then fail axe's `landmark-unique`.
+    _watchScrollFrame: function(id) {
+        var self = this, el = self._els[id], area = el && el.closest('.aov-plot-area');
+        if (!area) return;
+        if (self._scrollFrames[id]) self._scrollFrames[id].disconnect();
+        if (window.ResizeObserver) {
+            // The frame for a changed container, the drawing for a view that
+            // grew with its data (each embed draws a new one).
+            var ro = self._scrollFrames[id] = new ResizeObserver(function() { self._syncScrollFrame(id); });
+            ro.observe(area);
+            var marks = el.querySelector('.marks');
+            if (marks) ro.observe(marks);
+        }
+        self._syncScrollFrame(id);
+    },
+    _syncScrollFrame: function(id) {
+        // A render in flight has emptied the frame, which then fits, and
+        // dropping its tab stop would drop the reader's focus. The embed
+        // measures again when it settles.
+        var el = this._els[id], area = el && el.closest('.aov-plot-area');
+        if (!area || this._inFlight[id]) return;
+        // Within 2 px is no scrolling to speak of (the tolerance of
+        // _fitCorrection). The computed overflow keeps a frame on a page
+        // without aov.css, which does not scroll, out of the tab order.
+        var style = getComputedStyle(area);
+        var scrolls = function(overflow, over) { return (overflow === 'auto' || overflow === 'scroll') && over > 2; };
+        if (scrolls(style.overflowX, area.scrollWidth - area.clientWidth) ||
+            scrolls(style.overflowY, area.scrollHeight - area.clientHeight)) {
+            area.setAttribute('tabindex', '0');
+            area.setAttribute('role', 'figure');
+            area.setAttribute('aria-label', this._scrollFrameName(id, area));
+        } else {
+            area.removeAttribute('tabindex');
+            area.removeAttribute('role');
+            area.removeAttribute('aria-label');
+        }
+    },
+    // "Scrollable plot", then what the reader knows the plot by: its caption's
+    // title (as the HTML download reads it), or else the spec's own title.
+    _scrollFrameName: function(id, area) {
+        var word = this._texts(area)('scrollable');
+        var figure = area.closest('figure');
+        var caption = figure && figure.querySelector('figcaption .caption-header strong');
+        var title = caption && caption.textContent.trim();
+        if (!title) {
+            title = this._cur[id] && this._cur[id].spec.title;
+            if (title && title.text !== undefined) title = title.text;
+            if (Array.isArray(title)) title = title.join(' ');
+        }
+        return title ? word + ': ' + title : word;
     },
 
     // A plot's container changed width: re-embed it at the new width when it is
@@ -1295,6 +1360,7 @@ window.AoV = window.AoV || {
         self._frameStop(id);
         self._finalizeView(id);
         if (self._observers && self._observers[id]) self._observers[id].disconnect();
+        if (self._scrollFrames[id]) self._scrollFrames[id].disconnect();
         self._perPlotState.forEach(function(k) { if (self[k]) delete self[k][id]; });
     },
 
@@ -3236,7 +3302,7 @@ window.AoV = window.AoV || {
     // (`plot_texts`, src/plot_texts.jl); without that attribute they are
     // English. LOCKSTEP: `_TEXTS_EN` is the English set of
     // `_RUNTIME_TEXT_NAMES` in src/plot_texts.jl; test/plot_texts.jl pins them.
-    _TEXTS_EN: {"no_data": "(no data available)", "no_summary": "(no summary data available)", "median": "Median", "interval": "{point} [{width} credible interval]", "value": "value", "untitled": "AoV plot", "lang": "en", "play": "Play", "pause": "Pause", "ribbons": "Ribbons", "intervals": "Intervals", "ribbon_view": "Drawing", "overlap": "Bands overlap {score} of the y range", "overlap_auto": "Bands overlap {score} of the y range; intervals above {threshold}"},
+    _TEXTS_EN: {"no_data": "(no data available)", "no_summary": "(no summary data available)", "median": "Median", "interval": "{point} [{width} credible interval]", "value": "value", "untitled": "AoV plot", "lang": "en", "play": "Play", "pause": "Pause", "ribbons": "Ribbons", "intervals": "Intervals", "ribbon_view": "Drawing", "overlap": "Bands overlap {score} of the y range", "overlap_auto": "Bands overlap {score} of the y range; intervals above {threshold}", "scrollable": "Scrollable plot"},
     _texts: function(el) {
         var host = el && el.closest ? el.closest('[data-aov-texts]') : null;
         var texts = host ? JSON.parse(host.dataset.aovTexts) : {};
