@@ -15,6 +15,22 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
+## 0.2.9
+
+- `scales(Color=…)` also reaches a mapped `strokecolor=`, as AlgebraOfGraphics'
+  one `Color` scale does: `colormap`, `colorrange`, `categories`, `palette`,
+  `scale`, `lowclip`, `highclip` and `nan_color`. So
+  `mapping(:k; color=:v, strokecolor=:v) * geoshape(geo) * visual(; strokeWidth=0.7)`
+  strokes each cell in its own fill colour, which removes the hairlines between
+  adjacent polygons. A continuous stroke on the fill's column adds no legend: the
+  two draw the fill's colour bar, with or without a `Color` scale. Before, the
+  scale reached the fill only: the stroke kept Vega-Lite's default colours and a
+  second legend, and a figure with only a stroke lost the scale without a word.
+- The `Color` scale's kinds count a mapped stroke, as they count a colour: a
+  figure with only a categorical `strokecolor=` refuses `colormap`/`colorrange`
+  with an `ArgumentError`, as AlgebraOfGraphics does (use `palette`), and a
+  numeric stroke beside a categorical colour takes them.
+
 ## 0.2.8
 
 - A plot whose rows change in the browser (`append_data`, `update_data`,
