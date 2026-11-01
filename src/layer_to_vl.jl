@@ -249,7 +249,53 @@ function _apply_layer_encodings!(units::AbstractVector, layer_encodings::Abstrac
     end
 end
 
-function layers_to_vl(layers::AlgebraOfGraphics.Layers; layer_encodings::AbstractVector=Any[])
+# Layers whose rows a `transform` of `node` reaches: `node` itself unless every
+# row it draws comes from a child's own data. Vega-Lite runs a parent's transforms
+# only on the data a child inherits, so a child with its own `data` (every layer of
+# a map, a layer with another table) needs them itself.
+function _with_own_data(node::AbstractDict, out=AbstractDict[])
+    for key in ("layer", "spec")
+        children = get(node, key, nothing)
+        for child in (children isa AbstractVector ? children : (children,))
+            child isa AbstractDict || continue
+            haskey(child, "data") ? push!(out, child) : _with_own_data(child, out)
+        end
+    end
+    out
+end
+
+# Run `transform` first on every row `node` draws, before the transforms AoV
+# generated there (a map's lookup, a `density()`), which would otherwise be lost
+# or would hide the source rows. Each target gets its own copy: later passes
+# extend it, and the same `Config` lowers again on every re-render.
+function _prepend_transform!(node::AbstractDict, transform::AbstractVector)
+    isempty(transform) && return node
+    nested = _with_own_data(node)
+    if haskey(node, "data") || isempty(nested)
+        rest = something(_as_vec(get(node, "transform", nothing)), Any[])
+        node["transform"] = Any[_owned_copy(transform)...; rest...]
+    end
+    foreach(n -> _prepend_transform!(n, transform), nested)
+    node
+end
+
+# Run each AoG layer's own transform (`VegaSpec.layer_transforms`, set when a
+# summand of a `+` sum carried `config(transform=…)`) on the Vega-Lite units that
+# layer lowered to, and on no other layer's. This runs before a facet merges the
+# layers' rows, so the `__src` filter that picks a layer's rows stays in front.
+function _apply_layer_transforms!(units::AbstractVector, layer_transforms::AbstractVector)
+    isempty(layer_transforms) && return
+    length(layer_transforms) == length(units) || error(
+        "AlgebraOfVega: $(length(layer_transforms)) per-layer transforms " *
+        "for a drawable with $(length(units)) layers.")
+    for (us, transform) in zip(units, layer_transforms)
+        isnothing(transform) && continue
+        foreach(u -> _prepend_transform!(u, transform), us)
+    end
+end
+
+function layers_to_vl(layers::AlgebraOfGraphics.Layers; layer_encodings::AbstractVector=Any[],
+        layer_transforms::AbstractVector=Any[])
     # Check if any layer is faceted density (density with y group) — needs special handling
     has_faceted_density = false
     facet_field = nothing
@@ -272,7 +318,7 @@ function layers_to_vl(layers::AlgebraOfGraphics.Layers; layer_encodings::Abstrac
 
     if has_faceted_density && !isnothing(facet_field)
         return _faceted_layers_to_vl(layers, facet_field, shared_table, shared_data;
-            layer_encodings)
+            layer_encodings, layer_transforms)
     end
 
     # Check if any layer is an analysis type (produces own summarized data)
@@ -333,6 +379,7 @@ function layers_to_vl(layers::AlgebraOfGraphics.Layers; layer_encodings::Abstrac
         push!(units, layer_specs[n_before+1:end])
     end
     map_figure && _share_map_projection!(layers.layers, units)
+    _apply_layer_transforms!(units, layer_transforms)
 
     # Also collect facet from regular layer encodings (col=/row= → column/row channels,
     # layout= → the single-field `facet` wrap channel). VL compiles a `facet` channel
@@ -472,7 +519,7 @@ function _harmonize_axis_types!(layer_specs::Vector{Dict{String,Any}})
 end
 
 function _faceted_layers_to_vl(layers, facet_field, shared_table, shared_data;
-        layer_encodings::AbstractVector=Any[])
+        layer_encodings::AbstractVector=Any[], layer_transforms::AbstractVector=Any[])
     # For density + pointinterval combos: facet by group field, inner spec has layers
     inner_layers = Dict{String,Any}[]
     units = Vector{Dict{String,Any}}[]
@@ -577,6 +624,7 @@ function _faceted_layers_to_vl(layers, facet_field, shared_table, shared_data;
         push!(units, inner_layers[n_before+1:end])
     end
     _apply_layer_encodings!(units, layer_encodings)
+    _apply_layer_transforms!(units, layer_transforms)
 
     spec = Dict{String,Any}(
         "\$schema" => VL_SCHEMA,

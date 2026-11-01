@@ -15,6 +15,26 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
+## 0.2.12
+
+- `config(transform=…)` on one summand of a `+` sum stays on that summand's
+  layers, and each summand may carry its own: `a * config(transform=T) + b`
+  runs `T` on `a`'s rows only, as `config(encoding=…)` does. Before, the later
+  summand's transform replaced the earlier one's, without a word.
+- A transform on the whole figure, `(a + b) * config(transform=T)`, reaches
+  every layer, also one with its own table, and runs before a layer's own.
+  Before, it reached only layers that share the figure's table, so on a map it
+  reached none.
+- A transform keeps what AoV generated: on a lone `geoshape` or `density()` it
+  runs before the lookup or density. Before, it replaced them, and the map
+  painted nothing.
+- `config(transform=…)` takes one transform as well as a list, and `nothing`
+  emits none. Any other value is an `ArgumentError`.
+- A figure that wanted a summand's transform on its other layers too writes
+  `(a + b) * config(transform=T)`. A figure's filter on a column that a layer's
+  table lacks now removes that layer's rows, so write it on the layers that have
+  the column, `a * config(transform=T) + b`.
+
 ## 0.2.11
 
 - A plot that scrolls inside its frame is a named tab stop for the keyboard:

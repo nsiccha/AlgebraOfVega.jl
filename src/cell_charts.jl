@@ -225,7 +225,7 @@ function _cell_column(spec, scales=nothing; id=nothing)
     own = sort!(collect(keys(_facet_nt_to_resolve_scale(something(_as_nt(get(props, :facet, nothing)), (;))))))
     cfg = isnothing(v.config) ? nothing : Config(Dict{Symbol,Any}(k => x for (k, x) in props if k !== :facet))
     figure = _cell_chrome(width, height) *
-        VegaSpec(_cell_drawable(v.drawable, unfaceted), cfg, v.layer_encodings) *
+        VegaSpec(_cell_drawable(v.drawable, unfaceted), cfg, v.layer_encodings, v.layer_transforms) *
         config(frame=Symbol(field))
     vl = isnothing(scales) ? to_vegalite(figure; interactive=false) : to_vegalite(figure, scales; interactive=false)
     _cell_bars_from_zero!(vl, _cell_authored_zero(v.config))

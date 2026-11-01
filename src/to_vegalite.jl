@@ -32,25 +32,30 @@ end
 # drawables and configured specs share the same finalization path; adding params
 # here would make generated selections look user-authored during config lowering.
 #
-# `layer_encodings` are the per-layer overrides summands carried into a `+` sum
-# (`VegaSpec.layer_encodings`); each is merged into its own layer's units here,
-# before the spec-level config, so a whole-spec `config(encoding=…)` still wins.
+# `layer_encodings` and `layer_transforms` are the per-layer overrides summands
+# carried into a `+` sum (`VegaSpec.layer_encodings`/`.layer_transforms`); each is
+# applied to its own layer's units here, before the spec-level config, so a
+# whole-spec `config(encoding=…)` still wins and a whole-spec `config(transform=…)`
+# still runs first.
 _base_vegalite(drawable) = to_vegalite(drawable; interactive=false)
-_base_vegalite(drawable, layer_encodings::AbstractVector) = isempty(layer_encodings) ?
-    _base_vegalite(drawable) :
-    throw(ArgumentError("AlgebraOfVega: per-layer encoding overrides need a Layer/Layers drawable, got $(typeof(drawable))."))
-function _base_vegalite(layer::AlgebraOfGraphics.Layer, layer_encodings::AbstractVector=Any[])
+_base_vegalite(drawable, layer_encodings::AbstractVector, layer_transforms::AbstractVector) =
+    isempty(layer_encodings) && isempty(layer_transforms) ? _base_vegalite(drawable) :
+    throw(ArgumentError("AlgebraOfVega: per-layer overrides need a Layer/Layers drawable, got $(typeof(drawable))."))
+function _base_vegalite(layer::AlgebraOfGraphics.Layer, layer_encodings::AbstractVector=Any[],
+        layer_transforms::AbstractVector=Any[])
     spec = layer_to_vl(layer)
     # One layer: its units are the whole spec.
     _apply_layer_encodings!([[spec]], layer_encodings)
+    _apply_layer_transforms!([[spec]], layer_transforms)
     _apply_no_truncate_default!(spec)
     _apply_ink_default!(spec)
     _densify_facet_sort!(spec)
     spec
 end
 
-function _base_vegalite(layers::AlgebraOfGraphics.Layers, layer_encodings::AbstractVector=Any[])
-    spec = layers_to_vl(layers; layer_encodings)
+function _base_vegalite(layers::AlgebraOfGraphics.Layers, layer_encodings::AbstractVector=Any[],
+        layer_transforms::AbstractVector=Any[])
+    spec = layers_to_vl(layers; layer_encodings, layer_transforms)
     _apply_no_truncate_default!(spec)
     _apply_ink_default!(spec)
     _densify_facet_sort!(spec)
@@ -1743,7 +1748,7 @@ end
 # The Vega-Lite of `v` as drawn, before the last passes and without a ribbon's
 # interval view (`_vegaspec_views`, src/ribbon_view.jl, adds that).
 function _lower_vegaspec(v::VegaSpec; interactive::Bool=true)
-    spec = _base_vegalite(v.drawable, v.layer_encodings)
+    spec = _base_vegalite(v.drawable, v.layer_encodings, v.layer_transforms)
     select_fields = nothing
     frame_opts = nothing
     link_opts = nothing
@@ -1803,6 +1808,10 @@ function _lower_vegaspec(v::VegaSpec; interactive::Bool=true)
                 _check_theme(val)
                 aov = get!(spec, "_aov", Dict{String,Any}())
                 aov["theme"] = string(val)
+            elseif sk == "transform"
+                # Keeps what AoV generated (a map's lookup, a `density()`), and
+                # reaches a layer with its own data too.
+                _prepend_transform!(spec, _transform_list(val))
             elseif sk == "select"
                 # Collect select fields — processed after spec is built
                 select_fields = _select_field_list(val)

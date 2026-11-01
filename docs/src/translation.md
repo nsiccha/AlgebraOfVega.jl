@@ -84,7 +84,7 @@ spec * config(config=(; legend=(; orient="bottom"), mark=(; cursor="pointer"))) 
     config(config=(; axisX=(; labelAngle=0)))   # keeps the legend and cursor settings
 ```
 
-Any other property (`width`, `title`, `params`, `transform`, …) takes the later term's value.
+Any other property (`width`, `title`, `params`, `transform`, …) takes the later term's value on one view. Across a `+`, a summand's `transform` stays on its own layers ([Per-layer overrides](#per-layer-overrides)).
 
 Two configs compose the same way before they meet a spec: `a * b` is the `Config` that `spec * a * b` applies, so `spec * (a * b) == spec * a * b`. An app can extend a config it shares with other apps once, and use the result wherever it used the shared one:
 
@@ -107,6 +107,19 @@ posterior + observed * config(encoding=Dict(:tooltip => [Dict("field" => "label"
 ```
 
 `row`/`column`/`facet` overrides always configure the one facet every layer shares, and every other `config` property (`width`, `title`, `scales`, `params`, …) describes the whole figure whichever summand carries it. Scales, axes and legends are still shared between layers: Vega-Lite merges a per-layer scale override into the shared scale.
+
+A `config(transform=…)` scopes the same way, and each summand may carry its own:
+
+```julia
+# Each set of labels draws its own rows, and the map keeps all its regions.
+regions + labels * config(transform=[Dict("filter" => "datum.rank <= 10")]) +
+    capitals * config(transform=[Dict("filter" => "datum.capital")])
+
+# Every layer's rows are filtered first, also those of a layer with its own table.
+(a + b) * config(transform=[Dict("filter" => "datum.year > 2000")])
+```
+
+A transform runs before any AoV generates (a map's lookup, a `density()`), and a figure's runs before a layer's. Vega-Lite runs a parent's transform only on data a child inherits, so AoV writes a figure's transform onto every layer that carries its own data as well. A filter on a column that a layer's rows lack removes all of them, so scope it to the layers that have the column; a `calculate` leaves them drawn. A layer whose marks AoV computes in Julia (a `pointinterval`, a faceted `density()`) carries those summary rows, and they are what the transform sees.
 
 A configured spec still takes further algebra terms, and each layer keeps its own override, as AlgebraOfGraphics distributes `*` over `+`. Library code can therefore add a mark property to layers an app built:
 
