@@ -3006,6 +3006,42 @@ window.AoV = window.AoV || {
         URL.revokeObjectURL(url);
     },
 
+    // A caption's download menu (`with_plot_caption`), opening or closing. The
+    // browser does both; this keeps the open menu at its button while the
+    // page scrolls, and closes it when the focus moves on. It sits below the
+    // button, or above it when there is little room below and more above, and
+    // scrolls within that room. CSS holds it against the button's right edge,
+    // or the viewport's left edge, with no need to measure it (`aov.css`).
+    _downloadMenuToggle: function(menu, event) {
+        if (menu._aovMenuDone) menu._aovMenuDone();
+        if (event.newState !== 'open') return;
+        var button = menu.previousElementSibling;
+        var place = function() {
+            if (!menu.isConnected) { menu._aovMenuDone(); return; }
+            var r = button.getBoundingClientRect(), root = document.documentElement;
+            var below = root.clientHeight - r.bottom, up = below < 160 && r.top > below;
+            menu.style.right = (root.clientWidth - r.right) + 'px';
+            menu.style.minWidth = r.width + 'px';
+            menu.style.top = up ? 'auto' : (r.bottom + 2) + 'px';
+            menu.style.bottom = up ? (root.clientHeight - r.top + 2) + 'px' : 'auto';
+            menu.style.maxHeight = Math.max(0, (up ? r.top : below) - 6) + 'px';
+        };
+        var focusout = function(e) {
+            var to = e.relatedTarget;
+            if (to && !menu.contains(to) && to !== button) menu.hidePopover();
+        };
+        place();
+        window.addEventListener('scroll', place, true);
+        window.addEventListener('resize', place);
+        menu.addEventListener('focusout', focusout);
+        menu._aovMenuDone = function() {
+            window.removeEventListener('scroll', place, true);
+            window.removeEventListener('resize', place);
+            menu.removeEventListener('focusout', focusout);
+            menu._aovMenuDone = null;
+        };
+    },
+
     // Public: download the plot's data as CSV. Splits by `__src` if present.
     // labels: optional {srcValue: humanLabel} override map.
     downloadPlotData: function(id, filenameBase, labels) {
@@ -3106,6 +3142,8 @@ window.AoV = window.AoV || {
         // Frame players and ribbon switches: the fresh page's embed builds
         // its own controls.
         clone.querySelectorAll('[data-aov-frame-for], [data-aov-ribbon-view-for], .aov-ribbon-view').forEach(function(c) { c.remove(); });
+        // A download menu's place is set whenever it opens.
+        clone.querySelectorAll('.aov-download-menu').forEach(function(m) { m.removeAttribute('style'); });
         // Lazy data shells: drop rendered bodies; the fresh page re-renders lazily.
         clone.querySelectorAll('.aov-data-raw-body[data-aov-plot-id], .aov-data-pretty-body[data-aov-plot-id]').forEach(function(b) {
             b.innerHTML = '';

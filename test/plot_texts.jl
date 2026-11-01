@@ -76,7 +76,7 @@ it the output keeps its English texts and carries no texts attribute.
 
     german = html(with_plot_caption(spec, CaptionSpec(; title="Laufzeiten", long="Erläuterung");
         plot_id="texts-de", auto_remap=remap, share_url="/p/x?force=1", texts=de))
-    for text in ("<summary>Mehr</summary>", "⬇ CSV", "⬇ PNG", "⬇ SVG", "⬇ HTML", ">Teilen<", "Kopiert!", "<summary>Kennzahlen anzeigen</summary>",
+    for text in ("<summary>Mehr</summary>", "⬇ Export", "⬇ CSV", "⬇ PNG", "⬇ SVG", "⬇ HTML", ">Teilen<", "Kopiert!", "<summary>Kennzahlen anzeigen</summary>",
                  ">Übersicht<", ">Rohdaten<", "Farbe: ", "Zeile: ", "Spalte: ", "Ungruppiert: ")
         @test occursin(text, german)
     end

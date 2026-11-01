@@ -2,7 +2,7 @@
     PlotTexts
 
 The words AoV's own plot chrome shows: the caption's "More" toggle, the
-caption row's download and Share buttons, the "Show data" preview and its
+caption row's download menu and buttons and its Share button, the "Show data" preview and its
 summary table, the channel picker's labels, a frame player's play/pause button
 (`config(frame=…)`), a coloured ribbon's "Ribbons | Intervals" switch
 (`lineribbon(...; intervals=…)`), and standalone HTML exports. Build one with [`plot_texts`](@ref) and
@@ -20,6 +20,7 @@ struct PlotTexts
     csv::String             # caption button: download the plot's data as CSV
     image::String           # caption button: download an image
     html::String            # caption button: download the card as one HTML file
+    download::String        # caption button: opens the menu of the downloads above
     share::String           # caption Share button
     copied::String          # a Share button's flash after copying
     copy_link::String       # accessible name of a summary line's 🔗 button
@@ -60,6 +61,7 @@ const _PLOT_TEXT_LOCALES = (
         csv = "⬇ CSV",
         image = "⬇ {format}",
         html = "⬇ HTML",
+        download = "⬇ Export",
         share = "Share",
         copied = "Copied!",
         copy_link = "Copy shareable link",
@@ -95,6 +97,7 @@ const _PLOT_TEXT_LOCALES = (
         csv = "⬇ CSV",
         image = "⬇ {format}",
         html = "⬇ HTML",
+        download = "⬇ Export",
         share = "Teilen",
         copied = "Kopiert!",
         copy_link = "Teilbaren Link kopieren",
