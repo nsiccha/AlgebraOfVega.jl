@@ -994,7 +994,7 @@ window.AoV = window.AoV || {
     // is a named tab stop itself, where the arrow keys scroll it; Safari would
     // otherwise never reach it, and Chrome reaches it as a stop without a name.
     // A plot that fits adds no stop. The frame outlives a re-embed, so the
-    // reader's focus and scroll position do too. A name needs a role, and
+    // reader's focus does too. A name needs a role, and
     // `figure` is what the frame holds. Not `group`: Pico lays `[role=group]`
     // out as an inline-flex button row. Not `region`: a landmark per plot, and
     // two untitled plots then fail axe's `landmark-unique`.
@@ -1013,9 +1013,9 @@ window.AoV = window.AoV || {
         self._syncScrollFrame(id);
     },
     _syncScrollFrame: function(id) {
-        // A render in flight has emptied the frame, which then fits, and
-        // dropping its tab stop would drop the reader's focus. The embed
-        // measures again when it settles.
+        // A plot whose width follows data still loading from a URL fits its
+        // frame until the data arrives, and dropping the tab stop then would
+        // drop the reader's focus. The embed measures again when it settles.
         var el = this._els[id], area = el && el.closest('.aov-plot-area');
         if (!area || this._inFlight[id]) return;
         // Within 2 px is no scrolling to speak of (the tolerance of

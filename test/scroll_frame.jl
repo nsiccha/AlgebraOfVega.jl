@@ -38,6 +38,7 @@ using TestItemRunner
                 vdraw(bars(); id="sf-fit"),
                 h.div(; class="aov-plot-area")(h.div(; id="sf-title-object")),
                 h.div(; class="aov-plot-area")(h.div(; id="sf-grow")),
+                h.div(; class="aov-plot-area")(h.div(; id="sf-slow")),
                 h.div(; id="sf-direct", class="aov-plot-area"),
                 h.div(; id="sf-frameless"),
             )

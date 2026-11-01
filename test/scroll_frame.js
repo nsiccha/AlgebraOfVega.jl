@@ -118,26 +118,37 @@
         sync('sf-grow');
         expectStop('sf-grow', 'Scrollable plot', 'with forty bars');
 
-        // The reader's focus and scroll position survive a re-embed. While the
-        // render is in flight its frame is emptied and fits, as the observer
-        // then measures it.
-        bare.focus();
-        check(document.activeElement === bare, 'the frame takes the focus');
-        bare.scrollLeft = 120;
-        const before = AoV.views['sf-bare'];
-        const again = AoV._reembeds['sf-bare']();
-        let duringRender = 0;
-        while (AoV._inFlight['sf-bare']) {
+        // The reader's focus survives a re-embed. A plot whose width follows its
+        // data (a step-sized band scale) loading that data from a URL draws
+        // nothing wide until it arrives, so its frame fits meanwhile. The driver
+        // measures as the observer would, throughout the render.
+        const slowLoader = {
+            load: () => new Promise(resolve => setTimeout(() => resolve(JSON.stringify(rows(30))), 150)),
+            sanitize: uri => Promise.resolve({href: uri}),
+        };
+        await AoV.embed('sf-slow', {data: {url: 'slow.json'}, mark: 'bar', height: 60, width: {step: 30},
+            encoding: {x: {field: 'x', type: 'ordinal'}, y: {field: 'y', type: 'quantitative'}}},
+            {actions: false, loader: slowLoader});
+        await ready('sf-slow');
+        expectStop('sf-slow', 'Scrollable plot', 'with data from a URL');
+        const slow = area('sf-slow');
+        slow.focus();
+        check(document.activeElement === slow, 'the frame takes the focus');
+        const before = AoV.views['sf-slow'];
+        const again = AoV._reembeds['sf-slow']();
+        let duringRender = 0, fitted = 0;
+        while (AoV._inFlight['sf-slow']) {
             duringRender++;
-            sync('sf-bare');
-            if (!bare.hasAttribute('tabindex')) { failures.push('the stop dropped during a re-embed'); break; }
-            await pause(0);
+            if (slow.scrollWidth - slow.clientWidth <= 2) fitted++;
+            sync('sf-slow');
+            await pause(5);
         }
         await again;
-        await ready('sf-bare', before);
+        await ready('sf-slow', before);
         check(duringRender > 0, 'the re-embed was never seen in flight');
-        check(document.activeElement === bare, 'focus moved to ' + document.activeElement.tagName + ' after a re-embed');
-        expectStop('sf-bare', 'Scrollable plot', 'after a re-embed');
+        check(fitted > 0, 'the frame never fitted during the re-embed, so this exercised nothing');
+        check(document.activeElement === slow, 'focus moved to ' + document.activeElement.tagName + ' after a re-embed');
+        expectStop('sf-slow', 'Scrollable plot', 'after a re-embed');
 
         // Teardown drops the observer; the frame's words stay with the DOM.
         const ro = AoV._scrollFrames['sf-narrow'];
