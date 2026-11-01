@@ -264,8 +264,10 @@ map's projection: the one another geoshape layer of the map sets, else
     data(effects) * mapping(:AGS; color=:effect => "Posterior effect") *
         geoshape(geojson_dict; projection=:mercator) |> vdraw
 
-`mapping` supplies `color=` (and optionally `strokecolor=`); a fixed border
-goes through `visual(; stroke="white", strokeWidth=0.5)`. Faceting with
+`mapping` supplies `color=` (and optionally `strokecolor=`, which takes the same
+`scales(Color=…)`, so `strokecolor=` on the `color=` column strokes each polygon in its
+own colour); a fixed border goes through `visual(; stroke="white", strokeWidth=0.5)`.
+Faceting with
 `col=`/`row=`/`layout=` draws one small-multiple map per panel, each filled
 from that panel's rows.
 

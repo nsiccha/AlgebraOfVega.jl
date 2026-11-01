@@ -1359,6 +1359,10 @@ _merge_color_scale!(spec::Dict, ::Nothing) = nothing
 
 const _CONTINUOUS_VL_TYPES = ("quantitative", "temporal")
 
+# The channels a `scales(Color=…)` override reaches: AlgebraOfGraphics scales `color` and
+# `strokecolor` with one `AesColor` scale, and `_CHANNEL_MAP` lowers them to these two.
+const _COLOR_SCALE_CHANNELS = ("color", "stroke")
+
 """The kind of colour scale an encoding takes, as AlgebraOfGraphics reads it: `:continuous`
 for a quantitative or temporal encoding, `:categorical` for a nominal or ordinal one. An
 untyped encoding follows Vega-Lite's default type (quantitative under `aggregate`/`bin`,
@@ -1380,16 +1384,23 @@ const _COLOR_KIND_HINT = (;
 """Merge a `scales(Color=…)` override into the colour encodings that carry a `field`, each
 part into the encodings of its kind only. A figure that colours one layer by a category and
 another by a number thus gets its categorical keys on the first and its continuous keys on
-the second. Authored keys of a kind no colour encoding has are an `ArgumentError`, as in
-AlgebraOfGraphics; a figure with no colour encoding at all (a picker state with colour off)
-is left alone."""
+the second. A mapped stroke is a colour encoding too (`_COLOR_SCALE_CHANNELS`), so a stroke
+on the same column paints what the fill paints (snag `geoshape-strokec-3ca728d0`;
+`_one_colour_bar!` gives the two one legend). Authored keys of a kind no colour encoding has
+are an `ArgumentError`, as in AlgebraOfGraphics; a figure with no colour encoding at all (a
+picker state with colour off) is left alone."""
 function _merge_color_scale!(spec::Dict, c::_ColorScaleVL)
     fields = (; categorical=String[], continuous=String[])
-    _foreach_field_encoding(spec, "color") do col
-        kind = _color_kind(col)
-        push!(fields[kind], string(col["field"]))
-        isempty(c.scale[kind]) || _merge_scale_props!(col, c.scale[kind])
-        kind === :continuous && !isempty(c.clips) && _add_clip_conditions!(col, c.clips)
+    continuous_channels = String[]
+    for channel in _COLOR_SCALE_CHANNELS
+        _foreach_field_encoding(spec, channel) do col
+            kind = _color_kind(col)
+            push!(fields[kind], string(col["field"]))
+            isempty(c.scale[kind]) || _merge_scale_props!(col, c.scale[kind])
+            kind === :continuous || return
+            channel in continuous_channels || push!(continuous_channels, channel)
+            isempty(c.clips) || _add_clip_conditions!(col, c.clips)
+        end
     end
     all(isempty, fields) && return
     for (kind, other) in ((:categorical, :continuous), (:continuous, :categorical))
@@ -1404,12 +1415,15 @@ function _merge_color_scale!(spec::Dict, c::_ColorScaleVL)
             ". AlgebraOfGraphics refuses " * (length(authored) == 1 ? "it" : "them") * " too. " *
             _COLOR_KIND_HINT[other]))
     end
-    if !isempty(fields.continuous) && !isnothing(c.nan_color)
+    if !isempty(continuous_channels) && !isnothing(c.nan_color)
         # Vega-Lite drops a mark whose continuous colour value is invalid (AoG's
         # default transparent `nan_color`); this paints it instead, and leaves a
-        # mark with an invalid position dropped.
+        # mark with an invalid position dropped. The config is keyed per channel.
         scale_cfg = get!(get!(spec, "config", Dict{String,Any}()), "scale", Dict{String,Any}())
-        get!(scale_cfg, "invalid", Dict{String,Any}())["color"] = Dict{String,Any}("value" => c.nan_color)
+        invalid = get!(scale_cfg, "invalid", Dict{String,Any}())
+        for channel in continuous_channels
+            invalid[channel] = Dict{String,Any}("value" => c.nan_color)
+        end
     end
     return
 end
@@ -1480,8 +1494,8 @@ function _apply_scales_sugar!(spec, s::AlgebraOfGraphics.Scales)
     # X/Y/Z axis scales broadcast into every matching positional encoding.
     override = _scales_to_encoding_override(s)
     isempty(override) || _merge_encoding_config!(spec, override)
-    # A `Color` scale is applied ONLY to colour encodings that carry a `field`
-    # — never broadcast onto a field-less layer.
+    # A `Color` scale is applied ONLY to colour and stroke encodings that carry a
+    # `field` — never broadcast onto a field-less layer.
     _merge_color_scale!(spec, _scales_to_color_scale(s))
     # So are the Makie-vocabulary categorical scales.
     for (name, channel) in _MAKIE_CATEGORICAL_SCALES
@@ -1847,8 +1861,8 @@ Handles X/Y/Z axis scales (log/log2/log10/sqrt/symlog + `nice`/`zero`/`domain`/
 colormap's end colours, or `lowclip`/`highclip`), `scale` (log/sqrt/symlog) and
 `nan_color`. Any other AlgebraOfGraphics colour attribute warns that it is not lowered,
 and a key AoG rejects (including `clamp`) is an `ArgumentError`. The `Color` override is merged
-only into colour encodings that carry a `field`, so a layer with a deliberate
-field-less colour (e.g. a `pointinterval()` median dot) is never given a bare,
+only into `color=` and `strokecolor=` encodings that carry a `field`, so a layer with a
+deliberate field-less colour (e.g. a `pointinterval()` median dot) is never given a bare,
 VL-dropped colour encoding. Each key reaches only colour encodings of its kind:
 `categories`/`palette` the nominal/ordinal ones, the continuous keys the
 quantitative/temporal ones, so one override configures both colours of a figure that
@@ -1881,7 +1895,47 @@ end
 # `scales(Layout=…)`), so it only fills a count nobody set.
 _finish_vegalite!(spec, ::Dict) = spec
 _finish_vegalite!(spec, _) = _finish_ribbon_views!(_each_ribbon_view!(_apply_finish_defaults!, spec))
-_apply_finish_defaults!(spec) = _apply_ink_paint!(_apply_no_zero_default!(_apply_wrap_default!(spec)))
+_apply_finish_defaults!(spec) = _apply_ink_paint!(_one_colour_bar!(_apply_no_zero_default!(_apply_wrap_default!(spec))))
+
+# What a colour and a stroke encoding must agree on to paint one value alike.
+const _SAME_PAINT_KEYS = ("field", "type", "aggregate", "bin", "timeUnit", "scale")
+
+"""A continuous stroke that paints what its unit's colour paints draws one colour bar with
+it, as AlgebraOfGraphics' one `Color` scale does. Vega-Lite merges the legends of two scales
+with the same domain, and Vega draws a legend of two scales as discrete symbols, never a
+colour bar; `legend: null` on the stroke alone disables the merged legend, so the figure
+then has none. So the stroke gets no legend of its own and its domain is spelled so the two
+no longer count as one: `domainMin`/`domainMax` for a fixed range, an empty `unionWith` for
+a range from the data. Neither changes the scale's values. A stroke with an authored
+`legend` or any other domain is left as written; a categorical stroke keeps the merged
+legend, which is the symbols its colour draws (snag `geoshape-strokec-3ca728d0`)."""
+_one_colour_bar!(spec) = spec
+function _one_colour_bar!(spec::Dict)
+    enc = _as_dict(get(spec, "encoding", nothing))
+    color = isnothing(enc) ? nothing : _as_dict(get(enc, "color", nothing))
+    stroke = isnothing(enc) ? nothing : _as_dict(get(enc, "stroke", nothing))
+    if !isnothing(color) && !isnothing(stroke) && haskey(color, "field") && !haskey(stroke, "legend") &&
+            _color_kind(color) === :continuous &&
+            all(k -> get(color, k, nothing) == get(stroke, k, nothing), _SAME_PAINT_KEYS) &&
+            get(stroke, "scale", Dict{String,Any}()) isa Dict     # `scale: null` draws no scale
+        scale = get!(stroke, "scale", Dict{String,Any}())
+        domain = get(scale, "domain", nothing)
+        if isnothing(domain)
+            stroke["legend"] = nothing
+            scale["domain"] = Dict{String,Any}("unionWith" => Any[])
+        elseif domain isa AbstractVector && length(domain) == 2
+            stroke["legend"] = nothing
+            delete!(scale, "domain")
+            scale["domainMin"], scale["domainMax"] = domain
+        end
+    end
+    for key in ("layer", "hconcat", "vconcat", "concat")
+        children = get(spec, key, nothing)
+        children isa AbstractVector && foreach(_one_colour_bar!, children)
+    end
+    _one_colour_bar!(get(spec, "spec", nothing))
+    spec
+end
 
 """
     add_select_filters!(spec, drawable, fields)
