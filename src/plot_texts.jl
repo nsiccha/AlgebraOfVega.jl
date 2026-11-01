@@ -5,7 +5,8 @@ The words AoV's own plot chrome shows: the caption's "More" toggle, the
 caption row's download menu and buttons and its Share button, the "Show data" preview and its
 summary table, the channel picker's labels, a frame player's play/pause button
 (`config(frame=…)`), a coloured ribbon's "Ribbons | Intervals" switch
-(`lineribbon(...; intervals=…)`), and standalone HTML exports. Build one with [`plot_texts`](@ref) and
+(`lineribbon(...; intervals=…)`), the accessible name of a plot that scrolls in
+its frame, and standalone HTML exports. Build one with [`plot_texts`](@ref) and
 pass it as `texts=` to `with_plot_caption`, `to_html`, [`auto_remap_node`](@ref),
 [`mapping_controls`](@ref), `caption_share_button`, `with_caption_share` or
 `summary_share_button`.
@@ -48,6 +49,7 @@ struct PlotTexts
     ribbon_view::String     # ribbon switch: the group's accessible name
     overlap::String         # ribbon switch tooltip: the measured band overlap
     overlap_auto::String    # the same, when `intervals=:auto` picked the start
+    scrollable::String      # accessible name of a plot that scrolls in its frame; its title follows after ": "
     untitled::String        # title of a standalone HTML page without a caption title
     lang::String            # `lang` of a standalone HTML page
 end
@@ -89,6 +91,7 @@ const _PLOT_TEXT_LOCALES = (
         ribbon_view = "Drawing",
         overlap = "Bands overlap {score} of the y range",
         overlap_auto = "Bands overlap {score} of the y range; intervals above {threshold}",
+        scrollable = "Scrollable plot",
         untitled = "AoV plot",
         lang = "en",
     ),
@@ -125,6 +128,7 @@ const _PLOT_TEXT_LOCALES = (
         ribbon_view = "Darstellung",
         overlap = "Die Bänder überlappen sich auf {score} des y-Bereichs",
         overlap_auto = "Die Bänder überlappen sich auf {score} des y-Bereichs; Intervalle ab {threshold}",
+        scrollable = "Scrollbare Grafik",
         untitled = "AoV-Grafik",
         lang = "de",
     ),
@@ -171,10 +175,10 @@ _plot_text(texts::PlotTexts, name::Symbol; values...) =
     replace(getfield(texts, name), r"\{([A-Za-z_]+)\}" => m -> string(values[Symbol(m[2:end-1])]))
 
 # The texts the browser runtime writes itself (preview contents, the frame
-# player, the ribbon switch, the HTML export). LOCKSTEP: `_TEXTS_EN` in `vendor/aov-runtime.js` holds their
+# player, the ribbon switch, a scroll frame's name, the HTML export). LOCKSTEP: `_TEXTS_EN` in `vendor/aov-runtime.js` holds their
 # English values; `test/plot_texts.jl` pins the two together.
 const _RUNTIME_TEXT_NAMES = (:no_data, :no_summary, :median, :interval, :value, :untitled, :lang, :play, :pause,
-    :ribbons, :intervals, :ribbon_view, :overlap, :overlap_auto)
+    :ribbons, :intervals, :ribbon_view, :overlap, :overlap_auto, :scrollable)
 
 _runtime_texts_json(texts::PlotTexts) =
     _vl_json(NamedTuple{_RUNTIME_TEXT_NAMES}(getfield.(Ref(texts), _RUNTIME_TEXT_NAMES)))
