@@ -991,8 +991,9 @@ window.AoV = window.AoV || {
     // --- Keyboard access to a plot's scroll frame ---
     // A plot wider than its `.aov-plot-area` scrolls inside it (aov.css), and a
     // canvas holds nothing that takes the focus. So while the frame scrolls it
-    // is a named tab stop itself, where the arrow keys scroll it; Safari would
-    // otherwise never reach it, and Chrome reaches it as a stop without a name.
+    // is a named tab stop itself, where the arrow keys scroll it. Without that,
+    // Chrome reaches it as a stop with no name, and a browser that does not
+    // make scrollers focusable does not reach it.
     // A plot that fits adds no stop. The frame outlives a re-embed, so the
     // reader's focus does too. A name needs a role, and
     // `figure` is what the frame holds. Not `group`: Pico lays `[role=group]`

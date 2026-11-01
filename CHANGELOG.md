@@ -17,8 +17,8 @@ failing at run time with a `MethodError`.
 
 ## 0.2.11
 
-- A plot that scrolls inside its frame can be reached from the keyboard in every
-  browser: while it is wider than the frame, the frame is a tab stop named
+- A plot that scrolls inside its frame is a named tab stop for the keyboard:
+  while it is wider than the frame, the frame takes the focus under the name
   "Scrollable plot", followed by the caption's or spec's title, and the arrow
   keys scroll it. A plot that fits adds no tab stop. `plot_texts` has the new
   text `scrollable` (German "Scrollbare Grafik"); as with the frame player, a
