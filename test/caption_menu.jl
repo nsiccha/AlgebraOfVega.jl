@@ -130,7 +130,7 @@ they were checked with real input over CDP (decision on `0bjkegs`).
             if !isnothing(result)
                 report = JSON.parse(replace(result[1], "&quot;" => "\"", "&lt;" => "<",
                     "&gt;" => ">", "&amp;" => "&"))
-                @test report["checks"] >= 45
+                @test report["checks"] >= 57
                 @test isempty(report["failures"])
                 @info "caption menu browser checks" checks=report["checks"]
                 isempty(report["failures"]) || println(JSON.json(report["failures"]))

@@ -90,6 +90,15 @@
             check(calls.length === 1 && expected[i].every((v, j) => got[j] === v), 'row ' + i + ' calls ' + JSON.stringify(calls));
             check(!isOpen(menu), 'row ' + i + ' closes the menu');
         }
+        // A script that clicks a format button without opening the menu still
+        // gets its download (RKPPLBench's verify_plots_browser.jl does this).
+        calls.length = 0;
+        const svg = [...document.querySelectorAll('#cm-room-download-menu, .caption-actions')]
+            .flatMap(e => [...e.querySelectorAll('button')]).find(b => b.textContent.includes('SVG'));
+        svg.click();
+        check(calls.length === 1 && calls[0][0] === 'downloadPlotImage' && calls[0][2] === 'svg',
+            'a closed menu\'s row still runs: ' + JSON.stringify(calls));
+        check(!isOpen(menu), 'and the menu stays closed');
         Object.assign(AoV, originals);
 
         // The button also closes it, and opening another menu closes this one.
