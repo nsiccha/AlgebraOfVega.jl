@@ -249,10 +249,9 @@ function _apply_layer_encodings!(units::AbstractVector, layer_encodings::Abstrac
     end
 end
 
-# Layers whose rows a `transform` of `node` reaches: `node` itself unless every
-# row it draws comes from a child's own data. Vega-Lite runs a parent's transforms
-# only on the data a child inherits, so a child with its own `data` (every layer of
-# a map, a layer with another table) needs them itself.
+# The nearest descendants of `node` that carry their own `data`. Vega-Lite runs a
+# parent's transforms only on the data a child inherits, so such a child (every
+# layer of a map, a layer with another table) needs them itself.
 function _with_own_data(node::AbstractDict, out=AbstractDict[])
     for key in ("layer", "spec")
         children = get(node, key, nothing)
