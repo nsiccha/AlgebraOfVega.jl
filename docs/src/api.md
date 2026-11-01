@@ -190,13 +190,17 @@ with_plot_caption
 draws_summary_table
 ```
 
+A captioned plot's downloads (CSV, PNG, SVG, HTML) share one "⬇ Export ▾" menu in
+the caption row, so they leave the title its room. `download_menu=false` shows a
+button per format instead. A figure with a single download shows a plain button.
+
 For a report built from a page's markdown view, such as an accessible (PDF/UA)
 PDF, render the figure to a file first (for example with `sdraw_file`) and pass
 it as `static_image="figs/radon.png"`: the markdown view then shows that image,
 with alt text from the caption (or `alt=`), in place of the interactive plot.
 
 The words of a captioned plot's chrome (the caption's "More" toggle, its
-buttons, the data preview and the channel picker) come from `texts=`:
+buttons and download menu, the data preview and the channel picker) come from `texts=`:
 `with_plot_caption(spec, caption; plot_id, texts=plot_texts(:de))` shows them in
 German, and keywords replace single words.
 

@@ -15,6 +15,25 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
+## 0.2.10
+
+- `with_plot_caption` and the captioned `to_html` show a figure's downloads in
+  one "⬇ Export ▾" menu instead of a button per format, so they leave the
+  caption's title its room. The menu holds the same CSV, PNG, SVG and HTML
+  downloads and works with the keyboard, a mouse and touch, in light and dark,
+  and in a saved "⬇ HTML" page. A scroll box or sticky pane around the figure
+  does not clip it. Markdown and PDF output do not change.
+- `download_menu=false` shows a button per format, as before. A figure with a
+  single download keeps a plain button. Share, `extra_actions`, the ribbon
+  switch and `with_caption_download` links stay in the caption row.
+- `plot_texts` gains `download`, the menu button's word (`"⬇ Export"`). Pass
+  `plot_texts(:de; download="⬇ Herunterladen")` for your own.
+- The format buttons keep their words and stay inside `.caption-actions`, but
+  are no longer its direct children and no longer carry `caption-action`. A
+  stylesheet or test that reads `.caption-actions > button` or `.caption-action`
+  to find them selects `.caption-actions button` instead, or passes
+  `download_menu=false`.
+
 ## 0.2.9
 
 - `scales(Color=…)` also reaches a mapped `strokecolor=`, as AlgebraOfGraphics'
