@@ -15,6 +15,19 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
+## 0.2.13
+
+- A resolve of AlgebraOfVega's own project now gets an HTMXObjects that its
+  extension can load. `[sources.HTMXObjects]` names `rev = "devibe"`. Without a
+  rev it followed GitHub's default branch, whose 0.1.0 has no `CaptionSpec`, so
+  the extension failed to load and `with_plot_caption` raised a `MethodError`.
+- `[compat]` states HTMXObjects' floor, `0.1.1`. An environment with an older
+  HTMXObjects is now refused when it resolves, with `Unsatisfiable requirements
+  detected for package HTMXObjects`, instead of failing at run time on a commit
+  that lacks `CaptionSpec`. HTMXObjects stayed stamped 0.1.0 until 2026-10-27, so
+  the floor also refuses older commits the extension can load: an app that pins
+  one moves that pin in the same run that takes this version.
+
 ## 0.2.12
 
 - `config(transform=…)` on one summand of a `+` sum stays on that summand's

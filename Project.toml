@@ -1,7 +1,7 @@
 name = "AlgebraOfVega"
 uuid = "a2420894-485a-4f42-a4fc-c4323ec6fb2b"
 authors = ["Nikolas Siccha <nikolassiccha@gmail.com>"]
-version = "0.2.12"
+version = "0.2.13"
 
 [deps]
 AlgebraOfGraphics = "cbdf2221-f076-402e-a563-3d30da359d67"
@@ -23,6 +23,7 @@ AlgebraOfVegaHTMXObjectsExt = "HTMXObjects"
 [compat]
 TestItemRunner = "1"
 HTMX = "1"
+HTMXObjects = "0.1.1"
 JSON = "1"
 julia = "1"
 
@@ -37,6 +38,7 @@ TestItemRunner = "f8b46487-2199-4994-9208-9a1283c18c0a"
 
 [sources.HTMXObjects]
 url = "https://github.com/nsiccha/HTMXObjects.jl"
+rev = "devibe"
 
 [targets]
 test = ["Test", "TestItemRunner", "FillArrays", "SHA", "Base64", "Sockets"]
