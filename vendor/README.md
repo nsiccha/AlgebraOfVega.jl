@@ -31,6 +31,17 @@ Update recipe (bump the trio):
    template literal, regex or comment (never `String.raw`), where `<\/` reads
    the same. 6.29.0's vega-embed has three, in its source-view page template.
 
+## Number and time locales
+
+`locales/d3-format/{de-DE,en-US}.json` and
+`locales/d3-time-format/{de-DE,en-US}.json` are the unmodified locale files from
+[d3-format v3.1.0](https://github.com/d3/d3-format/tree/v3.1.0/locale) and
+[d3-time-format v4.1.0](https://github.com/d3/d3-time-format/tree/v4.1.0/locale).
+Each directory includes that release's ISC license. `locale_config` reads
+these bundled files; it does not fetch data at runtime. The byte hashes in
+`test/locales.jl` pin their provenance. To update, fetch the locale files and
+licenses from the new tags, then update the hashes and check rendered formats.
+
 ## Inline elements and closing tags
 
 Inlined bytes are written through `_inline_text` (`src/AlgebraOfVega.jl`):

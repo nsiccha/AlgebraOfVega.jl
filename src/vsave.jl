@@ -10,7 +10,6 @@
 # `ENV["AOV_VL_CONVERT"]` or `PATH`, so AoV gains no Julia dependency.
 
 const _VSAVE_SUBCOMMANDS = Dict(".pdf" => "vl2pdf", ".svg" => "vl2svg", ".png" => "vl2png")
-const _VSAVE_LOCALES = Dict(:de => "de-DE", :en => "en-US")
 const _VSAVE_URL_FORMATS = Dict(".csv" => "csv", ".tsv" => "tsv", ".topojson" => "topojson")
 
 """
@@ -30,7 +29,8 @@ command-line tool (AoV is tested with 1.9.0). Put it on `PATH` or set
 `ENV["AOV_VL_CONVERT"]` to its path; a missing tool is an error that says so.
 
 - `locale`: number and date formats, `:de` (`1.234,5`), `:en`, or a d3 locale
-  name such as `"fr-FR"`. Default: vl-convert's English.
+  name such as `"fr-FR"`. If omitted, the plot's [`locale_config`](@ref) applies,
+  or vl-convert's English when the plot carries no locale.
 - `scale`, `ppi`: PNG resolution (`scale=2` doubles the pixel size). A PDF or
   SVG is vector output and takes neither.
 - `auto_remap`: a channel-picker figure's keywords, as for
@@ -83,7 +83,7 @@ function _vsave_command(path::AbstractString; locale=nothing, scale=nothing, ppi
 end
 
 _vsave_locale(l::AbstractString) = String(l)
-_vsave_locale(l::Symbol) = get(_VSAVE_LOCALES, l) do
+_vsave_locale(l::Symbol) = get(_VEGA_LOCALE_NAMES, l) do
     throw(ArgumentError("vsave: unknown locale :$l; use :de, :en or a d3 locale name such as \"fr-FR\""))
 end
 
