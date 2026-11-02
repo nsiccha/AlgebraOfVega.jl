@@ -52,6 +52,7 @@ export Scatter, Lines, ScatterLines, BarPlot, Heatmap, BoxPlot,
 
 # AlgebraOfVega exports
 export config, vdraw, sdraw, sdraw!, sdraw_file, vsave, vlspec, vdata
+export by_url, rows_json
 export to_vegalite, to_json, to_html, to_node, vega_head, vega_controls, plot_size
 export plot_summary_md, PlotSummary
 export vega_runtime, update_data, append_data, replace_data, remove_data, update_spec, vega_cdn_urls, vega_sri_hashes, vega_vendor_dir, mapping_controls, resolve_channels, refine_channels, auto_remap_node
@@ -149,6 +150,7 @@ include("vl_helpers.jl")
 include("plot_texts.jl")
 include("mark_mapping.jl")
 include("extract.jl")
+include("by_url.jl")
 include("analyses.jl")
 include("analysis_to_vl.jl")
 include("layer_to_vl.jl")

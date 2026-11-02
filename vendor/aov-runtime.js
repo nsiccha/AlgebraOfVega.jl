@@ -587,15 +587,62 @@ window.AoV = window.AoV || {
         return this._rewindGeoJSON(obj) ? JSON.stringify(obj) : loaded;
     },
     // The embed options with a loader that rewinds what it loads: the page's
-    // own loader (a Vega loader, or loader options) or Vega's default.
+    // own loader (a Vega loader, or loader options) or Vega's default. A data
+    // URL a saved card carries (`_preload`) is answered from the card itself.
     _withGeoLoader: function(opts) {
         var self = this, given = opts.loader;
         var base = given && typeof given.load === 'function' ? given : vega.loader(given);
         var loader = Object.create(base);
         loader.load = function(uri, options) {
-            return base.load.call(this, uri, options).then(function(loaded) { return self._rewindLoaded(loaded); });
+            var loading = Object.prototype.hasOwnProperty.call(self._preloaded, uri) ?
+                Promise.resolve(self._preloaded[uri]) : base.load.call(this, uri, options);
+            return loading.then(function(loaded) { return self._rewindLoaded(loaded); });
         };
         return Object.assign({}, opts, {loader: loader});
+    },
+
+    // Data URL → the text it answered, for a page with no server to ask: a
+    // "⬇ HTML" card writes the files its plot loads (a `by_url` table, a
+    // `geoshape(url)` geometry) into one `AoV._preload({...})` call.
+    _preloaded: {},
+    _preload: function(texts) {
+        Object.assign(this._preloaded, texts);
+    },
+    // The data URLs a spec loads: every `data` object naming a `url`,
+    // including a geoshape lookup's `from.data`.
+    _dataUrls: function(spec) {
+        var urls = [];
+        (function walk(x) {
+            if (Array.isArray(x)) { x.forEach(walk); return; }
+            if (!x || typeof x !== 'object') return;
+            Object.keys(x).forEach(function(k) {
+                var v = x[k];
+                if (k === 'data' && v && typeof v.url === 'string' && urls.indexOf(v.url) === -1) urls.push(v.url);
+                walk(v);
+            });
+        })(spec);
+        return urls;
+    },
+    // The `<script>` a saved card carries for its plot's data URLs: each
+    // file's text, from this page's preload when it has one (a card saved
+    // from a saved card), else fetched as the plot loaded it.
+    _preloadScript: function(id) {
+        var self = this, cur = self._cur[id];
+        var urls = cur ? self._dataUrls(cur.spec) : [];
+        if (!urls.length) return Promise.resolve('');
+        return Promise.all(urls.map(function(url) {
+            if (Object.prototype.hasOwnProperty.call(self._preloaded, url)) return self._preloaded[url];
+            return fetch(url).then(function(r) {
+                if (!r.ok) throw new Error('AoV.downloadPlotHtml: ' + url + ' answered HTTP ' + r.status);
+                return r.text();
+            });
+        })).then(function(texts) {
+            var map = {};
+            urls.forEach(function(url, i) { map[url] = texts[i]; });
+            // The same closing-tag rule as `_inlineVendored`.
+            var json = JSON.stringify(map).replace(/<\/(?=(?:script|style|head|body|html)\b)/gi, '<\\/');
+            return '<script>AoV._preload(' + json + ');<\/script>';
+        });
     },
 
     // A plot whose element leaves the document is disposed. One
@@ -3279,6 +3326,9 @@ window.AoV = window.AoV || {
                 }
             }
         });
+
+        // The data URLs the plot loaded, written into the card after the runtime.
+        headParts.push(self._preloadScript(id));
 
         var text = this._texts(anchor);
         var title = text('untitled');

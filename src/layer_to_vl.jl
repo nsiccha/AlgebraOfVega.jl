@@ -22,7 +22,9 @@ function _layer_handler(layer::AlgebraOfGraphics.Layer)
 end
 
 # Dispatch: each handler type → its *_to_vl function
-_layer_to_vl(a::TidybayesAnalysis, layer; kw...) = analysis_to_vl(a, layer; kw...)
+_layer_to_vl(a::TidybayesAnalysis, layer; kw...) =
+    (_refuse_by_url(extract_data(layer), "$(_tidybayes_name(a)) computes the rows it draws in Julia");
+     analysis_to_vl(a, layer; kw...))
 _layer_to_vl(::AlgebraOfGraphics.DensityAnalysis, layer; kw...) = density_to_vl(layer; kw...)
 _layer_to_vl(::AlgebraOfGraphics.FrequencyAnalysis, layer; kw...) = frequency_to_vl(layer; kw...)
 _layer_to_vl(::AlgebraOfGraphics.ExpectationAnalysis, layer; kw...) = expectation_to_vl(layer; kw...)
@@ -395,7 +397,26 @@ function layers_to_vl(layers::AlgebraOfGraphics.Layers; layer_encodings::Abstrac
         haskey(enc, "facet") && isempty(outer_facet) && merge!(outer_facet, enc["facet"])
     end
 
-    if !isempty(outer_facet)
+    addressed = isempty(outer_facet) ? nothing : _facet_address(shared_data, layer_specs)
+    if !isnothing(addressed)
+        # Every layer draws the one table a `by_url` address serves: the facet
+        # partitions it as it does inline rows, with no merge.
+        for ls in layer_specs
+            delete!(ls, "data")
+            map_figure && _hoist_geoshape_lookup!(spec, ls)
+        end
+        for ls in layer_specs
+            enc = get(ls, "encoding", nothing)
+            isnothing(enc) && continue
+            delete!(enc, "column")
+            delete!(enc, "row")
+            delete!(enc, "facet")
+        end
+        _harmonize_axis_types!(layer_specs)
+        spec["data"] = addressed
+        spec["facet"] = outer_facet
+        spec["spec"] = Dict{String,Any}("layer" => layer_specs)
+    elseif !isempty(outer_facet)
         # VL facet only filters inherited (outer) data — per-sublayer data is NOT filtered.
         # Fix: merge all sublayer data into one outer dataset tagged with __source__,
         # then add filter transforms to each sublayer so they only see their own rows.
@@ -465,6 +486,24 @@ function layers_to_vl(layers::AlgebraOfGraphics.Layers; layer_encodings::Abstrac
     _apply_layer_encodings!(units, layer_encodings)
 
     spec
+end
+
+# A faceted figure merges its layers' rows into one `__src`-tagged dataset
+# (`layers_to_vl`), because Vega-Lite's facet partitions only the data a layer
+# inherits. Rows read from a `by_url` address cannot be merged in Julia. When
+# every layer draws the same address, that address is the facet's data and the
+# layers inherit it (returned here); when the layers draw an address and
+# anything else, the figure is refused. `nothing`: no layer reads an address.
+_url_data(d) = d isa AbstractDict && haskey(d, "url") && !haskey(d, "values")
+function _facet_address(shared_data, layer_specs)
+    datasets = Any[get(ls, "data", shared_data) for ls in layer_specs]
+    any(_url_data, datasets) || return nothing
+    first_url = datasets[findfirst(_url_data, datasets)]
+    all(d -> _url_data(d) && d == first_url, datasets) && return first_url
+    urls = unique(d["url"] for d in datasets if _url_data(d))
+    throw(ArgumentError("A faceted figure draws all its layers from one dataset, so a layer read from " *
+        "$(join(("\"$u\"" for u in urls), " and ")) cannot be faceted beside layers with other rows. " *
+        "Give every layer the same `by_url` table, or pass these layers their tables without `by_url`."))
 end
 
 # For sibling sublayers that encode the same `field` on the same axis

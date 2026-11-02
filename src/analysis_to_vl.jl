@@ -563,6 +563,15 @@ end
 # The user-facing constructor name, for messages about a ribbon layer.
 _ribbon_name(a) = a.show_line ? "lineribbon()" : "ribbon()"
 
+# The analysis as a consumer spells it, for messages.
+_tidybayes_name(::PointIntervalAnalysis) = "pointinterval()"
+_tidybayes_name(::PrecomputedIntervalAnalysis) = "pointinterval(bands=…)"
+_tidybayes_name(::GradientIntervalAnalysis) = "gradient_interval()"
+_tidybayes_name(::DotIntervalAnalysis) = "dotinterval()"
+_tidybayes_name(a::LineRibbonAnalysis) = _ribbon_name(a)
+_tidybayes_name(a::PrecomputedRibbonAnalysis) = (a.show_line ? "lineribbon" : "ribbon") * "(bands=…)"
+_tidybayes_name(a::TidybayesAnalysis) = string(nameof(typeof(a)))
+
 function analysis_to_vl(a::LineRibbonAnalysis, layer::AlgebraOfGraphics.Layer; is_sublayer=false)
     table = extract_data(layer)
     x_field = length(layer.positional) >= 1 ? _field_name(layer.positional[1]) : "x"
@@ -803,6 +812,7 @@ function density_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
             dens_layer["transform"] = [Dict{String,Any}("density" => x_field, "as" => ["val", "dens"])]
             outer_data = nothing
         else
+            _refuse_by_url(table, "density() with `y=` computes its curves in Julia")
             outer_data = Dict{String,Any}("values" =>
                 compute_density_summary(table, x_field; group_fields=[y_field]))
         end
@@ -861,6 +871,7 @@ function density_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
         # shared extent, and the curve keeps recomputing live under a brush
         # selection or `update_data`, which precomputed rows cannot do.
         if !isempty(facet) && !isnothing(table)
+            _refuse_by_url(table, "A faceted density() computes its curves in Julia")
             spec["data"] = Dict{String,Any}("values" =>
                 compute_density_summary(table, x_field; group_fields=groupby))
         else

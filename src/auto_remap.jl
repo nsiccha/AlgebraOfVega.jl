@@ -563,6 +563,10 @@ function _auto_remap_lowering(spec; dims, fixed=Dict(), pinned::Symbol=:row,
     layers = _spec_layers(spec)
     raw_dfs = [extract_data(l) for l in layers]
     any(isnothing, raw_dfs) && error("auto_remap_node: every layer must have associated data (no Pregrouped layers supported here)")
+    # The picker rebuilds every layer from its rows (combined columns, rows
+    # broadcast across facet values), so none is drawn from a `by_url` address.
+    foreach(t -> _refuse_by_url(t, "The channel picker (`auto_remap`) rebuilds every layer's rows in Julia";
+        fix="Draw the figure without `auto_remap`, or pass its layers their tables without `by_url`."), raw_dfs)
     # Materialize each layer's data as a NamedTuple of vectors so the rest
     # of the pipeline can stay non-mutating and uniform across input types
     # (DataFrame / DataFrameColumns / NamedTuple / etc).

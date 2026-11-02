@@ -94,7 +94,8 @@ end
 # values; with only a category (`mapping(:klasse) * frequency()`) it is the number
 # of rows. A cell's total is the sum of its parts.
 function _cell_parts(layer, field::String)
-    t = extract_data(layer)
+    t = _refuse_by_url(extract_data(layer), "cell_charts splits the rows into one chart per table row in Julia";
+        fix="Pass `cell_charts` the table without `by_url`.")
     rows = Dict{Any,Vector{Any}}()
     order = Any[]
     for r in Tables.rowtable(t)
