@@ -141,6 +141,7 @@ Create a `Config` with Vega-Lite properties. Common options:
   overrides always configure the shared facet.
 - `config` — raw Vega-Lite top-level `config` (a `Dict` or NamedTuple), deep-merged into
   AoV's defaults rather than replacing them
+  (compose with [`locale_config`](@ref) for German or English numbers and dates)
 - `params` — VL interactivity parameters
 - `transform` — a list of VL data transforms (a single one may stand alone). They run first
   on the rows they reach, before any transform AoV generates (a map's lookup, a `density()`).

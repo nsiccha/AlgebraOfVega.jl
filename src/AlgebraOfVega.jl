@@ -52,6 +52,7 @@ export Scatter, Lines, ScatterLines, BarPlot, Heatmap, BoxPlot,
 
 # AlgebraOfVega exports
 export config, vdraw, sdraw, sdraw!, sdraw_file, vsave, vlspec, vdata
+export locale_config
 export by_url, rows_json
 export to_vegalite, to_json, to_html, to_node, vega_head, vega_controls, plot_size
 export plot_summary_md, PlotSummary
@@ -147,6 +148,7 @@ include("datasets.jl")
 include("explorer.jl")
 
 include("vl_helpers.jl")
+include("locales.jl")
 include("plot_texts.jl")
 include("mark_mapping.jl")
 include("extract.jl")

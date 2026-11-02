@@ -15,6 +15,15 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
+## 0.2.15
+
+- `locale_config(:de)` supplies the standard d3 German (`de-DE`) number and
+  time locale. It composes with plots and other `config` terms using `*`.
+  `locale_config(:en)` (also the default) explicitly selects US English.
+  Both use bundled upstream definitions, including the German nonbreaking
+  space before `€` and `Mrz` for abbreviated March. Axis/legend settings,
+  date format patterns and caption texts remain separately configurable.
+
 ## 0.2.14
 
 - `data(by_url(rows, url))` draws `rows` read by the browser from `url`. The
