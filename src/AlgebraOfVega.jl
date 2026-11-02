@@ -38,8 +38,6 @@ _inline_text(s::AbstractString) = replace(s, _INLINE_CLOSING_TAG => "<\\/")
 _inline_script(js::AbstractString) = h.script(Raw(_inline_text(js)))
 _inline_style(css::AbstractString) = h.style(Raw(_inline_text(css)))
 
-include("tic.jl")
-
 # Re-export AoG API
 export data, mapping, visual, dims
 export density, histogram, linear, smooth, expectation, frequency
