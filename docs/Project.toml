@@ -11,8 +11,9 @@ JSON = "682c06a0-de6a-54ab-a142-c8b1cf79cde6"
 path = ".."
 
 [sources.HTMX]
+rev = "dev"
 url = "https://github.com/nsiccha/HTMX.jl.git"
 
 [sources.HTMXObjects]
-rev = "dev"
+rev = "devibe"
 url = "https://github.com/nsiccha/HTMXObjects.jl.git"
