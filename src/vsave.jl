@@ -41,7 +41,9 @@ defaults apply. Every data URL naming a local file — such as
 `geoshape("districts.geojson")`, read relative to the current directory — or an
 `http(s)` address is read into the spec before vl-convert renders it: vl-convert
 loads no local files, and GeoJSON polygons are rewound the way `vdraw` draws
-them (see `geoshape`). A `data:` URL is already inline and stays.
+them (see `geoshape`). A `data:` URL is already inline and stays. A
+[`by_url`](@ref) table's rows are written into the file from Julia; its address
+is not read.
 
     for (name, rows) in regions
         vsave(data(rows) * mapping(:AGS; color=:share) * geoshape(geo) *
@@ -51,13 +53,13 @@ them (see `geoshape`). A `data:` URL is already inline and stays.
 """
 function vsave(spec, path::AbstractString; auto_remap::Union{Nothing,NamedTuple}=nothing, kwargs...)
     cmd = _vsave_command(path; kwargs...)
-    _vsave_render(to_vegalite(spec; interactive=false, auto_remap), path, cmd)
+    _vsave_render(_with_rows_inline(() -> to_vegalite(spec; interactive=false, auto_remap)), path, cmd)
 end
 
 function vsave(spec, sc::AlgebraOfGraphics.Scales, path::AbstractString;
                auto_remap::Union{Nothing,NamedTuple}=nothing, kwargs...)
     cmd = _vsave_command(path; kwargs...)
-    _vsave_render(to_vegalite(spec, sc; interactive=false, auto_remap), path, cmd)
+    _vsave_render(_with_rows_inline(() -> to_vegalite(spec, sc; interactive=false, auto_remap)), path, cmd)
 end
 
 # The vl-convert invocation for `path`, checked before the figure is lowered.

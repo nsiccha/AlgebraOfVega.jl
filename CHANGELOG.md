@@ -15,6 +15,23 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
+## 0.2.14
+
+- `data(by_url(rows, url))` draws `rows` read by the browser from `url`. The
+  plot's Vega-Lite carries `"data": {"url": url, "format": {"type": "json"}}`
+  instead of the rows, so pages that draw the same rows share one file.
+  `rows_json(rows)` is the JSON the address serves. Julia keeps the rows for
+  the encodings' types, AoV's checks, `sdraw` and `vsave`, which writes them
+  into the file. Layers sharing one `by_url` table share it, faceted too.
+- A layer whose drawn rows AoV computes in Julia refuses a `by_url` table with
+  an `ArgumentError`: the interval and ribbon analyses (`bands=` included), a
+  faceted or ridgeline `density()`, `cell_charts`, the channel picker, and a
+  faceted figure whose layers draw different tables.
+- A captioned plot's "⬇ HTML" card carries the text of every data URL its plot
+  loads (a `by_url` table, a `geoshape(url)` geometry), and the saved file reads
+  them from there. Before, the saved file loaded them from their addresses
+  again, so it drew them only where those addresses still answered.
+
 ## 0.2.13
 
 - A resolve of AlgebraOfVega's own project now gets an HTMXObjects that its
