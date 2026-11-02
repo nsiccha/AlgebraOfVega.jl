@@ -8,11 +8,14 @@ The same algebra as AlgebraOfGraphics — `data * mapping * visual` composed wit
 
 ```@docs
 config
+by_url
+rows_json
 ```
 
 | Function   | Use                                                                          |
 |------------|------------------------------------------------------------------------------|
 | `data(df)` / `vdata(df)` | Wrap a tabular source. `vdata` is an alias for use when `data` clashes with a local field. |
+| `data(by_url(rows, url))` | Draw `rows`, read by the browser from `url` instead of written into the plot; the address serves `rows_json(rows)`. |
 | `mapping(:x, :y; color=:g)` | Map columns to channels (`x`, `y`, `color`, `linestyle`, `row`, `col`, …). |
 | `visual(Mark; kwargs...)` | Pick the mark type (`Scatter`, `Lines`, `BarPlot`, …) and per-mark properties. |
 | `dims(i)`               | Use the `i`-th group/dim as a channel value (AoG passthrough).               |
