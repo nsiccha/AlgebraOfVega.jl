@@ -1186,7 +1186,7 @@ all contribute — uniqueness of a dim is taken across any layer that has it.
 # drawable (the picker rebuilds layers one-for-one), so per-layer overrides stay
 # attached to the layer they were authored on.
 _wrap_with_config(spec::VegaSpec, drawable) =
-    VegaSpec(drawable, spec.config, spec.layer_encodings)
+    VegaSpec(drawable, spec.config, spec.layer_encodings, spec.layer_transforms)
 _wrap_with_config(_, drawable) = drawable
 
 _layer_iter(d::AlgebraOfGraphics.Layers) = d.layers

@@ -141,7 +141,16 @@ Create a `Config` with Vega-Lite properties. Common options:
   overrides always configure the shared facet.
 - `config` — raw Vega-Lite top-level `config` (a `Dict` or NamedTuple), deep-merged into
   AoV's defaults rather than replacing them
-- `params`, `transform` — VL interactivity parameters and data transforms
+- `params` — VL interactivity parameters
+- `transform` — a list of VL data transforms (a single one may stand alone). They run first
+  on the rows they reach, before any transform AoV generates (a map's lookup, a `density()`).
+  On one summand of a `+` sum they apply to that summand's layers only
+  (`a * config(transform=T) + b`), and each summand may carry its own; on the whole figure,
+  `(a + b) * config(transform=T)`, they reach every layer, also one with its own table, and
+  run before a layer's own. A filter on a column that a layer's rows lack removes all of
+  them, so scope it to the layers that have the column. A layer whose marks AoV computes in
+  Julia (a `pointinterval`, a faceted `density()`) carries those summary rows, and they are
+  what the transform sees. Interactive path only; `sdraw` ignores them.
 - `select` — field(s) for client-side dropdown filtering (e.g. `select=:origin`)
 - `frame` — animate the figure over a column's values, one frame at a time, with a
   play/pause button and a slider (e.g. `frame=:year`); the long form is
@@ -183,7 +192,7 @@ Successive terms accumulate: `spec * config(a...) * config(b...)` keeps every pr
 both. `encoding`, `config`, `facet`, `axis` and `scales` merge key by key (`encoding` and
 `config` recursively, `scales` scale by scale), with the later term winning on a
 conflicting key; any other property (`width`, `title`, `params`, `transform`, …) takes the
-later term's value.
+later term's value. Across a `+`, a summand's `transform` stays on its own layers instead.
 
 Two configs compose the same way on their own: `a * b` is the `Config` that `spec * a * b`
 applies, so `spec * (a * b) == spec * a * b`. A shared config extended with an app's own
@@ -195,10 +204,19 @@ function config(; kwargs...)
     for key in _VL_OBJECT_PROPS
         haskey(props, key) && (props[key] = _lower_vl_object(key, props[key]))
     end
+    haskey(props, :transform) && (props[:transform] = _transform_list(props[:transform]))
     haskey(props, :frame) && (props[:frame] = _frame_options(props[:frame]))
     haskey(props, :link) && (props[:link] = _link_options(props[:link]))
     Config(props)
 end
+
+# `config(transform=…)` lowered to an owned list. Vega-Lite takes only a list, and
+# every transform AoV adds later (a dropdown's filter) extends this one in place.
+_transform_list(::Nothing) = Any[]
+_transform_list(t::AbstractVector) = _owned_copy(t)
+_transform_list(t::Union{AbstractDict,NamedTuple}) = Any[_owned_copy(t)]
+_transform_list(t) = throw(ArgumentError(
+    "AlgebraOfVega: `config(transform=…)` takes a list of Vega-Lite transforms, got $(typeof(t))."))
 
 # The config properties AoV deep-merges into the Vega-Lite object it generated.
 # Each is lowered once, here, to an owned `Dict{String,Any}`, so the `*`/`+`
@@ -217,13 +235,17 @@ struct VegaSpec
     # sum, aligned with the drawable's layers (`nothing` = no override for that
     # layer). Empty when no summand carried one. See `_summand_parts`.
     layer_encodings::Vector{Any}
+    # Per-layer `config(transform=…)` lists, aligned the same way. See `_summand_parts`.
+    layer_transforms::Vector{Any}
 end
-VegaSpec(drawable, config) = VegaSpec(drawable, config, Any[])
+VegaSpec(drawable, config) = VegaSpec(drawable, config, Any[], Any[])
 
 _spec_drawable(s::VegaSpec) = s.drawable
 _spec_drawable(s) = s
 _spec_layer_encodings(s::VegaSpec) = s.layer_encodings
 _spec_layer_encodings(_) = Any[]
+_spec_layer_transforms(s::VegaSpec) = s.layer_transforms
+_spec_layer_transforms(_) = Any[]
 
 """
     vlspec(drawable; kwargs...)
@@ -256,7 +278,8 @@ _merge_vl_objects(a::Dict, b::Dict) = _deep_merge_dict!(_owned_copy(a), _owned_c
 # (recursively), the AoG `draw(; facet, axis)` keyword NamedTuples (key by key) and
 # the AoG `scales(...)` (scale by scale, then key by key). The later term wins on a
 # conflicting key. Every other property (`width`, `title`, `params`, `transform`,
-# raw Vega-Lite keys, …) takes the later term's value.
+# raw Vega-Lite keys, …) takes the later term's value on one view; a `+` moves a
+# summand's `transform` onto its own layers first (`_summand_parts`).
 const _MERGED_CONFIG_PROPS = (_VL_OBJECT_PROPS..., :facet, :axis, :scales)
 _merge_config_value(_, b) = b  # not two objects of one kind: the later term wins
 _merge_config_value(a::Dict, b::Dict) = _merge_vl_objects(a, b)
@@ -294,8 +317,8 @@ Base.:*(c::Config, a::AlgebraOfGraphics.AbstractAlgebraic) = VegaSpec(a, c)
 # didn't fire either, because the clobbered props never reached `to_vegalite`).
 # Later-wins, matching `+`/`merge`. Left operand comes first in the expression,
 # so the right one takes precedence.
-Base.:*(v::VegaSpec, c::Config) = VegaSpec(v.drawable, _merge_configs(v.config, c), v.layer_encodings)
-Base.:*(c::Config, v::VegaSpec) = VegaSpec(v.drawable, _merge_configs(c, v.config), v.layer_encodings)
+Base.:*(v::VegaSpec, c::Config) = VegaSpec(v.drawable, _merge_configs(v.config, c), v.layer_encodings, v.layer_transforms)
+Base.:*(c::Config, v::VegaSpec) = VegaSpec(v.drawable, _merge_configs(c, v.config), v.layer_encodings, v.layer_transforms)
 # Two configs compose into the one config `spec * a * b` applies, so
 # `spec * (a * b) == spec * a * b`: an app extends a shared config with its own
 # settings once (`const GERMAN = SHARED * config(config=…)`) and uses the result
@@ -313,49 +336,63 @@ _n_layers(l::AlgebraOfGraphics.Layers) = length(l.layers)
 _layer_encodings(v::VegaSpec) = isempty(v.layer_encodings) ?
     Any[nothing for _ in 1:_n_layers(v.drawable)] : copy(v.layer_encodings)
 _layer_encodings(a) = Any[nothing for _ in 1:_n_layers(a)]
+_layer_transforms(v::VegaSpec) = isempty(v.layer_transforms) ?
+    Any[nothing for _ in 1:_n_layers(v.drawable)] : copy(v.layer_transforms)
+_layer_transforms(a) = Any[nothing for _ in 1:_n_layers(a)]
 
 _summand_config(v::VegaSpec) = v.config
 _summand_config(_) = nothing
 
 """
-    _summand_parts(summand) -> (config, layer_encodings)
+    _summand_parts(summand) -> (config, layer_encodings, layer_transforms)
 
-Split one summand of a `+` sum. `a * config(encoding=E) + b` scopes `E` to `a`:
-`*` binds tighter than `+`, exactly as `a * visual(...) + b` styles only `a`.
-The summand's `encoding` channels become per-layer overrides of ITS layers (on
-top of any it already carried); facet channels and every other config property
-(`width`, `title`, `scales`, `params`, …) describe the whole view and stay on the
-sum's spec-level config. `(a + b) * config(encoding=E)` still applies `E` to
-every layer.
+Split one summand of a `+` sum. `a * config(encoding=E, transform=T) + b` scopes `E`
+and `T` to `a`: `*` binds tighter than `+`, exactly as `a * visual(...) + b` styles
+only `a`. The summand's `encoding` channels become per-layer overrides of ITS layers
+(on top of any it already carried), and its `transform` runs before any its layers
+already carried, as a figure's transform runs before a layer's. Facet channels and
+every other config property (`width`, `title`, `scales`, `params`, …) describe the
+whole view and stay on the sum's spec-level config. `(a + b) * config(encoding=E,
+transform=T)` still applies `E` and `T` to every layer.
 """
 function _summand_parts(s)
     encs = _layer_encodings(s)
+    transforms = _layer_transforms(s)
     cfg = _summand_config(s)
-    isnothing(cfg) && return (cfg, encs)
-    enc = _as_dict(get(cfg.properties, :encoding, nothing))
-    isnothing(enc) && return (cfg, encs)
-    scoped = Dict{String,Any}()
-    shared = Dict{String,Any}()
-    for (k, val) in enc
-        ch = string(k)
-        (_summand_scoped_channel(ch) ? scoped : shared)[ch] = val
-    end
-    isempty(scoped) && return (cfg, encs)
+    isnothing(cfg) && return (cfg, encs, transforms)
     props = copy(cfg.properties)
-    isempty(shared) ? delete!(props, :encoding) : (props[:encoding] = shared)
-    (Config(props), Any[_merge_vl_objects(e, scoped) for e in encs])
+    transform = pop!(props, :transform, nothing)
+    if !isnothing(transform) && !isempty(transform)
+        transforms = Any[isnothing(t) ? transform : vcat(transform, t) for t in transforms]
+    end
+    enc = _as_dict(get(props, :encoding, nothing))
+    if !isnothing(enc)
+        scoped = Dict{String,Any}()
+        shared = Dict{String,Any}()
+        for (k, val) in enc
+            ch = string(k)
+            (_summand_scoped_channel(ch) ? scoped : shared)[ch] = val
+        end
+        if !isempty(scoped)
+            isempty(shared) ? delete!(props, :encoding) : (props[:encoding] = shared)
+            encs = Any[_merge_vl_objects(e, scoped) for e in encs]
+        end
+    end
+    (Config(props), encs, transforms)
 end
 
+# The per-layer overrides of a sum or product, or none when no layer has one.
+_layer_overrides(xs) = all(isnothing, xs) ? Any[] : xs
+
 function _sum_specs(a, b)
-    ca, ea = _summand_parts(a)
-    cb, eb = _summand_parts(b)
-    encs = vcat(ea, eb)
+    ca, ea, ta = _summand_parts(a)
+    cb, eb, tb = _summand_parts(b)
     VegaSpec(_spec_drawable(a) + _spec_drawable(b), _merge_configs(ca, cb),
-        all(isnothing, encs) ? Any[] : encs)
+        _layer_overrides(vcat(ea, eb)), _layer_overrides(vcat(ta, tb)))
 end
 
 # Combine VegaSpecs: unwrap drawables, merge view-level configs, keep each
-# summand's encoding overrides on its own layers.
+# summand's encoding and transform overrides on its own layers.
 Base.:+(a::VegaSpec, b::VegaSpec) = _sum_specs(a, b)
 Base.:+(a::VegaSpec, b::AlgebraOfGraphics.AbstractAlgebraic) = _sum_specs(a, b)
 Base.:+(a::AlgebraOfGraphics.AbstractAlgebraic, b::VegaSpec) = _sum_specs(a, b)
@@ -366,16 +403,19 @@ Base.:+(a::AlgebraOfGraphics.AbstractAlgebraic, b::VegaSpec) = _sum_specs(a, b)
 # the per-layer overrides of the left factor's layer i and then the right
 # factor's layer j, in AoG's product order (the left factor's layers outer), and
 # the view-level configs merge left to right. When the right factor carries
-# per-layer overrides, the left factor's own encoding moves onto its layers
-# first (`_summand_parts`), so a right-hand override still comes later and wins
-# a conflicting key, as in the expanded expression.
+# per-layer overrides, the left factor's own encoding and transform move onto its
+# layers first (`_summand_parts`), so a right-hand override still comes later and
+# wins a conflicting key, as in the expanded expression; a right-hand transform
+# takes the place of a left-hand one, as `spec * config(transform=T)` does.
 function _mul_specs(a, b)
-    ca, ea = isempty(_spec_layer_encodings(b)) ?
-        (_summand_config(a), _layer_encodings(a)) : _summand_parts(a)
+    ca, ea, ta = isempty(_spec_layer_encodings(b)) && isempty(_spec_layer_transforms(b)) ?
+        (_summand_config(a), _layer_encodings(a), _layer_transforms(a)) : _summand_parts(a)
     eb = _layer_encodings(b)
+    tb = _layer_transforms(b)
     encs = Any[isnothing(e′) ? e : _merge_vl_objects(e, e′) for e in ea for e′ in eb]
+    transforms = Any[isnothing(t′) ? t : t′ for t in ta for t′ in tb]
     VegaSpec(_spec_drawable(a) * _spec_drawable(b), _merge_configs(ca, _summand_config(b)),
-        all(isnothing, encs) ? Any[] : encs)
+        _layer_overrides(encs), _layer_overrides(transforms))
 end
 
 Base.:*(a::VegaSpec, b::VegaSpec) = _mul_specs(a, b)
