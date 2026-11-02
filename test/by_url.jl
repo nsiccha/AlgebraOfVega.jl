@@ -68,6 +68,10 @@ end
     for analysis in (density(), histogram())
         @test to_vegalite(data(by_url(sites, url)) * mapping(:nsv) * analysis)["data"]["url"] == url
     end
+    @test to_vegalite(data(by_url(sites, url)) * mapping(:nsv) * visual(ECDFPlot))["data"]["url"] == url
+    # A linear() band is computed from the Julia rows and written into the plot; the line reads the address.
+    lin = JSON.json(to_vegalite(data(by_url(sites, url)) * mapping(:lon, :nsv) * linear(interval=:confidence)))
+    @test occursin(url, lin) && occursin("\"values\"", lin) && !occursin("\"k2\"", lin)
 
     # The embedded node names the address and carries none of the rows.
     node = sprint(show, MIME"text/html"(), vdraw(station_map(by_url(sites, url)); id="by-url-node"))
