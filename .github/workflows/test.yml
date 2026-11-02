@@ -21,6 +21,12 @@ defaults:
 jobs:
   test:
     runs-on: ${{ matrix.os }}
+    # The `pre` cells test an unreleased Julia. They still run, so they still
+    # warn early when a prerelease breaks AlgebraOfVega, but a `pre`-only failure
+    # does not fail the run. Julia 1.14.0-alpha2 crashes now and then in its own
+    # LLVM late GC lowering (`llvm::APInt::countLeadingZerosSlowCase`), which is
+    # not AlgebraOfVega code.
+    continue-on-error: ${{ matrix.julia-version == 'pre' }}
     strategy:
       # A transient "Set up job" provisioning failure on the scarce Windows /
       # macOS hosted runners must not cancel the other cells: without this, one
