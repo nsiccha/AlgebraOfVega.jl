@@ -8,6 +8,7 @@ The same algebra as AlgebraOfGraphics — `data * mapping * visual` composed wit
 
 ```@docs
 config
+locale_config
 by_url
 rows_json
 ```
