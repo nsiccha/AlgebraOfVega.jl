@@ -53,7 +53,7 @@ export config, vdraw, sdraw, sdraw!, sdraw_file, vsave, vlspec, vdata
 export locale_config
 export by_url, rows_json
 export to_vegalite, to_json, to_html, to_node, vega_head, vega_controls, plot_size
-export plot_summary_md, PlotSummary
+export plot_summary_md, PlotSummary, plot_summary_table
 export vega_runtime, update_data, append_data, replace_data, remove_data, update_spec, vega_cdn_urls, vega_sri_hashes, vega_vendor_dir, mapping_controls, resolve_channels, refine_channels, auto_remap_node
 export with_plot_caption, draws_summary_table, cell_charts
 export clean_share_url, caption_share_button, caption_action_inject,
@@ -163,6 +163,7 @@ include("to_node.jl")
 include("cell_charts.jl")
 include("plot_size.jl")
 include("auto_remap.jl")
+include("plot_summary_table.jl")
 include("to_html.jl")
 include("vsave.jl")
 include("caption_actions.jl")

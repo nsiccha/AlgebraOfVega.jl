@@ -15,6 +15,24 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
+## 0.2.18
+
+- New `plot_summary_table(vl; ci, sigfigs, texts, labels)`: a figure's automatic
+  summary as Tables.jl tables, the rows and labels its captioned plot's "Show
+  summary" pane shows, for code that renders its own table. It works from the
+  Vega-Lite `to_vegalite` returns, also after JSON and back, and is `nothing` for
+  a figure without an interval or ribbon summary. For this, `to_vegalite` records
+  what a summary needs under a new top-level key, `_aovSummary`, on those figures.
+- The "Show summary" pane sorts its rows along their key columns. Before, they
+  came in the hash order of Julia's summary computation, which differs between
+  Julia versions.
+- The "Show summary" pane finds the summary of a figure whose interval or ribbon
+  layer is not the first, such as observations layered under a ribbon. Before, it
+  listed the first layer's rows raw.
+- The "Show data" and "Show summary" panes and the CSV download leave out the
+  internal rows that keep a sparse row × column grid's empty cells in place. Before,
+  they read as data, with a real row's values on a combination that has no data.
+
 ## 0.2.17
 
 - `AoV.dispose` and `AoV.disposeWithin` free the Vega view of a plot whose

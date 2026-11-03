@@ -194,6 +194,12 @@ with_plot_caption
 draws_summary_table
 ```
 
+### A figure's automatic summary as a table
+
+```@docs
+plot_summary_table
+```
+
 A captioned plot's downloads (CSV, PNG, SVG, HTML) share one "⬇ Export ▾" menu in
 the caption row, so they leave the title its room. `download_menu=false` shows a
 button per format instead. A figure with a single download shows a plain button.
