@@ -3119,7 +3119,7 @@ window.AoV = window.AoV || {
         var view = this.views[id];
         if (!view) return null;
         name = name || 'source_0';
-        try { return view.data(name); } catch (e) { /* fall through */ }
+        try { return this._withoutPads(view.data(name)); } catch (e) { /* fall through */ }
         // Fallback: enumerate runtime data, return first non-empty array
         try {
             var runtime = view._runtime && view._runtime.data;
@@ -3127,12 +3127,18 @@ window.AoV = window.AoV || {
                 for (var k in runtime) {
                     try {
                         var d = view.data(k);
-                        if (Array.isArray(d) && d.length) return d;
+                        if (Array.isArray(d) && d.length) return this._withoutPads(d);
                     } catch (e) {}
                 }
             }
         } catch (e) {}
         return null;
+    },
+
+    // A sparse facet grid's `__aov_pad` rows only keep its cells: they copy a
+    // real row's values onto a combination that has no data.
+    _withoutPads: function(rows) {
+        return rows.filter(function(r) { return !r || r.__aov_pad !== true; });
     },
 
     // Split rows by a discriminator column (e.g. "__src" for multi-source layered specs).
@@ -3558,7 +3564,7 @@ window.AoV = window.AoV || {
         opts = opts || {};
         if (container.dataset.aovRendered === '1') return;
         var text = this._texts(container);
-        var rows = this._plotData(id);
+        var rows = this._summaryData(id, opts);
         if (!rows || !rows.length) {
             container.textContent = text('no_summary');
             container.dataset.aovRendered = '1';
@@ -3591,6 +3597,24 @@ window.AoV = window.AoV || {
         container.dataset.aovRendered = '1';
     },
 
+    // The rows of a plot's first dataset that holds a summary. Another layer's
+    // rows come first when that layer does (observations under a ribbon), each
+    // in a dataset of its own. Without a summary, the plot's data as usual.
+    _summaryData: function(id, opts) {
+        var view = this.views[id];
+        if (!view) return null;
+        var self = this;
+        var hasSummary = function(g) { return self._buildPrettyRows(g.rows, opts) !== null; };
+        for (var i = 0; ; i++) {
+            var rows;
+            try { rows = this._withoutPads(view.data('source_' + i)); } catch (e) { break; }
+            if (this._splitBySource(rows).some(hasSummary)) return rows;
+        }
+        return this._plotData(id);
+    },
+
+    // LOCKSTEP: `plot_summary_table` (src/plot_summary_table.jl) is this
+    // computation for a lowered spec; test/plot_summary_table.jl compares them.
     _buildPrettyRows: function(rows, opts, text) {
         if (!rows || !rows.length) return null;
         text = text || this._texts(null);
@@ -3673,13 +3697,27 @@ window.AoV = window.AoV || {
             (isNumeric ? numericCols : stringCols).push(c);
         });
         stringCols.sort(); numericCols.sort();
-        var orderedCols = stringCols.concat(numericCols).concat([label]);
+        var keyCols = stringCols.concat(numericCols);
+        var orderedCols = keyCols.concat([label]);
 
         var roundNum = function(v) {
             if (typeof v !== 'number' || isNaN(v)) return v;
             return parseFloat(v.toPrecision(sigfigs));
         };
-        var built = rows.map(function(r) {
+        // Julia's summaries come in hash order, so read along the key columns.
+        var empty = function(v) { return v === null || v === undefined; };
+        var built = rows.slice().sort(function(a, b) {
+            for (var i = 0; i < keyCols.length; i++) {
+                var x = a[keyCols[i]], y = b[keyCols[i]];
+                if (empty(x) || empty(y)) {
+                    if (empty(x) && empty(y)) continue;
+                    return empty(x) ? 1 : -1;
+                }
+                if (typeof x !== 'number' || typeof y !== 'number') { x = String(x); y = String(y); }
+                if (x !== y) return x < y ? -1 : 1;
+            }
+            return 0;
+        }).map(function(r) {
             var out = {};
             visibleSourceCols.forEach(function(c) { out[c] = roundNum(r[c]); });
             out[label] = fmt(r[pointCol]) + ' [' + fmt(r[pick.lo]) + ', ' + fmt(r[pick.hi]) + ']';

@@ -9,7 +9,7 @@ using HTMX: h
 import Tables
 import Statistics
 import AlgebraOfVega: with_plot_caption, draws_summary_table, _sanitize_id,
-                      _auto_summary_args, _auto_remap_parts, to_node, to_html,
+                      _summary_meta, _auto_remap_parts, to_node, to_html,
                       VegaSpec, caption_share_button, _vl_json,
                       PlotTexts, _EN_PLOT_TEXTS, _plot_text, _runtime_texts_attrs,
                       _static_img, _MarkdownView, cell_charts, CellColumn,
@@ -287,24 +287,17 @@ function with_plot_caption(spec::VegaSpec, caption::CaptionSpec;
     end
 
     resolved_summary = if summary_table === :auto
-        args = _auto_summary_args(spec)
-        if isnothing(args)
+        meta = _summary_meta(spec)
+        if isnothing(meta)
             nothing
         else
-            ci_val = _ci_str(summary_ci)
-            opts = Dict{String,Any}(
-                "ci" => ci_val,
+            opts = merge(meta, Dict{String,Any}(
+                "ci" => _ci_str(summary_ci),
                 "sigfigs" => summary_sigfigs,
-                "value_label" => string(args.value),
-            )
+            ))
             ll = get(kwargs, :layer_labels, nothing)
             if !isnothing(ll)
                 opts["labels"] = Dict(string(k) => string(v) for (k, v) in ll)
-            end
-            if args.kind === :precomputed_ribbon
-                opts["point_col"] = args.point_col
-                opts["point_label"] = texts.median
-                opts["bands"] = [Any[lo, hi, label] for (lo, hi, label) in args.bands]
             end
             h.div(; class="aov-data-pretty-body",
                   id="$(plot_id_s)-pretty",

@@ -1903,7 +1903,8 @@ end
 # default follows every authored count (`config(columns=…)`, a positional
 # `scales(Layout=…)`), so it only fills a count nobody set.
 _finish_vegalite!(spec, ::Dict) = spec
-_finish_vegalite!(spec, _) = _finish_ribbon_views!(_each_ribbon_view!(_apply_finish_defaults!, spec))
+_finish_vegalite!(spec, v) =
+    _record_summary!(_finish_ribbon_views!(_each_ribbon_view!(_apply_finish_defaults!, spec)), v)
 _apply_finish_defaults!(spec) = _apply_ink_paint!(_one_colour_bar!(_apply_no_zero_default!(_apply_wrap_default!(spec))))
 
 # What a colour and a stroke encoding must agree on to paint one value alike.
