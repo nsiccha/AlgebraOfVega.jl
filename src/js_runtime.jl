@@ -417,7 +417,10 @@ Client-side API:
 - `AoV.hostThemeConfig(el)` / `AoV.hostBackground(el)` — the Vega-Lite config a
   host-themed plot in `el` embeds with, and the background its image downloads use
 - `AoV.dispose(id)` — tear a plot down: finalize its Vega view and drop all
-  per-plot runtime state (DOM untouched)
+  per-plot runtime state. A plot whose element stays in the page keeps its
+  last frame, as a static copy: a new `<canvas>` with the same attributes and
+  pixels (or a clone of the `<svg>`) replaces the drawing, and the actions menu
+  is removed
 - `AoV.disposeWithin(root)` — dispose every plot whose element is `root` or
   inside it (works on detached subtrees too)
 
@@ -434,6 +437,13 @@ every re-embed (`View.finalize` alone leaves the actions menu's `document`
 listener, which keeps the replaced view alive). Only the latest embed of a plot
 registers: one superseded by a newer embed or by `dispose` is finalized when it
 resolves, and resize/fit re-embeds scheduled by a superseded embed are inert.
+A finalized view also stays reachable from the drawing it leaves: Vega's
+listeners on the canvas, the svg nodes' scenegraph items and the actions
+menu's export links all hold it. That is why `dispose` swaps the drawing of a
+plot that stays in the page for a static copy, including one disposed while its
+embed was in flight; code that kept a reference to the old `<canvas>` or `<svg>`
+then holds a detached node. A plot whose element has left the page is not
+copied: it is collectable as it is.
 
 Plots whose first render has an empty dataset (the incremental-plot pattern)
 hide legends bound to empty scale domains until the first data change: Vega
