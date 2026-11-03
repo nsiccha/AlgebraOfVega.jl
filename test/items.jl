@@ -2556,8 +2556,10 @@ removed page, heap flat.
     # document listener), never View.finalize alone.
     @test occursin("if (r) r.finalize(); else if (v) v.finalize();", rt)
     @test !occursin("self.views[id].finalize()", rt)
-    # An embed superseded by a newer one, or by dispose(), is finalized on resolve.
-    @test occursin("if (self._gens[id] !== gen) { result.finalize(); return result; }", rt)
+    # An embed superseded by a newer one, or by dispose(), is finalized on resolve;
+    # one disposed in flight releases the drawing it left (test/view_retention.jl).
+    @test occursin(r"if \(self\._gens\[id\] !== gen\) \{\s*result\.finalize\(\);", rt)
+    @test occursin("if (self._els[id] !== el) self._releaseDrawing(id, el);", rt)
     # One permanent console tagger instead of per-embed save/restore.
     @test occursin("_tagConsole: function()", rt)
     @test !occursin("var _warn = console.warn", rt)

@@ -950,7 +950,14 @@ window.AoV = window.AoV || {
             };
             return vegaEmbed('#' + id, s, self._withLiveRows(id, embedOpts, gen)).then(function(result) {
                 settle();
-                if (self._gens[id] !== gen) { result.finalize(); return result; }
+                if (self._gens[id] !== gen) {
+                    result.finalize();
+                    // Disposed while in flight, and no newer embed owns the
+                    // element: this embed's drawing stays, so release it as
+                    // dispose does. A newer embed of the element redraws it.
+                    if (self._els[id] !== el) self._releaseDrawing(id, el);
+                    return result;
+                }
                 self._results[id] = result;
                 var view = self.views[id] = result.view;
                 (self._signals[id] || []).forEach(function(sig) {
@@ -1399,10 +1406,12 @@ window.AoV = window.AoV || {
 
     // Tear a plot down: finalize its view (removing the window/document
     // listeners that otherwise keep its data, scenegraph and canvas alive)
-    // and drop every piece of per-plot state. The DOM is left alone; an
-    // embed still in flight is finalized when it resolves.
+    // and drop every piece of per-plot state. A plot whose element stays in
+    // the page keeps its last frame as a static copy (_releaseDrawing); an
+    // embed still in flight is finalized, and its drawing released, when it
+    // resolves.
     dispose: function(id) {
-        var self = this;
+        var self = this, el = self._els[id];
         self._touchReset(id);
         self._hoverEnd(id, null);
         self._frameStop(id);
@@ -1410,6 +1419,49 @@ window.AoV = window.AoV || {
         if (self._observers && self._observers[id]) self._observers[id].disconnect();
         if (self._scrollFrames[id]) self._scrollFrames[id].disconnect();
         self._perPlotState.forEach(function(k) { if (self[k]) delete self[k][id]; });
+        self._releaseDrawing(id, el);
+    },
+
+    // A finalized view stays reachable from the drawing it leaves in the page:
+    // Vega 5.33.1's View.finalize removes none of the listeners its canvas
+    // handler put on the canvas (canvas → listener → handler → view), nor
+    // the svg handler's listeners and the scenegraph item every svg node
+    // carries as `__data__`; vega-embed's finalize leaves the actions menu,
+    // whose export links close over the view. So a plot disposed while its
+    // element stays in the page swaps its drawing for a static copy: a canvas
+    // with the same attributes and pixels, an svg clone (cloneNode copies
+    // neither listeners nor `__data__`), and no actions menu. A detached
+    // element is collectable as it is and is left alone. Only vega-embed's
+    // public DOM (`.marks`, `.vega-actions`) is read, no private Vega field.
+    _releaseDrawing: function(id, el) {
+        if (!el || !el.isConnected) return;
+        var self = this;
+        el.querySelectorAll('canvas.marks').forEach(function(canvas) {
+            try {
+                var copy = document.createElement('canvas');
+                Array.prototype.forEach.call(canvas.attributes, function(a) { copy.setAttribute(a.name, a.value); });
+                if (canvas.width && canvas.height) {
+                    var ctx = copy.getContext('2d');
+                    if (!ctx) throw new Error('no 2d context for a ' + canvas.width + 'x' + canvas.height + ' canvas');
+                    ctx.drawImage(canvas, 0, 0);
+                }
+                canvas.replaceWith(copy);
+                // The replaced canvas's bitmap goes now, not when it is
+                // collected. Without this, headless Chrome kept a detached
+                // canvas, and so its view, reachable for a while in about 1
+                // run in 10 (test/view_retention.js).
+                canvas.width = canvas.height = 0;
+            } catch (err) {
+                // The last frame stays painted, and the canvas keeps its view.
+                (self._console || console).error.call(console, '[' + id + '] AoV.dispose could not copy the drawing; ' +
+                    'the plot keeps its Vega view while the drawing stays in the page:', err);
+            }
+        });
+        el.querySelectorAll('svg.marks').forEach(function(svg) { svg.replaceWith(svg.cloneNode(true)); });
+        el.querySelectorAll('.vega-actions').forEach(function(menu) {
+            var details = menu.closest('details');
+            (details && el.contains(details) ? details : menu).remove();
+        });
     },
 
     // Dispose every plot whose element is `root` or inside it. Walks the
