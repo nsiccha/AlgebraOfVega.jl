@@ -9,16 +9,17 @@ using TestItemRunner
     # JSON and back: what a consumer holds when it read the spec from a payload.
     roundtrip(vl) = JSON.parse(AlgebraOfVega._vl_json(vl))
 
-    # Long-format draws: two parameters, 21 draws each, so the median and the 95%
-    # interval are exact to read: `a` runs 10..30 and `b` runs 100..300.
-    draws = (; value=vcat(collect(10.0:30.0), collect(100.0:10.0:300.0)),
-        parameter=repeat(["b", "a"]; inner=21)[[22:42; 1:21]],
-        chain=repeat(["c1", "c2", "c3"], 14))
-    # Per-x draws of a line, x out of order, 11 draws per (x, group).
+    # Long-format draws: two parameters, 25 draws each. `a` runs 10..34 and `b` runs
+    # 100..340, so no quantile below sits on a rounding tie: Julia versions differ
+    # in a quantile's last bit, which would decide a tie.
+    draws = (; value=vcat(collect(10.0:34.0), collect(100.0:10.0:340.0)),
+        parameter=vcat(fill("a", 25), fill("b", 25)),
+        chain=repeat(["c1", "c2", "c3"], 17)[1:50])
+    # Per-x draws of a line, x out of order, 11 draws per (x, group), away from ties too.
     function predictions()
         x, y, draw, group = Float64[], Float64[], Int[], String[]
         for g in ("g2", "g1"), xv in (40.0, 10.0, 25.0, 1234.0), d in 1:11
-            push!(x, xv); push!(y, xv + d - 6 + (g == "g2" ? 100 : 0)); push!(draw, d); push!(group, g)
+            push!(x, xv); push!(y, xv + (d - 6) * 1.2 + (g == "g2" ? 100 : 0)); push!(draw, d); push!(group, g)
         end
         (; x, y, draw, group)
     end
@@ -83,7 +84,7 @@ end
     @test t.caption == "Median [95% credible interval]"
     @test cols(t) == ["parameter", "value"]
     @test t.table.parameter == ["a", "b"]
-    @test t.table.value == ["20 [11, 29]", "200 [110, 290]"]
+    @test t.table.value == ["22 [11, 33]", "220 [110, 330]"]
 
     # A figure's forms: the spec itself, its lowered dict and that dict after JSON.
     spec = interval(gradient_interval())
@@ -92,7 +93,7 @@ end
     # What a route's Markdown payload carries: the spec's Vega-Lite JSON show.
     payload = sprint(show, MIME"application/vnd.vegalite.v5+json"(), spec * config(width=300))
     @test only(plot_summary_table(JSON.parse(payload))).table.parameter == ["a", "b"]
-    @test only(plot_summary_table(spec)).table.value == ["20 [11, 29]", "200 [110, 290]"]
+    @test only(plot_summary_table(spec)).table.value == ["22 [11, 33]", "220 [110, 330]"]
     @test only(plot_summary_table(interval(dotinterval()))).table.parameter == ["a", "b"]
     @test only(plot_summary_table(interval(pointinterval()) * config(width=300))).table.parameter == ["a", "b"]
 
@@ -104,8 +105,8 @@ end
     @test cols(t) == ["group", "x", "y"]
     @test t.table.group == repeat(["g1", "g2"]; inner=4)
     @test t.table.x == repeat([10.0, 25.0, 40.0, 1200.0], 2)
-    @test t.table.y[1] == "10 [5.3, 15]"
-    @test only(plot_summary_table(data(preds) * mapping(:x, :y; group=:draw, color=:group) * ribbon())).table.y[1] == "10 [5.3, 15]"
+    @test t.table.y[1] == "10 [4.3, 16]"
+    @test only(plot_summary_table(data(preds) * mapping(:x, :y; group=:draw, color=:group) * ribbon())).table.y[1] == "10 [4.3, 16]"
 
     # `bands=`: the point and band columns are the table's own, named by the spec.
     bands = data(summary) * mapping(:m; y=:g) * pointinterval(bands=[:lo95 => :hi95, :lo50 => :hi50])
@@ -149,7 +150,7 @@ end
     @test only(plot_summary_table(two)).caption == "Median [80% credible interval]"
     @test only(plot_summary_table(two; ci=:inner)).caption == "Median [50% credible interval]"
     @test only(plot_summary_table(two; ci=0.6)).caption == "Median [50% credible interval]"
-    @test only(plot_summary_table(two; sigfigs=3)).table.value[1] == "20 [12, 28]"
+    @test only(plot_summary_table(two; sigfigs=3)).table.value[1] == "22 [12.4, 31.6]"
     @test only(plot_summary_table(two; texts=plot_texts(:de))).caption == "Median [80%-Kredibilitätsintervall]"
     @test_throws ArgumentError plot_summary_table(two; sigfigs=0)
     @test_throws ArgumentError plot_summary_table(two; ci=:widest)
