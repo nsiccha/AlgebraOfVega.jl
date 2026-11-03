@@ -54,8 +54,9 @@ exactly one. Each entry is a `NamedTuple`:
   value column, whose cells read `"12 [9.8, 15]"`. Rows are sorted along those
   columns. A JSON `null` reads as `missing`.
 - `caption`: what the table reports, `"Median [95% credible interval]"`.
-- `label`: the source's heading when a faceted figure merged several layers'
-  rows into one dataset, else `nothing`.
+- `label`: the source's name when a faceted figure merged several layers' rows
+  into one dataset, else `nothing`. That name is AoV's own (`_s1`) unless `labels`
+  gives it another.
 
 A layer without a summary, such as observations drawn beside a ribbon, is left
 out. The browser pane lists those rows raw under their own heading.

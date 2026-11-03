@@ -89,6 +89,9 @@ end
     spec = interval(gradient_interval())
     @test plot_summary_table(spec) == plot_summary_table(to_vegalite(spec)) ==
           plot_summary_table(roundtrip(to_vegalite(spec)))
+    # What a route's Markdown payload carries: the spec's Vega-Lite JSON show.
+    payload = sprint(show, MIME"application/vnd.vegalite.v5+json"(), spec * config(width=300))
+    @test only(plot_summary_table(JSON.parse(payload))).table.parameter == ["a", "b"]
     @test only(plot_summary_table(spec)).table.value == ["20 [11, 29]", "200 [110, 290]"]
     @test only(plot_summary_table(interval(dotinterval()))).table.parameter == ["a", "b"]
     @test only(plot_summary_table(interval(pointinterval()) * config(width=300))).table.parameter == ["a", "b"]

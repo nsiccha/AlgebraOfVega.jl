@@ -134,8 +134,8 @@ end
 
 @testitem "only a coloured ribbon over a few numeric x values gets a point-interval view" setup=[AoVRibbonViewFixtures] tags=[:translation, :ribbon] begin
     using Dates
-    # The plain lowering plus the last pass every figure gets.
-    plain(spec) = AoV._apply_no_zero_default!(AoV._lower_vegaspec(AoV.vlspec(spec)))
+    # The plain lowering plus the last passes every figure gets.
+    plain(spec) = AoV._record_summary!(AoV._apply_no_zero_default!(AoV._lower_vegaspec(AoV.vlspec(spec))), spec)
     unoffered(spec) = (vl = to_vegalite(spec); isnothing(view_meta(vl)) && vl == plain(spec))
     # No colour groups.
     @test unoffered(data(overlapping()) * mapping(:dose, :med) * lineribbon(bands=BANDS))
