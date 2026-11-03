@@ -15,6 +15,17 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
+## 0.2.16
+
+- A plot element keeps no Vega view but its current one. Before, every plot
+  element kept the view of its first embed reachable for as long as it stayed
+  in the page: a live plot held two views (data, dataflow and scenegraph) after
+  any re-embed (a container resize, a picker change, a theme switch,
+  `update_spec`), and a plot released with `AoV.dispose` / `AoV.disposeWithin`
+  whose element stayed in the page kept one. A long report that releases its
+  offscreen plots and keeps their snapshots ran Chromium out of memory at
+  4 GB of JS heap. Touch input is unchanged.
+
 ## 0.2.15
 
 - `locale_config(:de)` supplies the standard d3 German (`de-DE`) number and
