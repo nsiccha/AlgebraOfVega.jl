@@ -239,13 +239,13 @@ end
 LOCKSTEP. The runtime's "Show summary" pane and `plot_summary_table` read the same
 for every figure shape: heading, caption, columns and every cell, row by row. A
 second fixture holds numbers against `toPrecision`/`toString` directly, ties and
-both notations included, plus seeded random ones. The figure list includes the
+both notations included, plus values spread over many magnitudes. The figure list includes the
 shapes the pane got wrong before: rows in hash order, a summary whose layer is not
 the first (the pane listed the other layer's rows raw) and a sparse grid (its pad
 rows read as estimates for a combination without data).
 """
 @testitem "plot_summary_table matches the browser's summary pane" setup=[AoVSummaryTableFixtures, AoVBrowserServer] tags=[:summary, :browser, :tidybayes] begin
-    using HTMXObjects, Random
+    using HTMXObjects
     @test !isnothing(Base.get_extension(AlgebraOfVega, :AlgebraOfVegaHTMXObjectsExt))
 
     # A cell as the page shows it.
@@ -276,10 +276,10 @@ rows read as estimates for a combination without data).
     @test all(c -> !isempty(expected[c.id]), cases)
 
     # Numbers: x, p, parseFloat(x.toPrecision(p)).toString(), String(x).
-    rng = Random.MersenneTwister(20261103)
+    magnitudes = [exp(30 * sin(1.7 * i)) for i in 1:300]
     numbers = vcat([1.25, 0.125, 2.5, 1.5, 12.5, 0.375, 99.5, 999.5, 9.95, 0.15, 1.0e21, 1.5e21, 1.0e20, 1.0e-6, 1.5e-6,
                     1.0e-7, 1.5e-7, 123456789012345680000.0, 5.0e-324, 1.7976931348623157e308, -1.25, -0.125],
-                   exp.(randn(rng, 300) .* 12), -exp.(randn(rng, 100) .* 12), round.(rand(rng, 200) .* 1000; digits=2))
+                   magnitudes, -magnitudes[1:100], [round(500 + 500 * sin(2.3 * i); digits=2) for i in 1:200])
     format_cases = [(x, p, AlgebraOfVega._js_number_string(AlgebraOfVega._js_round(x, p)), AlgebraOfVega._js_number_string(x))
                     for x in numbers for p in (1, 2, 3, 6)]
 
