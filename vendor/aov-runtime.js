@@ -2692,13 +2692,25 @@ window.AoV = window.AoV || {
     _TOUCH_SLOP: 10,
     _TOUCH_TIP_GAP: 24,
     _attachTouch: function(id, view) {
-        var self = this, el = self._els[id], t = self._touches[id];
+        var self = this, t = self._touches[id];
         // A press or an open tooltip holds an item of the view a re-embed replaced.
         if (t && t.press && t.press.view !== view) self._touchCancel(id);
         if (t && t.tip && t.tip.view !== view) self._touchClose(id, null);
         view.addEventListener('touchstart', function(event, item) {
             self._touchStart(id, view, event, item);
         });
+        self._attachTouchElement(id, self._els[id]);
+    },
+    // The plot element's own touch listeners, attached once per element and
+    // kept across re-embeds. They are made here, apart from _attachTouch: the
+    // closures one function call creates share one scope, so a listener made
+    // beside the touchstart handler above would hold its `view`, and the
+    // element would keep its first embed's view (data, dataflow, scenegraph)
+    // reachable after every re-embed and after dispose (snag
+    // attachtouch-clos-f2d7a0dc). A listener the element holds never closes
+    // over a view; it reaches the plot's current state by id.
+    _attachTouchElement: function(id, el) {
+        var self = this;
         if (!el || el._aovTouch) return;
         el._aovTouch = true;
         var mine = function() { return self._els[id] === el; };
