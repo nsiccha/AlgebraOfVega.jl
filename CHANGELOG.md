@@ -15,6 +15,19 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
+## 0.2.17
+
+- `AoV.dispose` and `AoV.disposeWithin` free the Vega view of a plot whose
+  element stays in the page. Before, such a plot kept its whole view (data,
+  dataflow and scenegraph) reachable through its drawing: Vega's listeners on
+  the canvas, the svg nodes' scenegraph items and the actions menu's export
+  links all hold the finalized view. Now the drawing is swapped for a static
+  copy that shows the same last frame (a new `<canvas>` with the same pixels, or
+  a clone of the `<svg>`), and the actions menu is removed. Code that kept a
+  reference to the old `<canvas>` or `<svg>` across `dispose` now holds a
+  detached node; look the drawing up again after `dispose`. A plot whose
+  element has left the page is unaffected.
+
 ## 0.2.16
 
 - A plot element keeps no Vega view but its current one. Before, every plot
