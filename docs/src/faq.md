@@ -64,6 +64,8 @@ other way (a class on a wrapper element), call `AoV.refreshTheme()`.
   still win over the theme, key by key.
 - Do not invert the canvas with a CSS `filter` — it recolours the palette too.
 - PNG/SVG downloads of a plot are painted on the page background behind it.
+- Tooltips take the same colours: the page background behind the plot and its
+  text colour. A page's own `#vg-tooltip-element` rules still win.
 - `vega_head(theme=:none)` (page) or `config(theme=:none)` (one plot) keeps
   Vega's own look: white background, black text.
 
