@@ -67,7 +67,7 @@
     // cells, text that reads at WCAG AA, and no theme left once it closes.
     function surface(l, back, text, what) {
         check(l.shown, what + ': no tooltip shown');
-        check(l.surface === 'rgba(' + back + ', 0.95)', what + ': surface ' + l.surface + ', expected ' + back);
+        check(l.surface === 'rgb(' + back + ')', what + ': surface ' + l.surface + ', expected ' + back);
         check(l.color === 'rgb(' + text + ')', what + ': text ' + l.color + ', expected ' + text);
         check(l.border === 'rgba(' + text + ', 0.15)', what + ': border ' + l.border);
         check(l.keyBack === 'rgba(0, 0, 0, 0)' && l.valueBack === 'rgba(0, 0, 0, 0)',

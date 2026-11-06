@@ -1170,9 +1170,10 @@ window.AoV = window.AoV || {
     // The theme vega-tooltip shows the tooltips of a plot in `el` with, so
     // that a tooltip reads as one surface in the page's own colours, as the
     // plot's chrome does: the background behind the plot and its text colour.
-    // The surface alpha and the border reproduce vega-tooltip's light look for
-    // black text on white (.95, #d9d9d9). Keys are the text colour at .75, not
-    // the .5 that vega-tooltip's #808080 is on white: on Pico's text colours
+    // The surface is opaque: under clear cells, vega-tooltip's .95 lets the
+    // page's text show through the tooltip's. The border reproduces its light
+    // look for black text on white (#d9d9d9). Keys are the text colour at .75,
+    // not the .5 that vega-tooltip's #808080 is on white: on Pico's text colours
     // .65 and below fall under WCAG AA contrast (3.95:1 on its light page).
     // All plots share one tooltip element, and vega-tooltip sets
     // `<theme>-theme` on it while a plot's tooltip shows, so every distinct
@@ -1191,7 +1192,7 @@ window.AoV = window.AoV || {
         if ((Math.max(lt, lb) + 0.05) / (Math.min(lt, lb) + 0.05) < 3) {
             back = lt > 0.179 ? [32, 32, 32, 1] : [255, 255, 255, 1];
         }
-        var surface = this._withAlpha(back, 0.95), color = this._withAlpha(text, 1);
+        var surface = this._withAlpha(back, 1), color = this._withAlpha(text, 1);
         var border = this._withAlpha(text, 0.15), key = this._withAlpha(text, 0.75);
         var look = [surface, color, border, key].join('|');
         var theme = this._tipThemes[look];
