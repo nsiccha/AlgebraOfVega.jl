@@ -15,6 +15,24 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
+## 0.2.21
+
+- Every label of a continuous colour's gradient legend lies within the gradient,
+  so the canvas no longer cuts it. Before, on a horizontal gradient (`"orient" =>
+  "bottom"` or `"top"`) with no y axis beside it, a lowest tick just inside the colour
+  domain lost its first characters at the left edge and the legend stated a false
+  number, with no error: `−3,35` read `3,35`, `−102,5 Tsd.` read `2,5 Tsd.`. A highest
+  tick did the same at the right edge of a figure fitted to its column with an
+  authored `gradientLength` close to that width.
+- A label that hangs past an end of the gradient now moves just far enough to lie
+  within it. This also applies where nothing was cut, such as beside a y axis. A
+  label's width is estimated at 0.54 em per character, which errs wide for `.`, `,`
+  and spaces, so a label that fits by less than that error also moves a few pixels
+  in. A moved label can bring Vega's `labelOverlap` to drop its neighbour. Every
+  other label draws as before, and so does a vertical gradient.
+- `to_vegalite` adds `legend.encoding.labels.dx` to each continuous colour, fill or
+  stroke encoding. An authored `dx` and `legend: null` are kept.
+
 ## 0.2.20
 
 - A data table in a captioned plot's preview, or one `AoV.showPlotData` writes,

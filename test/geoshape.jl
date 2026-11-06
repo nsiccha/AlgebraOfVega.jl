@@ -44,7 +44,10 @@ end
         "as" => "__geometry__")]
     enc = vl["encoding"]
     @test enc["shape"] == Dict{String,Any}("field" => "__geometry__", "type" => "geojson")
-    @test enc["color"] == Dict{String,Any}("field" => "effect", "type" => "quantitative")
+    # Its legend only fits the gradient's labels (test/legend_labels.jl).
+    @test filter(p -> p.first != "legend", enc["color"]) ==
+        Dict{String,Any}("field" => "effect", "type" => "quantitative")
+    @test collect(keys(enc["color"]["legend"])) == ["encoding"]
     # A geoshape has no Cartesian axes: the positional key must NOT lower to x.
     @test !haskey(enc, "x") && !haskey(enc, "y")
     @test [t["field"] for t in enc["tooltip"]] == ["AGS", "effect"]

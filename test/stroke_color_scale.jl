@@ -37,17 +37,17 @@ end
         @test vl["encoding"]["color"]["scale"] == resolved
         @test vl["encoding"]["stroke"]["scale"] == resolved_stroke
         @test isnothing(vl["encoding"]["stroke"]["legend"])
-        @test !haskey(vl["encoding"]["color"], "legend")
+        @test !isnothing(get(vl["encoding"]["color"], "legend", Dict()))
     end
 
     # A stroke alone, and a stroke on another column: `Color` is the one colour scale, and
     # each keeps its legend.
     alone = data(cells) * mapping(:k; strokecolor=:v) * geoshape(grid(ks)) * config(scales=viridis)
     @test to_vegalite(alone)["encoding"]["stroke"]["scale"] == resolved
-    @test !haskey(to_vegalite(alone)["encoding"]["stroke"], "legend")
+    @test !isnothing(get(to_vegalite(alone)["encoding"]["stroke"], "legend", Dict()))
     other = data(cells) * mapping(:k; color=:v, strokecolor=:w) * geoshape(grid(ks)) * config(scales=viridis)
     @test to_vegalite(other)["encoding"]["stroke"]["scale"] == resolved
-    @test !haskey(to_vegalite(other)["encoding"]["stroke"], "legend")
+    @test !isnothing(get(to_vegalite(other)["encoding"]["stroke"], "legend", Dict()))
 
     # Not map-specific: categories and palette, every layer, and each facet's inner spec.
     cat_scale = scales(Color=(; categories=["y", "x"], palette=["red", "blue"]))
@@ -88,12 +88,12 @@ end
     # A stroke that paints otherwise, or says what its legend is, is left as written.
     written = Dict("field" => "v", "type" => "quantitative", "legend" => Dict("title" => "Edge"))
     @test stroke_of(data(cells) * mapping(:k; color=:v) * geoshape(grid(ks)) *
-        config(encoding=Dict("stroke" => written)))["legend"] == Dict{String,Any}("title" => "Edge")
+        config(encoding=Dict("stroke" => written)))["legend"]["title"] == "Edge"
     own = Dict("field" => "v", "type" => "quantitative", "scale" => Dict("scheme" => "magma"))
     drawn = stroke_of(data(cells) * mapping(:k; color=:v) * geoshape(grid(ks)) *
         config(encoding=Dict("stroke" => own)) * config(scales=viridis))
     @test drawn["scale"] == Dict{String,Any}("scheme" => "magma")
-    @test !haskey(drawn, "legend")
+    @test !isnothing(get(drawn, "legend", Dict()))
 end
 
 @testitem "lowclip, highclip and nan_color reach a mapped stroke" setup=[AoVStrokeScaleFixtures] tags=[:regression, :translation, :geoshape] begin
