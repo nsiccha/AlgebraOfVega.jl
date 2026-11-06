@@ -30,11 +30,9 @@ failing at run time with a `MethodError`.
     by source, `<plot>__s1.csv`, `<plot>__s2.csv`, … in layer order, or through
     `layer_labels`, as on a faceted figure. Browsers may ask before they save
     several files from one click.
-  - **Breaking:** a figure without facets that has two value layers now gives two
-    files, under new names, where it gave one under the plot's name. A faceted
-    figure's text layer no longer gets a file when other layers draw values. Code
-    that reads a download by its file name reads `<plot>__s1.csv` for the first
-    layer's rows, or names the sources with `layer_labels`.
+  - So a figure without facets that has two value layers now gives two files,
+    under new names, where it gave one under the plot's name, and a faceted
+    figure's text layer no longer gets a file when other layers draw values.
 
 ## 0.2.18
 
