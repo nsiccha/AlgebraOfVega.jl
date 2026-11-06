@@ -113,8 +113,8 @@
         AoV._cellAlignSoon();
         await aligned('#hidden-table', 'table shown later');
 
-        // The tooltip every AoV plot shows, one handler for every cell.
-        const handler = await AoV._cellTip;
+        // The tooltip every AoV plot shows, one handler for every cell of a look.
+        const handler = await AoV._cellTips[AoV._tooltipTheme(document.querySelector('.aov-cell'))];
         check(typeof handler === 'function' && shared.every(v => v.tooltip() === handler),
             'cells take the AoV tooltip');
 

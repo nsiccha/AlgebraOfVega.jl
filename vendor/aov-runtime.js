@@ -25,6 +25,11 @@ window.AoV = window.AoV || {
     // the re-embed that applies a changed one (see refreshTheme).
     _themeKeys: {},
     _reembeds: {},
+    // The tooltip looks written so far (look → theme name, see _tooltipTheme),
+    // their stylesheet, and the tooltip handler for a cell chart per theme.
+    _tipThemes: {},
+    _tipStyle: null,
+    _cellTips: {},
     // Keyed highlights (AoV.highlight): each plot's match test and the
     // revision its view's `aov_highlight` signal shows. Hovers: the mark
     // under the pointer, and the key it announced to its link group.
@@ -1154,6 +1159,56 @@ window.AoV = window.AoV || {
         var a = m[4] === undefined ? 1 : parseFloat(m[4]) / (m[5] ? 100 : 1);
         return [+m[1], +m[2], +m[3], a];
     },
+    _withAlpha: function(c, a) {
+        return 'rgba(' + c[0] + ',' + c[1] + ',' + c[2] + ',' + (+(c[3] * a).toFixed(3)) + ')';
+    },
+    // WCAG relative luminance of a colour from _rgba (its alpha is ignored).
+    _luminance: function(c) {
+        var lin = function(v) { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
+        return 0.2126 * lin(c[0]) + 0.7152 * lin(c[1]) + 0.0722 * lin(c[2]);
+    },
+    // The theme vega-tooltip shows the tooltips of a plot in `el` with, so
+    // that a tooltip reads as one surface in the page's own colours, as the
+    // plot's chrome does: the background behind the plot and its text colour.
+    // The surface is opaque: under clear cells, vega-tooltip's .95 lets the
+    // page's text show through the tooltip's. The border reproduces its light
+    // look for black text on white (#d9d9d9). Keys are the text colour at .75,
+    // not the .5 that vega-tooltip's #808080 is on white: on Pico's text colours
+    // .65 and below fall under WCAG AA contrast (3.95:1 on its light page).
+    // All plots share one tooltip element, and vega-tooltip sets
+    // `<theme>-theme` on it while a plot's tooltip shows, so every distinct
+    // look is a theme of its own: one rule, written once. The rule ranks with
+    // vega-tooltip's defaults and comes right after them, so a page's own
+    // `#vg-tooltip-element` rules still win.
+    _tooltipTheme: function(el) {
+        var cs = el ? getComputedStyle(el) : null;
+        var text = (cs && this._rgba(cs.color)) || [0, 0, 0, 1];
+        var back = (el && this._rgba(this.hostBackground(el))) || [255, 255, 255, 1];
+        // Text that cannot be read on that background is not read on it: a
+        // background image or gradient, a translucent card (hostBackground
+        // takes its colour as opaque) or a dark `color-scheme` page that
+        // paints no background of its own. Pick the surface for the text.
+        var lt = this._luminance(text), lb = this._luminance(back);
+        if ((Math.max(lt, lb) + 0.05) / (Math.min(lt, lb) + 0.05) < 3) {
+            back = lt > 0.179 ? [32, 32, 32, 1] : [255, 255, 255, 1];
+        }
+        var surface = this._withAlpha(back, 1), color = this._withAlpha(text, 1);
+        var border = this._withAlpha(text, 0.15), key = this._withAlpha(text, 0.75);
+        var look = [surface, color, border, key].join('|');
+        var theme = this._tipThemes[look];
+        if (theme) return theme;
+        theme = this._tipThemes[look] = 'aov' + Object.keys(this._tipThemes).length;
+        if (!this._tipStyle) {
+            this._tipStyle = document.createElement('style');
+            var head = document.head, defaults = document.getElementById('vega-tooltip-style');
+            head.insertBefore(this._tipStyle, defaults ? defaults.nextSibling : head.firstChild);
+        }
+        var sel = '#vg-tooltip-element:where(.' + theme + '-theme)';
+        this._tipStyle.appendChild(document.createTextNode(
+            sel + '{background-color:' + surface + ';border-color:' + border + ';color:' + color + '}' +
+            sel + ' table tr td.key{color:' + key + '}'));
+        return theme;
+    },
     // The Vega-Lite config for a plot element's resolved text colour, font
     // and look (_hostLook). Alphas reproduce Vega's defaults for black text
     // on white (domain and ticks #888, grid and view frame #ddd), so a
@@ -1161,8 +1216,7 @@ window.AoV = window.AoV || {
     hostThemeConfig: function(el) {
         var cs = el ? getComputedStyle(el) : null;
         var c = (cs && this._rgba(cs.color)) || [0, 0, 0, 1];
-        var ink = function(a) { return 'rgba(' + c[0] + ',' + c[1] + ',' + c[2] + ',' + (+(c[3] * a).toFixed(3)) + ')'; };
-        var text = ink(1), soft = ink(0.467), faint = ink(0.133);
+        var text = this._withAlpha(c, 1), soft = this._withAlpha(c, 0.467), faint = this._withAlpha(c, 0.133);
         var cfg = {
             background: 'transparent',
             title: {color: text, subtitleColor: soft},
@@ -1334,10 +1388,17 @@ window.AoV = window.AoV || {
     // applied. Records the theme so refreshTheme can tell when it changed.
     _themedOpts: function(id, spec, opts) {
         if (!this._themeOn(spec)) { delete this._themeKeys[id]; return opts; }
-        var cfg = this.hostThemeConfig(this._els[id] || document.getElementById(id));
-        this._themeKeys[id] = JSON.stringify(cfg);
+        var el = this._els[id] || document.getElementById(id);
+        var cfg = this.hostThemeConfig(el), tip = this._tooltipTheme(el);
+        this._themeKeys[id] = this._themeKey(cfg, tip);
         this._hostInk(spec, cfg);
-        return Object.assign({}, opts, {config: this._deepMerge(cfg, opts.config)});
+        var themed = Object.assign({}, opts, {config: this._deepMerge(cfg, opts.config)});
+        if (opts.tooltip === undefined) themed.tooltip = {theme: tip};
+        return themed;
+    },
+    // What a themed drawing depends on: its config and its tooltip's look.
+    _themeKey: function(cfg, tip) {
+        return JSON.stringify(Object.assign({tooltip: tip}, cfg));
     },
     // Re-embed every themed plot whose host colours, font or look changed. Runs on
     // prefers-color-scheme changes and on class / data-theme / style
@@ -1348,7 +1409,7 @@ window.AoV = window.AoV || {
         Object.keys(self._themeKeys).forEach(function(id) {
             var el = self._els[id], again = self._reembeds[id];
             if (!el || !el.isConnected || !again) return;
-            if (JSON.stringify(self.hostThemeConfig(el)) !== self._themeKeys[id]) again();
+            if (self._themeKey(self.hostThemeConfig(el), self._tooltipTheme(el)) !== self._themeKeys[id]) again();
         });
         self._refreshCellThemes();
     },
@@ -2520,7 +2581,8 @@ window.AoV = window.AoV || {
         try { key = JSON.parse(el.getAttribute('data-aov-key')); }
         catch (err) { console.error('AoV: a cell of column "' + colId + '" has no readable key:', err); return; }
         if (!col.plan) col.plan = self._framePlan(colId, col.spec);
-        return Promise.all([col.plan, self._cellTooltip()]).then(function(r) {
+        var tip = self._themeOn(col.spec) ? self._tooltipTheme(el) : 'light';
+        return Promise.all([col.plan, self._cellTooltip(tip)]).then(function(r) {
             return self._cellView(col, colId, el, key, r[0], r[1]);
         });
     },
@@ -2560,17 +2622,19 @@ window.AoV = window.AoV || {
         col.inline = inline;
         return (col.built[tkey] = {runtime: vega.parse(vg), theme: tkey});
     },
-    // vega-embed's tooltip handler, the one every AoV plot shows: vega-embed
-    // exports no constructor for it, so a view embedded once into a detached
-    // element hands it over. A cell's view takes it when it is built: setting
-    // a handler on a drawn view resets its renderer and leaves it blank.
-    _cellTooltip: function() {
-        if (!this._cellTip) {
-            this._cellTip = vegaEmbed(document.createElement('div'), {}, {mode: 'vega', renderer: 'none', actions: false})
+    // vega-embed's tooltip handler for `theme`, the one every AoV plot in that
+    // look shows: vega-embed exports no constructor for it, so a view embedded
+    // once into a detached element hands it over. A cell's view takes it when
+    // it is built: setting a handler on a drawn view resets its renderer and
+    // leaves it blank.
+    _cellTooltip: function(theme) {
+        if (!this._cellTips[theme]) {
+            this._cellTips[theme] = vegaEmbed(document.createElement('div'), {},
+                    {mode: 'vega', renderer: 'none', actions: false, tooltip: {theme: theme}})
                 .then(function(r) { var handler = r.view.tooltip(); r.finalize(); return handler; })
                 .catch(function(err) { console.error('AoV: cell charts show no tooltips:', err); return null; });
         }
-        return this._cellTip;
+        return this._cellTips[theme];
     },
     _cellView: function(col, colId, el, key, plan, tooltip) {
         var self = this;

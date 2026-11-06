@@ -1,6 +1,14 @@
     details[title] > summary > svg { width: 14px !important; height: 14px !important; }
     .chart-wrapper { height: auto !important; }
 
+    /* Vega's tooltip: its container is the surface (coloured by the runtime's
+       _tooltipTheme). A page's table and heading rules stay out of it: Pico
+       paints every cell in the page's background and its tables and headings
+       in the page's text colour, which on any other surface shows as dark
+       cells in a light frame, or as light text on it. */
+    #vg-tooltip-element td { background-color: transparent; }
+    #vg-tooltip-element table, #vg-tooltip-element td, #vg-tooltip-element h2 { color: inherit; }
+
     /* AoV-specific role classes. Generic concepts (gallery
        grid, sortable table, status badges, …) live upstream in
        HTMXObjects; this block only carries roles peculiar to
