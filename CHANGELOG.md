@@ -15,6 +15,27 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
+## 0.2.19
+
+- A captioned plot's ⬇ CSV and "Show data" give every dataset that draws values,
+  on a figure without facets too. Before, such a figure gave only its first
+  layer's rows, so observations under a model line lost the line, and a map whose
+  first layer was its region names exported only those names. The rule also holds
+  for a merged faceted dataset's sources:
+  - A dataset counts when a mark that is not text reads a column on a channel that
+    shows values, such as position, colour or size. A name label, an uncoloured
+    region or outline and geometry looked up by key do not count. A figure with
+    nothing that counts gives what it draws.
+  - One dataset keeps the file name `<plot>.csv`. Several give one file each, named
+    by source, `<plot>__s1.csv`, `<plot>__s2.csv`, … in layer order, or through
+    `layer_labels`, as on a faceted figure. Browsers may ask before they save
+    several files from one click.
+  - **Breaking:** a figure without facets that has two value layers now gives two
+    files, under new names, where it gave one under the plot's name. A faceted
+    figure's text layer no longer gets a file when other layers draw values. Code
+    that reads a download by its file name reads `<plot>__s1.csv` for the first
+    layer's rows, or names the sources with `layer_labels`.
+
 ## 0.2.18
 
 - New `plot_summary_table(vl; ci, sigfigs, texts, labels)`: a figure's automatic
