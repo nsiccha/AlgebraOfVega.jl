@@ -22,12 +22,13 @@
                 label = el.textContent;
             } else if (el.tagName === 'FIGCAPTION') {
                 caption = el.textContent;
-            } else if (el.tagName === 'TABLE') {
+            } else if (el.classList.contains('aov-table-frame')) {
+                const table = el.querySelector('table');
                 if (caption !== null) {
                     sections.push({
                         label, caption,
-                        columns: Array.from(el.querySelectorAll('thead th'), th => th.textContent),
-                        rows: Array.from(el.querySelectorAll('tbody tr'),
+                        columns: Array.from(table.querySelectorAll('thead th'), th => th.textContent),
+                        rows: Array.from(table.querySelectorAll('tbody tr'),
                             tr => Array.from(tr.children, td => td.textContent)),
                     });
                 }

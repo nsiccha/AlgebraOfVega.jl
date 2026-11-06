@@ -15,6 +15,18 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
+## 0.2.20
+
+- A data table in a captioned plot's preview, or one `AoV.showPlotData` writes,
+  scrolls in a frame of its own when it is wider or longer than its place, at most
+  70% of the window high, so its horizontal scrollbar stays in reach. Before, a
+  wide table widened the whole page and lay over whatever sat beside the figure. A
+  heading above a table stays in view, a `summary_table=` table the caller wrote
+  gets the same frame, and a grid or flex column around the figure keeps its width.
+- While it scrolls, the frame is a tab stop named "Scrollable table: <title>", as a
+  plot's frame is. The word is the new `plot_texts` text `scrollable_table` (German
+  "Scrollbare Tabelle").
+
 ## 0.2.19
 
 - A captioned plot's ⬇ CSV and "Show data" give every dataset that draws values,

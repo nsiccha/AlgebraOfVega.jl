@@ -68,7 +68,9 @@ who don't want that should not set the VL title.
 # Keyword arguments
 - `plot_id::AbstractString` (required): the same id passed to `to_node` / `auto_remap_node`
 - `data_download::Bool=true`: add the "⬇ CSV" download
-- `data_preview::Bool=true`: add the lazy preview details below the plot
+- `data_preview::Bool=true`: add the lazy preview details below the plot. A table
+  in it that is wider or longer than its place scrolls in a frame of its own, so
+  the page keeps its width
 - `images=(:png, :svg)`: image formats to download; pass `()` / `nothing` to disable
 - `html_download::Bool=true`: add the "⬇ HTML" standalone-page download
 - `download_menu::Bool=true`: put the downloads into one "⬇ Export ▾" menu;
