@@ -1905,7 +1905,56 @@ end
 _finish_vegalite!(spec, ::Dict) = spec
 _finish_vegalite!(spec, v) =
     _record_summary!(_finish_ribbon_views!(_each_ribbon_view!(_apply_finish_defaults!, spec)), v)
-_apply_finish_defaults!(spec) = _apply_ink_paint!(_one_colour_bar!(_apply_no_zero_default!(_apply_wrap_default!(spec))))
+_apply_finish_defaults!(spec) = _apply_ink_paint!(_fit_gradient_labels!(_one_colour_bar!(_apply_no_zero_default!(_apply_wrap_default!(spec)))))
+
+# Half a legend label's width. Vega expressions cannot measure text, so it counts
+# characters at 0.54 em each, Arial's digits and separators; a wider font's overhang
+# stays inside the view's padding.
+const _GRADIENT_LABEL_HALF = "0.27 * item.fontSize * length('' + item.text)"
+# How far to move a centred label along its gradient so that it lies within it:
+# `item.x` is `datum.perc` of the gradient's length, so `item.x * (1 - perc) / perc`
+# is the distance to the far end.
+const _GRADIENT_LABEL_DX = "item.align === 'center' ? clamp(0, $_GRADIENT_LABEL_HALF - item.x, " *
+    "item.x * (1 - datum.perc) / datum.perc - $_GRADIENT_LABEL_HALF) : 0"
+const _COLOUR_LEGEND_CHANNELS = ("color", "fill", "stroke")
+
+"""A label of a continuous colour's legend lies within its gradient, so the canvas never
+cuts it. A horizontal gradient centres each label on its value unless the value is exactly
+an end of the domain, and Vega's legend layout makes no room for what hangs past the start;
+a fitted figure with an authored `gradientLength` makes none past the end either. The canvas
+then cuts the label's outer digits and the legend states a false number: `−102,5 Tsd.` reads
+`2,5 Tsd.`. So each label gets a `dx` that moves it just far enough, and one that fits gets 0.
+
+The expression reads the label's own position, text and font size, because lowering knows
+none of them: the default `gradientLength` is the signal `clamp(width, 100, 200)`, and a
+legend's text can be any `labelExpr`. A vertical gradient or a symbol legend needs no case
+here: its labels are never centred. No `config.legend` key reaches a label's position, so
+this sits on each encoding. An authored `dx` is kept, and `legend: null` stays
+(snag `horizontal-gradi-806cacbf`)."""
+_fit_gradient_labels!(spec) = spec
+function _fit_gradient_labels!(spec::Dict)
+    enc = _as_dict(get(spec, "encoding", nothing))
+    if !isnothing(enc)
+        for channel in _COLOUR_LEGEND_CHANNELS
+            def = _as_dict(get(enc, channel, nothing))
+            (isnothing(def) || _color_kind(def) !== :continuous) && continue
+            legend = get(def, "legend", Dict{String,Any}())
+            legend isa Dict || continue     # `legend: null` draws none
+            guides = get(legend, "encoding", Dict{String,Any}())
+            labels = get(guides, "labels", Dict{String,Any}())
+            haskey(labels, "dx") && continue
+            dx = Dict{String,Any}("value" => Dict{String,Any}("expr" => _GRADIENT_LABEL_DX))
+            def["legend"] = merge(legend, Dict{String,Any}("encoding" =>
+                merge(guides, Dict{String,Any}("labels" => merge(labels, Dict{String,Any}("dx" => dx))))))
+        end
+    end
+    for key in ("layer", "hconcat", "vconcat", "concat")
+        children = get(spec, key, nothing)
+        children isa AbstractVector && foreach(_fit_gradient_labels!, children)
+    end
+    _fit_gradient_labels!(get(spec, "spec", nothing))
+    spec
+end
 
 # What a colour and a stroke encoding must agree on to paint one value alike.
 const _SAME_PAINT_KEYS = ("field", "type", "aggregate", "bin", "timeUnit", "scale")
