@@ -182,9 +182,11 @@ re-renders the plots when the page's colour scheme changes (a
 `stroke=:ink` (or `strokecolor=:ink`) and `fill=:ink` use it on that side of the
 mark only.
 A spec's own `config(config=Dict(...))` values still win. PNG/SVG
-downloads of such a plot are painted on the page background behind it. `:none`
-keeps Vega's own defaults (white background, black text, sans-serif). A per-plot
-`config(theme=...)` overrides this page-level value for that plot.
+downloads of such a plot are painted on the page background behind it, and its
+tooltips show on that background in the plot's text colour (a page's own
+`#vg-tooltip-element` rules still win). `:none` keeps Vega's own defaults (white
+background, black text, sans-serif). A per-plot `config(theme=...)` overrides
+this page-level value for that plot.
 
 A page restyles its host-themed plots further with optional CSS custom
 properties, set on the plot element or any ancestor. Their values may use
