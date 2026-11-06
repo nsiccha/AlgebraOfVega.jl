@@ -44,8 +44,11 @@ The downloads below share one "⬇ Export ▾" button in the caption row, which
 opens a menu of them, so they leave the caption's title its room. A figure with
 a single download shows it as a plain button, and `download_menu=false` shows
 each as its own button. The downloads, in order:
-- "⬇ CSV" download per layer (when `data_download=true`). For multi-source
-  specs (i.e. data with a `__src` discriminator column), triggers one CSV per source.
+- "⬇ CSV" download (when `data_download=true`): one CSV per dataset that draws
+  values, named by source (`_s1`, `_s2`, … in layer order, or `layer_labels`)
+  when there are several. A text layer, an uncoloured region or outline and
+  geometry looked up by key draw none, so they get no file of their own, unless
+  the figure draws nothing else.
 - "⬇ PNG" / "⬇ SVG" image download per format in `images` (default `(:png, :svg)`).
   Pass `images=()` or `images=nothing` to disable, or e.g. `images=(:png,)` for one.
 - "⬇ HTML" standalone-page download (when `html_download=true`): the whole
@@ -54,7 +57,7 @@ each as its own button. The downloads, in order:
 
 Also added:
 - A lazy "Show data" `<details>` rendered below the plot (when `data_preview=true`),
-  populated on first expand via the Vega view.
+  populated on first expand via the Vega view, with the rows the CSV gives.
 - "Share" clipboard button (when `share_url` is given): copies the absolute
   card URL; appended after `extra_actions` in the caption row.
 
@@ -74,8 +77,9 @@ who don't want that should not set the VL title.
   `false` shows each as its own button in the caption row
 - `share_url=nothing`: when given, append a "Share" clipboard button for this URL
 - `filename_base`: base for downloaded filenames (defaults to `plot_id`)
-- `layer_labels::Union{Nothing,Dict}=nothing`: map from raw `__src` value → human label,
-  used both in download filenames and preview headings
+- `layer_labels::Union{Nothing,Dict}=nothing`: map from source (`_s1`, `_s2`, … in
+  layer order, a merged dataset's raw `__src` value) → human label, used both in
+  download filenames and preview headings
 - `extra_actions`: iterable of additional action nodes for the caption row,
   beside the menu
 - `texts::PlotTexts=plot_texts()`: the words of the caption's "More" toggle,

@@ -3214,6 +3214,99 @@ window.AoV = window.AoV || {
         return rows.filter(function(r) { return !r || r.__aov_pad !== true; });
     },
 
+    // Whether a mark draws values from its rows: it is not a text mark, and a
+    // channel that shows values reads a column. Names on a map, an uncoloured
+    // region and an outline draw none.
+    _NOT_VALUE_CHANNELS: {text: 1, tooltip: 1, description: 1, ariaRoleDescription: 1, href: 1, url: 1, cursor: 1},
+    _markDrawsValues: function(mark) {
+        if (mark.type === 'text') return false;
+        var update = (mark.encode && mark.encode.update) || {}, skip = this._NOT_VALUE_CHANNELS;
+        return Object.keys(update).some(function(channel) {
+            return !skip[channel] && [].concat(update[channel]).some(function(e) {
+                return e && (typeof e.field === 'string' || /\bdatum\b/.test(e.signal || ''));
+            });
+        });
+    },
+
+    // The datasets the marks of a plot draw from, read off the Vega that
+    // vega-embed compiled, in the order of its sources:
+    // [{name, tags: {<__src value>: drawsValues}, untagged: drawsValues}, ...],
+    // where `tags` holds the sources that marks filter the dataset to and
+    // `untagged` is for marks that read all of it. A dataset no mark reads is
+    // not there, such as the geometry a layer looks up by key. Vega scopes its
+    // dataset names by group, so a facet's cells can reuse an outer `data_0`:
+    // each name resolves to its root where it is defined.
+    _drawnDatasets: function(id) {
+        var result = this._results[id], vg = result && result.vgSpec;
+        if (!vg) return null;
+        var drawn = {}, self = this;
+        (function walk(group, outer) {
+            var scope = Object.create(outer);
+            (group.data || []).forEach(function(d) {
+                var up = d.source ? scope[d.source] : {root: d.name};
+                if (!up) return;
+                var tag = up.tag;
+                (d.transform || []).forEach(function(t) {
+                    var m = t.type === 'filter' && /datum\.__src === '([^']*)'/.exec(t.expr || '');
+                    if (m) tag = m[1];
+                });
+                scope[d.name] = {root: up.root, tag: tag};
+            });
+            (group.marks || []).forEach(function(m) {
+                var from = m.from || {};
+                if (m.type === 'group') {
+                    var cells = scope;
+                    if (from.facet) {
+                        cells = Object.create(scope);
+                        cells[from.facet.name] = scope[from.facet.data];
+                    }
+                    walk(m, cells);
+                    return;
+                }
+                var source = from.data && scope[from.data];
+                if (!source) return;
+                var d = drawn[source.root] = drawn[source.root] || {name: source.root, tags: {}, untagged: false};
+                var values = self._markDrawsValues(m);
+                if (source.tag === undefined) d.untagged = d.untagged || values;
+                else d.tags[source.tag] = d.tags[source.tag] || values;
+            });
+        })(vg, {});
+        return (vg.data || []).filter(function(d) { return !d.source && drawn[d.name]; })
+            .map(function(d) { return drawn[d.name]; });
+    },
+
+    // The rows a plot's CSV download and data preview give, [{label, rows}, ...]:
+    // one group per dataset that draws values, a merged dataset's sources apart
+    // (`_splitBySource`). A figure that draws no values, such as a plain outline
+    // map, gives what it draws. With several datasets, those without `__src` are
+    // labelled as a merged dataset's would be, `_s1`, `_s2`, … in layer order, so
+    // `layer_labels` reads the same on a faceted figure and on one without facets.
+    _plotGroups: function(id) {
+        var view = this.views[id];
+        if (!view) return null;
+        var self = this, drawn = this._drawnDatasets(id);
+        if (!drawn || !drawn.length) {
+            var rows = this._plotData(id);
+            return rows && this._splitBySource(rows);
+        }
+        var nonEmpty = function(g) { return g.rows.length > 0; };
+        var all = [], values = [];
+        drawn.forEach(function(d, i) {
+            self._splitBySource(self._withoutPads(view.data(d.name))).forEach(function(g) {
+                var group = {label: g.label, rows: g.rows, place: i + 1};
+                all.push(group);
+                if (d.untagged || (g.label !== null && d.tags[g.label])) values.push(group);
+            });
+        });
+        var groups = values.filter(nonEmpty);
+        if (!groups.length) groups = all.filter(nonEmpty);
+        if (!groups.length) return [{label: null, rows: []}];
+        return groups.map(function(g) {
+            var label = g.label === null && groups.length > 1 ? '_s' + g.place : g.label;
+            return {label: label, rows: g.rows};
+        });
+    },
+
     // Split rows by a discriminator column (e.g. "__src" for multi-source layered specs).
     // Returns [{label, rows}, ...]. If no rows have the column, returns [{label: null, rows}].
     _splitBySource: function(rows, col) {
@@ -3299,14 +3392,13 @@ window.AoV = window.AoV || {
         };
     },
 
-    // Public: download the plot's data as CSV. Splits by `__src` if present.
+    // Public: download the plot's data as CSV, one file per group (`_plotGroups`).
     // labels: optional {srcValue: humanLabel} override map.
     downloadPlotData: function(id, filenameBase, labels) {
         filenameBase = filenameBase || id;
         labels = labels || {};
-        var rows = this._plotData(id);
-        if (!rows) { console.warn('AoV.downloadPlotData: no data for', id); return; }
-        var groups = this._splitBySource(rows);
+        var groups = this._plotGroups(id);
+        if (!groups) { console.warn('AoV.downloadPlotData: no data for', id); return; }
         var self = this;
         groups.forEach(function(g) {
             var label = g.label === null ? '' : '_' + (labels[g.label] || g.label).replace(/[^A-Za-z0-9_-]+/g, '_');
@@ -3514,9 +3606,8 @@ window.AoV = window.AoV || {
     showPlotData: function(id, container, labels) {
         labels = labels || {};
         if (container.dataset.aovRendered === '1') return;
-        var rows = this._plotData(id);
-        if (!rows) { container.textContent = this._texts(container)('no_data'); container.dataset.aovRendered = '1'; return; }
-        var groups = this._splitBySource(rows);
+        var groups = this._plotGroups(id);
+        if (!groups) { container.textContent = this._texts(container)('no_data'); container.dataset.aovRendered = '1'; return; }
         container.innerHTML = '';
         var self = this;
         groups.forEach(function(g) {
@@ -3686,13 +3777,12 @@ window.AoV = window.AoV || {
         opts = opts || {};
         if (container.dataset.aovRendered === '1') return;
         var text = this._texts(container);
-        var rows = this._summaryData(id, opts);
-        if (!rows || !rows.length) {
+        var groups = this._summaryGroups(id, opts);
+        if (!groups || !groups.some(function(g) { return g.rows.length; })) {
             container.textContent = text('no_summary');
             container.dataset.aovRendered = '1';
             return;
         }
-        var groups = this._splitBySource(rows);
         container.innerHTML = '';
         var labels = opts.labels || {};
         var self = this;
@@ -3720,10 +3810,10 @@ window.AoV = window.AoV || {
         container.dataset.aovRendered = '1';
     },
 
-    // The rows of a plot's first dataset that holds a summary. Another layer's
+    // The sources of a plot's first dataset that holds a summary. Another layer's
     // rows come first when that layer does (observations under a ribbon), each
     // in a dataset of its own. Without a summary, the plot's data as usual.
-    _summaryData: function(id, opts) {
+    _summaryGroups: function(id, opts) {
         var view = this.views[id];
         if (!view) return null;
         var self = this;
@@ -3731,9 +3821,10 @@ window.AoV = window.AoV || {
         for (var i = 0; ; i++) {
             var rows;
             try { rows = this._withoutPads(view.data('source_' + i)); } catch (e) { break; }
-            if (this._splitBySource(rows).some(hasSummary)) return rows;
+            var groups = this._splitBySource(rows);
+            if (groups.some(hasSummary)) return groups;
         }
-        return this._plotData(id);
+        return this._plotGroups(id);
     },
 
     // LOCKSTEP: `plot_summary_table` (src/plot_summary_table.jl) is this

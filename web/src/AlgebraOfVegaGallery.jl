@@ -675,7 +675,7 @@ end""")),
                        "`auto_remap=(; dims=...)`, over a pre-aggregated summary (median, " *
                        "q025, q10, q25, q75, q90, q975 columns). Controls appear above the " *
                        "`<figure>` (controls → caption → plot). The CSV button reads from " *
-                       "the live Vega view via `view.data('source_0')`, so after a remap it " *
+                       "the live Vega view's datasets, so after a remap it " *
                        "still returns the original input rows. The lazy 'Show data' details " *
                        "below the plot renders the same table client-side, sortable.",
             )
