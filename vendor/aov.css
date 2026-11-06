@@ -170,3 +170,12 @@
        button state. */
     .aov-data-preview[data-mode="pretty"] > [data-view="raw"] { display: none; }
     .aov-data-preview[data-mode="raw"]    > [data-view="pretty"] { display: none; }
+    /* A data table's frame (the runtime's `_frameTables`). A table wider than
+       its place scrolls here, and the page keeps its width. The overflow alone
+       would still widen a grid or flex column around the figure, whose minimum
+       width counts a scroller's content; the containment stops that. The height
+       bound keeps the horizontal scrollbar in reach, which on a long table would
+       otherwise sit far below the table's first rows. A printout shows it all. */
+    .aov-table-frame { width: 100%; max-height: 70vh; overflow: auto; contain: inline-size; }
+    .aov-table-frame:focus-visible { outline: 2px solid currentColor; outline-offset: -2px; }
+    @media print { .aov-table-frame { max-height: none; overflow: visible; contain: none; } }

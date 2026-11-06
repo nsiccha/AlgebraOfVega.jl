@@ -1076,31 +1076,40 @@ window.AoV = window.AoV || {
         // A plot whose width follows data still loading from a URL fits its
         // frame until the data arrives, and dropping the tab stop then would
         // drop the reader's focus. The embed measures again when it settles.
-        var el = this._els[id], area = el && el.closest('.aov-plot-area');
+        var self = this, el = this._els[id], area = el && el.closest('.aov-plot-area');
         if (!area || this._inFlight[id]) return;
+        this._syncFrameStop(area, function() { return self._scrollFrameName(id, area); });
+    },
+    // A frame is a named tab stop while it scrolls, and no stop otherwise.
+    _syncFrameStop: function(frame, name) {
         // Within 2 px is no scrolling to speak of (the tolerance of
         // _fitCorrection). The computed overflow keeps a frame on a page
         // without aov.css, which does not scroll, out of the tab order.
-        var style = getComputedStyle(area);
+        var style = getComputedStyle(frame);
         var scrolls = function(overflow, over) { return (overflow === 'auto' || overflow === 'scroll') && over > 2; };
-        if (scrolls(style.overflowX, area.scrollWidth - area.clientWidth) ||
-            scrolls(style.overflowY, area.scrollHeight - area.clientHeight)) {
-            area.setAttribute('tabindex', '0');
-            area.setAttribute('role', 'figure');
-            area.setAttribute('aria-label', this._scrollFrameName(id, area));
+        if (scrolls(style.overflowX, frame.scrollWidth - frame.clientWidth) ||
+            scrolls(style.overflowY, frame.scrollHeight - frame.clientHeight)) {
+            frame.setAttribute('tabindex', '0');
+            frame.setAttribute('role', 'figure');
+            frame.setAttribute('aria-label', name());
         } else {
-            area.removeAttribute('tabindex');
-            area.removeAttribute('role');
-            area.removeAttribute('aria-label');
+            frame.removeAttribute('tabindex');
+            frame.removeAttribute('role');
+            frame.removeAttribute('aria-label');
         }
     },
+    // The title of the caption of the figure around `el` (as the HTML download
+    // reads it).
+    _captionTitle: function(el) {
+        var figure = el.closest('figure');
+        var caption = figure && figure.querySelector('figcaption .caption-header strong');
+        return caption && caption.textContent.trim();
+    },
     // "Scrollable plot", then what the reader knows the plot by: its caption's
-    // title (as the HTML download reads it), or else the spec's own title.
+    // title, or else the spec's own title.
     _scrollFrameName: function(id, area) {
         var word = this._texts(area)('scrollable');
-        var figure = area.closest('figure');
-        var caption = figure && figure.querySelector('figcaption .caption-header strong');
-        var title = caption && caption.textContent.trim();
+        var title = this._captionTitle(area);
         if (!title) {
             title = this._cur[id] && this._cur[id].spec.title;
             if (title && title.text !== undefined) title = title.text;
@@ -3487,7 +3496,7 @@ window.AoV = window.AoV || {
     // (`plot_texts`, src/plot_texts.jl); without that attribute they are
     // English. LOCKSTEP: `_TEXTS_EN` is the English set of
     // `_RUNTIME_TEXT_NAMES` in src/plot_texts.jl; test/plot_texts.jl pins them.
-    _TEXTS_EN: {"no_data": "(no data available)", "no_summary": "(no summary data available)", "median": "Median", "interval": "{point} [{width} credible interval]", "value": "value", "untitled": "AoV plot", "lang": "en", "play": "Play", "pause": "Pause", "ribbons": "Ribbons", "intervals": "Intervals", "ribbon_view": "Drawing", "overlap": "Bands overlap {score} of the y range", "overlap_auto": "Bands overlap {score} of the y range; intervals above {threshold}", "scrollable": "Scrollable plot"},
+    _TEXTS_EN: {"no_data": "(no data available)", "no_summary": "(no summary data available)", "median": "Median", "interval": "{point} [{width} credible interval]", "value": "value", "untitled": "AoV plot", "lang": "en", "play": "Play", "pause": "Pause", "ribbons": "Ribbons", "intervals": "Intervals", "ribbon_view": "Drawing", "overlap": "Bands overlap {score} of the y range", "overlap_auto": "Bands overlap {score} of the y range; intervals above {threshold}", "scrollable": "Scrollable plot", "scrollable_table": "Scrollable table"},
     _texts: function(el) {
         var host = el && el.closest ? el.closest('[data-aov-texts]') : null;
         var texts = host ? JSON.parse(host.dataset.aovTexts) : {};
@@ -3519,7 +3528,54 @@ window.AoV = window.AoV || {
             }
             container.appendChild(self._buildSortableTable(g.rows));
         });
+        this._frameTables(container);
         container.dataset.aovRendered = '1';
+    },
+
+    // A table wider or longer than its place scrolls in a frame of its own
+    // (aov.css), so the page keeps its width and whatever sits beside the
+    // figure stays where it is. Each table has its own frame, so a heading above
+    // it stays in view. A table that is already in a frame (a saved page) is
+    // only watched. The frame takes the focus while it scrolls, because a
+    // table's cells do not (see _syncScrollFrame).
+    _frameTables: function(root) {
+        var self = this;
+        root.querySelectorAll('table').forEach(function(table) {
+            var frame = table.closest('.aov-table-frame');
+            if (!frame) {
+                frame = document.createElement('div');
+                frame.className = 'aov-table-frame';
+                table.parentNode.insertBefore(frame, table);
+                frame.appendChild(table);
+            }
+            self._watchTableFrame(frame, table);
+        });
+    },
+    // A container that changes width, or a table that does (a late font, a
+    // shown pane), starts or stops the scrolling. One observer serves every
+    // frame, and a frame that leaves the page leaves it too.
+    _watchTableFrame: function(frame, table) {
+        var self = this;
+        if (window.ResizeObserver) {
+            if (!self._tableFrameObserver) {
+                self._tableFrameObserver = new ResizeObserver(function(entries) {
+                    entries.forEach(function(entry) {
+                        var watched = entry.target.closest('.aov-table-frame');
+                        if (watched) self._syncTableFrame(watched);
+                    });
+                });
+            }
+            self._tableFrameObserver.observe(frame);
+            self._tableFrameObserver.observe(table);
+        }
+        self._syncTableFrame(frame);
+    },
+    _syncTableFrame: function(frame) {
+        var self = this;
+        this._syncFrameStop(frame, function() {
+            var word = self._texts(frame)('scrollable_table'), title = self._captionTitle(frame);
+            return title ? word + ': ' + title : word;
+        });
     },
 
     _buildSortableTable: function(rows, cols) {
@@ -3609,6 +3665,8 @@ window.AoV = window.AoV || {
                 if (pid) this.renderPrettySummary(pid, body, opts);
             }
         }
+        // Also a table the caller wrote (`summary_table=`).
+        this._frameTables(details);
     },
 
     // Public: render a "point [lo, hi]" pretty summary table from the live
@@ -3658,6 +3716,7 @@ window.AoV = window.AoV || {
             }
             container.appendChild(self._buildSortableTable(built.rows, built.cols));
         });
+        this._frameTables(container);
         container.dataset.aovRendered = '1';
     },
 
