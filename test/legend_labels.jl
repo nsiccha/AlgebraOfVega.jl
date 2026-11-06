@@ -128,9 +128,13 @@ end
                 # A label that comes out empty leaves the others drawn.
                 "null-label" => legend_map(-3.3502, -3.15;
                     legend=Dict{String,Any}("labelExpr" => "datum.value > -3.28 ? null : datum.label"), gl...),
-                # Nothing to move: the pixels equal the control's.
-                "fits" => legend_map(-1502000, -500000; legend=labelled, gl...),
-                "fits-control" => legend_map(-1502000, -500000; legend=compact_unfitted, gl...),
+                # Nothing to move: the pixels equal the control's. The end ticks
+                # (−1.400 and −600 Tsd.) sit 37 px inside the gradient's ends.
+                "fits" => legend_map(-1560000, -440000; legend=labelled, gl...),
+                "fits-control" => legend_map(-1560000, -440000; legend=compact_unfitted, gl...),
+                # The width estimate errs wide (0.54 em for `.`, `,` and spaces too),
+                # so a label that fits by less than that error moves a few px in.
+                "near" => legend_map(-1502000, -500000; legend=labelled, gl...),
                 "exact" => legend_map(-3.35, -3.15; gl...),
                 "exact-control" => legend_map(-3.35, -3.15; legend=unfitted, gl...),
                 "vertical" => legend_map(-3.3502, -3.15; direction="vertical", gradientDirection="vertical"),

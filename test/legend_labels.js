@@ -90,6 +90,8 @@
             check(canvasOf(a).toDataURL() === canvasOf(b).toDataURL(), a + ': pixels should equal ' + b);
         };
         await same('fits', 'fits-control');
+        const near = await whole('near', 2);
+        check(near[0].dx > 0 && near[0].dx < 4, 'near: a label that barely fits moves under 4 px: ' + JSON.stringify(near[0]));
         await same('exact', 'exact-control');
         await same('vertical', 'vertical-control');
         labelsOf(await ready('vertical')).forEach(l =>
@@ -102,7 +104,8 @@
         AoV.remapEncoding('picker', {color: 'g'});
         await pause();
         const picked = await whole('picker', 2);
-        picked.forEach(l => check(l.dx === 0, 'picker: a symbol legend label must not move: ' + JSON.stringify(l)));
+        // A remapped colour carries no fit (undefined dx), and a symbol legend's labels are never centred.
+        picked.forEach(l => check(!l.dx && l.align === 'left', 'picker: a symbol legend label must not move: ' + JSON.stringify(l)));
 
         // Rows that arrive later: the text and position of the new ticks are read.
         await ready('update');

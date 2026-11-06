@@ -1908,8 +1908,9 @@ _finish_vegalite!(spec, v) =
 _apply_finish_defaults!(spec) = _apply_ink_paint!(_fit_gradient_labels!(_one_colour_bar!(_apply_no_zero_default!(_apply_wrap_default!(spec)))))
 
 # Half a legend label's width. Vega expressions cannot measure text, so it counts
-# characters at 0.54 em each, Arial's digits and separators; a wider font's overhang
-# stays inside the view's padding.
+# characters at 0.54 em each: about Arial's digits (0.556 em), and wide for `.`, `,`
+# and spaces (0.278 em), so a label that fits by less than that error moves a few
+# pixels in. A wider font's overhang stays inside the view's 5 px padding.
 const _GRADIENT_LABEL_HALF = "0.27 * item.fontSize * length('' + item.text)"
 # How far to move a centred label along its gradient so that it lies within it:
 # `item.x` is `datum.perc` of the gradient's length, so `item.x * (1 - perc) / perc`
@@ -1923,7 +1924,8 @@ cuts it. A horizontal gradient centres each label on its value unless the value 
 an end of the domain, and Vega's legend layout makes no room for what hangs past the start;
 a fitted figure with an authored `gradientLength` makes none past the end either. The canvas
 then cuts the label's outer digits and the legend states a false number: `−102,5 Tsd.` reads
-`2,5 Tsd.`. So each label gets a `dx` that moves it just far enough, and one that fits gets 0.
+`2,5 Tsd.`. So each label gets a `dx` that moves it just far enough, and one whose
+estimated width fits gets 0.
 
 The expression reads the label's own position, text and font size, because lowering knows
 none of them: the default `gradientLength` is the signal `clamp(width, 100, 200)`, and a

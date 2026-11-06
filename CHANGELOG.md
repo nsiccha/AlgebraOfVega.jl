@@ -25,9 +25,11 @@ failing at run time with a `MethodError`.
   tick did the same at the right edge of a figure fitted to its column with an
   authored `gradientLength` close to that width.
 - A label that hangs past an end of the gradient now moves just far enough to lie
-  within it. This also applies where nothing was cut, such as beside a y axis, and a
-  moved label can bring Vega's `labelOverlap` to drop its neighbour. Every other
-  label draws as before, and so does a vertical gradient.
+  within it. This also applies where nothing was cut, such as beside a y axis. A
+  label's width is estimated at 0.54 em per character, which errs wide for `.`, `,`
+  and spaces, so a label that fits by less than that error also moves a few pixels
+  in. A moved label can bring Vega's `labelOverlap` to drop its neighbour. Every
+  other label draws as before, and so does a vertical gradient.
 - `to_vegalite` adds `legend.encoding.labels.dx` to each continuous colour, fill or
   stroke encoding. An authored `dx` and `legend: null` are kept.
 
