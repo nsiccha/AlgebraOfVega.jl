@@ -25,9 +25,18 @@ function to_html(spec; id=nothing, width=nothing, height=nothing,
     """
     <div id="$id"></div>
     $scripts
-    <script>$(_inline_text(_standalone_embed_js(id, json)))</script>
+    <script>$(_inline_text(_standalone_embed_js(id, json, _standalone_embed_opts(vl))))</script>
     """
 end
+
+# The bare embed's vega-embed options. A spec with a `visual(...; inspectable=false)`
+# layer also gets the patch that makes its marks let the pointer through
+# (`_AOV_PASSIVE`); any other spec's page is unchanged.
+const _PASSIVE_PATCH_JS = "function (vg) { (function walk(marks) { (marks || []).forEach(function (m) { " *
+    "var s = m.style; if (s === 'aov-passive' || (Array.isArray(s) && s.indexOf('aov-passive') !== -1)) m.interactive = false; " *
+    "walk(m.marks); }); })(vg && vg.marks); return vg; }"
+_standalone_embed_opts(vl) =
+    _uses_style(vl, _AOV_PASSIVE) ? "{actions: false, patch: $_PASSIVE_PATCH_JS}" : "{actions: false}"
 
 # The embed script of `to_html(spec)`. A parsed page has run the Vega script
 # tags before this one, so `vegaEmbed` exists and it draws at once. Inserted
@@ -35,10 +44,10 @@ end
 # re-creation), it runs at once while those tags are still downloading, so it
 # draws once its own preceding `<script src>` siblings have loaded, and
 # reports in the console and in the plot's container when one fails to load.
-_standalone_embed_js(id, json) = """
+_standalone_embed_js(id, json, opts="{actions: false}") = """
     (function (current) {
       var id = '$id';
-      function draw() { vegaEmbed('#$id', $json, {actions: false}).catch(console.error); }
+      function draw() { vegaEmbed('#$id', $json, $opts).catch(console.error); }
       if (window.vegaEmbed) return draw();
       var pending = [], settled = false;
       for (var n = current && current.previousElementSibling; n && n.tagName === 'SCRIPT'; n = n.previousElementSibling)

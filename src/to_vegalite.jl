@@ -47,6 +47,7 @@ function _base_vegalite(layer::AlgebraOfGraphics.Layer, layer_encodings::Abstrac
     # One layer: its units are the whole spec.
     _apply_layer_encodings!([[spec]], layer_encodings)
     _apply_layer_transforms!([[spec]], layer_transforms)
+    _apply_layer_passive!([[spec]], [layer])
     _apply_no_truncate_default!(spec)
     _apply_ink_default!(spec)
     _densify_facet_sort!(spec)
@@ -144,6 +145,13 @@ const _AOV_INK_STYLES = (_AOV_INK => "color", "aov-ink-stroke" => "stroke", "aov
 const _AOV_INK_ATTRS = Dict{Symbol,String}(
     :color => _AOV_INK, :strokecolor => "aov-ink-stroke", :stroke => "aov-ink-stroke",
     :fill => "aov-ink-fill")
+# The style of every mark a `visual(...; inspectable=false)` layer draws
+# (`_apply_layer_passive!`). Vega-Lite has no mark property for Vega's
+# `interactive`, so the runtime sets `interactive: false` on each compiled mark
+# with this style. LOCKSTEP: `_passiveMarks` (vendor/aov-runtime.js) and
+# `_PASSIVE_PATCH_JS` (src/to_html.jl).
+const _AOV_PASSIVE = "aov-passive"
+_is_passive_mark(mark) = mark isa AbstractDict && _uses_style_name(get(mark, "style", nothing), _AOV_PASSIVE)
 _uses_style(x, name) = false
 _uses_style(v::AbstractVector, name) = any(x -> _uses_style(x, name), v)
 _uses_style(d::AbstractDict, name) = _uses_style_name(get(d, "style", nothing), name) ||
@@ -2367,8 +2375,9 @@ function add_auto_interactivity!(spec::Dict{String,Any})
     end
 
     # Nearest-point tooltip for point marks only.
-    # VL doesn't support "nearest" for line or area marks.
-    if mark_type == "point" && !isnothing(enc) && haskey(enc, "tooltip")
+    # VL doesn't support "nearest" for line or area marks. Its Voronoi overlay
+    # would answer the pointer for a layer that lets it through.
+    if mark_type == "point" && !_is_passive_mark(mark) && !isnothing(enc) && haskey(enc, "tooltip")
         push!(params, Dict{String,Any}(
             "name" => "hover_nearest",
             "select" => Dict{String,Any}("type" => "point", "on" => "pointerover", "nearest" => true),

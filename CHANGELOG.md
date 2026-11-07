@@ -15,6 +15,22 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
+## 0.2.22
+
+- `visual(...; inspectable=false)`, Makie's switch that hides a plot from its
+  `DataInspector`, now lets the pointer through every mark the layer draws on the
+  interactive plot. Hover, tooltips, `aov:click`, `aov:hover`, touch taps and long
+  presses, and link groups reach the mark beneath, as Makie's `DataInspector` shows
+  the plot beneath. The layer is drawn as before. Use it for labels and other marks
+  drawn over the data, such as region names over a map's cells. Before, there was no
+  way to make one layer let the pointer through: a name over a map showed its own
+  tooltip, or none with `tooltip = []`, and never the cell's value beneath it. Vega-Lite
+  has no mark property for this, so `to_vegalite` gives each such mark the style
+  `aov-passive`, and AoV's runtime, its cell charts and a bare `to_html(spec)` page
+  make those marks non-interactive. `sdraw` hands `inspectable` to Makie as before.
+  `vsave` files are unchanged. Before 0.2.22, `inspectable` was left out of the
+  interactive plot with a warning.
+
 ## 0.2.21
 
 - Every label of a continuous colour's gradient legend lies within the gradient,
