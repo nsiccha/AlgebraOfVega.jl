@@ -932,7 +932,7 @@ window.AoV = window.AoV || {
             if (self._embedTok[id] !== tok) return Promise.resolve();
             var s = self._withHighlight(id, self._applyResponsiveWidth(id, JSON.parse(JSON.stringify(cur.spec)), budget));
             // Host theme, read now: a theme change re-runs this embed.
-            var embedOpts = self._withFrame(id, self._themedOpts(id, s, opts), plan);
+            var embedOpts = self._withPassive(self._withFrame(id, self._themedOpts(id, s, opts), plan));
             var fonts = self._fontsPending((s.config && s.config.font) || (embedOpts.config && embedOpts.config.font));
             return fonts ? fonts.then(function() { return render(s, embedOpts); }) : render(s, embedOpts);
         };
@@ -953,7 +953,7 @@ window.AoV = window.AoV || {
                 settled = true;
                 if (--self._inFlight[id] <= 0) delete self._inFlight[id];
             };
-            return vegaEmbed('#' + id, s, self._withLiveRows(id, self._withPassive(embedOpts), gen)).then(function(result) {
+            return vegaEmbed('#' + id, s, self._withLiveRows(id, embedOpts, gen)).then(function(result) {
                 settle();
                 if (self._gens[id] !== gen) {
                     result.finalize();

@@ -79,6 +79,15 @@ end
     draws = data((; v=randn(200), k=repeat(["a", "b"], 100)))
     vl = nowarn(() -> to_vegalite(draws * mapping(:v, y=:k) * pointinterval() * visual(; inspectable=false)))
     @test length(marks(vl)) >= 2 && all(passive, (m for (_, m) in marks(vl)))
+    # A coloured ribbon over a few doses: both drawings of its switch (§8).
+    bands = data((; x=repeat([1.0, 2.0, 4.0], 2), m=[1.0, 2.0, 3.0, 1.5, 2.5, 3.5],
+        lo=[0.5, 1.5, 2.5, 1.0, 2.0, 3.0], hi=[1.5, 2.5, 3.5, 2.0, 3.0, 4.0], g=repeat(["a", "b"], inner=3)))
+    ribbon_fig = bands * mapping(:x, :m; color=:g) * lineribbon(bands=[:lo => :hi]) * visual(; inspectable=false)
+    @test ribbon_view(ribbon_fig).offered
+    vl = nowarn(() -> to_vegalite(ribbon_fig))
+    pending = vl["_aov"]["ribbonView"]["pending"]
+    @test all(passive, (m for (_, m) in marks(delete!(copy(vl), "_aov"))))
+    @test length(marks(pending)) >= 2 && all(passive, (m for (_, m) in marks(pending)))
     # A composite mark's style goes onto the parts Vega-Lite draws.
     box = to_vegalite(draws * mapping(:k, :v) * visual(BoxPlot; inspectable=false))["mark"]
     @test !haskey(box, "style")
@@ -111,8 +120,13 @@ end
 end
 
 @testitem "inspectable=false: the pointer reaches the mark beneath in the browser" setup=[AoVPointerThroughFixtures] tags=[:regression, :browser, :interactivity] begin
-    using JSON
+    using JSON, HTMX, HTMXObjects
     html(x) = sprint(show, MIME"text/html"(), x)
+    # A cell chart with its values written over the bars: the labels let the
+    # pointer through to the bars (the runtime's own cell-chart compile).
+    cell_rows = (; site=repeat([1, 2], inner=2), k=repeat(["a", "b"], 2), n=[3, 1, 2, 4])
+    cells = cell_charts(data(cell_rows) * mapping(:k, :n; layout=:site) *
+        (visual(BarPlot) + mapping(text=:n) * visual(Makie.Text; fontsize=9, inspectable=false)))
     scatter = (data((; x=[1.0, 2.0, 3.0], y=[1.0, 4.0, 9.0], g=["a", "b", "c"])) *
         mapping(:x, :y; color=:g) * visual(Scatter) +
         data((; x=[2.0], y=[4.0], name=["B"])) * mapping(:x, :y; text=:name) *
@@ -137,7 +151,8 @@ end
             driver = read(joinpath(@__DIR__, "pointer_through.js"), String)
             write(joinpath(dir, "page.html"), "<!doctype html><meta charset='utf-8'>" * head *
                 "<body style='width:800px'>" * shim * join(html(p) for p in page) * bare *
-                "<div id='pt-svg'></div><script>" * driver * "</script></body>")
+                "<div id='pt-svg'></div><table id='pt-cells'>" * html(HTMX.h.tr(cells[1])) * html(HTMX.h.tr(cells[2])) *
+                "</table><script>" * driver * "</script></body>")
             output = read(pipeline(`$chrome --headless=new --no-sandbox --disable-gpu
                 --user-data-dir=$(joinpath(dir, "profile")) --window-size=1200,1600
                 --virtual-time-budget=20000 --dump-dom $("file://" * joinpath(dir, "page.html"))`,
@@ -147,7 +162,7 @@ end
             if !isnothing(result)
                 report = JSON.parse(replace(result[1], "&quot;" => "\"", "&lt;" => "<",
                     "&gt;" => ">", "&amp;" => "&"))
-                @test report["checks"] >= 23
+                @test report["checks"] >= 25
                 @test isempty(report["failures"])
                 @info "pointer-through browser checks" checks=report["checks"]
                 isempty(report["failures"]) || println(JSON.json(report["failures"]))

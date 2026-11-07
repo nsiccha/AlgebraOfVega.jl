@@ -4,7 +4,7 @@
 // map without it (`pt-control`) is the positive control that the aim lands on
 // the name. Also: a scatter whose legend selection makes Vega-Lite mark the
 // label interactive, a re-embed, the SVG renderer, and the bare `to_html(spec)`
-// embed outside the runtime.
+// embed outside the runtime, and a cell chart's label layer.
 (async function () {
     const failures = [];
     let checks = 0;
@@ -222,6 +222,23 @@
             check(bt.length === 2 && bt.every(m => m.interactive === false),
                 'bare: name marks interactive: ' + JSON.stringify(bt.map(m => m.interactive)));
             check(marks(bare, 'shape').every(m => m.interactive !== false), 'bare: the districts lost the pointer');
+        }
+
+        // --- Cell charts: the runtime compiles the column itself ---
+        const cellEls = Array.from(document.querySelectorAll('#pt-cells .aov-cell'));
+        let cellViews = null;
+        for (let i = 0; i < 500 && !cellViews; i++) {
+            if (cellEls.length && cellEls.every(el => AoV._cellViews && AoV._cellViews.has(el) && el.querySelector('svg')))
+                cellViews = cellEls.map(el => AoV._cellViews.get(el).view);
+            else await sleep(10);
+        }
+        check(!!cellViews && cellViews.length === 2, 'cells: ' + cellEls.length + ' cells, not drawn');
+        if (cellViews) {
+            const ct = [].concat(...cellViews.map(v => marks(v, 'text').filter(m => m.role === 'mark')));
+            const cr = [].concat(...cellViews.map(v => marks(v, 'rect').filter(m => m.role === 'mark')));
+            check(ct.length === 2 && ct.every(m => m.interactive === false) && cr.length === 2 && cr.every(m => m.interactive !== false),
+                'cells: label marks interactive ' + JSON.stringify(ct.map(m => m.interactive)) +
+                ', bar marks ' + JSON.stringify(cr.map(m => m.interactive)));
         }
     } catch (e) {
         failures.push(String(e && e.stack || e));

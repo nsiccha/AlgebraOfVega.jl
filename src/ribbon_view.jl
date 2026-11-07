@@ -88,7 +88,9 @@ function _ribbon_intervals_spec(v, src)
     layers = collect(_spec_layers_or_nothing(_spec_drawable(v)))
     l = layers[src.index]
     m = AlgebraOfGraphics.mapping(l.positional...; (k => s for (k, s) in pairs(l.named) if k !== :group)...)
-    layers[src.index] = AlgebraOfGraphics.Layer(_interval_view_analysis(src.analysis), l.data, m.positional, m.named)
+    intervals = AlgebraOfGraphics.Layer(_interval_view_analysis(src.analysis), l.data, m.positional, m.named)
+    # A ribbon that lets the pointer through does so in both drawings.
+    layers[src.index] = _layer_passive(l) ? intervals * AlgebraOfGraphics.visual(; inspectable=false) : intervals
     _wrap_with_config(v, length(layers) == 1 ? only(layers) : reduce(+, layers))
 end
 
