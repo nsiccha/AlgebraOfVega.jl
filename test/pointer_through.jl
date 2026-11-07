@@ -85,9 +85,10 @@ end
     ribbon_fig = bands * mapping(:x, :m; color=:g) * lineribbon(bands=[:lo => :hi]) * visual(; inspectable=false)
     @test ribbon_view(ribbon_fig).offered
     vl = nowarn(() -> to_vegalite(ribbon_fig))
-    pending = vl["_aov"]["ribbonView"]["pending"]
+    # The shown drawing, and the other one the switch swaps in.
+    alt = delete!(copy(vl["_aov"]["ribbonView"]["alt"]), "_aov")
     @test all(passive, (m for (_, m) in marks(delete!(copy(vl), "_aov"))))
-    @test length(marks(pending)) >= 2 && all(passive, (m for (_, m) in marks(pending)))
+    @test length(marks(alt)) >= 2 && all(passive, (m for (_, m) in marks(alt)))
     # A composite mark's style goes onto the parts Vega-Lite draws.
     box = to_vegalite(draws * mapping(:k, :v) * visual(BoxPlot; inspectable=false))["mark"]
     @test !haskey(box, "style")

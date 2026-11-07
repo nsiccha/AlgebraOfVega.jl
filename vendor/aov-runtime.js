@@ -932,7 +932,7 @@ window.AoV = window.AoV || {
             if (self._embedTok[id] !== tok) return Promise.resolve();
             var s = self._withHighlight(id, self._applyResponsiveWidth(id, JSON.parse(JSON.stringify(cur.spec)), budget));
             // Host theme, read now: a theme change re-runs this embed.
-            var embedOpts = self._withPassive(self._withFrame(id, self._themedOpts(id, s, opts), plan));
+            var embedOpts = self._withFrame(id, self._themedOpts(id, s, opts), plan);
             var fonts = self._fontsPending((s.config && s.config.font) || (embedOpts.config && embedOpts.config.font));
             return fonts ? fonts.then(function() { return render(s, embedOpts); }) : render(s, embedOpts);
         };
@@ -2108,7 +2108,8 @@ window.AoV = window.AoV || {
     // aov:hover, touch and link groups. Vega-Lite has no mark property for
     // Vega's `interactive`, so the server styles the layer's marks
     // `aov-passive` and each compiled spec gets `interactive: false` on them
-    // here. LOCKSTEP: `_AOV_PASSIVE` (src/to_vegalite.jl) and the bare
+    // here (`_withLiveRows`, the cell charts). LOCKSTEP: `_AOV_PASSIVE`
+    // (src/to_vegalite.jl) and the bare
     // `to_html(spec)` embed's `_PASSIVE_PATCH_JS` (src/to_html.jl).
     _passiveMarks: function(vg) {
         (function walk(marks) {
@@ -2122,13 +2123,6 @@ window.AoV = window.AoV || {
         })(vg && vg.marks);
         return vg;
     },
-    _withPassive: function(opts) {
-        var self = this, patch = opts.patch;
-        return Object.assign({}, opts, {patch: function(vg) {
-            if (typeof patch === 'function') vg = patch(vg);
-            return self._passiveMarks(vg);
-        }});
-    },
 
     // The raw rows of datasets changed via updateData/appendData are kept per plot, and
     // re-embeds (resize, remapEncoding) compile the spec with them in place of its own.
@@ -2136,6 +2130,7 @@ window.AoV = window.AoV || {
         var self = this, patch = opts.patch;
         return Object.assign({}, opts, {patch: function(vg) {
             if (typeof patch === 'function') vg = patch(vg);
+            self._passiveMarks(vg);
             // An embed superseded or disposed while compiling still compiles;
             // it must not re-create the plot's state.
             if (self._gens[id] !== gen) return vg;

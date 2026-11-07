@@ -104,9 +104,15 @@
             touches: [], changedTouches: [touch]}));
         await sleep(30);
     }
+    // The tooltip shown, if any (a cell chart's tooltip handler adds an element of its own).
     function tip() {
-        const el = document.querySelector('.vg-tooltip');
-        return el && el.classList.contains('visible') ? el.textContent : null;
+        const el = Array.from(document.querySelectorAll('.vg-tooltip')).find(t => t.classList.contains('visible'));
+        return el ? el.textContent : null;
+    }
+    // The tooltip once it shows (up to half a second), or null.
+    async function shownTip() {
+        for (let i = 0; i < 50; i++) { const t = tip(); if (t) return t; await sleep(10); }
+        return null;
     }
     const isText = item => item.mark.role === 'mark' && item.mark.marktype === 'text';
     // The ink of the name (the halo is drawn under it, white).
@@ -124,8 +130,8 @@
         check(got.length === 1 && got[0].datum.name === 'Mitte',
             'control: a click on the name did not report the name (aim check): ' + show(got));
         hoverAt('pt-control', cname);
-        await sleep(20);
-        check((tip() || '').indexOf('Mitte') !== -1, 'control: hovering the name shows ' + JSON.stringify(tip()));
+        const ctip = await shownTip();
+        check((ctip || '').indexOf('Mitte') !== -1, 'control: hovering the name shows ' + JSON.stringify(ctip));
         leave('pt-control');
         await sleep(20);
 
@@ -155,7 +161,7 @@
         got = take();
         check(got.length >= 1 && got.every(e => e.type === 'aov:hover' && e.datum.AGS === '01002'),
             'map: hovering the name reported ' + show(got));
-        const shown = tip() || '';
+        const shown = (await shownTip()) || '';
         check(shown.indexOf('01002') !== -1 && shown.indexOf('Mitte') === -1,
             'map: hovering the name shows the tooltip ' + JSON.stringify(shown));
         check(links.some(l => l.group === 'pt' && l.key === '01002'),
@@ -168,7 +174,8 @@
         got = take();
         check(got.some(e => e.type === 'aov:hover' && e.datum.AGS === '01002') && !got.some(e => e.datum && e.datum.name),
             'map: a tap on the name reported ' + show(got));
-        check((tip() || '').indexOf('01002') !== -1, 'map: a tap on the name shows ' + JSON.stringify(tip()));
+        const ttip = await shownTip();
+        check((ttip || '').indexOf('01002') !== -1, 'map: a tap on the name shows ' + JSON.stringify(ttip));
         // A tap on empty space closes the tap's tooltip and hover.
         document.body.dispatchEvent(new PointerEvent('pointerdown', {bubbles: true, pointerType: 'mouse'}));
         await sleep(20);
