@@ -953,7 +953,7 @@ window.AoV = window.AoV || {
                 settled = true;
                 if (--self._inFlight[id] <= 0) delete self._inFlight[id];
             };
-            return vegaEmbed('#' + id, s, self._withLiveRows(id, embedOpts, gen)).then(function(result) {
+            return vegaEmbed('#' + id, s, self._withLiveRows(id, self._withPassive(embedOpts), gen)).then(function(result) {
                 settle();
                 if (self._gens[id] !== gen) {
                     result.finalize();
@@ -2103,6 +2103,33 @@ window.AoV = window.AoV || {
         self._embed(id, self._origSpecs[id], self._embedOpts[id], true);
     },
 
+    // A layer drawn with `visual(...; inspectable=false)` lets the pointer
+    // through: Vega picks the mark beneath it for tooltips, aov:click,
+    // aov:hover, touch and link groups. Vega-Lite has no mark property for
+    // Vega's `interactive`, so the server styles the layer's marks
+    // `aov-passive` and each compiled spec gets `interactive: false` on them
+    // here. LOCKSTEP: `_AOV_PASSIVE` (src/to_vegalite.jl) and the bare
+    // `to_html(spec)` embed's `_PASSIVE_PATCH_JS` (src/to_html.jl).
+    _passiveMarks: function(vg) {
+        (function walk(marks) {
+            (marks || []).forEach(function(m) {
+                var style = m.style;
+                if (style === 'aov-passive' || (Array.isArray(style) && style.indexOf('aov-passive') !== -1)) {
+                    m.interactive = false;
+                }
+                walk(m.marks);
+            });
+        })(vg && vg.marks);
+        return vg;
+    },
+    _withPassive: function(opts) {
+        var self = this, patch = opts.patch;
+        return Object.assign({}, opts, {patch: function(vg) {
+            if (typeof patch === 'function') vg = patch(vg);
+            return self._passiveMarks(vg);
+        }});
+    },
+
     // The raw rows of datasets changed via updateData/appendData are kept per plot, and
     // re-embeds (resize, remapEncoding) compile the spec with them in place of its own.
     _withLiveRows: function(id, opts, gen) {
@@ -2607,7 +2634,7 @@ window.AoV = window.AoV || {
         if (col.built[tkey]) return col.built[tkey];
         var s = JSON.parse(JSON.stringify(spec));
         if (theme) this._hostInk(s, theme);
-        var vg = vegaLite.compile(s, theme ? {config: theme} : {}).spec;
+        var vg = this._passiveMarks(vegaLite.compile(s, theme ? {config: theme} : {}).spec);
         var own = (spec._aov && spec._aov.cells && spec._aov.cells.own) || [];
         if (plan) (vg.scales || []).forEach(function(sc) {
             var d = plan.domains[sc.name];

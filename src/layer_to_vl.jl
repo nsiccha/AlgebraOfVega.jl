@@ -295,6 +295,39 @@ function _apply_layer_transforms!(units::AbstractVector, layer_transforms::Abstr
     end
 end
 
+# `visual(...; inspectable=false)` lets the pointer through every mark the layer
+# draws, analyses included: hover, tooltips, clicks and taps reach the mark
+# beneath it, as Makie's `DataInspector` skips such a plot and shows the one
+# beneath (text labels over a map's regions). Each mark gets the style
+# `aov-passive`, which the runtime turns into Vega's `interactive: false`
+# (`_AOV_PASSIVE`). `units` holds each layer's lowered units, as for
+# `_apply_layer_transforms!`.
+_layer_passive(layer) = (vis = extract_visual(layer);
+    !isnothing(vis) && get(vis.attributes, :inspectable, true) === false)
+function _apply_layer_passive!(units::AbstractVector, layers::AbstractVector)
+    for (us, layer) in zip(units, layers)
+        _layer_passive(layer) && foreach(_mark_passive!, us)
+    end
+end
+_mark_passive!(x) = nothing
+_mark_passive!(v::AbstractVector) = foreach(_mark_passive!, v)
+function _mark_passive!(d::AbstractDict)
+    haskey(d, "mark") && (d["mark"] = _passive_mark(d["mark"]))
+    for k in ("layer", "spec", "hconcat", "vconcat", "concat")
+        haskey(d, k) && _mark_passive!(d[k])
+    end
+end
+# A mark with the passive style added after its own; a composite mark's style
+# moves onto the parts it draws (`_style_composite_parts`).
+function _passive_mark(mark)
+    m = mark isa AbstractDict ? Dict{String,Any}(string(k) => v for (k, v) in pairs(mark)) :
+        Dict{String,Any}("type" => string(mark))
+    styles = haskey(m, "style") ? _style_list(m["style"]) : String[]
+    _AOV_PASSIVE in styles || push!(styles, _AOV_PASSIVE)
+    m["style"] = length(styles) == 1 ? only(styles) : styles
+    _style_composite_parts(m)
+end
+
 function layers_to_vl(layers::AlgebraOfGraphics.Layers; layer_encodings::AbstractVector=Any[],
         layer_transforms::AbstractVector=Any[])
     # Check if any layer is faceted density (density with y group) — needs special handling
@@ -381,6 +414,7 @@ function layers_to_vl(layers::AlgebraOfGraphics.Layers; layer_encodings::Abstrac
     end
     map_figure && _share_map_projection!(layers.layers, units)
     _apply_layer_transforms!(units, layer_transforms)
+    _apply_layer_passive!(units, layers.layers)
 
     # Also collect facet from regular layer encodings (col=/row= → column/row channels,
     # layout= → the single-field `facet` wrap channel). VL compiles a `facet` channel
@@ -663,6 +697,7 @@ function _faceted_layers_to_vl(layers, facet_field, shared_table, shared_data;
     end
     _apply_layer_encodings!(units, layer_encodings)
     _apply_layer_transforms!(units, layer_transforms)
+    _apply_layer_passive!(units, layers.layers)
 
     spec = Dict{String,Any}(
         "\$schema" => VL_SCHEMA,

@@ -304,6 +304,9 @@ function visual_attrs_to_mark_props(vis::AlgebraOfGraphics.Visual)
         # Map Makie attribute names to Vega mark properties
         if v === :ink && haskey(_AOV_INK_ATTRS, k)
             push!(inks, _AOV_INK_ATTRS[k])
+        elseif k === :inspectable && v isa Bool
+            # Not a mark property: the layer's lowering styles every mark it
+            # draws (`_apply_layer_passive!`).
         elseif k === :opacity || k === :fillOpacity || k === :alpha
             props["opacity"] = v
         elseif k === :color
@@ -363,7 +366,8 @@ end
 function _analysis_fixed_color(layer::AlgebraOfGraphics.Layer, analysis::AbstractString)
     vis = extract_visual(layer)
     isnothing(vis) && return nothing
-    ignored = [k for k in keys(vis.attributes) if k !== :color]
+    # `inspectable` applies to every mark of the layer (`_apply_layer_passive!`).
+    ignored = [k for k in keys(vis.attributes) if k !== :color && k !== :inspectable]
     isempty(ignored) || @warn "AlgebraOfVega: $analysis applies only a fixed `color` from `visual(...)`; ignoring $(join(("`$k`" for k in ignored), ", "))." maxlog=1
     haskey(vis.attributes, :color) ? vis.attributes[:color] : nothing
 end
