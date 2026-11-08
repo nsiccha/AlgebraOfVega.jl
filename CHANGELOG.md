@@ -15,6 +15,34 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
+## 0.2.23
+
+- Bars on a log-scaled value axis are drawn. A `visual(BarPlot)` whose value axis
+  is log (`scales(X=(; scale=log10))` or `Y`) starts each bar at half the smallest
+  positive value it draws, in each facet panel, which is Makie's own default there,
+  so `vdraw` and `vsave` draw what `sdraw` draws. A zero or negative value is left
+  out of the bar layer, where Makie draws it as a bar of no length. Before, Vega-Lite
+  stacked the bars from zero, the 0 entered the log axis and every bar's position was
+  undefined: the figure showed its axes and labels and no bars, with no error. A bar
+  given its own base (`fillto`, below) or `stack` keeps it. Bars that Vega-Lite
+  aggregates, `frequency()`, `expectation()` and an unfaceted `histogram()`, were
+  drawn before and still start at the axis edge, so their smallest bar has no length
+  when it equals the axis minimum.
+- `visual(BarPlot; direction=:x)` draws horizontal bars as in AlgebraOfGraphics: the
+  first positional is where each bar stands (the y axis), the second how far it
+  reaches (the x axis), and a lone positional is the length. Before, `direction` was
+  ignored with a warning, so `mapping(:method, :seconds) * visual(BarPlot;
+  direction=:x)` drew vertical bars. The value-first spelling
+  `mapping(:seconds, :method) * visual(BarPlot; direction=:x)` drew horizontal bars
+  only because `direction` was ignored. AlgebraOfGraphics draws it as bars standing
+  at the `seconds` values with the categories' positions 1, 2, 3 as their lengths, so
+  it is now an `ArgumentError` that names the spelling that draws the bars. Bar
+  figures without `direction` are unchanged.
+- `visual(BarPlot; fillto=b)` starts every bar at `b` (Vega-Lite `x2`/`y2` datum),
+  and `mapping(...; fillto=:col)` each bar at its row's value, as in Makie. Before,
+  a fixed `fillto` was ignored with a warning and a mapped one emitted a channel
+  Vega-Lite does not read.
+
 ## 0.2.22
 
 - `visual(...; inspectable=false)`, Makie's switch that hides a plot from its
