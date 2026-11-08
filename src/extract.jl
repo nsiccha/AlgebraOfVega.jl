@@ -248,6 +248,67 @@ const _VL_MARK_PROPERTIES = Set{Symbol}([
     :url, :width, :x, :x2, :x2Offset, :xOffset, :y, :y2, :y2Offset, :yOffset,
 ])
 
+# The properties a Vega-Lite composite mark reads: the `ErrorBarDef`,
+# `BoxPlotDef` and `ErrorBandDef` property names of the vendored Vega-Lite
+# (5.23.0) schema, plus `style`, which `_style_composite_parts` moves onto the
+# drawn parts. A composite builds its parts itself and carries only `color`,
+# `opacity` and `clip` over to them, so any other mark property on it
+# (`strokeWidth`, `strokeDash`, `stroke`, `width`, …) is dropped without a word,
+# although the plain marks read it: `visual(Rangebars; linewidth=3.5)` drew the
+# error bars at the default width (snag `aov-rangebars-li-830d8b72`).
+const _COMPOSITE_MARK_PROPERTIES = Dict{String,Set{String}}(
+    "errorbar" => Set(["clip", "color", "extent", "opacity", "orient", "rule", "size",
+        "style", "thickness", "ticks", "type"]),
+    "boxplot" => Set(["box", "clip", "color", "extent", "invalid", "median", "opacity",
+        "orient", "outliers", "rule", "size", "style", "ticks", "type"]),
+    "errorband" => Set(["band", "borders", "clip", "color", "extent", "interpolate",
+        "opacity", "orient", "style", "tension", "type"]),
+)
+
+# The properties the composite mark of plot type `T` reads, or `nothing` when
+# `T` draws a plain mark (or none, such as a bare `visual(; color=…)`).
+function _composite_mark_properties(T::Type)
+    for (PT, mark) in _MARK_MAP
+        T <: PT && return get(_COMPOSITE_MARK_PROPERTIES, mark, nothing)
+    end
+    nothing
+end
+
+# Makie `Errorbars`/`Rangebars` attributes → Vega-Lite `errorbar` properties.
+# Makie draws each bar as a line `linewidth` wide and, unless `whiskerwidth` is
+# 0 (its default), a `whiskerwidth` × `linewidth` rectangle at both ends.
+# Vega-Lite's error bar draws the same two parts, a `rule` and `ticks`, and
+# reads their widths from its own properties: `thickness` is the rule's stroke
+# width and the ticks' thickness, `size` the ticks' length. Makie dashes the bar
+# (`linestyle`) but not the whiskers, so a dash goes onto the `rule` part. A
+# method returns the properties, or `nothing` when the value has no Vega-Lite
+# counterpart (it is then reported); `missing` means the attribute is not one
+# translated here.
+const _LINE_WIDTH_ATTRS = Union{Val{:linewidth}, Val{:strokewidth}, Val{:strokeWidth}}
+_errorbar_mark_props(::Val, v) = missing
+_errorbar_mark_props(::_LINE_WIDTH_ATTRS, v) = nothing
+_errorbar_mark_props(::_LINE_WIDTH_ATTRS, v::Real) = Dict{String,Any}("thickness" => v)
+_errorbar_mark_props(::Val{:whiskerwidth}, v) = nothing
+_errorbar_mark_props(::Val{:whiskerwidth}, v::Real) = iszero(v) ? Dict{String,Any}() :
+    Dict{String,Any}("size" => v, "ticks" => Dict{String,Any}())
+function _errorbar_mark_props(::Union{Val{:linestyle}, Val{:strokeDash}}, v)
+    dash = _linestyle_to_strokedash(v)
+    isnothing(dash) ? Dict{String,Any}() : Dict{String,Any}("rule" => Dict{String,Any}("strokeDash" => dash))
+end
+
+# Merge one attribute's mark properties into the mark. A composite's part
+# (`rule`, `ticks`, …) given as an object by two attributes, such as
+# `linestyle` and a Vega-Lite `rule=(; strokeCap="round")`, keeps both.
+function _merge_mark_props!(props::Dict{String,Any}, p::Dict{String,Any})
+    for (k, v) in p
+        old = get(props, k, nothing)
+        props[k] = _is_part_object(old) && _is_part_object(v) ? merge(_part_dict(old), _part_dict(v)) : v
+    end
+    props
+end
+_is_part_object(x) = x isa AbstractDict || x isa NamedTuple
+_part_dict(x) = Dict{String,Any}(string(k) => v for (k, v) in pairs(x))
+
 # Makie `Text` attributes → Vega-Lite text-mark properties. A method returns the
 # properties, or `nothing` when the value has no Vega-Lite counterpart (it is
 # then reported); `missing` means the attribute is not one translated here.
@@ -296,43 +357,72 @@ function visual_attrs_to_mark_props(vis::AlgebraOfGraphics.Visual)
     # (ScatterLines lowers to a line mark, where `size` is a stroke width.)
     scatter = vis.plottype <: Scatter
     text = vis.plottype <: Makie.Text
+    errorbars = vis.plottype <: Union{Errorbars, Rangebars}
+    # A composite mark reads only its own properties (`_COMPOSITE_MARK_PROPERTIES`).
+    composite = _composite_mark_properties(vis.plottype)
     inks = String[]
     ignored = Symbol[]
     for (k, v) in pairs(vis.attributes)
         sk = string(k)
         text_props = text ? _text_mark_props(Val(k), v) : missing
+        errorbar_props = errorbars ? _errorbar_mark_props(Val(k), v) : missing
+        p = Dict{String,Any}()  # this attribute's mark properties
         # Map Makie attribute names to Vega mark properties
         if v === :ink && haskey(_AOV_INK_ATTRS, k)
             push!(inks, _AOV_INK_ATTRS[k])
         elseif k === :inspectable && v isa Bool
             # Not a mark property: the layer's lowering styles every mark it
             # draws (`_apply_layer_passive!`).
+        elseif !ismissing(errorbar_props)
+            isnothing(errorbar_props) ? push!(ignored, k) : merge!(p, errorbar_props)
         elseif k === :opacity || k === :fillOpacity || k === :alpha
-            props["opacity"] = v
+            p["opacity"] = v
         elseif k === :color
-            props["color"] = string(v)
+            p["color"] = string(v)
         elseif k === :strokecolor
-            props["stroke"] = string(v)
+            p["stroke"] = string(v)
         elseif k === :strokeDash || k === :linestyle
             dash = _linestyle_to_strokedash(v)
-            isnothing(dash) || (props["strokeDash"] = dash)
+            isnothing(dash) || (p["strokeDash"] = dash)
         elseif k === :marker
-            props["shape"] = _marker_to_shape(v)
+            p["shape"] = _marker_to_shape(v)
         elseif k === :markersize
-            props["size"] = (scatter && v isa Real) ? _markersize_to_vl_size(v) : v
+            p["size"] = (scatter && v isa Real) ? _markersize_to_vl_size(v) : v
         elseif k === :size
-            props["size"] = v
+            p["size"] = v
         elseif k === :strokeWidth || k === :linewidth || k === :strokewidth
-            props["strokeWidth"] = v
+            p["strokeWidth"] = v
         elseif !ismissing(text_props)
-            isnothing(text_props) ? push!(ignored, k) : merge!(props, text_props)
+            isnothing(text_props) ? push!(ignored, k) : merge!(p, text_props)
         elseif k in _VL_MARK_PROPERTIES
-            props[sk] = v
+            p[sk] = v
         else
             push!(ignored, k)
         end
+        # A property the composite mark does not read would be dropped by
+        # Vega-Lite without a word, so it is reported with the rest.
+        if !isnothing(composite) && any(!in(composite), keys(p))
+            filter!(kv -> first(kv) in composite, p)
+            k in ignored || push!(ignored, k)
+        end
+        _merge_mark_props!(props, p)
     end
-    isempty(ignored) || @warn "AlgebraOfVega: `$(_visual_name(vis))` sets $(join(("`$k`" for k in ignored), ", ")) with no Vega-Lite mark counterpart; vdraw and vsave ignore $(length(ignored) == 1 ? "it" : "them")." _id=(:aov_unread_visual_attrs, vis.plottype, Tuple(ignored)) maxlog=1
+    # Makie draws the whiskers in the bar's colour and opacity. Vega-Lite gives
+    # an error bar's ticks its default mark colour at 0.7 opacity, while the
+    # rule is black (`config.rule`), so the caps get the rule's look, as
+    # Vega-Lite's own box-plot whisker ticks do (`color: "black", opacity: 1`).
+    # A colour mapping still wins (an encoding beats a mark property), and a
+    # fixed `color` or opacity on the mark reaches the ticks, so neither is set
+    # over one.
+    if errorbars && haskey(vis.attributes, :whiskerwidth) && get(props, "ticks", nothing) isa AbstractDict
+        caps = Dict{String,Any}()
+        haskey(props, "opacity") || (caps["opacity"] = 1)
+        haskey(vis.attributes, :color) || (caps["color"] = "black")
+        props["ticks"] = merge(caps, _part_dict(props["ticks"]))
+    end
+    mark_name = isnothing(composite) ? "no Vega-Lite mark counterpart" :
+        "no counterpart on the Vega-Lite `$(plottype_to_mark(vis.plottype))` mark it draws"
+    isempty(ignored) || @warn "AlgebraOfVega: `$(_visual_name(vis))` sets $(join(("`$k`" for k in ignored), ", ")) with $mark_name; vdraw and vsave ignore $(length(ignored) == 1 ? "it" : "them")." _id=(:aov_unread_visual_attrs, vis.plottype, Tuple(ignored)) maxlog=1
     if !isempty(inks)
         # A named style lets the host runtime resolve the inherited CSS colour
         # at embed time. Keep any caller-authored styles, with ink last so the

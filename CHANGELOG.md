@@ -15,6 +15,22 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
+## 0.2.24
+
+- Error bars take Makie's line attributes. `visual(Rangebars; linewidth=w)` and
+  `visual(Errorbars; linewidth=w)` draw each bar `w` wide on `vdraw` and `vsave`, as
+  `sdraw` does. `whiskerwidth=w` draws Makie's whiskers: a cap `w` long at both ends
+  of each bar, as thick as the bar and in its colour (Makie's default `0` draws none).
+  `linestyle` dashes the bar, not the whiskers, as in Makie. Before, `linewidth`
+  reached Vega-Lite as `strokeWidth`, which its error bar does not read, so a thick
+  50 % bar beside a thin 95 % bar drew both at the default width, with no warning;
+  `whiskerwidth` was ignored with a warning.
+- A `visual(...)` attribute that the Vega-Lite mark of a box plot or error bar does
+  not read is left out with the warning that names it, as one with no Vega-Lite
+  counterpart is. These marks take only their colour, opacity and own properties, so
+  `visual(BoxPlot; strokewidth=2)` or `strokecolor` on `Rangebars` used to be dropped
+  by Vega-Lite without a word. The drawing is unchanged.
+
 ## 0.2.23
 
 - Bars on a log-scaled value axis are drawn. A `visual(BarPlot)` whose value axis
