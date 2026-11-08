@@ -60,14 +60,26 @@ function _plain_layer_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false,
 
     # Visual / mark (default to Scatter like AoG)
     vis = extract_visual(layer)
-    spec["mark"] = isnothing(vis) ? "point" : _visual_mark(vis)
+    plot_type = !isnothing(vis) ? vis.plottype : Nothing
+    # A bar's `direction` and `fillto` place its positionals and its base, so
+    # they are lowered here, as encodings, rather than as mark properties.
+    bar = !isnothing(vis) && plot_type <: BarPlot
+    horizontal = bar && _bar_direction(vis) === :x
+    spec["mark"] = isnothing(vis) ? "point" :
+        _visual_mark(bar ? _without_attributes(vis, _BAR_ENCODED_ATTRS) : vis)
+    horizontal && (spec["mark"] = _with_mark_property(spec["mark"], "orient", "horizontal"))
 
     # Encoding from positional + named
     encoding = Dict{String,Any}()
 
-    plot_type = !isnothing(vis) ? vis.plottype : Nothing
     positional_channels = if !isnothing(positional_channels)
         positional_channels
+    elseif horizontal
+        # AoG's `aesthetic_mapping(BarPlot, N)`: with `direction = :x` the
+        # first of two positionals (where the bar stands) is the y axis and the
+        # second (how far it reaches) the x axis; a lone positional is the
+        # bars' length, on x.
+        length(layer.positional) == 1 ? ["x"] : ["y", "x"]
     elseif !isnothing(vis) && plot_type <: HLines
         ["y"]
     elseif !isnothing(vis) && plot_type <: VLines
@@ -82,13 +94,18 @@ function _plain_layer_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false,
         encoding[positional_channels[i]] = selector_to_field(sel)
     end
 
+    # A bar reaches from its base (`fillto`, AoG's AesY or AesX by direction)
+    # to its value: Vega-Lite's secondary channel on the value axis.
+    base_channel = horizontal ? "x2" : "y2"
     for (name, sel) in pairs(layer.named)
-        ch = aog_named_to_vl_channel(name)
+        ch = bar && name === :fillto ? base_channel : aog_named_to_vl_channel(name)
         isnothing(ch) && continue
         encoding[ch] = selector_to_field(sel)
     end
-
     !isnothing(table) && infer_types!(encoding, table)
+    horizontal && length(layer.positional) >= 2 && haskey(encoding, "x") &&
+        _check_bar_length(encoding["x"], layer.positional)
+    bar && _bar_fixed_base!(encoding, vis, base_channel)
 
     # A Makie `Band` is an absolute `[lower, upper]` region. Vega-Lite's `area`
     # mark stacks a colour/detail series by default, however, so the first band
@@ -110,6 +127,64 @@ function _plain_layer_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false,
 
     !isempty(encoding) && (spec["encoding"] = encoding)
     spec
+end
+
+# --- Bars: direction and base ---
+
+# The `visual(BarPlot)` attributes `_plain_layer_to_vl` lowers as encodings:
+# `direction` places the positionals (and the mark's `orient`), `fillto` the base.
+const _BAR_ENCODED_ATTRS = (:direction, :fillto)
+
+# Makie's `barplot` reads `direction` as `:y` (vertical bars, the default) or
+# `:x` (horizontal) and refuses anything else.
+function _bar_direction(vis::AlgebraOfGraphics.Visual)
+    d = get(vis.attributes, :direction, :y)
+    d === :x || d === :y || throw(ArgumentError(
+        "visual(BarPlot): invalid direction $(repr(d)); the options are :x (horizontal bars) and :y (vertical bars), as in Makie."))
+    d
+end
+
+# `vis` without the attributes `ks`; `vis` itself when it sets none of them.
+function _without_attributes(vis::AlgebraOfGraphics.Visual, ks)
+    any(k -> haskey(vis.attributes, k), ks) || return vis
+    attrs = Dict(k => v for (k, v) in pairs(vis.attributes) if !(k in ks))
+    AlgebraOfGraphics.Visual(vis.plottype, AlgebraOfGraphics.NamedArguments(attrs), vis.target)
+end
+
+# How far a horizontal bar reaches (its second positional) is a number. Text
+# there means the two columns were written the other way round: AlgebraOfGraphics
+# then stands the bars at the first column's values on y and gives them the
+# categories' positions 1, 2, … as lengths (measured with AoG 0.13.2), which is
+# no bar chart of either column, and Vega-Lite would draw yet another figure. So
+# it is refused, naming the spelling that draws the bars.
+function _check_bar_length(x::Dict, positional)
+    get(x, "type", "quantitative") in ("nominal", "ordinal") || return
+    stand, reach = _field_name(positional[1]), _field_name(positional[2])
+    throw(ArgumentError(
+        "visual(BarPlot; direction=:x): the second positional is how far each bar reaches along x, " *
+        "so it must hold numbers, but `$reach` holds text. As in AlgebraOfGraphics, write where each " *
+        "bar stands first and its length second: `mapping(:$reach, :$stand) * visual(BarPlot; direction=:x)`."))
+end
+
+# A mark with property `k` set to `v`, unless the caller wrote it (a Vega-Lite
+# spelling such as `visual(BarPlot; orient="vertical")` passes as written).
+_with_mark_property(mark::AbstractString, k, v) = Dict{String,Any}("type" => mark, k => v)
+_with_mark_property(mark::AbstractDict, k, v) = (haskey(mark, k) || (mark[k] = v); mark)
+
+# A fixed `visual(BarPlot; fillto=b)` starts every bar at `b` (data units, on
+# the value axis), as Makie's `barplot` does: Vega-Lite's `x2`/`y2` datum. A
+# mapped `fillto=` wins, as a mapping wins over a fixed colour. Makie also takes
+# a vector, one base per bar; that has no spelling here, so it is reported.
+function _bar_fixed_base!(encoding::Dict, vis::AlgebraOfGraphics.Visual, channel)
+    haskey(vis.attributes, :fillto) || return encoding
+    v = vis.attributes[:fillto]
+    (v === Makie.automatic || haskey(encoding, channel)) && return encoding
+    if v isa Real && isfinite(v)
+        encoding[channel] = Dict{String,Any}("datum" => v)
+    else
+        @warn "AlgebraOfVega: `visual(BarPlot)` sets `fillto` to $(v isa AbstractArray ? "an array" : repr(v)); vdraw and vsave take one finite number as every bar's base, so they ignore it. Map a column of bases instead: `mapping(...; fillto=:base)`." _id=(:aov_bar_fillto, typeof(v)) maxlog=1
+    end
+    encoding
 end
 
 # --- Layers drawn on a geoshape map ---

@@ -124,6 +124,102 @@ function _collect_scale_groups!(groups, g, node::Dict, ch)
 end
 _new_scale_group!(groups) = (push!(groups, Dict[]); length(groups))
 
+# Bars on a log value axis start at half the smallest positive value they draw,
+# Makie's `barplot` default there (`smart_log_fillto`, Makie 0.24), so
+# `vdraw`/`vsave` draw what `sdraw` draws. Vega-Lite would stack them from zero
+# instead: the stack's start 0 enters the log domain and every bar's position
+# becomes NaN, so the figure showed axes and no bars, without a warning (snag
+# `aov-barplot-on-l-bfd0ef74`). Merely not stacking draws them from the axis
+# edge, where the smallest bar has no length at all once the axis starts at its
+# value (`nice=false`, or a minimum of exactly 1, 10, …).
+#
+# The base is computed in the dataflow, after the unit's own transforms (a
+# merged dataset's `__src` filter, a frame filter, the caller's), so it follows
+# `update_data`/`append_data`, rows fetched `by_url`, and each frame of a
+# `config(frame=…)` figure; its scales stay fixed over all frames. Each facet
+# panel has its own base, as AoG draws each panel with its own `barplot`: in a
+# facet operator Vega-Lite adds the facet fields to the (explicit, empty)
+# `groupby` — 5.23 fails to compile a facet child's `joinaggregate` without one
+# — and a unit faceted through its own encoding names them itself.
+#
+# A bar whose value is zero, negative or missing is left out of the bar layer:
+# it cannot stand on a log axis, Vega-Lite would put 0 into the axis domain and
+# draw every mark at NaN, and Makie clamps it to the base, a bar of no length.
+# It reaches only a bar drawn from a raw value field: an authored `x2`/`y2`
+# (`fillto`, a range) or `stack` is kept, and an aggregated encoding
+# (`frequency()`, an unfaceted `histogram()`) carries no value field a
+# transform can read.
+const _LOG_BAR_HALF = "__aov_fillto_half"
+const _LOG_BAR_BASE = "__aov_fillto"
+
+_apply_log_bar_base!(spec) = spec
+function _apply_log_bar_base!(spec::Dict)
+    log_encs = Dict[]
+    for ch in ("x", "y"), group in _shared_scale_groups(spec, ch)
+        any(e -> _vl_scale_type(e) == "log", group) && append!(log_encs, group)
+    end
+    isempty(log_encs) && return spec
+    _each_frame_unit(spec) do unit
+        ch = _bar_value_channel(unit)
+        isnothing(ch) && return
+        enc = unit["encoding"]
+        any(e -> e === enc[ch], log_encs) || return
+        v = "datum[" * _vl_json(enc[ch]["field"]) * "]"
+        panels = Any[enc[f]["field"] for f in ("row", "column", "facet")
+            if get(enc, f, nothing) isa Dict && haskey(enc[f], "field")]
+        transforms = Any[something(_as_vec(get(unit, "transform", nothing)), Any[])...]
+        push!(transforms,
+            Dict{String,Any}("filter" => "isValid($v) && $v > 0"),
+            Dict{String,Any}("calculate" => "$v / 2", "as" => _LOG_BAR_HALF),
+            Dict{String,Any}("joinaggregate" => Any[Dict{String,Any}(
+                "op" => "min", "field" => _LOG_BAR_HALF, "as" => _LOG_BAR_BASE)], "groupby" => panels))
+        unit["transform"] = transforms
+        enc[ch * "2"] = Dict{String,Any}("field" => _LOG_BAR_BASE)
+    end
+    spec
+end
+
+_vl_scale_type(enc::Dict) = (s = get(enc, "scale", nothing); s isa Dict ? get(s, "type", nothing) : nothing)
+
+# The channel a bar mark's length runs along ("x" for a horizontal bar, "y" for
+# a vertical one) when it holds a raw quantitative field and the bar has no base
+# or stack of its own; else `nothing`. The orientation is Vega-Lite 5's own rule
+# for bars (`orient` in compile/mark/init.ts): a binned or lone aggregated
+# position decides it, then the one unbinned quantitative channel, then the
+# authored `orient`, else vertical.
+function _bar_value_channel(unit::AbstractDict)
+    mark = get(unit, "mark", nothing)
+    _mark_type(mark) == "bar" || return nothing
+    enc = _as_dict(get(unit, "encoding", nothing))
+    isnothing(enc) && return nothing
+    ch = _vl_bar_orient(mark, enc) == "horizontal" ? "x" : "y"
+    e = get(enc, ch, nothing)
+    _vl_measure(e) && haskey(e, "field") || return nothing
+    if _vl_agg(e) || haskey(e, "stack") || haskey(enc, ch * "2")
+        return nothing
+    end
+    ch
+end
+
+_vl_agg(e) = e isa Dict && haskey(e, "aggregate")
+
+function _vl_bar_orient(mark, enc::AbstractDict)
+    x, y = get(enc, "x", nothing), get(enc, "y", nothing)
+    x isa Dict && (_vl_binned(x) || (_vl_agg(y) && !_vl_agg(x))) && return "vertical"
+    y isa Dict && (_vl_binned(y) || (_vl_agg(x) && !_vl_agg(y))) && return "horizontal"
+    xm, ym = _vl_measure(x), _vl_measure(y)
+    xm && !ym && return "horizontal"
+    ym && !xm && return "vertical"
+    specified = mark isa AbstractDict ? get(mark, "orient", nothing) : nothing
+    specified isa AbstractString ? specified : "vertical"
+end
+
+# Vega-Lite's `isBinned` (pre-binned data) and `isBinning` (bins it computes).
+_vl_binned(e) = e isa Dict && (b = get(e, "bin", nothing); b == "binned" || (b isa Dict && get(b, "binned", false) === true))
+_vl_binning(e) = e isa Dict && (b = get(e, "bin", nothing); b === true || (b isa Dict && get(b, "binned", false) !== true))
+# An unbinned quantitative channel (Vega-Lite's `isUnbinnedQuantitative`).
+_vl_measure(e) = e isa Dict && get(e, "type", nothing) == "quantitative" && !_vl_binning(e) && !_vl_binned(e)
+
 # AoV's neutral ink: marks AoV draws in a fixed text-like colour (dot-interval
 # rules, `visual(...; color=:ink)`) carry `style: "aov-ink"` instead of a literal
 # colour, and the top-level config defines that style as `#333`. The JS runtime's
@@ -1913,7 +2009,7 @@ end
 _finish_vegalite!(spec, ::Dict) = spec
 _finish_vegalite!(spec, v) =
     _record_summary!(_finish_ribbon_views!(_each_ribbon_view!(_apply_finish_defaults!, spec)), v)
-_apply_finish_defaults!(spec) = _apply_ink_paint!(_fit_gradient_labels!(_one_colour_bar!(_apply_no_zero_default!(_apply_wrap_default!(spec)))))
+_apply_finish_defaults!(spec) = _apply_ink_paint!(_fit_gradient_labels!(_one_colour_bar!(_apply_log_bar_base!(_apply_no_zero_default!(_apply_wrap_default!(spec))))))
 
 # Half a legend label's width. Vega expressions cannot measure text, so it counts
 # characters at 0.54 em each: about Arial's digits (0.556 em), and wide for `.`, `,`
