@@ -10,7 +10,7 @@
     using AlgebraOfGraphics
 
     # A blank (zero-width space) spacer row between two groups that no layer draws.
-    rows = ["1.1  A", "1.2  B", "​", "2.1  C"]
+    rows = ["1.1  A", "1.2  B", "\u200b", "2.1  C"]
     steps = (; row=["1.1  A", "1.2  B", "2.1  C"], start=[0.0, 1.0, 2.0], stop=[1.0, 2.0, 4.0],
                group=["g1", "g1", "g2"])
     bars = data(steps) * mapping(:row => "", :stop; fillto=:start, color=:group) *
@@ -29,7 +29,9 @@ end
     # The positional `scales(...)` form lowers the same.
     @test ylayers(to_vegalite(bars + meet, scales(Y=(; categories=rows)))) == ylayers(vl)
     # With a `sorter` in the mapping (AoG's spelling of the order of present values), the
-    # categories still add the spacer and agree with the sort.
+    # categories still add the spacer and agree with the sort. (AoG's own `draw`, so `sdraw`,
+    # refuses this pair, since it does not unwrap the sorter's values; the docs say to drop
+    # the sorter. vdraw draws it as the reporter wrote it.)
     sorted = data(steps) * mapping(:row => sorter(rows) => "", :stop; fillto=:start) *
         visual(BarPlot; direction=:x)
     sy = ylayers(to_vegalite((sorted + meet) * config(scales=scales(Y=(; categories=rows)))))[1]
@@ -38,7 +40,7 @@ end
     @test_logs to_vegalite((bars + meet) * config(scales=scales(Y=(; categories=rows))))
     # The emitted arrays are fresh: editing one encoding reaches neither the other nor the input.
     push!(bar_y["sort"], "x")
-    @test bar_y["scale"]["domain"] == rows && rows == ["1.1  A", "1.2  B", "​", "2.1  C"]
+    @test bar_y["scale"]["domain"] == rows && rows == ["1.1  A", "1.2  B", "\u200b", "2.1  C"]
 
     # X categories on a vertical bar chart, beside a horizontal rule that has no x.
     cols = data(steps) * mapping(:row, :stop) * visual(BarPlot)
@@ -77,7 +79,7 @@ end
     err = try to_vegalite(bars * config(scales=scales(Y=(; categories=reverse)))); nothing catch e; e end
     @test err isa ArgumentError && occursin("function", err.msg)
     # `value => label` pairs contribute their values; a differing label warns that it is not drawn.
-    labelled = scales(Y=(; categories=["1.1  A" => "A", "1.2  B", "​", "2.1  C" => "2.1  C"]))
+    labelled = scales(Y=(; categories=["1.1  A" => "A", "1.2  B", "\u200b", "2.1  C" => "2.1  C"]))
     vl = @test_logs (:warn, r"category labels") to_vegalite(bars * config(scales=labelled))
     @test vl["encoding"]["y"]["scale"]["domain"] == rows
 end
