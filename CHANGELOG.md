@@ -15,7 +15,7 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
-## 0.2.25
+## 0.2.28
 
 - `scales(Y=(; categories))` and `scales(X=(; categories))` fix a categorical axis's
   levels and their order, as in AlgebraOfGraphics, including a level no layer draws:
@@ -30,6 +30,47 @@ failing at run time with a `MethodError`.
   only the layers drawn with that axis. Before, a `VLines` rule, which has no `y`, was
   given a `y` holding only the scale, and Vega-Lite dropped it with a console warning
   on every render. Layers that have the axis take the same scale as before.
+
+## 0.2.27
+
+- Makie's axis fractions draw on `vdraw` and `vsave`, as they already did on `sdraw`:
+  `visual(VLines; ymin=0.0, ymax=0.9)` is a rule from the bottom of the plot to 90 %
+  of its height, `visual(HLines; xmin, xmax)` the same along the width, and
+  `visual(VSpan; ymin, ymax)` / `visual(HSpan; xmin, xmax)` a band over that part of
+  the plot. The fractions are of each facet panel's or concat cell's own size, also
+  after the plot is resized. Each lowers to the mark's own `y`/`y2` (`x`/`x2`),
+  a Vega expression on the size of the group the mark is drawn in
+  (`item.mark.group.height`). Makie's whole-axis default (0 and 1) adds nothing.
+  Before, any other fraction was left out with a "no Vega-Lite mark counterpart"
+  warning and the line or band spanned the whole axis. A value that is not one
+  finite number (a vector, `NaN`) is still left out with that warning.
+
+## 0.2.26
+
+- `visual(...; fillOpacity=a)` fades only the fill, as Vega-Lite's `fillOpacity`
+  does, so `visual(BarPlot; fillOpacity=0, stroke="red", strokeWidth=2)` draws a red
+  frame with no fill. `strokeOpacity` already passed as written. Makie's `alpha` and
+  Vega-Lite's `opacity` still fade the whole mark, outline included. Before,
+  `fillOpacity` reached Vega-Lite as `opacity`, so the outline faded with the fill:
+  an outline-only bar drew nothing, and a map background written
+  `visual(; color=:ink, fillOpacity=0.08, stroke=…)` drew its borders at 8 %, with
+  no warning. Such a background now draws its borders at full strength.
+- On a box plot, `fillOpacity` is a property its Vega-Lite mark does not read, so it
+  is left out with the warning that names it; before, it faded the whole box plot.
+  Fade the box's fill with `box=(; fillOpacity=a)`, or the whole box plot with `alpha`.
+
+## 0.2.25
+
+- `visual(VSpan)` and `visual(HSpan)` draw on `vdraw` and `vsave`, as Makie's `vspan`
+  and `hspan` do on `sdraw`: `mapping(:from, :to) * visual(VSpan)` is a band from
+  `from` to `to` on x over the whole plot height, also over a nominal y, and `HSpan`
+  the same on y over the whole width. Both lower to a Vega-Lite `rect` positioned on
+  that one axis (`x`/`x2` or `y`/`y2`); the tooltip names both edges, and `color`,
+  `alpha`, `strokecolor` and `strokewidth` apply as on other marks. Makie's whole-axis
+  default `ymin = 0`, `ymax = 1` (`xmin`/`xmax` for `HSpan`) is accepted; another
+  fraction is left out with a warning. `VSpan` and `HSpan` are exported with the
+  other Makie plot types. Before, both failed with
+  `Unsupported plot type for Vega-Lite`.
 
 ## 0.2.24
 

@@ -84,6 +84,13 @@ function _plain_layer_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false,
         ["y"]
     elseif !isnothing(vis) && plot_type <: VLines
         ["x"]
+    elseif !isnothing(vis) && plot_type <: VSpan
+        # AoG's `aesthetic_mapping(VSpan, 2)`: both positionals are x, the
+        # band's low and high edges. With no y encoding Vega-Lite draws the rect
+        # over the whole plot height, also on a nominal (band) y scale.
+        ["x", "x2"]
+    elseif !isnothing(vis) && plot_type <: HSpan
+        ["y", "y2"]
     elseif !isnothing(vis) && plot_type <: Union{Band, Rangebars, Errorbars}
         ["x", "y", "y2"]
     else

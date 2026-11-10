@@ -348,6 +348,35 @@ _text_mark_props(::Val{:font}, v::AbstractString) = Dict{String,Any}("font" => v
 _text_mark_props(::Val{:font}, v::Symbol) =
     haskey(_TEXT_FONT_STYLE, v) ? copy(_TEXT_FONT_STYLE[v]) : nothing
 
+# Makie draws a `VLines` rule or a `VSpan` band from `ymin` to `ymax`, and an
+# `HLines` rule or an `HSpan` band from `xmin` to `xmax`: fractions of the axis
+# (0 its start, 1 its end), with their whole-axis defaults. With the defaults the
+# Vega-Lite rule or rect needs nothing, since a mark with no encoding on that axis
+# spans the whole plot.
+_axis_fraction_attrs(::Type) = (;)
+_axis_fraction_attrs(::Type{<:Union{VLines,VSpan}}) = (; ymin=0, ymax=1)
+_axis_fraction_attrs(::Type{<:Union{HLines,HSpan}}) = (; xmin=0, xmax=1)
+
+# Any other fraction lowers to the mark's own `y`/`y2` (`x`/`x2`), an expression
+# on the size of the group the mark is drawn in, `item.mark.group`: the plot, or
+# its facet or concat cell. Vega's y runs down the plot and Makie's fractions run
+# up the axis. The `height`/`width` signals are the whole view's, so on them the
+# line or band collapses to nothing in a facet cell (measured on Vega-Lite
+# 5.23.0; snags `aov-vspan-hspan-3522a3cf`, `vlines-ymin-ymax-d2819705`).
+function _axis_fraction_mark_props(fractions::AbstractDict{Symbol}, defaults::NamedTuple)
+    lo_k, hi_k = keys(defaults)
+    lo, hi = get(fractions, lo_k, defaults[lo_k]), get(fractions, hi_k, defaults[hi_k])
+    lo == defaults[lo_k] && hi == defaults[hi_k] && return Dict{String,Any}()
+    lo, hi = Float64(lo), Float64(hi)
+    expr(e) = Dict{String,Any}("expr" => e)
+    lo_k === :ymin ? Dict{String,Any}(
+            "y" => expr("item.mark.group.height * (1 - $hi)"),
+            "y2" => expr("item.mark.group.height * (1 - $lo)")) :
+        Dict{String,Any}(
+            "x" => expr("item.mark.group.width * $lo"),
+            "x2" => expr("item.mark.group.width * $hi"))
+end
+
 _visual_name(vis::AlgebraOfGraphics.Visual) =
     vis.plottype === Makie.Plot{Makie.plot} ? "visual(...)" : "visual($(Makie.plotsym(vis.plottype)))"
 
@@ -360,6 +389,8 @@ function visual_attrs_to_mark_props(vis::AlgebraOfGraphics.Visual)
     errorbars = vis.plottype <: Union{Errorbars, Rangebars}
     # A composite mark reads only its own properties (`_COMPOSITE_MARK_PROPERTIES`).
     composite = _composite_mark_properties(vis.plottype)
+    fraction_defaults = _axis_fraction_attrs(vis.plottype)
+    fractions = Dict{Symbol,Real}()
     inks = String[]
     ignored = Symbol[]
     for (k, v) in pairs(vis.attributes)
@@ -375,7 +406,13 @@ function visual_attrs_to_mark_props(vis::AlgebraOfGraphics.Visual)
             # draws (`_apply_layer_passive!`).
         elseif !ismissing(errorbar_props)
             isnothing(errorbar_props) ? push!(ignored, k) : merge!(p, errorbar_props)
-        elseif k === :opacity || k === :fillOpacity || k === :alpha
+        elseif k === :opacity || k === :alpha
+            # Makie's `alpha` fades the whole plot, a bar's or polygon's outline
+            # with its fill, as Vega-Lite's `opacity` does. The Vega-Lite
+            # `fillOpacity` and `strokeOpacity` fade one side only and pass as
+            # written below: folding `fillOpacity` in here hid the outline of
+            # `visual(BarPlot; fillOpacity=0, stroke="red")` with its fill
+            # (snag `aov-fillopacity-893e8d27`).
             p["opacity"] = v
         elseif k === :color
             p["color"] = string(v)
@@ -394,6 +431,9 @@ function visual_attrs_to_mark_props(vis::AlgebraOfGraphics.Visual)
             p["strokeWidth"] = v
         elseif !ismissing(text_props)
             isnothing(text_props) ? push!(ignored, k) : merge!(p, text_props)
+        elseif haskey(fraction_defaults, k)
+            # Both ends are lowered together, after the loop.
+            v isa Real && isfinite(v) ? (fractions[k] = v) : push!(ignored, k)
         elseif k in _VL_MARK_PROPERTIES
             p[sk] = v
         else
@@ -420,7 +460,8 @@ function visual_attrs_to_mark_props(vis::AlgebraOfGraphics.Visual)
         haskey(vis.attributes, :color) || (caps["color"] = "black")
         props["ticks"] = merge(caps, _part_dict(props["ticks"]))
     end
-    mark_name = isnothing(composite) ? "no Vega-Lite mark counterpart" :
+    isempty(fractions) || merge!(props, _axis_fraction_mark_props(fractions, fraction_defaults))
+    mark_name =isnothing(composite) ? "no Vega-Lite mark counterpart" :
         "no counterpart on the Vega-Lite `$(plottype_to_mark(vis.plottype))` mark it draws"
     isempty(ignored) || @warn "AlgebraOfVega: `$(_visual_name(vis))` sets $(join(("`$k`" for k in ignored), ", ")) with $mark_name; vdraw and vsave ignore $(length(ignored) == 1 ? "it" : "them")." _id=(:aov_unread_visual_attrs, vis.plottype, Tuple(ignored)) maxlog=1
     if !isempty(inks)
