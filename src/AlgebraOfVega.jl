@@ -7,7 +7,7 @@ import AlgebraOfGraphics: data, mapping, visual, dims,
     renamer, sorter, nonnumeric, verbatim, presorted, direct,
     scale, scales, pregrouped, wrapped
 using Makie: Scatter, Lines, ScatterLines, BarPlot, Heatmap, BoxPlot,
-    Band, HLines, VLines, Hist, Density as MakieDensity, Errorbars, Stairs,
+    Band, HLines, VLines, HSpan, VSpan, Hist, Density as MakieDensity, Errorbars, Stairs,
     Contour, Violin, RainClouds, Rangebars, CrossBar, ECDFPlot,
     Plot, plot
 import Makie
@@ -45,7 +45,7 @@ export renamer, sorter, nonnumeric, verbatim, presorted, direct
 export scale, scales, pregrouped, wrapped
 # Re-export Makie plot types users need
 export Scatter, Lines, ScatterLines, BarPlot, Heatmap, BoxPlot,
-    Band, HLines, VLines, Hist, Errorbars, Stairs,
+    Band, HLines, VLines, HSpan, VSpan, Hist, Errorbars, Stairs,
     Contour, Violin, RainClouds, Rangebars, CrossBar, ECDFPlot
 
 # AlgebraOfVega exports

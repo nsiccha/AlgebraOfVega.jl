@@ -15,6 +15,19 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
+## 0.2.25
+
+- `visual(VSpan)` and `visual(HSpan)` draw on `vdraw` and `vsave`, as Makie's `vspan`
+  and `hspan` do on `sdraw`: `mapping(:from, :to) * visual(VSpan)` is a band from
+  `from` to `to` on x over the whole plot height, also over a nominal y, and `HSpan`
+  the same on y over the whole width. Both lower to a Vega-Lite `rect` positioned on
+  that one axis (`x`/`x2` or `y`/`y2`); the tooltip names both edges, and `color`,
+  `alpha`, `strokecolor` and `strokewidth` apply as on other marks. Makie's whole-axis
+  default `ymin = 0`, `ymax = 1` (`xmin`/`xmax` for `HSpan`) is accepted; another
+  fraction is left out with a warning. `VSpan` and `HSpan` are exported with the
+  other Makie plot types. Before, both failed with
+  `Unsupported plot type for Vega-Lite`.
+
 ## 0.2.24
 
 - Error bars take Makie's line attributes. `visual(Rangebars; linewidth=w)` and

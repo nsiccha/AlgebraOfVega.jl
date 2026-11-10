@@ -348,6 +348,16 @@ _text_mark_props(::Val{:font}, v::AbstractString) = Dict{String,Any}("font" => v
 _text_mark_props(::Val{:font}, v::Symbol) =
     haskey(_TEXT_FONT_STYLE, v) ? copy(_TEXT_FONT_STYLE[v]) : nothing
 
+# Makie draws a `VSpan` from `ymin` to `ymax` and an `HSpan` from `xmin` to
+# `xmax`, fractions of the axis that default to 0 and 1: the whole axis, which is
+# what the Vega-Lite rect with no encoding on that axis draws. Any other fraction
+# is reported: the one spelling Vega-Lite has, an expression on the `height` or
+# `width` signal, draws it unfaceted but collapses the band to nothing in a facet
+# cell, where that signal is not the cell's size (measured on Vega-Lite 5.23.0).
+_span_extent_attrs(::Type) = (;)
+_span_extent_attrs(::Type{<:VSpan}) = (; ymin=0, ymax=1)
+_span_extent_attrs(::Type{<:HSpan}) = (; xmin=0, xmax=1)
+
 _visual_name(vis::AlgebraOfGraphics.Visual) =
     vis.plottype === Makie.Plot{Makie.plot} ? "visual(...)" : "visual($(Makie.plotsym(vis.plottype)))"
 
@@ -360,6 +370,7 @@ function visual_attrs_to_mark_props(vis::AlgebraOfGraphics.Visual)
     errorbars = vis.plottype <: Union{Errorbars, Rangebars}
     # A composite mark reads only its own properties (`_COMPOSITE_MARK_PROPERTIES`).
     composite = _composite_mark_properties(vis.plottype)
+    span_extent = _span_extent_attrs(vis.plottype)
     inks = String[]
     ignored = Symbol[]
     for (k, v) in pairs(vis.attributes)
@@ -394,6 +405,8 @@ function visual_attrs_to_mark_props(vis::AlgebraOfGraphics.Visual)
             p["strokeWidth"] = v
         elseif !ismissing(text_props)
             isnothing(text_props) ? push!(ignored, k) : merge!(p, text_props)
+        elseif haskey(span_extent, k)
+            v isa Real && v == span_extent[k] || push!(ignored, k)
         elseif k in _VL_MARK_PROPERTIES
             p[sk] = v
         else
