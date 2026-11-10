@@ -145,6 +145,60 @@ end
     browser_checks(body, joinpath(@__DIR__, "fit_width_grid.js"), "aov-fit-width-grid-results"; min_checks=24)
 end
 
+# A plot replaced under the same id by one with other chrome: an htmx swap that
+# adds a second scenario (a colour legend) to a lineribbon, a view sent ahead
+# dose by dose whose later rows widen every panel's y labels, and an
+# `update_spec` that adds a colour. The first plot's fit correction (a width
+# narrowed for its own chrome, in a sizing regime that the next plot shares)
+# carried over, so the next plot was sized for the old chrome and never
+# corrected: the lineribbon's legend lay wholly past the frame and the faceted
+# plot's was cut at the frame's edge (snag bruno-s-web-sim-ef092f14).
+@testitem "a plot replaced under the same id is sized for its own chrome" setup=[AoVFitWidthBrowser] tags=[:regression, :browser] begin
+    bands = [:q2_5 => :q97_5, :q25 => :q75]
+    days = collect(0.0:0.25:21.0)
+    profile(scale) = [scale * (1 + sin(2pi * d)) for d in days]
+    function course(scenarios)
+        cols = (; day=Float64[], scenario=String[], series=String[],
+            q2_5=Float64[], q25=Float64[], q50=Float64[], q75=Float64[], q97_5=Float64[])
+        for (k, s) in enumerate(scenarios), (d, m) in zip(days, profile(20_000k))
+            push!(cols.day, d); push!(cols.scenario, s)
+            push!(cols.series, "Plasma"); push!(cols.q2_5, 0.2m); push!(cols.q25, 0.6m)
+            push!(cols.q50, m); push!(cols.q75, 1.5m); push!(cols.q97_5, 3m)
+        end
+        cols
+    end
+    ribbon(t; color) = data(t) * mapping(:day => "Time (days)", :q50 => "Plasma (ng/mL)";
+            (color ? (; color=:scenario => sorter(["Daily", "Twice daily"]) => "Scenario") : (;))...) *
+        lineribbon(bands=bands) * (color ? visual() : visual(; color=:ink)) *
+        config(link=(; group="sp-ribbon", key=:series))
+    panels = ["AUC", "Maximum", "Time of maximum", "Minimum", "Baseline", "Average", "Trough", "Increase"]
+    function doses(labels; scale)
+        cols = (; dose_label=String[], panel=String[], scenario=String[],
+            q2_5=Float64[], q25=Float64[], q50=Float64[], q75=Float64[], q97_5=Float64[])
+        for (i, d) in enumerate(labels), p in panels, s in ["Daily", "Twice daily"]
+            m = scale * i * (s == "Daily" ? 1.0 : 0.8)
+            push!(cols.dose_label, d); push!(cols.panel, p); push!(cols.scenario, s)
+            push!(cols.q2_5, 0.2m); push!(cols.q25, 0.6m); push!(cols.q50, m); push!(cols.q75, 1.5m); push!(cols.q97_5, 4m)
+        end
+        cols
+    end
+    dose_plot(t) = data(t) * mapping(:dose_label => sorter(unique(t.dose_label)) => "Dose", :q50 => "Median";
+            layout=:panel => sorter(panels) => "", color=:scenario => sorter(["Daily", "Twice daily"]) => "Scenario") *
+        pointinterval(bands=bands, orientation=:vertical) * config(facet=(; linkyaxes=:none))
+    plain = data(rows) * mapping(:x, :y) * (visual(Scatter) + visual(Lines))
+    plot(id, spec) = html(vdraw(spec; id, height=160))
+    body = "<div style='width:1040px'>" *
+        "<div id='wrap-sp-ribbon'>" * plot("sp-ribbon", ribbon(course(["Daily"]); color=false)) * "</div>" *
+        "<div id='wrap-sp-dose'>" * plot("sp-dose", dose_plot(doses(["5 mg"]; scale=9.0))) * "</div>" *
+        "<div id='wrap-sp-update'>" * plot("sp-update", plain) * "</div></div>" *
+        "<template id='sp-ribbon-next'>" * plot("sp-ribbon", ribbon(course(["Daily", "Twice daily"]); color=true)) * "</template>" *
+        "<template id='sp-dose-next'>" *
+        plot("sp-dose", dose_plot(doses(["5 mg", "10 mg", "20 mg", "40 mg", "60 mg"]; scale=90_000.0))) * "</template>" *
+        "<template id='sp-update-next'>" * html(update_spec("sp-update", layered * config(height=160))) * "</template>" *
+        "<div id='sp-scripts'></div>"
+    browser_checks(body, joinpath(@__DIR__, "fit_width_swap.js"), "aov-fit-width-swap-results"; min_checks=24)
+end
+
 # A tabset panel hidden while its plots embed (`display: none`) offers them no
 # width. A page opened with `?tab=<name>` shows that panel from the restore
 # script the tabset renders as its last child; before plots rendered after the

@@ -906,6 +906,17 @@ window.AoV = window.AoV || {
         } else if (!keepData) {
             delete self._liveRows[id];
         }
+        // A new spec is sized afresh, on a new element or the same one (a
+        // picker remap, a structural update_spec, a legend restore). The fit
+        // correction the previous spec earned narrowed it for that spec's
+        // chrome, and its sizing regime (budget, shape, columns, facet
+        // fields) is usually this spec's too: kept, it sized a plot that
+        // gained a legend or wider axis labels for the old chrome, and
+        // _fitCorrection then declined to correct the regime again, so the
+        // legend lay past the frame. Resize and correction re-embeds go
+        // through doEmbed, not here, and keep it.
+        if (self._corrections) delete self._corrections[id];
+        if (self._correctedRegime) delete self._correctedRegime[id];
         // The element this plot lives in (disposeWithin matches on it) and
         // this embed's ownership token: resize/fit re-embeds scheduled by an
         // earlier embed of the id check it and do nothing once superseded.
@@ -1011,8 +1022,11 @@ window.AoV = window.AoV || {
                 delete self._pending[id];
                 pending.forEach(function(fn) { fn(view); });
                 // One bounded correction pass for JS-sized specs whose
-                // rendered chrome overshoots the computed budget.
-                self._fitCorrection(id, function(budget) { doEmbed(budget); });
+                // rendered chrome overshoots the computed budget. Not for an
+                // embed a newer spec has superseded before it resolved: its
+                // correction would describe the old chrome and be read by
+                // the newer spec's first render.
+                if (self._embedTok[id] === tok) self._fitCorrection(id, function(budget) { doEmbed(budget); });
                 self._refitOnRelayout(id, view, function(budget) { doEmbed(budget); });
                 self._watchScrollFrame(id);
                 return result;
