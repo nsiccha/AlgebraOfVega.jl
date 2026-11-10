@@ -63,6 +63,32 @@ Most mark types map the first two positional arguments to `x` and `y`. Exception
 | `Rangebars` / `Errorbars` | `[x, y, y2]` |
 | All others | `[x, y]` |
 
+An `X` or `Y` scale reaches only the layers drawn with that axis. Its `scale`
+(`log10`, `sqrt`, …) and the Vega-Lite keys `domain`, `nice`, `zero`, `clamp` and
+`constant` go to every encoding of the axis that reads a scale: one with a field, a
+datum, or a count such as `frequency()`'s. A `VLines` rule, which has no `y`, gets
+no `y`. On a categorical axis, `categories` fixes the levels and their order, as in
+AlgebraOfGraphics, including a level no layer draws, such as a blank spacer row:
+
+```julia
+rows = ["1.1  A", "1.2  B", "\u200b", "2.1  C"]   # "\u200b" (zero-width space) is an empty row
+bars = data(steps) * mapping(:row, :stop; fillto=:start) * visual(BarPlot; direction=:x)
+meet = data((; at=[1.0, 3.0])) * mapping(:at) * visual(VLines)
+vdraw(bars + meet, scales(Y=(; categories=rows)))
+```
+
+`categories` becomes `scale.domain` and `sort` on the nominal and ordinal encodings
+of that axis. On a numeric axis it is an `ArgumentError`, as in AlgebraOfGraphics.
+A `sorter(rows)` in the mapping orders only the values the data holds, as in
+AlgebraOfGraphics, so it cannot keep an empty row; leave it out beside
+`categories`, which sets the order itself: AlgebraOfGraphics' own `draw`, and with
+it `sdraw`, refuses the two together ("Custom categories were given but there were
+more categories in the data").
+List every value the data holds: a value missing from `categories` has no place on
+the axis, so `vdraw` does not draw its marks, while AlgebraOfGraphics raises an
+error. A `value => label` pair puts the value on the axis; the label is not drawn
+on `vdraw` yet (`sdraw` draws it) and a warning says so.
+
 ## Config deep-merge
 
 `config(encoding=...)` is deep-merged per channel. This means you can add properties to auto-generated encodings without losing the `field` and `type`:

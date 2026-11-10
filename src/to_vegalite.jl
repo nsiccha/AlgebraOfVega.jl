@@ -607,7 +607,9 @@ Per-channel kwargs forwarded into the VL `scale` dict:
 - `nice`, `zero`, `domain`, `clamp`, `constant` — passed through verbatim
   (`constant` tunes the `symlog` linear-region half-width)
 
-Channels with no forwardable kwargs are skipped (no `scale` key emitted)."""
+`categories` is lowered separately (`_scales_axis_categories`), since it reaches only the
+categorical encodings of its axis. Channels with no forwardable kwargs are skipped (no
+`scale` key emitted)."""
 function _scales_to_encoding_override(sc::AlgebraOfGraphics.Scales)
     override = Dict{String,Any}()
     for (axis_key, props) in pairs(sc.dict)
@@ -619,8 +621,8 @@ function _scales_to_encoding_override(sc::AlgebraOfGraphics.Scales)
         # silently stays default). Warn once — never silently swallow.
         for k in keys(props)
             k in keys(_SCALES_NT_FORWARD) && continue
-            k === :scale && continue
-            @warn "AlgebraOfVega: unknown `$axis_key` scale option `$k` — not a known scale/nice/zero/domain/clamp/constant key. If you meant a facet order or per-column scale, check the parentheses (it must be a sibling of the `$axis_key=` argument, not inside its NamedTuple)." maxlog=1
+            k in (:scale, :categories) && continue
+            @warn "AlgebraOfVega: unknown `$axis_key` scale option `$k` — not a known scale/categories/nice/zero/domain/clamp/constant key. If you meant a facet order or per-column scale, check the parentheses (it must be a sibling of the `$axis_key=` argument, not inside its NamedTuple)." maxlog=1
         end
         vl_scale = Dict{String,Any}()
         scale_fn = get(props, :scale, nothing)
@@ -642,6 +644,55 @@ function _scales_to_encoding_override(sc::AlgebraOfGraphics.Scales)
         override[ch] = Dict{String,Any}("scale" => vl_scale)
     end
     override
+end
+
+"""The `categories` of each `scales(X=(; categories))`/`scales(Y=(; categories))`, by
+Vega-Lite channel, as `channel => (axis_key, values)`. A `value => label` pair contributes
+its value, as on the `Color` scale; a label that differs from the value is not lowered and
+warns once (`sdraw` shows it). A function-valued `categories` is an `ArgumentError`."""
+function _scales_axis_categories(sc::AlgebraOfGraphics.Scales)
+    out = Dict{String,Any}()
+    for (axis_key, props) in pairs(sc.dict)
+        ch = _aog_axis_key_to_vl_channel(axis_key)
+        (isnothing(ch) || !haskey(props, :categories)) && continue
+        cats = props[:categories]
+        cats isa Function && throw(ArgumentError("AlgebraOfVega: the `$axis_key` scale's " *
+            "`categories` is a function, which vdraw and vsave cannot apply to the data yet. " *
+            "List the categories instead: `scales($axis_key=(; categories=[...]))`."))
+        any(c -> c isa Pair && string(last(c)) != string(first(c)), cats) &&
+            @warn "AlgebraOfVega: the `$axis_key` scale's category labels (`value => label`) are not lowered to Vega-Lite yet; the axis shows the values (`sdraw` shows the labels). Rename the values with `renamer` in the mapping instead." _id=(:aov_axis_category_labels, axis_key) maxlog=1
+        out[ch] = (axis_key, Any[c isa Pair ? first(c) : c for c in cats])
+    end
+    out
+end
+
+"""Merge each `scales(X/Y=(; categories))` into the categorical (nominal or ordinal)
+encodings of its channel that carry a `field`: `scale.domain` lists the levels, so a level
+no layer draws keeps its place on the axis, as in AlgebraOfGraphics, and `sort` lists them
+in the same order. A layer without that channel (a `VLines` rule has no y) is left alone. A
+channel whose field-bearing encodings are all continuous is an `ArgumentError`, as
+AlgebraOfGraphics rejects `categories` on a continuous scale; a figure with no such
+encoding at all is left alone (snag `categorical-y-sc-55ea6237`)."""
+function _merge_axis_categories!(spec::Dict, cats::Dict)
+    for (ch, (axis_key, values)) in cats
+        fields = (; categorical=String[], continuous=String[])
+        _foreach_field_encoding(spec, ch) do enc
+            kind = _color_kind(enc)  # the scale kind of any channel, not only colour
+            push!(fields[kind], string(enc["field"]))
+            kind === :categorical || return
+            _deep_merge_dict!(enc, Dict{String,Any}("scale" => Dict{String,Any}("domain" => copy(values))))
+            enc["sort"] = copy(values)
+        end
+        (isempty(fields.categorical) && !isempty(fields.continuous)) || continue
+        names = unique(fields.continuous)
+        throw(ArgumentError("AlgebraOfVega: the `$axis_key` scale attribute `categories` " *
+            "takes a categorical (nominal or ordinal) axis, but the $ch " *
+            (length(names) == 1 ? "field " : "fields ") * join(("`$n`" for n in names), ", ") *
+            (length(names) == 1 ? " is" : " are") * " continuous (quantitative or temporal); " *
+            "AlgebraOfGraphics rejects it there too. Set a numeric axis's range with " *
+            "`scales($axis_key=(; domain=(lo, hi)))`, or map the numbers with `=> nonnumeric` " *
+            "to place them as categories."))
+    end
 end
 
 """Extract a per-facet-column Y scale mapping from a `Scales` object, or `nothing`.
@@ -1437,17 +1488,28 @@ that layer (what a raw `config(encoding=Dict("color"=>…))` does) injects a bar
 field-less colour encoding that Vega-Lite drops with a warning. Scoping to
 field-bearing encodings pins the palette/domain on the data-bearing layers only,
 leaving the deliberate field-less layer untouched."""
-function _foreach_field_encoding(f, spec::Dict, channel::String)
+_foreach_field_encoding(f, spec::Dict, channel::String) =
+    _foreach_encoding(f, spec, channel, col -> haskey(col, "field"))
+
+"""Whether an encoding is drawn through its channel's scale: it has a `field`, a `datum` (a
+fixed position in data units, such as a bar's `fillto` base) or an `aggregate` without a
+field (`frequency()`'s `count`). A `value` is in pixels and reads no scale."""
+_reads_scale(col::Dict) = haskey(col, "field") || haskey(col, "datum") || haskey(col, "aggregate")
+
+"""Call `f(channel_encoding)` on every `channel` encoding for which `keep` holds, recursing
+through layered / faceted sublayers. A unit without that channel is skipped, so `f` never
+gives a layer a channel it was not drawn with."""
+function _foreach_encoding(f, spec::Dict, channel::String, keep)
     enc = _as_dict(get(spec, "encoding", nothing))
     if !isnothing(enc)
         col = _as_dict(get(enc, channel, nothing))
-        !isnothing(col) && haskey(col, "field") && f(col)
+        !isnothing(col) && keep(col) && f(col)
     end
     if haskey(spec, "layer")
-        for sub in spec["layer"]; sub isa Dict && _foreach_field_encoding(f, sub, channel); end
+        for sub in spec["layer"]; sub isa Dict && _foreach_encoding(f, sub, channel, keep); end
     end
     if haskey(spec, "spec") && spec["spec"] isa Dict
-        _foreach_field_encoding(f, spec["spec"], channel)
+        _foreach_encoding(f, spec["spec"], channel, keep)
     end
     return
 end
@@ -1600,9 +1662,14 @@ _as_nt(_) = nothing
 # what fires when the prop key exists but the value isn't of the expected shape.
 _apply_scales_sugar!(args...) = nothing
 function _apply_scales_sugar!(spec, s::AlgebraOfGraphics.Scales)
-    # X/Y/Z axis scales broadcast into every matching positional encoding.
-    override = _scales_to_encoding_override(s)
-    isempty(override) || _merge_encoding_config!(spec, override)
+    # X/Y/Z axis scales reach every encoding of their channel that reads a scale. A
+    # layer drawn without that channel keeps none: a `VLines` rule given a field-less
+    # `y` made Vega-Lite drop it with a console warning (snag `categorical-y-sc-55ea6237`).
+    for (ch, override) in _scales_to_encoding_override(s)
+        _foreach_encoding(col -> _deep_merge_dict!(col, _owned_copy(override)), spec, ch, _reads_scale)
+    end
+    # `categories` reaches only the categorical encodings of its axis that carry a field.
+    _merge_axis_categories!(spec, _scales_axis_categories(s))
     # A `Color` scale is applied ONLY to colour and stroke encodings that carry a
     # `field` — never broadcast onto a field-less layer.
     _merge_color_scale!(spec, _scales_to_color_scale(s))

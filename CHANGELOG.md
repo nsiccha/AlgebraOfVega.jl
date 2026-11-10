@@ -15,6 +15,22 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
+## 0.2.28
+
+- `scales(Y=(; categories))` and `scales(X=(; categories))` fix a categorical axis's
+  levels and their order, as in AlgebraOfGraphics, including a level no layer draws:
+  a Gantt figure keeps a blank spacer row. They become `scale.domain` and `sort` on
+  the nominal and ordinal encodings of that axis. Before, the key was dropped with
+  the warning "unknown `Y` scale option `categories`". `categories` on a numeric axis
+  is an `ArgumentError` naming the field, as in AlgebraOfGraphics; a function-valued
+  `categories` is an `ArgumentError`; a `value => label` pair puts the value on the
+  axis and warns that the label is not drawn yet. Write it without a `sorter` on the
+  same column: AlgebraOfGraphics' own `draw`, and so `sdraw`, refuses the two together.
+- An `X` or `Y` scale (`scale`, `domain`, `nice`, `zero`, `clamp`, `constant`) reaches
+  only the layers drawn with that axis. Before, a `VLines` rule, which has no `y`, was
+  given a `y` holding only the scale, and Vega-Lite dropped it with a console warning
+  on every render. Layers that have the axis take the same scale as before.
+
 ## 0.2.27
 
 - Makie's axis fractions draw on `vdraw` and `vsave`, as they already did on `sdraw`:
