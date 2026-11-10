@@ -15,6 +15,20 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
+## 0.2.26
+
+- `visual(...; fillOpacity=a)` fades only the fill, as Vega-Lite's `fillOpacity`
+  does, so `visual(BarPlot; fillOpacity=0, stroke="red", strokeWidth=2)` draws a red
+  frame with no fill. `strokeOpacity` already passed as written. Makie's `alpha` and
+  Vega-Lite's `opacity` still fade the whole mark, outline included. Before,
+  `fillOpacity` reached Vega-Lite as `opacity`, so the outline faded with the fill:
+  an outline-only bar drew nothing, and a map background written
+  `visual(; color=:ink, fillOpacity=0.08, stroke=…)` drew its borders at 8 %, with
+  no warning. Such a background now draws its borders at full strength.
+- On a box plot, `fillOpacity` is a property its Vega-Lite mark does not read, so it
+  is left out with the warning that names it; before, it faded the whole box plot.
+  Fade the box's fill with `box=(; fillOpacity=a)`, or the whole box plot with `alpha`.
+
 ## 0.2.25
 
 - `visual(VSpan)` and `visual(HSpan)` draw on `vdraw` and `vsave`, as Makie's `vspan`

@@ -386,7 +386,13 @@ function visual_attrs_to_mark_props(vis::AlgebraOfGraphics.Visual)
             # draws (`_apply_layer_passive!`).
         elseif !ismissing(errorbar_props)
             isnothing(errorbar_props) ? push!(ignored, k) : merge!(p, errorbar_props)
-        elseif k === :opacity || k === :fillOpacity || k === :alpha
+        elseif k === :opacity || k === :alpha
+            # Makie's `alpha` fades the whole plot, a bar's or polygon's outline
+            # with its fill, as Vega-Lite's `opacity` does. The Vega-Lite
+            # `fillOpacity` and `strokeOpacity` fade one side only and pass as
+            # written below: folding `fillOpacity` in here hid the outline of
+            # `visual(BarPlot; fillOpacity=0, stroke="red")` with its fill
+            # (snag `aov-fillopacity-893e8d27`).
             p["opacity"] = v
         elseif k === :color
             p["color"] = string(v)
