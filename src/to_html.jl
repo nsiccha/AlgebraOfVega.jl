@@ -35,8 +35,40 @@ end
 const _PASSIVE_PATCH_JS = "function (vg) { (function walk(marks) { (marks || []).forEach(function (m) { " *
     "var s = m.style; if (s === 'aov-passive' || (Array.isArray(s) && s.indexOf('aov-passive') !== -1)) m.interactive = false; " *
     "walk(m.marks); }); })(vg && vg.marks); return vg; }"
-_standalone_embed_opts(vl) =
-    _uses_style(vl, _AOV_PASSIVE) ? "{actions: false, patch: $_PASSIVE_PATCH_JS}" : "{actions: false}"
+# A spec with AoV's automatic pan/zoom gets the patch that draws its marks whole
+# until the reader zooms, then cuts them at the frame along the zoomed axes only
+# (`_AOV_OWN_CLIP`). LOCKSTEP: `_panZoomClip` (vendor/aov-runtime.js).
+const _PAN_ZOOM_CLIP_JS = "function (vg) { " *
+    "if (!vg || !(vg.signals || []).some(function (s) { return s.name === 'grid'; })) return vg; " *
+    "function size(v) { return v && typeof v.signal === 'string' ? '(' + v.signal + ')' : typeof v === 'number' ? String(v) : null; } " *
+    "(function walk(group, w, h, fields) { " *
+    "(group.signals || []).forEach(function (s) { if (s.name === 'grid_tuple_fields' && Array.isArray(s.value)) fields = s.value; }); " *
+    "(group.marks || []).forEach(function (m) { " *
+    "if (m.type === 'group') { var u = (m.encode && m.encode.update) || {}; walk(m, size(u.width), size(u.height), fields); return; } " *
+    "if (m.clip !== true || !fields || !fields.length) return; " *
+    "if ([].concat(m.style || []).indexOf('aov-own-clip') !== -1) return; " *
+    "var channels = fields.map(function (f) { return f.channel; }); " *
+    "var x = channels.indexOf('x') !== -1, y = channels.indexOf('y') !== -1; " *
+    "var zoomed = fields.map(function (f) { return 'isValid(grid[' + JSON.stringify(f.field) + '])'; }).join(' || '); " *
+    "var cut = x && !y && w ? \"pathShape('M0,-100000H' + \" + w + \" + 'V100000H0Z')\" : " *
+    "y && !x && h ? \"pathShape('M-100000,0H100000V' + \" + h + \" + 'H-100000Z')\" : 'true'; " *
+    "m.clip = {signal: '(' + zoomed + ') ? ' + cut + ' : false'}; }); " *
+    "})(vg, 'width', 'height', null); return vg; }"
+# Whether the spec carries AoV's automatic pan/zoom selection (`add_auto_interactivity!`).
+_uses_pan_zoom(_) = false
+_uses_pan_zoom(v::AbstractVector) = any(_uses_pan_zoom, v)
+function _uses_pan_zoom(d::AbstractDict)
+    ps = get(d, "params", nothing)
+    ps isa AbstractVector && any(p -> p isa AbstractDict && get(p, "name", nothing) == "grid" &&
+        get(p, "bind", nothing) == "scales", ps) && return true
+    any(k -> haskey(d, k) && _uses_pan_zoom(d[k]), ("layer", "spec", "hconcat", "vconcat", "concat"))
+end
+function _standalone_embed_opts(vl)
+    passive, pan_zoom = _uses_style(vl, _AOV_PASSIVE), _uses_pan_zoom(vl)
+    patch = passive && pan_zoom ? "function (vg) { return ($_PAN_ZOOM_CLIP_JS)(($_PASSIVE_PATCH_JS)(vg)); }" :
+        passive ? _PASSIVE_PATCH_JS : pan_zoom ? _PAN_ZOOM_CLIP_JS : nothing
+    isnothing(patch) ? "{actions: false}" : "{actions: false, patch: $patch}"
+end
 
 # The embed script of `to_html(spec)`. A parsed page has run the Vega script
 # tags before this one, so `vegaEmbed` exists and it draws at once. Inserted

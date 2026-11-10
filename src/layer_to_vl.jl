@@ -399,13 +399,15 @@ function _mark_passive!(d::AbstractDict)
         haskey(d, k) && _mark_passive!(d[k])
     end
 end
-# A mark with the passive style added after its own; a composite mark's style
-# moves onto the parts it draws (`_style_composite_parts`).
-function _passive_mark(mark)
+# A mark with the passive style added after its own.
+_passive_mark(mark) = _mark_with_style(mark, _AOV_PASSIVE)
+# A copy of `mark` with the style `name` added after its own; a composite mark's
+# style moves onto the parts it draws (`_style_composite_parts`).
+function _mark_with_style(mark, name)
     m = mark isa AbstractDict ? Dict{String,Any}(string(k) => v for (k, v) in pairs(mark)) :
         Dict{String,Any}("type" => string(mark))
     styles = haskey(m, "style") ? _style_list(m["style"]) : String[]
-    _AOV_PASSIVE in styles || push!(styles, _AOV_PASSIVE)
+    name in styles || push!(styles, name)
     m["style"] = length(styles) == 1 ? only(styles) : styles
     _style_composite_parts(m)
 end
