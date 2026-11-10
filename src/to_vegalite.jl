@@ -248,6 +248,25 @@ const _AOV_INK_ATTRS = Dict{Symbol,String}(
 # `_PASSIVE_PATCH_JS` (src/to_html.jl).
 const _AOV_PASSIVE = "aov-passive"
 _is_passive_mark(mark) = mark isa AbstractDict && _uses_style_name(get(mark, "style", nothing), _AOV_PASSIVE)
+# AoV's automatic pan/zoom makes Vega-Lite clip every mark of its view to the
+# frame, so the page drew less than the `vsave` file: text outside the frame
+# was cut, and Vega reserved no room for it. The runtime's compiled-spec patch
+# draws such a mark whole until the reader zooms or pans, and then cuts it at
+# the frame only along the zoomed axes (snag `text-marks-above-6e3d5a0b`). A
+# layer that authors `visual(...; clip=true)` keeps its clip: its marks carry
+# this style, which the patch skips (`_keep_own_clips!`). LOCKSTEP:
+# `_panZoomClip` (vendor/aov-runtime.js) and `_PAN_ZOOM_CLIP_JS` (src/to_html.jl).
+const _AOV_OWN_CLIP = "aov-own-clip"
+_keep_own_clips!(_) = nothing
+_keep_own_clips!(v::AbstractVector) = foreach(_keep_own_clips!, v)
+function _keep_own_clips!(d::AbstractDict)
+    mark = get(d, "mark", nothing)
+    mark isa AbstractDict && get(mark, "clip", nothing) === true &&
+        (d["mark"] = _mark_with_style(mark, _AOV_OWN_CLIP))
+    for k in ("layer", "spec")
+        haskey(d, k) && _keep_own_clips!(d[k])
+    end
+end
 _uses_style(x, name) = false
 _uses_style(v::AbstractVector, name) = any(x -> _uses_style(x, name), v)
 _uses_style(d::AbstractDict, name) = _uses_style_name(get(d, "style", nothing), name) ||
@@ -2491,6 +2510,7 @@ function add_auto_interactivity!(spec::Dict{String,Any})
                 else
                     inner["params"] = [grid_param]
                 end
+                _keep_own_clips!(inner)
             end
         end
         return spec
@@ -2553,6 +2573,7 @@ function add_auto_interactivity!(spec::Dict{String,Any})
         else
             push!(params, grid_param)
         end
+        _keep_own_clips!(spec)
     end
 
     # Nearest-point tooltip for point marks only.

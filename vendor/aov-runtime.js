@@ -251,7 +251,7 @@ window.AoV = window.AoV || {
             spec = Object.assign({}, spec, {width: width});
         }
         self._computedWidths = self._computedWidths || {};
-        self._computedWidths[id] = {kind: kind, width: width, nCols: nCols, budget: containerWidth, regime: regime};
+        self._computedWidths[id] = {kind: kind, width: width, computed: computed, nCols: nCols, budget: containerWidth, regime: regime};
         return spec;
     },
 
@@ -279,9 +279,31 @@ window.AoV = window.AoV || {
         // Layout px (pre-zoom): CSS zoom scales the canvas and the budget's
         // container alike, so the factor cancels in the difference.
         var over = canvas.clientWidth - info.budget;
-        if (over <= 2) return;
         self._correctedRegime = self._correctedRegime || {};
         self._corrections = self._corrections || {};
+        var minCell = 100;
+        var perCell = (info.kind === 'facet' || info.kind === 'encfacet' || info.kind === 'hconcat') && info.nCols > 0;
+        // A relayout can also need less room than the correction made: a mark
+        // at the domain's edge drawn past the frame for some rows, then not.
+        // The plot widens back by what it falls short of its column, never
+        // past the width computed for that column, so the correction follows
+        // the chrome both ways instead of keeping the narrowest it ever had.
+        // An empty plot does not widen: the room its missing tick labels free
+        // comes back with its first rows, so widening it would only replace
+        // the view twice (keyed removal of the last group, then its return).
+        if (over < -2) {
+            var corr = self._corrections[id];
+            if (info.kind === 'wrap' || !corr || corr.regime !== info.regime || !(info.computed > info.width)) return;
+            if (!self._drawsMarks(self.views[id])) return;
+            var grow = perCell ? Math.floor(-over / info.nCols) : Math.floor(-over);
+            var wider = Math.min(info.computed, info.width + grow);
+            if (wider <= info.width) return;
+            self._correctedRegime[id] = info.regime;
+            self._corrections[id] = {regime: info.regime, width: wider};
+            reembed(info.budget);
+            return;
+        }
+        if (over <= 2) return;
         if (info.kind === 'wrap') {
             // Authored panel widths stay: the row takes fewer panels instead.
             if (info.nCols <= 1) return;
@@ -292,14 +314,26 @@ window.AoV = window.AoV || {
             reembed(info.budget);
             return;
         }
-        var minCell = 100;
-        var perCell = (info.kind === 'facet' || info.kind === 'encfacet' || info.kind === 'hconcat') && info.nCols > 0;
         var shrink = perCell ? Math.ceil(over / info.nCols) : Math.ceil(over);
         var newWidth = info.width - shrink;
         if (newWidth >= info.width || newWidth < minCell) return;
         self._correctedRegime[id] = info.regime;
         self._corrections[id] = {regime: info.regime, width: newWidth};
         reembed(info.budget);
+    },
+
+    // Whether a view draws any data mark item (axes, legends and titles aside).
+    _drawsMarks: function(view) {
+        var drawn = false;
+        (function walk(mark) {
+            if (drawn || !mark) return;
+            if (mark.marktype === 'group') {
+                (mark.items || []).forEach(function(g) { (g.items || []).forEach(walk); });
+            } else if (mark.role === 'mark' && (mark.items || []).length) {
+                drawn = true;
+            }
+        })(view && view.scenegraph().root);
+        return drawn;
     },
 
     // Run a view whose data changed, laying it out again. Vega sizes the
@@ -2124,6 +2158,53 @@ window.AoV = window.AoV || {
         return vg;
     },
 
+    // AoV's automatic pan/zoom (the `grid` selection bound to the scales,
+    // `add_auto_interactivity!`) makes Vega-Lite clip every mark of its view
+    // to the frame. A plot then drew less than its `vsave` file before anyone
+    // zoomed: text outside the frame (labels above a schedule's lines, a
+    // direct label past the right edge) was cut, and `autosize: pad` reserved
+    // no room for it, so an authored `padding` stayed blank. Such a mark is
+    // drawn whole until the reader zooms or pans, and is then cut at the frame
+    // only along the axes the selection moves: an x-only zoom cuts at the left
+    // and right edges and keeps what lies above and below the frame. The
+    // reader has zoomed while the top-level `grid` signal holds a domain for a
+    // projected field, which is exactly what the zoomed scale's domain reads
+    // (`grid["<field>"]`, in layered, faceted and concatenated views alike; a
+    // facet's store stays empty). A double-click reset clears it and draws
+    // everything again. The size of a mark's frame is its group's (`width` at
+    // the top, `child_width` in a facet cell, ...); a mark in a group whose
+    // size is not a signal or a number is cut at the whole frame once zoomed.
+    // A layer that authors `clip: true` keeps it: its marks carry
+    // `aov-own-clip`. LOCKSTEP: `_AOV_OWN_CLIP` (src/to_vegalite.jl) and the
+    // bare `to_html(spec)` embed's `_PAN_ZOOM_CLIP_JS` (src/to_html.jl).
+    _panZoomClip: function(vg) {
+        if (!vg || !(vg.signals || []).some(function(s) { return s.name === 'grid'; })) return vg;
+        function size(v) {
+            return v && typeof v.signal === 'string' ? '(' + v.signal + ')' : typeof v === 'number' ? String(v) : null;
+        }
+        (function walk(group, w, h, fields) {
+            (group.signals || []).forEach(function(s) {
+                if (s.name === 'grid_tuple_fields' && Array.isArray(s.value)) fields = s.value;
+            });
+            (group.marks || []).forEach(function(m) {
+                if (m.type === 'group') {
+                    var u = (m.encode && m.encode.update) || {};
+                    walk(m, size(u.width), size(u.height), fields);
+                    return;
+                }
+                if (m.clip !== true || !fields || !fields.length) return;
+                if ([].concat(m.style || []).indexOf('aov-own-clip') !== -1) return;
+                var channels = fields.map(function(f) { return f.channel; });
+                var x = channels.indexOf('x') !== -1, y = channels.indexOf('y') !== -1;
+                var zoomed = fields.map(function(f) { return 'isValid(grid[' + JSON.stringify(f.field) + '])'; }).join(' || ');
+                var cut = x && !y && w ? "pathShape('M0,-100000H' + " + w + " + 'V100000H0Z')" :
+                    y && !x && h ? "pathShape('M-100000,0H100000V' + " + h + " + 'H-100000Z')" : 'true';
+                m.clip = {signal: '(' + zoomed + ') ? ' + cut + ' : false'};
+            });
+        })(vg, 'width', 'height', null);
+        return vg;
+    },
+
     // The raw rows of datasets changed via updateData/appendData are kept per plot, and
     // re-embeds (resize, remapEncoding) compile the spec with them in place of its own.
     _withLiveRows: function(id, opts, gen) {
@@ -2131,6 +2212,7 @@ window.AoV = window.AoV || {
         return Object.assign({}, opts, {patch: function(vg) {
             if (typeof patch === 'function') vg = patch(vg);
             self._passiveMarks(vg);
+            self._panZoomClip(vg);
             // An embed superseded or disposed while compiling still compiles;
             // it must not re-create the plot's state.
             if (self._gens[id] !== gen) return vg;

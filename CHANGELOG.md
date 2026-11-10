@@ -15,6 +15,26 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
+## 0.2.29
+
+- An interactive plot (`vdraw`, `to_node`, `with_plot_caption`, a bare `to_html(spec)`)
+  draws every mark whole until the reader zooms or pans, as its `vsave` file does: text
+  placed outside the plot frame shows, for example labels above a schedule's lines
+  (`visual(Text; offset=(0, 12))`) or a direct label past the right edge, and Vega
+  reserves room for it, so an authored `padding` takes effect. Once the reader zooms or
+  pans, marks are cut at the frame only along the zoomed axes: zooming x alone cuts at
+  the left and right edges and keeps what lies above and below the frame. A double-click
+  reset draws everything whole again. A layer that authors `visual(...; clip=true)` keeps
+  its clip. Before, AoV's automatic pan/zoom made Vega-Lite cut every mark at the frame
+  from the start, so such labels were missing on the page while the `vsave` file showed
+  them, with no warning. `sdraw` (Makie) still cuts them: Makie clips every plot in an
+  axis to the axis area.
+- A plot the runtime sizes to its column (layered, faceted) widens back to the column
+  when a data change leaves it needing less room than its last size correction made,
+  for example once no point sits on the edge of the axis any more. Before, the
+  correction only ever narrowed the plot, so a figure filled row by row could end a few
+  pixels narrower than the same rows drawn at once.
+
 ## 0.2.28
 
 - `scales(Y=(; categories))` and `scales(X=(; categories))` fix a categorical axis's
