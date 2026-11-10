@@ -15,7 +15,7 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
-## 0.2.25
+## 0.2.26
 
 - `visual(...; fillOpacity=a)` fades only the fill, as Vega-Lite's `fillOpacity`
   does, so `visual(BarPlot; fillOpacity=0, stroke="red", strokeWidth=2)` draws a red
@@ -28,6 +28,19 @@ failing at run time with a `MethodError`.
 - On a box plot, `fillOpacity` is a property its Vega-Lite mark does not read, so it
   is left out with the warning that names it; before, it faded the whole box plot.
   Fade the box's fill with `box=(; fillOpacity=a)`, or the whole box plot with `alpha`.
+
+## 0.2.25
+
+- `visual(VSpan)` and `visual(HSpan)` draw on `vdraw` and `vsave`, as Makie's `vspan`
+  and `hspan` do on `sdraw`: `mapping(:from, :to) * visual(VSpan)` is a band from
+  `from` to `to` on x over the whole plot height, also over a nominal y, and `HSpan`
+  the same on y over the whole width. Both lower to a Vega-Lite `rect` positioned on
+  that one axis (`x`/`x2` or `y`/`y2`); the tooltip names both edges, and `color`,
+  `alpha`, `strokecolor` and `strokewidth` apply as on other marks. Makie's whole-axis
+  default `ymin = 0`, `ymax = 1` (`xmin`/`xmax` for `HSpan`) is accepted; another
+  fraction is left out with a warning. `VSpan` and `HSpan` are exported with the
+  other Makie plot types. Before, both failed with
+  `Unsupported plot type for Vega-Lite`.
 
 ## 0.2.24
 
