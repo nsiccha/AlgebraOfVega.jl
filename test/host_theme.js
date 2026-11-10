@@ -10,7 +10,8 @@
     const send = name => (0, eval)(fixture.updates[name]);
     const LIGHT = 'rgba(30,40,50,1)', DARK = 'rgba(200,210,220,1)';
     const themed = ['theme-picker', 'theme-live', 'theme-authored', 'theme-ink', 'theme-line-ink', 'theme-point-ink', 'theme-line-black',
-        'theme-bars-ink', 'theme-box-ink', 'theme-bars-black', 'theme-geo-stroke-ink', 'theme-line-stroke-ink', 'theme-point-fill-ink'];
+        'theme-bars-ink', 'theme-box-ink', 'theme-bars-black', 'theme-geo-stroke-ink', 'theme-line-stroke-ink', 'theme-point-fill-ink',
+        'theme-cats', 'theme-ribbon', 'theme-cats-look'];
     async function ready(id, previous) {
         for (let i = 0; i < 300; i++) {
             const view = AoV.views[id];
@@ -61,6 +62,46 @@
             label + ': fill ink points ' + JSON.stringify(dots.map(i => [i.fill, i.stroke])));
     }
     const legendLabels = view => role(view, 'legend-label').map(i => i.text).sort().join(',');
+    // Vega's default colours: Vega's own on a light page; on a dark page the
+    // first category and the default mark colour are AoV's dark step and the
+    // other categories stay Vega's; a page's `--aov-category` wins on both
+    // (snag `aov-dark-mode-ca-435a3e99`).
+    const DARK_FIRST = '#4893e2';
+    const paints = (view, type, field) => {
+        const by = {};
+        dataItems(view, type).filter(i => i.datum[field] !== undefined).forEach(i => {
+            const p = i.fill != null && i.fill !== 'transparent' ? i.fill : i.stroke;
+            (by[i.datum[field]] = by[i.datum[field]] || new Set()).add(p);
+        });
+        return Object.fromEntries(Object.entries(by).map(([k, s]) => [k, [...s].sort().join('|')]));
+    };
+    function defaults(views, dark, label) {
+        const first = dark ? DARK_FIRST : '#4c78a8';
+        const cats = paints(views['theme-cats'], 'symbol', 'cat');
+        check(JSON.stringify(cats) === JSON.stringify({a: first, b: '#f58518', c: '#e45756'}),
+            label + ': default categories ' + JSON.stringify(cats));
+        for (const type of ['line', 'area']) {
+            const ribbon = paints(views['theme-ribbon'], type, 'scenario');
+            check(JSON.stringify(ribbon) === JSON.stringify({Daily: first, 'Twice daily': '#f58518'}),
+                label + ': ribbon ' + type + ' ' + JSON.stringify(ribbon));
+        }
+        const swatches = items(views['theme-ribbon'], i => i.mark?.role === 'legend-symbol').map(i => i.fill);
+        check(JSON.stringify(swatches) === JSON.stringify([first, '#f58518']), label + ': ribbon legend ' + JSON.stringify(swatches));
+        const plain = dataItems(views['theme-authored'], 'symbol').map(i => i.fill);
+        check(plain.length === 3 && plain.every(c => c === first), label + ': default mark colour ' + JSON.stringify(plain));
+        const look = paints(views['theme-cats-look'], 'symbol', 'cat');
+        check(JSON.stringify(look) === JSON.stringify({a: 'rgb(10, 20, 30)', b: 'rgb(40, 50, 60)', c: 'rgb(70, 80, 90)'}),
+            label + ': page palette ' + JSON.stringify(look));
+        const cfg = AoV.hostThemeConfig(document.getElementById('theme-cats'));
+        if (dark) {
+            const vegas = vega.scheme('tableau10');
+            check(cfg.range && cfg.range.category.length === vegas.length && cfg.range.category[0] === DARK_FIRST &&
+                cfg.range.category.slice(1).join() === vegas.slice(1).join() && cfg.mark.color === DARK_FIRST,
+                label + ': dark config ' + JSON.stringify([cfg.range, cfg.mark]));
+        } else {
+            check(!('range' in cfg) && !('mark' in cfg), label + ': light config sets colours ' + JSON.stringify([cfg.range, cfg.mark]));
+        }
+    }
 
     function chrome(id, view, text, label) {
         const axis = fills(view, 'axis-label');
@@ -119,6 +160,7 @@
             'light: fixed black line ' + JSON.stringify(lineStrokes(views['theme-line-black'])));
         compositeInk(views, LIGHT, 'light');
         sideInk(views, LIGHT, 'light');
+        defaults(views, false, 'light');
         // A colour remap leaves a fixed-ink composite alone: its ink sits on the parts.
         check(AoV._fixedMarkColor({mark: {type: 'errorbar', rule: {style: ['errorbar-rule', 'aov-ink']}}}),
             'fixed ink errorbar not recognised as fixed colour');
@@ -173,6 +215,7 @@
             'dark: fixed black line changed ' + JSON.stringify(lineStrokes(views['theme-line-black'])));
         compositeInk(views, DARK, 'dark');
         sideInk(views, DARK, 'dark');
+        defaults(views, true, 'dark');
         // Back to the authored colour field: the palette survives the theme.
         const remapped = AoV.views['theme-picker'];
         AoV.remapEncoding('theme-picker', {color: 'state'});
@@ -216,6 +259,7 @@
         for (const id of ['theme-picker', 'theme-live', 'theme-ink']) chrome(id, views[id], LIGHT, 'back to light');
         compositeInk(views, LIGHT, 'back to light');
         sideInk(views, LIGHT, 'back to light');
+        defaults(views, false, 'back to light');
         check(views['theme-live'].data('source_0').length === 3, 'light again: streamed rows lost');
         palette(views['theme-picker'], 'light again');
 

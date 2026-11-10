@@ -44,8 +44,12 @@ receive automatic legend selections.
 Plots follow the page's light/dark choice. The runtime draws axes, legends,
 facet headers, titles and unencoded text in the CSS `color` the plot element
 inherits, on a transparent background, so a plot inside a dark Pico page (or a
-dark card) reads as part of it. Palettes and literal mark colours stay fixed.
-For a fixed line or point that should use the page's foreground ink, write
+dark card) reads as part of it. Authored palettes and literal mark colours stay
+fixed. Vega's default palette changes in one place: on a dark page (light text)
+its first colour, `#4c78a8`, is drawn as `#4893e2`, the same blue lighter and
+more saturated, because the former reads as navy on a dark background; that is
+also the default colour of a mark with no colour mapping. Its other colours are
+kept. For a fixed line or point that should use the page's foreground ink, write
 `visual(Lines; color=:ink)` (or use another mark type, a ribbon —
 `lineribbon(...) * visual(; color=:ink)` — or an interval analysis:
 `pointinterval() * visual(; color=:ink)`). To ink one side of a mark only,

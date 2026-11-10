@@ -177,7 +177,10 @@ plot element inherits, in its `font-family` (a page left on the browser's
 default font keeps Vega's sans-serif), on a transparent background, and
 re-renders the plots when the page's colour scheme changes (a
 `prefers-color-scheme` change, or a `class` / `data-theme` / `style` change on
-`<html>` or `<body>`). Authored palette and literal mark colours are unchanged;
+`<html>` or `<body>`). Authored palette and literal mark colours are unchanged.
+On a dark page (light text), Vega's default palette draws its first colour,
+`#4c78a8`, as `#4893e2` (also the default colour of a mark with no colour
+mapping), since the former reads as navy there; its other colours are kept.
 `visual(...; color=:ink)` uses the plot's inherited foreground colour instead, and
 `stroke=:ink` (or `strokecolor=:ink`) and `fill=:ink` use it on that side of the
 mark only.
