@@ -1,10 +1,15 @@
 # --- Makie → Vega-Lite mark mapping ---
 
-"""Makie plot type → VL mark string. Checked via `<:`, order matters for subtypes."""
+"""Makie plot type → VL mark string. Checked via `<:`, order matters for subtypes.
+
+`VSpan`/`HSpan` are `rect`s positioned on one axis only (`x`/`x2` or `y`/`y2`,
+`_plain_layer_to_vl`): Vega-Lite draws a rect with no encoding on the other axis
+across the whole plot, as Makie draws a span across the whole axis."""
 _MARK_MAP = [
     Scatter => "point", Lines => "line", ScatterLines => "line",
     BarPlot => "bar", Heatmap => "rect", BoxPlot => "boxplot",
     Violin => "area", Band => "area", HLines => "rule", VLines => "rule",
+    VSpan => "rect", HSpan => "rect",
     Hist => "bar", MakieDensity => "area", Errorbars => "errorbar",
     Stairs => "line", ECDFPlot => "line", Contour => "rect",
     Rangebars => "errorbar", CrossBar => "errorbar", Makie.Text => "text",

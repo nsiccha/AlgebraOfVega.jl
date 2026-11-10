@@ -2359,6 +2359,24 @@ function _add_auto_legend_interactivity!(spec::Dict; mode=_AUTO_LEGEND_MODE)
     spec
 end
 
+# The sublayer that carries a layered figure's zoom/pan selection: the first one
+# that encodes every zoomed channel. Vega-Lite projects a selection only on the
+# channels of the unit that defines it ("Cannot project a selection on encoding
+# channel y, which has no field"), so on a band drawn first — a `VSpan` (x only)
+# or `VLines` rule behind a scatter — the y axis lost its zoom and pan. With no
+# layer encoding them all, the one that encodes the most, the first on a tie.
+function _zoom_owner(layers::AbstractVector, channels)
+    count_encoded(l) = (enc = l isa AbstractDict ? get(l, "encoding", nothing) : nothing;
+        enc isa AbstractDict ? count(ch -> haskey(enc, ch), channels) : 0)
+    best, n_best = first(layers), -1
+    for l in layers
+        n = count_encoded(l)
+        n == length(channels) && return l
+        n > n_best && ((best, n_best) = (l, n))
+    end
+    best
+end
+
 """
     add_auto_interactivity!(spec)
 
@@ -2401,7 +2419,7 @@ function add_auto_interactivity!(spec::Dict{String,Any})
                     "bind" => "scales",
                 )
                 if !isnothing(inner_layers) && !isempty(inner_layers)
-                    sl_params = get!(inner_layers[1], "params", Dict{String,Any}[])
+                    sl_params = get!(_zoom_owner(inner_layers, zoom_ch), "params", Dict{String,Any}[])
                     push!(sl_params, grid_param)
                 else
                     inner["params"] = [grid_param]
@@ -2461,9 +2479,9 @@ function add_auto_interactivity!(spec::Dict{String,Any})
             "bind" => "scales",
         )
         if !isnothing(sublayers) && !isempty(sublayers)
-            # For layered specs, put bind:scales on the first sublayer to avoid
+            # For layered specs, put bind:scales on one sublayer to avoid
             # VL duplicate signal error (grid_tuple created per view in layer array)
-            sl_params = get!(sublayers[1], "params", Dict{String,Any}[])
+            sl_params = get!(_zoom_owner(sublayers, zoom_encodings), "params", Dict{String,Any}[])
             push!(sl_params, grid_param)
         else
             push!(params, grid_param)
