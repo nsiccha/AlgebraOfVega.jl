@@ -62,13 +62,11 @@ end
     @test only(rect_units(to_vegalite(dated)))["encoding"]["x"]["type"] == "temporal"
 end
 
-@testitem "VSpan/HSpan extent: Makie's whole-axis default is silent, other fractions are reported" setup=[AoVSpanFixtures] tags=[:translation] begin
+@testitem "VSpan/HSpan extent: Makie's whole-axis default is silent and adds nothing" setup=[AoVSpanFixtures] tags=[:translation] begin
     # ymin = 0, ymax = 1 is Makie's default, the whole axis, which the rect draws.
     @test (@test_logs only(rect_units(to_vegalite(vspans(ymin=0, ymax=1.0))))["mark"]) == "rect"
     @test (@test_logs only(rect_units(to_vegalite(hspans(xmin=0.0, xmax=1))))["mark"]) == "rect"
-    # Any other fraction has no Vega-Lite spelling that holds in a facet cell: reported.
-    @test_logs (:warn, r"`visual\(VSpan\)` sets `ymax`") to_vegalite(vspans(ymax=0.5))
-    @test_logs (:warn, r"`visual\(HSpan\)` sets `xmin`") to_vegalite(hspans(xmin=0.25))
+    # Any other fraction lowers to the band's own y/y2 (x/x2): test/axis_fractions.jl.
     # The extent names belong to the span on the other axis only.
     @test_logs (:warn, r"`visual\(VSpan\)` sets `xmin`") to_vegalite(vspans(xmin=0))
 end

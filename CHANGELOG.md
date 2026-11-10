@@ -15,6 +15,20 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
+## 0.2.27
+
+- Makie's axis fractions draw on `vdraw` and `vsave`, as they already did on `sdraw`:
+  `visual(VLines; ymin=0.0, ymax=0.9)` is a rule from the bottom of the plot to 90 %
+  of its height, `visual(HLines; xmin, xmax)` the same along the width, and
+  `visual(VSpan; ymin, ymax)` / `visual(HSpan; xmin, xmax)` a band over that part of
+  the plot. The fractions are of each facet panel's or concat cell's own size, also
+  after the plot is resized. Each lowers to the mark's own `y`/`y2` (`x`/`x2`),
+  a Vega expression on the size of the group the mark is drawn in
+  (`item.mark.group.height`). Makie's whole-axis default (0 and 1) adds nothing.
+  Before, any other fraction was left out with a "no Vega-Lite mark counterpart"
+  warning and the line or band spanned the whole axis. A value that is not one
+  finite number (a vector, `NaN`) is still left out with that warning.
+
 ## 0.2.26
 
 - `visual(...; fillOpacity=a)` fades only the fill, as Vega-Lite's `fillOpacity`
