@@ -251,7 +251,7 @@ window.AoV = window.AoV || {
             spec = Object.assign({}, spec, {width: width});
         }
         self._computedWidths = self._computedWidths || {};
-        self._computedWidths[id] = {kind: kind, width: width, nCols: nCols, budget: containerWidth, regime: regime};
+        self._computedWidths[id] = {kind: kind, width: width, computed: computed, nCols: nCols, budget: containerWidth, regime: regime};
         return spec;
     },
 
@@ -279,9 +279,31 @@ window.AoV = window.AoV || {
         // Layout px (pre-zoom): CSS zoom scales the canvas and the budget's
         // container alike, so the factor cancels in the difference.
         var over = canvas.clientWidth - info.budget;
-        if (over <= 2) return;
         self._correctedRegime = self._correctedRegime || {};
         self._corrections = self._corrections || {};
+        var minCell = 100;
+        var perCell = (info.kind === 'facet' || info.kind === 'encfacet' || info.kind === 'hconcat') && info.nCols > 0;
+        // A relayout can also need less room than the correction made: a mark
+        // at the domain's edge drawn past the frame for some rows, then not.
+        // The plot widens back by what it falls short of its column, never
+        // past the width computed for that column, so the correction follows
+        // the chrome both ways instead of keeping the narrowest it ever had.
+        // An empty plot does not widen: the room its missing tick labels free
+        // comes back with its first rows, so widening it would only replace
+        // the view twice (keyed removal of the last group, then its return).
+        if (over < -2) {
+            var corr = self._corrections[id];
+            if (info.kind === 'wrap' || !corr || corr.regime !== info.regime || !(info.computed > info.width)) return;
+            if (!self._drawsMarks(self.views[id])) return;
+            var grow = perCell ? Math.floor(-over / info.nCols) : Math.floor(-over);
+            var wider = Math.min(info.computed, info.width + grow);
+            if (wider <= info.width) return;
+            self._correctedRegime[id] = info.regime;
+            self._corrections[id] = {regime: info.regime, width: wider};
+            reembed(info.budget);
+            return;
+        }
+        if (over <= 2) return;
         if (info.kind === 'wrap') {
             // Authored panel widths stay: the row takes fewer panels instead.
             if (info.nCols <= 1) return;
@@ -292,14 +314,26 @@ window.AoV = window.AoV || {
             reembed(info.budget);
             return;
         }
-        var minCell = 100;
-        var perCell = (info.kind === 'facet' || info.kind === 'encfacet' || info.kind === 'hconcat') && info.nCols > 0;
         var shrink = perCell ? Math.ceil(over / info.nCols) : Math.ceil(over);
         var newWidth = info.width - shrink;
         if (newWidth >= info.width || newWidth < minCell) return;
         self._correctedRegime[id] = info.regime;
         self._corrections[id] = {regime: info.regime, width: newWidth};
         reembed(info.budget);
+    },
+
+    // Whether a view draws any data mark item (axes, legends and titles aside).
+    _drawsMarks: function(view) {
+        var drawn = false;
+        (function walk(mark) {
+            if (drawn || !mark) return;
+            if (mark.marktype === 'group') {
+                (mark.items || []).forEach(function(g) { (g.items || []).forEach(walk); });
+            } else if (mark.role === 'mark' && (mark.items || []).length) {
+                drawn = true;
+            }
+        })(view && view.scenegraph().root);
+        return drawn;
     },
 
     // Run a view whose data changed, laying it out again. Vega sizes the

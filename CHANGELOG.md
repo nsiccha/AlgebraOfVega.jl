@@ -29,6 +29,11 @@ failing at run time with a `MethodError`.
   from the start, so such labels were missing on the page while the `vsave` file showed
   them, with no warning. `sdraw` (Makie) still cuts them: Makie clips every plot in an
   axis to the axis area.
+- A plot the runtime sizes to its column (layered, faceted) widens back to the column
+  when a data change leaves it needing less room than its last size correction made,
+  for example once no point sits on the edge of the axis any more. Before, the
+  correction only ever narrowed the plot, so a figure filled row by row could end a few
+  pixels narrower than the same rows drawn at once.
 
 ## 0.2.28
 
