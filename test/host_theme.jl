@@ -170,6 +170,7 @@ end
 
 @testitem "host theme follows the page in the browser" setup=[AoVBrowserServer] tags=[:theme, :browser, :regression, :auto_remap, :incremental] begin
     using AlgebraOfVega, HTMXObjects, JSON
+    using HTMX: h
     @test !isnothing(Base.get_extension(AlgebraOfVega, :AlgebraOfVegaHTMXObjectsExt))
     html(x) = sprint(show, MIME"text/html"(), x)
     script(x) = match(r"^<script>(.*)</script>$"s, html(x)).captures[1]
@@ -207,6 +208,19 @@ end
     ink_stroke_line = data(line_rows) * mapping(:x, :y) * visual(Lines; strokecolor=:ink, linewidth=3) * config(height=120)
     ink_fill_point = data(line_rows) * mapping(:x, :y) *
         visual(Scatter; fill=:ink, strokecolor="red", strokewidth=2) * config(height=120)
+    # Vega's default palette on a dark page (snag `aov-dark-mode-ca-435a3e99`):
+    # unauthored categories, the reported coloured ribbon, and a page palette.
+    cats = data((; x=[1.0, 2.0, 3.0], y=[1.0, 3.0, 2.0], cat=["a", "b", "c"])) *
+        mapping(:x, :y; color=:cat) * visual(Scatter) * config(height=120)
+    # A time course: more than 12 x values, so the ribbon is drawn as a
+    # ribbon (no Ribbons | Intervals switch).
+    days = collect(0.0:0.25:5.0)
+    q50 = [2 + sin(d) for d in days]
+    ribbon_rows = (; day=repeat(days, 2), q50=vcat(q50, q50 .+ 1), q2_5=vcat(q50, q50 .+ 1) .- 1.0,
+        q97_5=vcat(q50, q50 .+ 1) .+ 1.0, q25=vcat(q50, q50 .+ 1) .- 0.5, q75=vcat(q50, q50 .+ 1) .+ 0.5,
+        scenario=repeat(["Daily", "Twice daily"], inner=length(days)))
+    ribbon = data(ribbon_rows) * mapping(:day, :q50; color=:scenario => sorter(["Daily", "Twice daily"]) => "Scenario") *
+        lineribbon(bands=[:q2_5 => :q97_5, :q25 => :q75]) * visual() * config(height=120)
 
     updates = Dict(
         "append" => script(append_data("theme-live", (; x=[1.0, 2.0, 3.0], y=[1.0, 4.0, 9.0]))),
@@ -230,7 +244,11 @@ end
                 vdraw(ink_outline; id="theme-geo-stroke-ink"),
                 vdraw(ink_stroke_line; id="theme-line-stroke-ink"),
                 vdraw(ink_fill_point; id="theme-point-fill-ink"),
-                vdraw(black_bars; id="theme-bars-black")]
+                vdraw(black_bars; id="theme-bars-black"),
+                vdraw(cats; id="theme-cats"),
+                vdraw(ribbon; id="theme-ribbon"),
+                h.div(style="--aov-category: rgb(10, 20, 30), rgb(40, 50, 60), rgb(70, 80, 90)")(
+                    vdraw(cats; id="theme-cats-look"))]
             style = "<style>body{color:rgb(30,40,50);background:rgb(250,250,250)}" *
                 "html[data-theme=dark] body{color:rgb(200,210,220);background:rgb(20,24,31)}</style>"
             payload = replace(JSON.json((; updates, palette)), "</" => "<\\/")

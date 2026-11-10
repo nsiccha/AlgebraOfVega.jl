@@ -1200,7 +1200,8 @@ window.AoV = window.AoV || {
     // facet headers, titles, unencoded text) in it on a transparent
     // background, in the element's font. A page may also restyle plots
     // through `--aov-*` custom properties (_HOST_LOOK). Mark colours are
-    // left alone, apart from the default categorical range a page may set.
+    // left alone, apart from the default categorical range a page may set
+    // and the first default colour on a dark page (_darkCategory).
     // The spec's own `config` wins key by key (vega-lite merges the embed
     // config under it).
     // Page default: `window.AoV.theme` (`vega_head(theme=...)`); per plot:
@@ -1223,6 +1224,26 @@ window.AoV = window.AoV || {
     _luminance: function(c) {
         var lin = function(v) { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
         return 0.2126 * lin(c[0]) + 0.7152 * lin(c[1]) + 0.0722 * lin(c[2]);
+    },
+    // Light text (closer to white than to black by WCAG contrast): the plot
+    // sits on a dark page.
+    _lightText: function(c) {
+        return this._luminance(c) > 0.179;
+    },
+    // Vega's default categorical palette (tableau10) and default mark colour
+    // are made for white. On a dark page its first colour, #4c78a8, is a
+    // greyish blue (OKLCH chroma .089) at nearly the hue of a blue-grey dark
+    // background (3.9:1 on Pico's #13171f): lines read as navy and
+    // translucent bands as grey. A dark page draws that slot as #4893e2, the
+    // same hue lighter and more saturated (OKLCH .65/.14, 5.6:1 there, 3.9:1
+    // on #333); the other nine colours read on dark pages as they are.
+    _DARK_FIRST: '#4893e2',
+    _darkCategory: function() {
+        var cat = (typeof vega !== 'undefined' && vega.scheme && vega.scheme('tableau10')) || null;
+        if (!cat) return null;
+        cat = cat.slice();
+        cat[0] = this._DARK_FIRST;
+        return cat;
     },
     // The theme vega-tooltip shows the tooltips of a plot in `el` with, so
     // that a tooltip reads as one surface in the page's own colours, as the
@@ -1247,7 +1268,7 @@ window.AoV = window.AoV || {
         // paints no background of its own. Pick the surface for the text.
         var lt = this._luminance(text), lb = this._luminance(back);
         if ((Math.max(lt, lb) + 0.05) / (Math.min(lt, lb) + 0.05) < 3) {
-            back = lt > 0.179 ? [32, 32, 32, 1] : [255, 255, 255, 1];
+            back = this._lightText(text) ? [32, 32, 32, 1] : [255, 255, 255, 1];
         }
         var surface = this._withAlpha(back, 1), color = this._withAlpha(text, 1);
         var border = this._withAlpha(text, 0.15), key = this._withAlpha(text, 0.75);
@@ -1270,6 +1291,9 @@ window.AoV = window.AoV || {
     // and look (_hostLook). Alphas reproduce Vega's defaults for black text
     // on white (domain and ticks #888, grid and view frame #ddd), so a
     // light page renders as before apart from the transparent background.
+    // On a dark page (light text) the default categorical range and the
+    // default mark colour take _darkCategory; a page's `--aov-category`
+    // replaces that range as on a light page.
     hostThemeConfig: function(el) {
         var cs = el ? getComputedStyle(el) : null;
         var c = (cs && this._rgba(cs.color)) || [0, 0, 0, 1];
@@ -1284,6 +1308,11 @@ window.AoV = window.AoV || {
             text: {color: text},
             style: {'aov-ink': {color: text}, 'aov-ink-stroke': {stroke: text}, 'aov-ink-fill': {fill: text}}
         };
+        var dark = this._lightText(c) && this._darkCategory();
+        if (dark) {
+            cfg.range = {category: dark};
+            cfg.mark = {color: dark[0]};
+        }
         if (cs) this._hostLook(cfg, el, cs);
         return cfg;
     },
