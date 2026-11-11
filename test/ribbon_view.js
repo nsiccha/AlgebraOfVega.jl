@@ -172,6 +172,82 @@
         lview = await ready(lg, lview);
         check(drawsRibbons(lview) && xScale(lview).type === 'log', 'log: the ribbons on the same log axis');
 
+        // An uncoloured ribbon (the reporter's figure: two panels, a log dose
+        // axis, the ribbon in ink): the switch, starting as ribbons, with no
+        // overlap tooltip; one interval per dose, at the dose, all in ink.
+        const ink = 'ribbon-ink';
+        let iview = await ready(ink);
+        check(switches(ink).length === 2 && pressed(ink).join() === 'ribbons' && areas(iview).length > 0,
+            'uncoloured: the switch, starting as ribbons');
+        check(switches(ink).every(b => !b.hasAttribute('title')),
+            'uncoloured: no overlap tooltip: ' + button(ink, 'ribbons').title);
+        button(ink, 'intervals').click();
+        iview = await ready(ink, iview);
+        const inkRules = items(iview, i => i.mark?.marktype === 'rule' && i.datum?.q2_5 !== undefined);
+        const isc = iview.scale('x');
+        check(inkRules.length === 2 * 2 * 5, 'uncoloured intervals: two rules per dose and panel: ' + inkRules.length);
+        check(isc && isc.type === 'log' && inkRules.every(i => Math.abs(i.x - isc(i.datum.dose)) < 1),
+            'uncoloured intervals: at the true dose on the log axis');
+        const strokes = [...new Set(inkRules.map(i => i.stroke))];
+        check(strokes.length === 1 && areas(iview).length === 0, 'uncoloured intervals: one colour: ' + strokes);
+        check(pressed(ink).join() === 'intervals', 'uncoloured intervals: Intervals pressed');
+
+        // An uncoloured picker figure (groups on facet rows, studies on
+        // columns): the study, moved from Columns onto Colour, dodges the
+        // intervals around each dose, and moved back they return to the dose.
+        const at = (v, d, g, s) => rules(v).filter(i => i.datum.dose === d && i.datum.group === g &&
+            i.datum.study === s).map(i => i.x);
+        const colour = (id, field) => {
+            const col = document.getElementById('aov-remap-column-' + id);
+            [...col.options].forEach(o => o.selected = !field && o.value === 'study');
+            const sel = document.getElementById('aov-remap-color-' + id);
+            [...sel.options].forEach(o => o.selected = o.value === field);
+            sel.dispatchEvent(new Event('change', {bubbles: true}));
+        };
+        const un = 'ribbon-uncol';
+        let uview = await ready(un);
+        check(pressed(un).join() === 'ribbons' && drawsRibbons(uview) &&
+            switches(un).every(b => !b.hasAttribute('title')), 'uncoloured picker: starts as ribbons, no tooltip');
+        button(un, 'intervals').click();
+        uview = await ready(un, uview);
+        let usc = uview.scale('x');
+        check(drawsIntervals(uview) && at(uview, 5, 'A', 'S1').length > 0 &&
+            at(uview, 5, 'A', 'S1').every(x => Math.abs(x - usc(5)) < 1), 'uncoloured picker intervals: at the dose');
+        check(AoV._cur[un].spec._aov.dodgeX.by === null, 'uncoloured picker: an undodged recipe');
+        colour(un, 'study');
+        uview = await ready(un, uview);
+        usc = uview.scale('x');
+        const udx = AoV._cur[un].spec._aov.dodgeX;
+        check(udx && udx.by === 'study' && JSON.stringify(udx.domain) === '["S1","S2"]',
+            'uncoloured picker, study on Colour: dodged by it: ' + JSON.stringify(udx));
+        const u5 = ['S1', 'S2'].map(s => at(uview, 5, 'A', s)[0]);
+        check(u5.every(x => x !== undefined) && u5[0] < u5[1] && Math.abs(mean(u5) - usc(5)) < 1,
+            'uncoloured picker, study on Colour: two studies centred on the dose: ' + u5 + ' vs ' + usc(5));
+        check(drawsIntervals(uview) && pressed(un).join() === 'intervals', 'uncoloured picker, study on Colour: intervals');
+        colour(un, null);
+        uview = await ready(un, uview);
+        usc = uview.scale('x');
+        check(AoV._cur[un].spec._aov.dodgeX.by === null && at(uview, 5, 'A', 'S2').length > 0 &&
+            at(uview, 5, 'A', 'S2').every(x => Math.abs(x - usc(5)) < 1), 'uncoloured picker, Colour cleared: on the dose');
+
+        // The same on slots (a doubling ladder on a linear axis).
+        const us = 'ribbon-uncol-slots';
+        let sview = await ready(us);
+        button(us, 'intervals').click();
+        sview = await ready(us, sview);
+        const slotLayers = layers(AoV._cur[us].spec);
+        check(slotLayers.filter(l => l._undodged).length === 4 && !slotLayers.some(l => l.encoding && l.encoding.xOffset),
+            'uncoloured slots: undodged, tagged');
+        const slotCentre = (v, d) => { const sc = v.scale('x'); return sc(d) + sc.bandwidth() / 2; };
+        const slotX = at(sview, 5, 'A', 'S1')[0];
+        check(slotX !== undefined && Math.abs(slotX - slotCentre(sview, 5)) < 1 &&
+            at(sview, 5, 'A', 'S2')[0] === slotX, 'uncoloured slots: on the slot centre: ' + slotX);
+        colour(us, 'study');
+        sview = await ready(us, sview);
+        const s5u = ['S1', 'S2'].map(s => at(sview, 5, 'A', s)[0]);
+        check(s5u.every(x => x !== undefined) && s5u[0] < s5u[1] && Math.abs(mean(s5u) - slotCentre(sview, 5)) < 2,
+            'uncoloured slots, study on Colour: dodged around the slot centre: ' + s5u + ' vs ' + slotCentre(sview, 5));
+
         // German texts.
         const de = 'ribbon-de';
         await ready(de);

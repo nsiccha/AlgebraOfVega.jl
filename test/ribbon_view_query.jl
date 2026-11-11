@@ -1,7 +1,7 @@
 using TestItemRunner
 
 """
-`ribbon_view(spec)`: the Julia-side reading of a coloured ribbon's "Ribbons |
+`ribbon_view(spec)`: the Julia-side reading of a ribbon's "Ribbons |
 Intervals" switch (src/ribbon_view.jl) — whether the figure carries it, which
 drawing it starts in, the overlap score and threshold the tooltip shows, and
 otherwise the condition the figure misses. A consumer pins the automatic pick
@@ -43,7 +43,6 @@ end
     t = overlapping()
     @test why(data(t) * mapping(:dose, :med; color=:group) * visual(Scatter)) === :no_ribbon
     @test why(ribbon_fig(overlapping()) + ribbon_fig(sigmoids())) === :several_ribbons
-    @test why(data(t) * mapping(:dose, :med) * lineribbon(bands=BANDS)) === :no_color
     @test why(data(t) * mapping(:dose, :med; color=:group) * lineribbon(bands=BANDS, detail=[:group])) === :detail
     # A date x, and a text x.
     t4 = overlapping(; doses=[5, 10, 20, 40])
@@ -57,6 +56,7 @@ end
     @test why(ribbon_fig(empty_rows)) === :no_x_values
     # A dense x grid (a time course).
     @test why(ribbon_fig(overlapping(; doses=1:13))) === :too_many_x
+    @test why(data(overlapping(; groups=("A",), doses=1:13)) * mapping(:dose, :med) * lineribbon(bands=BANDS)) === :too_many_x
     # An observation off the dose ladder, on a doubling ladder over a linear x.
     @test why(ribbon_fig(t) + data((; dose=[7], y=[1.0])) * mapping(:dose, :y) * visual(Scatter)) === :x_off_slots
 end
@@ -69,10 +69,10 @@ end
     v = ribbon_view(spec; auto_remap=remap)
     @test v.offered && v.start === Symbol(view_meta(to_vegalite(spec; auto_remap=remap))["start"])
     # The picker starts with the groups on facet rows (the pinned channel takes
-    # them): no colour groups to dodge, although the authored figure has them.
+    # them): one ribbon per panel, no colour groups, so it starts as ribbons.
     rows = (; remap..., color=String[])
     moved = ribbon_view(spec; auto_remap=rows)
-    @test !moved.offered && moved.why_not === :no_color
-    @test isnothing(view_meta(to_vegalite(spec; auto_remap=rows)))
+    @test moved == (; offered=true, why_not=nothing, start=:ribbons, score=0.0, threshold=0.1)
+    @test view_meta(to_vegalite(spec; auto_remap=rows))["pairs"] === false
     @test ribbon_view(spec).offered
 end

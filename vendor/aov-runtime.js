@@ -446,7 +446,7 @@ window.AoV = window.AoV || {
     },
 
     // --- Ribbons | Intervals ---
-    // A coloured ribbon over a few x values arrives with two drawings
+    // A ribbon over a few x values arrives with two drawings
     // (src/ribbon_view.jl): the spec shows the starting one and carries the
     // other as `_aov.ribbonView.alt`. Record both and return the drawing to
     // show: the starting one, or, for a new spec of the same plot (`keep`,
@@ -463,7 +463,8 @@ window.AoV = window.AoV || {
         specs[rv.view] = this._withoutRibbonView(spec);
         specs[rv.alt._aov.ribbonView.view] = this._withoutRibbonView(rv.alt);
         var view = keep && prev && specs[prev.view] ? prev.view : rv.view;
-        this._ribbonViews[id] = {view: view, specs: specs, score: rv.score, threshold: rv.threshold};
+        this._ribbonViews[id] = {view: view, specs: specs, score: rv.score, threshold: rv.threshold,
+                                 pairs: rv.pairs !== false};
         return specs[view];
     },
     _withoutRibbonView: function(spec) {
@@ -551,14 +552,16 @@ window.AoV = window.AoV || {
         if (!buttons.length) return;
         var text = this._texts(buttons[0]);
         var pct = function(x) { return Math.round(100 * x) + '%'; };
-        var tip = st.threshold === null || st.threshold === undefined ?
+        // Without two colour groups sharing an x (one group, as a ribbon
+        // without a colour mapping) the overlap score compared nothing.
+        var tip = !st.pairs ? null : st.threshold === null || st.threshold === undefined ?
             text('overlap', {score: pct(st.score)}) :
             text('overlap_auto', {score: pct(st.score), threshold: pct(st.threshold)});
         var group = buttons[0].parentElement;
         if (group && group.classList.contains('aov-ribbon-view')) group.setAttribute('aria-label', text('ribbon_view'));
         buttons.forEach(function(b) {
             b.textContent = text(b.dataset.view);
-            b.title = tip;
+            if (tip) b.title = tip; else b.removeAttribute('title');
             b.setAttribute('aria-pressed', String(b.dataset.view === st.view));
         });
     },
@@ -4412,6 +4415,13 @@ window.AoV = window.AoV || {
                     if (dodged === null && c && typeof c.field === 'string' && !l._keep_color &&
                             !self._fixedMarkColor(l)) dodged = c.field;
                 });
+                // A ribbon without a colour mapping has its interval drawing
+                // on slots tagged `_undodged` (src/ribbon_view.jl): a new
+                // colour dodges it.
+                if (dodged === null && cf) layers.forEach(function(l) {
+                    if (l && l.encoding && l._undodged && !l.encoding.xOffset)
+                        l.encoding.xOffset = {field: cf, type: 'nominal'};
+                });
                 layers.forEach(function(l) {
                     if (!l || !l.encoding || dodged === null || dodged === cf) return;
                     ['xOffset', 'yOffset'].forEach(function(ch) {
@@ -4423,9 +4433,11 @@ window.AoV = window.AoV || {
                 // A ribbon's interval drawing on the ribbon's own x axis
                 // dodges with a `calculate` (`_aov.dodgeX`,
                 // src/ribbon_view.jl): rebuilt for the new colour's groups,
-                // or undone without a colour.
+                // or undone without a colour. A ribbon without a colour
+                // mapping has an undodged recipe (`by` null), which a new
+                // colour dodges.
                 var dx = spec._aov && spec._aov.dodgeX;
-                if (dx && dodged !== null && dodged === dx.by && dodged !== cf) {
+                if (dx && dodged === (dx.by || null) && dodged !== (cf || null)) {
                     var dxRows = (spec.data && spec.data.values) || [];
                     var dxDomain = null;
                     layers.forEach(function(l) {
