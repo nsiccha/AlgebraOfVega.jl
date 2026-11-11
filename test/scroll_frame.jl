@@ -1,8 +1,7 @@
 using TestItemRunner
 
-# A plot wider than its frame scrolls in place (snag `scrollable-plot-8aede8f5`,
-# reporter ODLPlaus:review:ux: axe's `scrollable-region-focusable` on a map's
-# `.aov-plot-area`). A canvas holds nothing that takes the focus, so the frame
+# A plot wider than its frame scrolls in place.
+# A canvas holds nothing that takes the focus, so the frame
 # is itself a named tab stop while it scrolls, and only then.
 @testitem "a plot that scrolls in its frame is a named tab stop, and only then" tags=[:regression, :browser, :caption, :texts] begin
     using AlgebraOfVega, AlgebraOfGraphics, HTMXObjects, JSON

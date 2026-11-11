@@ -1,9 +1,7 @@
 using TestItemRunner
 
 # A captioned plot's downloads share one "⬇ Export ▾" menu, so they leave the
-# caption's title its room (snag `reviewed-caption-0a875821`, reporter
-# ODLPlaus:review:ux; design decision `0bjkegs`; an earlier report asking for the
-# same is `show-a-captioned-6dc9344d`).
+# caption's title its room.
 @testsnippet AoVCaptionMenuFixtures begin
     using AlgebraOfVega, AlgebraOfGraphics, HTMXObjects
     # HTMX escapes the quotes of an attribute value; the browser decodes them.

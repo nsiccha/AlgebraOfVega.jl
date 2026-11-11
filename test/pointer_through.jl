@@ -1,9 +1,8 @@
 using TestItemRunner
 
 # `visual(...; inspectable=false)` lets the pointer through every mark of a layer
-# (snag `aov-layer-pointe-e065caf4`, reporter RegionExplorer: region names over
-# ODLPlaus's grid of cells showed the name's tooltip, or none with `tooltip = []`,
-# never the cell's value). Vega-Lite has no mark property for Vega's
+# so a text layer can leave the underlying cell's tooltip accessible.
+# Vega-Lite has no mark property for Vega's
 # `interactive`, so the marks carry the style `aov-passive` and the runtime sets
 # `interactive: false` on them. Makie's `DataInspector` skips such a plot and
 # shows the one beneath, so `sdraw` keeps the attribute as Makie's own.

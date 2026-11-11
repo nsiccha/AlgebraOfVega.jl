@@ -1,8 +1,6 @@
 using TestItemRunner
 
-# A wide data preview scrolls in a frame of its own (snag `show-data-table-6b2e6950`,
-# reporter ODLPlaus:review:ux: opening "Daten anzeigen" in a 561 px map pane widened
-# the whole page by 1,006 px and laid the table over the column beside the pane).
+# A wide data preview scrolls in its own frame without widening the page.
 @testitem "a data table scrolls in its own frame and leaves the page its width" tags=[:regression, :browser, :caption, :texts] begin
     using AlgebraOfVega, AlgebraOfGraphics, HTMXObjects, JSON
     html(x) = sprint(show, MIME"text/html"(), x)

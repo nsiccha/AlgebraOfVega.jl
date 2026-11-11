@@ -401,8 +401,7 @@ end
 # The pressed switch button's tint (15% of its text colour) took Pico's slate
 # outline (HTMXObjects' `pico_bridge()`) to 4.39:1 in light mode, under WCAG
 # AA's 4.5:1 for its 0.85em text; Pico's azure outline fell to 4.23:1, and on a
-# dark page with no stylesheet the button's black text sat on near-black (snag
-# `axe-core-4-10-3-e386d833`, axe-core 4.10.3 on ODLPlaus' report page). Now
+# dark page with no stylesheet the button's black text sat on near-black. Now
 # both buttons keep 4.5:1, at rest and focused, in light and dark.
 @testitem "the Ribbons | Intervals switch keeps AA text contrast" setup=[AoVRibbonViewFixtures] tags=[:ribbon, :browser, :regression] begin
     using HTMXObjects, JSON

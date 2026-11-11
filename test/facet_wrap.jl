@@ -2,8 +2,7 @@ using TestItemRunner
 
 # A `layout=` facet is AlgebraOfGraphics' wrap facet. Vega-Lite wraps one only when
 # the spec carries `columns`, and AoV used to write none, so every panel went in one
-# row: ODLPlaus' 17 regional panels at 170px rendered 3,350px wide (snag
-# `aov-layout-facet-e1179109`). The lowering now writes AoG's near-square count
+# row. The lowering now writes AoG's near-square count
 # (`_aov.autoColumns`), and the browser runtime puts as many panels in a row as fit
 # the plot's width (user pick on
 # `AlgebraOfVega:snag.aov-layout-facet-e1179109/decisions/2026-10-25T09-18-44-857-1r4o8ot`).
