@@ -130,75 +130,19 @@ end
 """
     config(; kwargs...)
 
-Create a `Config` with Vega-Lite properties. Common options:
+Attach Vega-Lite configuration to a drawable with `spec * config(...)`.
+Use `width`, `height`, and `title` for the figure; `axis=(; ...)` for labels and
+limits; and `scales=scales(...)` for scale configuration using AlgebraOfGraphics
+names. The same `scales(...)` object can be the second argument to `vdraw` or
+`to_vegalite`.
 
-- `width`, `height`, `title` — spec dimensions and title
-- `encoding` — deep-merged with auto-generated encodings (add aggregate, scale, axis, etc.).
-  A `Dict` or the equivalent NamedTuple spelling: `encoding=(; x=(; scale=(; type="log")))`.
-  On one summand of a `+` sum it applies to that summand's layers only
-  (`a * config(encoding=E) + b`, e.g. a tooltip for `a`'s marks); apply it to the
-  whole sum, `(a + b) * config(encoding=E)`, to reach every layer. `row`/`column`/`facet`
-  overrides always configure the shared facet.
-- `config` — raw Vega-Lite top-level `config` (a `Dict` or NamedTuple), deep-merged into
-  AoV's defaults rather than replacing them
-  (compose with [`locale_config`](@ref) for German or English numbers and dates)
-- `params` — VL interactivity parameters
-- `transform` — a list of VL data transforms (a single one may stand alone). They run first
-  on the rows they reach, before any transform AoV generates (a map's lookup, a `density()`).
-  On one summand of a `+` sum they apply to that summand's layers only
-  (`a * config(transform=T) + b`), and each summand may carry its own; on the whole figure,
-  `(a + b) * config(transform=T)`, they reach every layer, also one with its own table, and
-  run before a layer's own. A filter on a column that a layer's rows lack removes all of
-  them, so scope it to the layers that have the column. A layer whose marks AoV computes in
-  Julia (a `pointinterval`, a faceted `density()`) carries those summary rows, and they are
-  what the transform sees. Interactive path only; `sdraw` ignores them.
-- `select` — field(s) for client-side dropdown filtering (e.g. `select=:origin`)
-- `frame` — animate the figure over a column's values, one frame at a time, with a
-  play/pause button and a slider (e.g. `frame=:year`); the long form is
-  `frame=(; field=:year, interval=0.5, loop=false, start=:first)`. Frames play in sorted
-  order, or in a `sorter` order (`frame=:month => sorter("Jan", "Feb", …)`). Colour, size
-  and x/y scales, and a map's projection, stay fixed across frames. Interactive path only.
-- `link` — join a link group, e.g. `link=(; group="probes", key=:kenn)`: hovering one of this
-  plot's marks highlights the item with the same `kenn` in every other member of group
-  `probes` (other linked plots, HTMXObjects tables), and hovering an item there highlights
-  this plot's marks with that `kenn` (the others dim, as for a legend selection). Interactive
-  path only; a static figure ignores it.
-- `scales` — an AoG `scales(...)` object, mirroring `draw(spec, scales(...))`. Currently
-  translates X/Y/Z `scale=log`/`log2`/`log10`/`sqrt`/`symlog`/`identity` to VL scale types.
-  Example: `config(scales=scales(Y=(; scale=log10)))`. Use `scale=symlog` for a symlog
-  axis (linear near 0, log beyond — keeps genuine zeros a plain `log` axis cannot render),
-  optionally with `constant=` to tune the linear-region half-width (VL default 1):
-  `config(scales=scales(X=(; scale=symlog, constant=2)))`.
-- `facet` — an AoG-style NamedTuple passed to `draw(; facet=...)`. `linkxaxes=:none` /
-  `linkyaxes=:none` unlink the facet panels' axes (VL `resolve.scale.<axis>="independent"`
-  on the facet). As in AoG, a spec without a facet ignores them, so a shared config may
-  carry them whether or not the figure is faceted; a remap that facets the plot in the
-  browser applies them.
-  Example: `config(facet=(; linkxaxes=:none, linkyaxes=:none))`.
-- `axis` — an AoG-style NamedTuple passed to `draw(; axis=...)`. `limits=((xlo, xhi),
-  (ylo, yhi))` (each side may be `nothing`) translates to VL `encoding[x/y].scale.domain`;
-  `clamp=true` additionally sets `scale.clamp=true` on the limited axes (VL-only extension,
-  stripped on the Makie path).
-  Example: `config(axis=(; limits=((1, 100), nothing), clamp=true))`.
-- `independent_scales` — **deprecated**: use `facet=(; linkxaxes=:none, linkyaxes=:none)`.
+`params`, `transform`, and other Vega-Lite properties provide an escape hatch.
+`select` adds filter controls; `frame` selects an animation coordinate; `link`
+connects hover identity across figures. Per-layer configuration stays with its
+layer. Configuration applied to a combined figure applies to the combined result.
 
-Config is applied to a spec via `*`: `data(df) * mapping(:x, :y) * visual(Scatter) * config(width=500)`.
-
-A configured spec still takes further algebra terms, which reach its layers as AoG
-distributes `*` over `+`: `(a * config(encoding=E) + b) * visual(; clip=true)` is
-`a * visual(; clip=true) * config(encoding=E) + b * visual(; clip=true)`, each summand
-keeping its own override.
-
-Successive terms accumulate: `spec * config(a...) * config(b...)` keeps every property of
-both. `encoding`, `config`, `facet`, `axis` and `scales` merge key by key (`encoding` and
-`config` recursively, `scales` scale by scale), with the later term winning on a
-conflicting key; any other property (`width`, `title`, `params`, `transform`, …) takes the
-later term's value. Across a `+`, a summand's `transform` stays on its own layers instead.
-
-Two configs compose the same way on their own: `a * b` is the `Config` that `spec * a * b`
-applies, so `spec * (a * b) == spec * a * b`. A shared config extended with an app's own
-settings, `SHARED * config(config=(; legend=(; orient="top")))`, stands in wherever
-`SHARED` was used.
+Use a configured drawable with `vdraw` for a browser or `sdraw` for Makie.
+Browser-only settings need not have a static-rendering equivalent.
 """
 function config(; kwargs...)
     props = Dict{Symbol,Any}(pairs(kwargs)...)

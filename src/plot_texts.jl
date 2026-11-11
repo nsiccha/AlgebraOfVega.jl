@@ -141,12 +141,8 @@ const _PLOT_TEXT_LOCALES = (
     plot_texts(locale::Symbol=:en; texts...) -> PlotTexts
 
 The [`PlotTexts`](@ref) for `locale` (`:en` or `:de`), with any of its texts
-replaced by keyword:
+replaced by keyword.
 
-```julia
-const DE = plot_texts(:de; show_data="Kennzahlen anzeigen")
-with_plot_caption(spec, "Kapazität"; plot_id="kapazitaet", texts=DE)
-```
 
 An unknown locale or text name, or a placeholder the text does not take
 (`"{fromat}"`), throws an `ArgumentError`.

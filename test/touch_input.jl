@@ -1,6 +1,6 @@
 using TestItemRunner
 
-# Touch input (snag `touch-input-tap-7e25466e`, reporter VerkehrsStrukturdaten:ux:touch).
+# Touch input on synthetic map data.
 # Vega picks a canvas mark only on pointermove, which a finger tap never
 # sends, so on a phone a tap on a map district sent no `aov:click` (no
 # drill-down) and no `aov:hover`, and a tooltip showed only while a finger

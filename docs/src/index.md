@@ -1,46 +1,30 @@
-# AlgebraOfVega.jl
+# AlgebraOfVega
 
-AlgebraOfVega translates [AlgebraOfGraphics.jl](https://aog.makie.org/stable/) specs into [Vega-Lite](https://vega.github.io/vega-lite/) JSON for interactive client-side rendering. Write standard AoG (`data * mapping * visual`) and get plots that run in the browser with tooltips, legend filtering, zoom/pan, and HTMX-driven server-side updates — without a Makie backend.
+```@setup assets
+Main.DocsPlots.prepare_assets()
+```
 
-## Why?
+AlgebraOfVega turns AlgebraOfGraphics expressions into interactive Vega-Lite figures for the browser.
 
-- **Interactive by default** — tooltips, legend click filtering, and zoom/pan without configuration
-- **Composable algebra** — the same `*` (intersection), `+` (union), and `dims(...)` from AoG
-- **Client-side rendering** — Vega-Lite in the browser, no Makie required
-- **HTMX integration** — wire Vega signals to server-side Julia handlers for dynamic dashboards
-- **Tidybayes-style uncertainty** — `lineribbon`, `pointinterval`, `dotinterval`, `gradient_interval`, `ribbon` for posterior visualisation
-- **Static export** — also produces standalone HTML, raw Vega-Lite JSON, or SVG via `sdraw`
+Install from the shell. The [installer](https://github.com/nsiccha/AlgebraOfVega.jl/blob/dev/docs/install.jl) resolves the unregistered dependencies together; it changes your Julia environment and is not run by the documentation build.
 
-## Quick example
+```sh
+curl -fsSL https://nsiccha.github.io/AlgebraOfVega.jl/dev/install.jl | julia
+```
 
-```julia
+```@example start
 using AlgebraOfVega
-
-spec = data(df) * mapping(:x, :y, color=:group) * visual(Scatter) *
-       config(width=500, title="My Plot")
-
-to_node(spec)     # HTMX.Node — embed in HTMXObjects/Oxygen apps. Aliased as `vdraw(spec)`.
-to_html(spec)     # standalone HTML string
-to_vegalite(spec) # raw Vega-Lite JSON Dict
+using Main.DocsPlots # hide
+measurements = (time = [0, 1, 2, 3], temperature = [18, 21, 25, 28])
+plot = data(measurements) *
+    mapping(:time => "Time (min)", :temperature => "Temperature (°C)") *
+    visual(ScatterLines; color="#2a78d6") * config(height=210)
+vdraw(plot);
+DocsPlots.figure(plot, "start"; caption="Temperature rises at each observation; points mark measurements and the line joins them.") # hide
 ```
 
-A `VegaSpec` (the result of `data * mapping * visual * config`) auto-renders in `text/html`-aware contexts via `Base.show`, so you can also just return the `spec` directly from notebooks or HTMX route handlers.
+`*` combines a table, its column mappings, and a mark. `vdraw` returns an HTML node; a notebook or web page displays it. The browser draws the figure, so this path needs no Makie rendering backend.
 
-## Where to next
+## Next steps
 
-| Page | What it covers |
-|------|----------------|
-| [Getting Started](getting-started.md) | Quick example end-to-end, the algebra (`*`, `+`, `dims`), faceting, mark types |
-| [Translation Guide](translation.md)   | How AoG specs are lowered to Vega-Lite — mappings, layers, scales, the deep-merge contract |
-| [Gallery](gallery.md)                 | Worked examples — scatter, ribbons, faceting, uncertainty, dashboards |
-| [FAQ / Gotchas](faq.md)               | Aliases (`vdraw`, `vdata`), deep-merge surprises, faceting + select, legend binding caveats, interactivity wiring |
-| [API Reference](api.md)               | Full export list, organised by use case (tidybayes-style `lineribbon` / `pointinterval` / `dotinterval` / `gradient_interval` / `ribbon` live here) |
-
-## Installation
-
-AlgebraOfVega is not yet registered. Install from GitHub:
-
-```julia
-using Pkg
-Pkg.add(url="https://github.com/nsiccha/AlgebraOfVega.jl")
-```
+Follow [Measurements](examples/measurements.md) for a complete comparison, or [Intervals](examples/intervals.md) for distribution summaries. The [composition guide](guides/composition.md) explains the algebra; the [output guide](guides/output.md) covers HTML, JSON, and image files.

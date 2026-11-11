@@ -10,11 +10,6 @@ Returns an HTMX `h.div` node with flex-wrap layout.
 - `columns`: vector of column names (Symbols) to plot
 - `group`: optional column name for color grouping (e.g. `:chain`, `:model`)
 - `width`, `height`: per-plot dimensions
-
-Example (posterior parameter ECDFs colored by chain):
-```julia
-ecdf_grid(draws_df, [:alpha, :beta, :sigma]; group=:chain)
-```
 """
 function ecdf_grid(table, columns; group=nothing, width=250, height=180)
     plots = map(columns) do col
@@ -51,14 +46,6 @@ Returns composable AoG layers — combine with `* config(...)` and pipe to `|> v
 - `group`: draw identifier column (e.g. `:draw_id`) for prediction ribbons
 - `color`: optional color column for predictions (e.g. `:model` for comparisons)
 - `truth`: optional ground-truth data table (rendered as dashed lines)
-
-Example:
-```julia
-ppc_overlay(obs_df, pred_df;
-    x=:time_h, y=:value, col=:assay_name, row=:subject_name,
-    group=:draw_id,
-) * config(width=250, height=100, facet=(; linkxaxes=:none, linkyaxes=:none)) |> vdraw
-```
 """
 function ppc_overlay(obs, pred; x, y, col=nothing, row=nothing, group=nothing,
                      color=nothing, truth=nothing, obs_mark=Scatter, obs_size=30,

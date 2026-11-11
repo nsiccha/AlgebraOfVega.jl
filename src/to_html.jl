@@ -1,17 +1,14 @@
 """
     to_html(spec; id, width, height, source, base)
 
-Return a standalone HTML string with embedded vega-embed. `source` selects the
-script origin — `:cdn` (default), `:vendor`, or `:inline`, as in `vega_head`.
-`source=:inline` inlines AoV's vendored Vega builds, so the returned page
-renders with no network access at all. This is also the `text/html` `show` of a
-spec, so it is what a notebook, or HTMXObjects' `SemanticPlot`, writes.
+Serialize a figure as HTML. A bare drawable produces a fragment using
+Vega-Embed's default appearance. An HTML node, such as `to_node(spec)`, produces
+a standalone document with AoV's runtime and host-theme support.
 
-The fragment also draws when it is inserted into a page that has already
-loaded, for example by an htmx swap into a page without `vega_head()`. There
-the browser runs the embed script before the Vega scripts above it have
-arrived, so the embed waits for them. If one of them fails to load, the plot's
-container and the console say so, naming `vega_head()`.
+`source=:cdn`, `:vendor`, or `:inline` selects plotting-library delivery.
+The inline form embeds the libraries for use without a network connection.
+The node overload also accepts `title`, `head_extra`, localized `texts`, and
+`runtime=:linked` with vendor delivery. Save the returned string to a file.
 """
 function to_html(spec; id=nothing, width=nothing, height=nothing,
         source::Symbol=:cdn, base::AbstractString="/vendor")
@@ -110,27 +107,14 @@ _html_escape(s::AbstractString) =
 """
     to_html(node::HTMX.Node; texts=plot_texts(), title=texts.untitled, head_extra="", source, base, runtime) -> String
 
-Serialize a rendered plot node (e.g. `to_node`, `auto_remap_node`, or a
-`with_plot_caption` fragment) as ONE standalone `.html` document string:
-`<!DOCTYPE html>` + `<head>` + `<body>`.
+Serialize a figure as HTML. A bare drawable produces a fragment using
+Vega-Embed's default appearance. An HTML node, such as `to_node(spec)`, produces
+a standalone document with AoV's runtime and host-theme support.
 
-The `<head>` is the exact `vega_head()` set — Vega/Vega-Lite/Vega-Embed
-scripts plus the inlined `window.AoV.*` runtime — rendered by construction
-from `vega_head()` itself, so versions can never drift. `source` selects the
-script origin (`:cdn` default, `:vendor`, `:inline`) and `runtime` how AoV's
-runtime is loaded (`:inline` default, `:linked`), as in `vega_head`;
-`source=:inline` inlines the vendored builds, so the saved file renders with
-no network at all. `head_extra` appends additional rendered head HTML (the
-`with_plot_caption` methods use it for caption CSS + table sorting). The node
-body carries picker controls, embed scripts, and inlined spec/data JSON, so
-the saved file keeps working with no server: picker re-facets, CSV/PNG/SVG
-download, caption/summary render. Only `signals=`-wired plots degrade (their
-`htmx.ajax` callback has no server), and they do so silently — see
-`signalToHtmx`.
-
-`texts` (a [`PlotTexts`](@ref)) sets the page's `<html lang>` and the title
-used when `title` is not given; pass the same value as the node's own
-`texts=` (`plot_texts(:de)` for a German page).
+`source=:cdn`, `:vendor`, or `:inline` selects plotting-library delivery.
+The inline form embeds the libraries for use without a network connection.
+The node overload also accepts `title`, `head_extra`, localized `texts`, and
+`runtime=:linked` with vendor delivery. Save the returned string to a file.
 """
 function to_html(node::HTMX.Node; texts::PlotTexts=_EN_PLOT_TEXTS,
         title::AbstractString=texts.untitled, head_extra::AbstractString="",
@@ -165,8 +149,10 @@ end
 """
     vdraw(spec; kwargs...)
 
-Render an AoG spec as a Vega-Lite HTML node. Convenience alias for `to_node(spec; kwargs...)`.
-Named `vdraw` to avoid clashing with `AlgebraOfGraphics.draw` (Makie rendering).
+Return an HTML node for a browser-rendered figure. An optional second
+`scales` argument configures scales using the AlgebraOfGraphics API.
+The host must load `vega_head()`; notebooks may provide their own HTML display.
+Use `to_vegalite` for a dictionary or `to_html(to_node(spec))` for a document.
 """
 vdraw(spec; kwargs...) = to_node(spec; kwargs...)
 vdraw(; kwargs...) = spec -> vdraw(spec; kwargs...)
@@ -174,10 +160,10 @@ vdraw(; kwargs...) = spec -> vdraw(spec; kwargs...)
 """
     vdraw(spec, scales; kwargs...)
 
-Render an AoG spec with an AoG `Scales` override applied — the interactive mirror of
-`AlgebraOfGraphics.draw(spec, scales(...))`. Equivalent to `vdraw(to_vegalite(spec, scales); kwargs...)`.
-See `to_vegalite(spec, scales)` for the supported X/Y/Z axis scales and the `Color`
-(palette / categories / colormap) override.
+Return an HTML node for a browser-rendered figure. An optional second
+`scales` argument configures scales using the AlgebraOfGraphics API.
+The host must load `vega_head()`; notebooks may provide their own HTML display.
+Use `to_vegalite` for a dictionary or `to_html(to_node(spec))` for a document.
 """
 vdraw(spec, sc::AlgebraOfGraphics.Scales; kwargs...) = to_node(to_vegalite(spec, sc); kwargs...)
 

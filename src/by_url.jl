@@ -37,34 +37,13 @@ end
 """
     by_url(rows, url)
 
-The table `rows`, drawn by reading it from `url` instead of writing it into the
-plot. Pass it to `data`:
+Attach a browser data URL to a Tables.jl source. Julia retains access to the
+rows for mappings and analyses; a raw-row browser figure can load them from
+`url` instead of embedding another copy. Serve `rows_json(rows)` at that URL.
 
-```julia
-data(by_url(stations, "/stationen?zeit=letzte")) * mapping(:lon, :lat; color=:nsv) * visual(Scatter)
-```
-
-The figure's Vega-Lite names the address in place of the rows,
-`"data": {"url": url, "format": {"type": "json"}}`, so the browser fetches the
-rows once and every plot that draws them from the same address stays small.
-The address must answer exactly `rows_json(rows)`: serve that from a route (in
-an HTMXObjects app, map the route's address with `static_url` so a static
-export writes the file). A field that differs between plots of the same rows
-(which region is opened) belongs in that layer's
-`config(transform=[Dict("calculate" => "datum.AGS === '01002'", "as" => "in_selected")])`,
-not in the rows, or every plot needs rows of its own.
-
-`rows` stays in Julia for everything AoV reads from it: the encodings' types,
-the checks on columns, `sdraw`, and `vsave`, which writes the rows into the
-file. A captioned plot's "⬇ HTML" card carries the text the address answered,
-so the saved file draws with no server.
-
-A figure whose drawn rows AoV computes in Julia cannot be read from an address,
-and is refused with an `ArgumentError`: `pointinterval`, `gradient_interval`,
-`dotinterval`, `lineribbon`/`ribbon` (also with `bands=`), a faceted or
-ridgeline `density()`, `cell_charts`, the channel picker (`auto_remap`), and a
-faceted figure whose layers draw different tables. Pass such a layer its rows
-without `by_url`.
+Analyses that calculate new summaries in Julia still need to transmit their
+computed result. A URL must be reachable from the final page, including any
+site or reverse-proxy prefix.
 """
 by_url(rows, url::AbstractString) = ByURL(rows, String(url))
 by_url(rows::Union{ByURL,AddressedColumns}, url::AbstractString) = throw(ArgumentError(
@@ -118,13 +97,7 @@ end
 """
     rows_json(rows) -> String
 
-The JSON a [`by_url`](@ref) address serves for `rows`: an array with one object
-per row, exactly the rows the plot would otherwise carry in its Vega-Lite
-(`NaN` and `±Inf` written as `null`, dates as Vega reads them). Serve it with
-`Content-Type: application/json`:
-
-```julia
-@direct @get stationen(; zeit) = MIMEResponse("application/json", rows_json(station_rows(zeit)))
-```
+Serialize a Tables.jl source as the JSON rows expected by `by_url`.
+Use the returned string as the response body at the figure's data URL.
 """
 rows_json(rows) = _vl_json(_with_rows_inline(() -> data_to_vl(Tables.columns(rows)))["values"])

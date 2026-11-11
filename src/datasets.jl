@@ -1,6 +1,7 @@
-# Sample datasets for gallery examples and testing
+# Sample datasets for gallery examples and testing. Public/synthetic provenance
+# is documented in docs/src/reference/data.md; these are plotting fixtures.
 
-"Sample cars dataset (62 rows): horsepower, mpg, origin, cylinders, weight, acceleration."
+"Public-data cars fixture: horsepower, mpg, origin, cylinders, weight, acceleration."
 sample_cars() = (;
     horsepower = [130,165,150,150,140,198,220,215,225,190,170,160,150,225,95,95,97,85,88,46,87,90,95,113,90,215,200,210,193,88,90,95,100,105,100,88,100,165,175,153,150,180,170,175,110,72,100,88,86,90,70,76,65,69,60,70,95,80,54,90,86,110],
     mpg = [18,15,18,16,17,15,14,14,14,15,15,14,15,14,24,22,18,21,27,26,25,24,25,26,21,10,10,11,9,27,28,25,25,19,16,17,19,18,14,14,15,15,14,15,24,20,25,21,27,26,26,28,25,26,30,22,17,23,36,25,22,18],
@@ -10,7 +11,7 @@ sample_cars() = (;
     acceleration = [12.0,11.5,11.0,12.0,10.5,10.0,9.0,8.5,10.0,8.5,10.0,8.0,9.5,10.0,15.0,15.5,15.5,16.0,14.5,20.5,17.5,15.0,17.5,15.5,18.5,14.0,13.0,13.5,18.0,14.5,13.5,15.5,19.0,13.0,15.5,16.5,17.0,11.0,11.5,12.5,13.5,12.0,11.0,11.5,14.0,19.0,15.0,16.0,19.5,14.5,19.5,17.0,17.0,15.0,17.0,14.0,12.5,13.5,15.5,14.0,15.5,13.5],
 )
 
-"Sample tips dataset (20 rows): total_bill, tip, sex, day, size."
+"Public-data tips fixture: total_bill, tip, sex, day, size."
 sample_tips() = (;
     total_bill = [16.99,10.34,21.01,23.68,24.59,25.29,8.77,26.88,15.04,14.78,10.27,35.26,15.42,18.43,14.83,21.58,10.33,16.29,16.97,20.65],
     tip = [1.01,1.66,3.50,3.31,3.61,4.71,2.0,3.12,1.96,3.23,1.71,5.0,1.57,3.0,1.44,3.5,1.7,3.31,3.5,3.35],
@@ -19,7 +20,7 @@ sample_tips() = (;
     size = [2,3,3,2,4,4,2,4,2,2,2,4,2,2,2,2,3,3,3,3],
 )
 
-"Sample stocks dataset (18 rows): date, price, symbol (AAPL/GOOG/MSFT)."
+"Synthetic stocks fixture: date, price, symbol (AAPL/GOOG/MSFT)."
 sample_stocks() = let
     dates = ["2000-01-01","2000-02-01","2000-03-01","2000-04-01","2000-05-01","2000-06-01"]
     n = length(dates)
@@ -30,7 +31,7 @@ sample_stocks() = let
     )
 end
 
-"Sample temperatures dataset (36 rows): month, city (New York/London/Tokyo), temp."
+"Synthetic temperatures fixture: month, city (New York/London/Tokyo), temp."
 sample_temperatures() = (;
     month = repeat(["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"], 3),
     city = [fill("New York", 12); fill("London", 12); fill("Tokyo", 12)],
@@ -41,7 +42,7 @@ sample_temperatures() = (;
     ],
 )
 
-"Sample penguins dataset (50 rows): species, island, bill_length, bill_depth, flipper_length, body_mass, sex."
+"Public-data penguins fixture: species, island, bill_length, bill_depth, flipper_length, body_mass, sex."
 sample_penguins() = (;
     species = ["Adelie","Adelie","Adelie","Adelie","Adelie","Adelie","Adelie","Adelie","Adelie","Adelie","Adelie","Adelie","Adelie","Adelie","Adelie","Adelie","Adelie","Adelie","Adelie","Adelie","Chinstrap","Chinstrap","Chinstrap","Chinstrap","Chinstrap","Chinstrap","Chinstrap","Chinstrap","Chinstrap","Chinstrap","Chinstrap","Chinstrap","Chinstrap","Chinstrap","Gentoo","Gentoo","Gentoo","Gentoo","Gentoo","Gentoo","Gentoo","Gentoo","Gentoo","Gentoo","Gentoo","Gentoo","Gentoo","Gentoo","Gentoo","Gentoo"],
     island = ["Torgersen","Torgersen","Torgersen","Torgersen","Torgersen","Torgersen","Biscoe","Biscoe","Dream","Dream","Dream","Dream","Dream","Dream","Torgersen","Torgersen","Biscoe","Biscoe","Dream","Dream","Dream","Dream","Dream","Dream","Dream","Dream","Dream","Dream","Dream","Dream","Dream","Dream","Dream","Dream","Biscoe","Biscoe","Biscoe","Biscoe","Biscoe","Biscoe","Biscoe","Biscoe","Biscoe","Biscoe","Biscoe","Biscoe","Biscoe","Biscoe","Biscoe","Biscoe"],
@@ -52,7 +53,7 @@ sample_penguins() = (;
     sex = ["Male","Female","Female","Female","Male","Female","Female","Male","Female","Male","Female","Female","Male","Female","Female","Male","Female","Male","Male","Female","Female","Male","Male","Female","Male","Female","Female","Male","Male","Male","Female","Male","Female","Male","Female","Male","Female","Male","Female","Male","Male","Female","Male","Female","Male","Female","Male","Female","Female","Female"],
 )
 
-"Wide-format population table (5 age categories × male/female counts)."
+"Synthetic wide-format population counts by age category and sex."
 sample_population() = (;
     category = ["0-14","15-24","25-54","55-64","65+"],
     male = [25,18,40,12,10],
@@ -69,7 +70,7 @@ melt_population(pop) = let
     )
 end
 
-"Wide-format monthly sales table (12 months × online/store columns)."
+"Synthetic wide-format monthly sales by channel."
 sample_monthly_sales() = (;
     month = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"],
     online = [120,135,140,160,180,200,220,210,190,175,160,250],
@@ -213,18 +214,11 @@ end
 """
     preaggregate(table; y=:y, group_keys=Symbol[], probs=[0.025, 0.10, 0.25, 0.5, 0.75, 0.90, 0.975])
 
-Group `table` by `group_keys`, compute `y`-column quantiles per group,
-return a `DataFrame`-shaped `NamedTuple` of vectors with `group_keys` plus
-quantile columns.
-
-Column naming: `q<NNN>` for fractional quantiles (e.g. `q025` for 0.025,
-`q10` for 0.10) and `median` for 0.5. Compatible with
-`lineribbon(bands=[:q025 => :q975, ...])` call patterns.
-
-Returns a `NamedTuple` of column vectors (the AoV-canonical lightweight
-table shape — `data(...)` accepts it directly via Tables.jl). If you need
-a true `DataFrame` for downstream `select` / `transform!` chains, wrap
-with `DataFrame(preaggregate(...))` at the call site.
+Group `table` by `group_keys` and compute the specified quantiles of `y`.
+Return a named tuple of columns containing the group keys and quantiles.
+The median column is `median`; other quantile columns use names such as
+`q025`, `q25`, and `q975`. These columns can be passed to interval analyses
+through their `bands` argument.
 """
 function preaggregate(table;
         y::Symbol = :y,

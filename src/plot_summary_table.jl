@@ -34,45 +34,15 @@ end
     plot_summary_table(vl; ci=:outer, sigfigs=2, texts=plot_texts(), labels=nothing)
     plot_summary_table(spec; kwargs...)
 
-A figure's automatic summary as tables: the rows and labels its captioned plot's
-"Show summary" pane shows, for code that renders its own table. `vl` is the
-Vega-Lite `to_vegalite` returns, also when it has been through JSON and back, so
-holding the lowered spec is enough. A `VegaSpec`, `Layer` or `Layers` is lowered
-first. For a figure drawn through the channel picker, pass
-`to_vegalite(spec; auto_remap)`.
+Return summary data for a figure containing interval or ribbon analyses.
+The result is a vector of named tuples with `table`, `caption`, and `label`
+fields, or `nothing` when the figure has no supported summary. Each `table`
+is a Tables.jl column table, ready for a separate table renderer.
 
-Returns `nothing` when the figure has no such summary, which is any figure
-without a `pointinterval`, `gradient_interval`, `dotinterval`, `lineribbon` or
-`ribbon` layer, one whose summary has no rows, and a spec not lowered by
-`to_vegalite`.
-
-Otherwise it returns a vector with one entry per summarised source, most often
-exactly one. Each entry is a `NamedTuple`:
-
-- `table`: a Tables.jl column table. Its columns are the row's categorical
-  columns, its numeric ones (both alphabetical, rounded to `sigfigs`), then the
-  value column, whose cells read `"12 [9.8, 15]"`. Rows are sorted along those
-  columns. A JSON `null` reads as `missing`.
-- `caption`: what the table reports, `"Median [95% credible interval]"`.
-- `label`: the source's name when a faceted figure merged several layers' rows
-  into one dataset, else `nothing`. That name is AoV's own (`_s1`) unless `labels`
-  gives it another.
-
-A layer without a summary, such as observations drawn beside a ribbon, is left
-out. The browser pane lists those rows raw under their own heading.
-
-`ci` picks the interval as `with_plot_caption`'s `summary_ci` does: `:outer`, the
-widest band; `:inner`, the narrowest; a number such as `0.8`, the closest
-probability (raw-draws figures only). `sigfigs` is `summary_sigfigs`. `texts` (a
-[`PlotTexts`](@ref)) sets the caption's words and `labels`, as `layer_labels`
-does on a captioned plot, maps a source's name to its heading.
-
-```julia
-vl = to_vegalite(data(draws) * mapping(:value; y=:parameter) * pointinterval())
-for t in plot_summary_table(vl)
-    render_table(t.table; caption=t.caption)     # HTMXObjects
-end
-```
+`ci` selects the outer, inner, or nearest requested probability interval.
+`sigfigs` controls numeric precision; `texts` supplies caption words;
+`labels` maps source names to headings. The input may be a drawable or the
+dictionary returned by `to_vegalite`.
 """
 function plot_summary_table(vl::AbstractDict; ci=:outer, sigfigs::Integer=2,
                             texts::PlotTexts=_EN_PLOT_TEXTS, labels=nothing)

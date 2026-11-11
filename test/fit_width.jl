@@ -152,7 +152,7 @@ end
 # narrowed for its own chrome, in a sizing regime that the next plot shares)
 # carried over, so the next plot was sized for the old chrome and never
 # corrected: the lineribbon's legend lay wholly past the frame and the faceted
-# plot's was cut at the frame's edge (snag bruno-s-web-sim-ef092f14).
+# plot's was cut at the frame's edge in a layered figure.
 @testitem "a plot replaced under the same id is sized for its own chrome" setup=[AoVFitWidthBrowser] tags=[:regression, :browser] begin
     bands = [:q2_5 => :q97_5, :q25 => :q75]
     days = collect(0.0:0.25:21.0)

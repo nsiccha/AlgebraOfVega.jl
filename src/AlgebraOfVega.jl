@@ -64,44 +64,36 @@ export symlog
 """
     symlog
 
-Symlog scale marker for the sanctioned `scales=` API — e.g.
-`config(scales=scales(X=(; scale=symlog)))`. Selects a Vega-Lite `symlog`
-scale: **linear near 0, logarithmic beyond**. Unlike `log`/`log10` — which
-cannot represent a genuine `x=0`/`y=0` observation (`log(0) = -∞`, so a zero
-in the domain collapses the whole axis) — `symlog` renders the true zeros
-while still log-compressing a wide positive range. It is the right axis for a
-concentration/exposure variable that has real pre-dose zeros alongside a large
-dynamic range.
+Scale marker for an axis that is linear near zero and logarithmic farther away.
+Pass as `scale=symlog` in an X or Y scale configuration. Unlike a logarithmic
+axis, it can represent genuine zero values.
 
-Tune the half-width of the linear region around 0 with an optional `constant=`
-kwarg (Vega-Lite default `1`):
-`config(scales=scales(X=(; scale=symlog, constant=2)))`.
-
-`symlog` is `Makie.pseudolog10`, so `scale=symlog` is portable: the interactive
-(`vdraw`/Vega-Lite) path emits `scale.type="symlog"` and the static
-(`sdraw`/Makie) path gets the matching pseudo-log axis (unit linear region).
-The `constant` kwarg tunes the Vega-Lite path only (Makie's `pseudolog10` has a
-fixed unit linear region); like `nice`/`zero`/`domain`/`clamp`, it is a
-Vega-Lite-side scale detail.
+The optional `constant` sets the Vega-Lite linear region's half-width. The
+Makie path uses `Makie.pseudolog10` with its fixed unit region, so changing
+`constant` affects the browser path only.
 """
 const symlog = Makie.pseudolog10
 
 """
     with_plot_caption(plot_node, caption; plot_id, kwargs...)
 
-Wrap an AoV plot node (built via `to_node` or `auto_remap_node`) in a `<figure>`
-with a caption header that includes a menu of its downloads (and optionally a
-lazy "Show data" details). Implementation lives in the
-`AlgebraOfVegaHTMXObjectsExt` extension and requires `using HTMXObjects` to be
-loaded; see that extension's docstring for the full kwargs.
+Wrap a rendered plot or drawable in a figure with a caption and export menu.
+Requires `using HTMXObjects`. Give the figure a stable `plot_id`.
+
+Caption keywords select data previews, summary tables, channel controls,
+localized `texts`, and download buttons. `static_image` and `alt` supply the
+image and alternative text for a Markdown report. The interactive figure
+remains available in the HTML view.
 """
 function with_plot_caption end
 
 """
     draws_summary_table(table; value, outcome, group_cols=Symbol[], ci_level=0.95, digits=2, caption=nothing, kwargs...)
 
-Build a "median [lo, hi]" summary table from long-format draws data. Implementation
-lives in the `AlgebraOfVegaHTMXObjectsExt` extension (requires `using HTMXObjects`).
+Build a median-and-interval table from long-format values grouped by
+`group_cols` and `outcome`. `ci_level` specifies the central quantile mass;
+`digits` controls display precision. Requires `using HTMXObjects`.
+The interval's scientific interpretation depends on the supplied values.
 """
 function draws_summary_table end
 

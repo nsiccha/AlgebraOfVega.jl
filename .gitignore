@@ -15,3 +15,7 @@ CLAUDE.md
 # Generated docs assets (rebuilt by docs/generate_gallery.jl)
 docs/src/gallery-examples.md
 docs/src/public/
+
+# Generated regression specifications belong in the snapshot cache.
+web/src/test/snapshots/*.json
+bench/generated/

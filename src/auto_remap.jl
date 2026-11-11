@@ -2,45 +2,10 @@
     mapping_controls(id, dimensions; kwargs...)
     mapping_controls(id, resolved::NamedTuple; table=nothing, spec=nothing)
 
-Client-side multi-select picker that remaps Vega-Lite encoding channels on an
-already-rendered plot. Each channel (color, row, column, ungrouped/detail) is a
-multi-select; selecting 2+ fields for one channel synthesises a combo column on
-`spec.data.values`. One channel is always "pinned" — the catch-all that
-auto-absorbs any dims not in another channel.
-
-The first form (vector of dimensions) calls [`resolve_channels`](@ref) under
-the hood; the second form accepts a pre-resolved NamedTuple (e.g. from
-[`refine_channels`](@ref)) for callers that need to inspect / mutate the
-resolution before rendering.
-
-## Keyword arguments
-
-- `id`: must match the `id` kwarg passed to `to_node(spec; id=...)`
-- `dimensions`: vector of `Pair{String,String}` (field => label) or bare strings/symbols
-- `color_default`, `row_default`, `column_default`, `detail_default`: initial selections
-  (vector or single string)
-- `channels`: which channels to show (default `[:color, :row, :column, :detail]`)
-- `pinned`: which channel is the catch-all (default `:color`)
-- `fixed`: `Dict` of channel => field(s) that are always applied but not user-editable,
-  e.g. `Dict(:column => :cylinders)`
-- `table`: optional table for field validation
-- `spec`: optional AoG spec — if provided, validates that all dimension fields survive
-  into the VL data (warns if a field was dropped during AoG summary)
-- `texts`: the [`PlotTexts`](@ref) whose channel labels the picker shows
-  (default English; `plot_texts(:de)` for German)
-
-## Example
-
-```julia
-id = "my-plot"
-h.div()(
-    mapping_controls(id, ["origin" => "Origin", "cylinders" => "Cylinders"];
-        color_default="origin", fixed=Dict(:column => :cylinders)),
-    to_node(data(df) * mapping(:x, :y, color=:origin, col=:cylinders) * visual(Scatter); id=id),
-)
-```
-
-For fully-automatic picker + plot construction, prefer [`auto_remap_node`](@ref).
+Build channel-assignment controls for a plot id and named dimensions.
+`table` or `spec` supplies available values; keyword options configure fixed
+assignments and available channels. Prefer `auto_remap_node` when the controls
+and plot should be rendered together.
 """
 function mapping_controls(id, dimensions::AbstractVector; table=nothing, spec=nothing,
                           texts::PlotTexts=_EN_PLOT_TEXTS, kwargs...)
@@ -453,69 +418,14 @@ end
 """
     auto_remap_node(plot_id, spec; dims, fixed=Dict(), pinned=:row, axes=false, texts=plot_texts())
 
-Fully automatic interactive plot. Takes a "normal" AoG spec and produces an
-`h.div(picker, plot_node)`. The user does not call `resolve_channels`,
-`refine_channels`, `apply_combos!`, `mapping_controls`, or `to_node`; this
-function does all of it.
+Render a figure with controls that assign dimensions to color, row, column,
+and detail channels. `dims` supplies named dimensions. `fixed` pins channel
+assignments; `pinned` selects the channel that retains dimensions otherwise
+unassigned. `axes` enables axis remapping. `texts` controls UI labels.
 
-# How channel info is sourced
-
-- **Defaults** are read from each layer's existing `.named` mapping. If a
-  layer says `mapping(:x, :y; color=:source, row=:study)`, then `color_default
-  = "source"` and `row_default = "study"` automatically.
-- **`dims`** is the user-supplied list of remappable dimensions, as
-  `Vector{Pair{String,String}}` (field => human label). Labels here are the
-  single source of truth for picker labels and combo titles.
-- **`fixed`** assigns fields to channels that the picker shouldn't expose as
-  remappable. Same shape as in `resolve_channels`. Labels for fixed fields
-  are picked up from `dims` if present, otherwise snake_case → Title Case.
-- **`pinned`** is the catch-all channel.
-- **`texts`** is the [`PlotTexts`](@ref) whose channel labels the picker
-  shows (default English; `plot_texts(:de)` for German), and whose words the
-  runtime writes on the plot (a coloured ribbon's "Ribbons | Intervals"
-  switch).
-- **`axes=true`** opts in to X/Y axis channels in the picker. The layer's
-  positional fields (`mapping(x, y, …)`) are automatically added to the
-  picker's dim set — they become X/Y defaults AND are selectable on the
-  other channels. Off by default because X/Y are single-select (no combo
-  semantics) and usually the positional fields are not meant to be
-  re-routed. When any layer carries a `TidybayesAnalysis`, X/Y stay
-  hidden regardless of `axes` — analyses bind axes to computed columns.
-
-# What it does internally
-
-1. Walks `spec` to enumerate layers and their dataframes.
-2. Reads channel defaults from layers' existing mappings.
-3. Calls `resolve_channels(dims; defaults..., fixed, pinned)`.
-4. `refine_channels(resolved, dfs...)` — strips dims absent or single-valued
-   across every layer.
-5. For each layer's df: cartesian-product broadcasts the df across the
-   union of unique values for every row/column field it doesn't have,
-   `fixed=` facet fields included
-   (so partial-overlap layers like observation scatters land in every
-   relevant pred panel), then `apply_combos!` builds `__aov_row`/etc.
-   Color fields never broadcast: a layer missing the color field keeps
-   its rows and gets no color encoding instead of fabricated copies.
-6. Rebuilds each layer with the new (broadcast) df and resolved channel
-   kws merged into its mapping. lineribbon/pointinterval/etc. detail is
-   patched on the transformation.
-7. Reassembles layers via `+`, preserves the original `VegaSpec` config,
-   and wraps with `mapping_controls` + `to_node` in an `h.div`.
-
-# Example
-
-```julia
-spec = data(filtered_pred) * mapping(:dose_mg => "Dose (mg)", :qoi => "";
-            group=:draw, color=:source, row=:study) * lineribbon() +
-       data(obs_rows) * mapping(:dose_mg => "Dose (mg)", :qoi => "") *
-            visual(Scatter; size=30, opacity=0.8)
-spec *= config(height=300, facet=(; linkxaxes=:none, linkyaxes=:none))
-
-auto_remap_node("dose-response-plot", spec;
-    dims=["source"=>"Source", "study"=>"Study", "outcome"=>"Outcome", "method"=>"Method"],
-    fixed=Dict(:column => "assay"),
-    pinned=:row)
-```
+Use a stable `plot_id`. When updating or exporting the figure, pass the same
+remapping options as `auto_remap` to `update_spec`, `to_vegalite`, or `to_json`.
+The browser retains the reader's assignment during a supported data refresh.
 """
 function auto_remap_node(plot_id, spec; texts::PlotTexts=_EN_PLOT_TEXTS, kwargs...)
     controls, plot = _auto_remap_parts(plot_id, spec; texts, kwargs...)

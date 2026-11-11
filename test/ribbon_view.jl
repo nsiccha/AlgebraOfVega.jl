@@ -11,9 +11,9 @@ axis to dodge readably (a dose ladder on a linear axis). The figure starts in th
 point-interval view when the colour groups' outer bands overlap by more than
 10% of the y range on average (in some facet panel, for some pair of groups),
 and the browser runtime swaps between the two with a "Ribbons | Intervals"
-switch. User request on Bruno decision `028b53f`.
+switch.
 
-The two fixtures are the user's two examples, synthesised: three groups whose
+The two fixtures use synthetic values: three groups whose
 wide bands lie inside each other across the whole dose range (starts as
 intervals), and three sigmoids that meet only near 0 and 1, where their bands
 are thin (stays a ribbon).

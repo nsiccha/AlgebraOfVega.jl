@@ -5,8 +5,7 @@ A spec's `text/html` show (`to_html(spec)`) is a self-contained fragment: the
 Vega script tags, then the embed script. HTMXObjects' `SemanticPlot` writes
 exactly that, so apps swap it into pages with htmx.
 
-Regression (snag `swapped-figure-w-07a0d2c6`, reporter
-`Bruno:brmixr:simulator:websim-ux`): swapped into a page without `vega_head()`,
+Regression: when swapped into a page without `vega_head()`,
 the first such figure stayed empty. htmx runs a swapped inline script at once
 and the swapped `<script src>` tags only once they have downloaded, so the embed
 threw `ReferenceError: vegaEmbed is not defined` and nothing on the page said a

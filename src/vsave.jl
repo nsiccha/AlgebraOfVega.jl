@@ -16,40 +16,13 @@ const _VSAVE_URL_FORMATS = Dict(".csv" => "csv", ".tsv" => "tsv", ".topojson" =>
     vsave(spec, path; locale=nothing, scale=nothing, ppi=nothing, auto_remap=nothing) -> path
     vsave(spec, scales(...), path; kwargs...) -> path
 
-Write the figure `vdraw(spec)` shows to a file, as PDF, SVG or PNG by the
-extension of `path`, and return `path`. Every AoV figure works, including
-`geoshape` maps with longitude/latitude marks and the interval analyses that
-`sdraw` cannot draw. The file has Vega's own print look: white background,
-dark text, the figure's own palette. Interactive parts (zoom, legend
-selection, tooltips, a frame player) are left out; a `config(frame=…)`
-figure shows its `start` frame.
+Save the Vega-rendered figure to PDF, SVG, or PNG and return `path`.
+Requires the vl-convert command-line executable on `PATH`, or at the path in
+`AOV_VL_CONVERT`. Supports AoV geographic and interval analyses.
 
-The figure is rendered by the [vl-convert](https://github.com/vega/vl-convert/releases)
-command-line tool (AoV is tested with 1.9.0). Put it on `PATH` or set
-`ENV["AOV_VL_CONVERT"]` to its path; a missing tool is an error that says so.
-
-- `locale`: number and date formats, `:de` (`1.234,5`), `:en`, or a d3 locale
-  name such as `"fr-FR"`. If omitted, the plot's [`locale_config`](@ref) applies,
-  or vl-convert's English when the plot carries no locale.
-- `scale`, `ppi`: PNG resolution (`scale=2` doubles the pixel size). A PDF or
-  SVG is vector output and takes neither.
-- `auto_remap`: a channel-picker figure's keywords, as for
-  [`to_vegalite`](@ref), to write the figure that picker shows first.
-
-Size the figure with `config(width=…, height=…)`; without them Vega-Lite's
-defaults apply. Every data URL naming a local file — such as
-`geoshape("districts.geojson")`, read relative to the current directory — or an
-`http(s)` address is read into the spec before vl-convert renders it: vl-convert
-loads no local files, and GeoJSON polygons are rewound the way `vdraw` draws
-them (see `geoshape`). A `data:` URL is already inline and stays. A
-[`by_url`](@ref) table's rows are written into the file from Julia; its address
-is not read.
-
-    for (name, rows) in regions
-        vsave(data(rows) * mapping(:AGS; color=:share) * geoshape(geo) *
-              config(title=name, width=500, height=500), "maps/\$name.pdf";
-              locale=:de)
-    end
+`scale` controls output scaling and `ppi` the PNG resolution. Pass `locale`
+for number/date formatting, and the original `auto_remap` options when exporting
+a channel-picker figure. This function does not require a Makie backend.
 """
 function vsave(spec, path::AbstractString; auto_remap::Union{Nothing,NamedTuple}=nothing, kwargs...)
     cmd = _vsave_command(path; kwargs...)

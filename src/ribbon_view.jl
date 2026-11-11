@@ -578,11 +578,6 @@ picker). Returns `(; offered, why_not, start, score, threshold)`:
   `nothing` when `intervals=true`/`false` fixes the start.
 
 `start`, `score` and `threshold` are `nothing` when the switch is not offered.
-
-    fig = data(summary) * mapping(:dose, :median; color=:group) *
-        lineribbon(bands=[:q025 => :q975, :q25 => :q75])
-    v = ribbon_view(fig)
-    v.start === :intervals   # true when v.score > v.threshold
 """
 ribbon_view(spec::Union{AlgebraOfGraphics.Layer,AlgebraOfGraphics.Layers,VegaSpec};
             auto_remap::Union{Nothing,NamedTuple}=nothing) =

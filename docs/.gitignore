@@ -4,3 +4,5 @@ package-lock.json
 Manifest.toml
 site/
 cache
+
+__pycache__/

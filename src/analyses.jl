@@ -77,40 +77,19 @@ end
     pointinterval(; probs=[0.95, 0.8, 0.5], point=:median, orientation=:horizontal)
     pointinterval(; bands=[:q025 => :q975, :q25 => :q75], orientation=:horizontal)
 
-Nested credible intervals with varying stroke width + a point estimate.
+Draw nested empirical intervals and a central point. With `probs`, summarize
+raw values using quantiles in Julia. With `bands`, read precomputed lower/upper
+column pairs, widest first; the first positional mapping is the center column.
 
-With `probs` (default): expects draw-level data. Computes quantiles in Julia,
-then generates layered rule + point marks.
+The default horizontal orientation maps values to x and categories through
+`y`. Vertical orientation requires positional mappings `(category, value)`.
+Color groups at the same category are dodged automatically; `dodge_y` or
+`dodge_x` selects the dodge field explicitly. `detail` preserves extra grouping
+columns. A fixed `visual(; color=...)` colors interval rules; `color=:ink`
+follows the page foreground. Other visual attributes are not applied.
 
-    data(draws) * mapping(:value, y=:parameter) * pointinterval()
-
-With `bands`: expects pre-aggregated data with interval columns. The first
-positional is the point/median column. Each band is a `lo => hi` pair,
-outermost first. Skips Julia-side quantile computation.
-
-    data(summary) * mapping(:median, y=:parameter) *
-        pointinterval(bands=[:q025 => :q975, :q25 => :q75])
-
-With `orientation=:vertical`: value column on y-axis, category on x-axis.
-Requires two positional mappings `(category, value)`:
-
-    data(draws) * mapping(:parameter, :value) * pointinterval(orientation=:vertical)
-
-When `color` identifies several intervals at the same category/facet position,
-those intervals are dodged automatically. A one-to-one metadata color remains
-centered. Map `dodge_y` explicitly for horizontal intervals, or `dodge_x` for
-vertical intervals, to choose a dodge field directly:
-
-    data(draws) * mapping(:value, y=:parameter, color=:dose, dodge_y=:model) *
-        pointinterval()
-
-A fixed colour colours every interval rule in place of the per-category palette
-colour; the median point keeps its white fill and dark ring. `color=:ink`
-follows the page's light/dark foreground. A `color=` mapping wins over it, as
-for plain marks. Other `visual` attributes are not applied (the rules keep
-their graduated widths) and are reported with a warning.
-
-    data(draws) * mapping(:value, y=:parameter) * pointinterval() * visual(; color="black")
+Intervals describe the supplied distribution. They are credible intervals only
+when that distribution consists of appropriate posterior draws.
 """
 function pointinterval(; probs=[0.95, 0.8, 0.5], point=:median, bands=nothing,
                         detail=Symbol[], orientation::Symbol=:horizontal)
@@ -124,12 +103,9 @@ end
 """
     gradient_interval(; probs=[0.95, 0.8, 0.5], point=:median, orientation=:horizontal)
 
-Nested credible intervals with uniform width and varying opacity + a point estimate.
-Color and `dodge_y`/`dodge_x` mappings, and a fixed `visual(; color=…)`, follow
-`pointinterval` semantics.
-
-    data(draws) * mapping(:value, y=:parameter) * gradient_interval()
-    data(draws) * mapping(:parameter, :value) * gradient_interval(orientation=:vertical)
+Draw nested quantile intervals with uniform stroke width and varying opacity,
+plus a central point. Orientation, grouping, color, and dodge mappings follow
+`pointinterval`. Supply raw values; `probs` specifies central interval masses.
 """
 gradient_interval(; probs=[0.95, 0.8, 0.5], point=:median, detail=Symbol[], orientation::Symbol=:horizontal) =
     Layer(transformation=GradientIntervalAnalysis(Float64.(probs), point, Symbol.(detail), orientation))
@@ -138,43 +114,15 @@ gradient_interval(; probs=[0.95, 0.8, 0.5], point=:median, detail=Symbol[], orie
     lineribbon(; probs=[0.95, 0.8, 0.5])
     lineribbon(; bands=[:q025 => :q975, :q25 => :q75])
 
-Uncertainty ribbons (area marks) + median line.
+Summarize y at each x with a median line and nested quantile ribbons.
+Use raw values with `probs` and a `group` mapping for draw identity, or
+precomputed lower/upper column pairs with `bands`. The two positional mappings
+are x and the value or median. `detail` preserves grouping columns. A color mapping identifies
+separate series; fixed `visual(; color=...)` colors a series without grouping.
 
-With `probs` (default): expects draw-level data. Groups by x, computes quantiles
-of y across draws. Requires `group=:draw` in mapping.
-
-    data(preds) * mapping(:x, :y, group=:draw) * lineribbon()
-
-With `bands`: expects pre-aggregated data with quantile columns. The second
-positional in mapping is the median column. Each band is a `lo => hi` pair,
-outermost first.
-
-    data(summary) * mapping(:x, :median => "Response") *
-        lineribbon(bands=[:q025 => :q975, :q25 => :q75])
-
-`single_x_glyph` (default `true`): any group/facet whose data collapses to a
-single x value (where an area/line would render nothing) is instead drawn as a
-vertical pointinterval glyph (rule-bands + a stroked median point) so it stays
-visible. Set `false` to opt out (single-x groups revert to invisible area/line).
-
-A fixed colour colours every band, the median line and the single-x glyph
-rules, on `vdraw` and `sdraw` alike; `color=:ink` follows the page's light/dark
-foreground (the Makie theme's text colour under `sdraw`). A `color=` mapping
-wins over it, as for plain marks. Other `visual` attributes are not applied
-(the bands keep their graduated opacities) and are reported with a warning.
-
-    data(summary) * mapping(:x, :median) *
-        lineribbon(bands=[:q025 => :q975, :q25 => :q75]) * visual(; color="black")
-
-A ribbon coloured by `color=` with at most $(_RIBBON_INTERVAL_MAX_X) distinct
-numeric x values (a dose ladder) can also be drawn as vertical point-intervals,
-dodged by colour on evenly spaced x slots, and the reader switches between the
-two with a "Ribbons | Intervals" control. `intervals` picks the view it starts
-in: `:auto` (default) starts in point-intervals when the colour groups' outer
-bands overlap by more than $(round(Int, 100 * _RIBBON_OVERLAP_THRESHOLD))% of
-the y range on average, a number between 0 and 1 replaces that threshold, and
-`true`/`false` always start in point-intervals/ribbons. `vsave` writes the
-starting view; `sdraw` always draws the ribbon.
+At a single x position, `single_x_glyph=true` uses an interval glyph.
+The `intervals` option controls the ribbon/interval drawing choice for grouped
+ribbons. Use `ribbon_view` to inspect that choice before rendering.
 """
 function lineribbon(; probs=[0.95, 0.8, 0.5], bands=nothing, detail=Symbol[], single_x_glyph=true,
                     intervals=:auto)
@@ -190,13 +138,9 @@ end
     ribbon(; probs=[0.95, 0.8, 0.5])
     ribbon(; bands=[:q025 => :q975, :q25 => :q75])
 
-Uncertainty ribbons (area marks) without a median line.
-Same as `lineribbon` but omits the central line. Accepts the same `bands`
-kwarg for pre-aggregated data, a fixed `visual(; color=…)` and `intervals` the
-same way (its point-interval view keeps the median point).
-
-    data(preds) * mapping(:x, :y, group=:draw) * ribbon()
-    data(summary) * mapping(:x, :median) * ribbon(bands=[:q025 => :q975])
+Draw nested quantile bands without the median line. Inputs, grouping, and
+precomputed `bands` follow `lineribbon`. `single_x_glyph` controls the display
+when a series has only one x coordinate.
 """
 function ribbon(; probs=[0.95, 0.8, 0.5], bands=nothing, detail=Symbol[], single_x_glyph=true,
                 intervals=:auto)
@@ -211,13 +155,10 @@ end
 """
     dotinterval(; probs=[0.95, 0.5], n_dots=50, point=:median, orientation=:horizontal)
 
-Quantile dotplot with nested interval overlay.
-Color and `dodge_y`/`dodge_x` mappings follow `pointinterval` semantics. A fixed
-`visual(; color=…)` colours the dots as well as the rules (replacing the rules'
-default ink).
-
-    data(draws) * mapping(:value, y=:parameter) * dotinterval()
-    data(draws) * mapping(:parameter, :value) * dotinterval(orientation=:vertical)
+Represent a distribution with quantile dots, nested intervals, and a point.
+`n_dots` sets the quantile-dot count; `probs` chooses interval masses.
+Orientation, grouping, and fixed colors follow `pointinterval`. The dots are
+a distribution summary, not individual source observations.
 """
 dotinterval(; probs=[0.95, 0.5], n_dots=50, point=:median, detail=Symbol[], orientation::Symbol=:horizontal) =
     Layer(transformation=DotIntervalAnalysis(Float64.(probs), n_dots, point, Symbol.(detail), orientation))
@@ -233,70 +174,20 @@ end
 """
     geoshape(geometry; key=nothing, projection=automatic)
 
-Choropleth polygons: fill GeoJSON region shapes by a data column joined on a
-shared key. The geometry source owns the polygons; the layer's `data(...)`
-table owns the values; the emitted Vega-Lite spec looks up each table row's
-feature with a `lookup` transform and draws the VL `geoshape` mark — there are
-no x/y axes. A row whose key matches no feature, and a feature no row matches,
-are not drawn.
+Join mapped table values to GeoJSON geometry and draw geographic shapes.
+`geometry` accepts a GeoJSON URL, a FeatureCollection dictionary, or a vector
+of Feature dictionaries. `key` is a shared column/property name or a
+`data_column => geo_property` pair; when omitted, the positional mapping
+supplies the shared name. Unmatched rows and features are not drawn.
+Use the `color` mapping for a numeric or categorical attribute and `projection`
+for the geographic projection. All layers in a map share one projection;
+the default is Mercator when no layer specifies another. Added point and line
+layers map longitude and latitude in degrees. Regions larger than half the
+globe are not supported.
 
-`geometry` is a GeoJSON source in one of three forms: a URL string (fetched
-by the browser), a parsed FeatureCollection `Dict`, or a vector of Feature
-`Dict`s. Any ring winding draws: each polygon is the region its rings enclose,
-whether the file winds exterior rings counter-clockwise (RFC 7946, as WFS
-servers and most GIS tools write) or clockwise (d3's convention, and the
-Shapefile one). AoV rewinds a parsed geometry when it lowers the layer, the AoV
-browser runtime rewinds a URL's GeoJSON when it loads it, and [`vsave`](@ref)
-rewinds what it reads into the file. A region larger than half the globe cannot
-be drawn. `key` names the join field: a single name used on both sides
-(`key=:AGS` — the geometry's feature property and the table column), a
-`data_column => geo_property` pair when the two sides spell it differently,
-or omitted, in which case the mapping's single positional is the key
-(`mapping(:AGS; color=:effect)`). `projection` is a Vega-Lite projection:
-a symbol/string type name (`:mercator`, `:albers`, …), a Dict/NamedTuple of
-projection properties, or `nothing` to emit no projection. Left out, it is the
-map's projection: the one another geoshape layer of the map sets, else
-`:mercator`.
-
-    data(effects) * mapping(:AGS; color=:effect) *
-        geoshape("https://example.invalid/districts.geojson")
-
-    data(effects) * mapping(:AGS; color=:effect => "Posterior effect") *
-        geoshape(geojson_dict; projection=:mercator) |> vdraw
-
-`mapping` supplies `color=` (and optionally `strokecolor=`, which takes the same
-`scales(Color=…)`, so `strokecolor=` on the `color=` column strokes each polygon in its
-own colour); a fixed border goes through `visual(; stroke="white", strokeWidth=0.5)`.
-Faceting with
-`col=`/`row=`/`layout=` draws one small-multiple map per panel, each filled
-from that panel's rows.
-
-Sum other layers onto the map to draw on it, as on an AlgebraOfGraphics
-`GeoAxis`: their two positionals are longitude then latitude (in degrees),
-drawn through the map's projection, which is fitted to the polygons and the
-marks together:
-
-    data(effects) * mapping(:AGS; color=:effect) * geoshape(geojson) +
-        data(sites) * mapping(:lon, :lat; color=:kind) * visual(Scatter)
-
-Such a layer takes plain point-like marks (`Scatter`, `Lines`, `Text`) with
-the usual named channels and tooltips; an analysis layer, an x/y channel, or a
-mark that cannot stand at a point fail with an `ArgumentError`.
-
-A map draws through one projection. Set `projection=` on one geoshape layer and
-leave it out on the others, which then draw through it (an outline over a
-fitted choropleth):
-
-    data(effects) * mapping(:AGS; color=:effect) *
-        geoshape(geojson; projection=(; type="mercator", fit=region)) +
-    data(outline) * mapping(:AGS) * geoshape(outline_geo) *
-        visual(; fill=nothing, stroke="red")
-
-Two geoshape layers that set different projections fail with an
-`ArgumentError` naming the properties they differ in. This is a Vega-Lite-only plot type: the static
-`sdraw` path refuses it loudly, [`vsave`](@ref) writes it to a PDF/SVG/PNG file,
-and a mounted map refreshes with `update_spec`. The channel picker keeps its x/y
-channels disabled for a geoshape layer, as for the interval analyses.
+This is a browser/Vega-Lite analysis. `vsave` can export it; the Makie `sdraw`
+path does not implement it. Use `visual(; fill=nothing, stroke=:ink)` when
+only a theme-aware boundary should be drawn.
 """
 function geoshape(geometry; key=nothing, projection=Makie.automatic)
     _check_geoshape_geometry(geometry)

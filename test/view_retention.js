@@ -1,5 +1,4 @@
-// Vega views a plot element keeps alive (snags attachtouch-clos-f2d7a0dc and
-// dispose-in-place-cbce89a5, reporter Bruno:arv393). A plot element must hold
+// Vega views a plot element keeps alive. A plot element must hold
 // no view but its current one: a re-embed (resize, picker, theme, update_spec)
 // releases the view it replaces, and a plot disposed in place (AoV.dispose /
 // disposeWithin, its element left in the page) holds none.
