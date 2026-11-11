@@ -132,13 +132,15 @@ end
                    r["lo_0_95_"] ≈ rib[(r["dose"], r["group"])]["lo_0_95_"], ints)
 end
 
-@testitem "only a coloured ribbon over a few numeric x values gets a point-interval view" setup=[AoVRibbonViewFixtures] tags=[:translation, :ribbon] begin
+@testitem "only a ribbon over a few numeric x values gets a point-interval view" setup=[AoVRibbonViewFixtures] tags=[:translation, :ribbon] begin
     using Dates
     # The plain lowering plus the last passes every figure gets.
     plain(spec) = AoV._record_summary!(AoV._apply_no_zero_default!(AoV._lower_vegaspec(AoV.vlspec(spec))), spec)
     unoffered(spec) = (vl = to_vegalite(spec); isnothing(view_meta(vl)) && vl == plain(spec))
-    # No colour groups.
-    @test unoffered(data(overlapping()) * mapping(:dose, :med) * lineribbon(bands=BANDS))
+    # Without colour groups too (the next item).
+    @test !isnothing(view_meta(to_vegalite(data(overlapping(; groups=("A",))) * mapping(:dose, :med) *
+        lineribbon(bands=BANDS))))
+    @test unoffered(data(overlapping(; groups=("A",), doses=1:13)) * mapping(:dose, :med) * lineribbon(bands=BANDS))
     # A dense x grid (a time course): no switch.
     @test unoffered(ribbon_fig(overlapping(; doses=1:13)))
     @test !isnothing(view_meta(to_vegalite(ribbon_fig(overlapping(; doses=1:12)))))
@@ -156,6 +158,114 @@ end
     @test unoffered(ribbon_fig(overlapping()) + ribbon_fig(sigmoids()))
     @test unoffered(data(overlapping()) * mapping(:dose, :med; color=:group) *
         lineribbon(bands=BANDS, detail=[:group]))
+end
+
+"""
+A ribbon without a colour mapping over a few doses gets the switch too (snag
+`ribbons-interval-05a26b01`, decision `0ihinnm`): web-sim's dose views draw one
+uncoloured ribbon per panel for a single scenario, the reporter's figure below.
+Its interval drawing is one interval per dose at the true dose, in the ribbon's
+one colour, and it starts as ribbons: one group has no bands to overlap.
+"""
+@testitem "an uncoloured ribbon over a few doses gets the switch and starts as ribbons" setup=[AoVRibbonViewFixtures] tags=[:translation, :ribbon] begin
+    doses = [5, 10, 20, 40, 60]
+    rows = [(; dose=d, panel=p, q50=m, q2_5=m - 2, q97_5=m + 2, q25=m - 1, q75=m + 1)
+            for p in ("PBMC", "CSF") for (d, m) in zip(doses, (p == "PBMC" ? 1.0 : 0.5) .* log.(doses))]
+    df = (; (k => [getproperty(r, k) for r in rows] for k in keys(first(rows)))...)
+    fig = data(df) * mapping(:dose => "Dose (mg)", :q50 => "Concentration"; layout=:panel) *
+        lineribbon(bands=[:q2_5 => :q97_5, :q25 => :q75]) * visual(; color=:ink)
+    logx = config(scales=scales(X=(; scale=log10)))
+    vl = to_vegalite(fig * logx)
+    rv = view_meta(vl)
+    @test rv["view"] == "ribbons" && rv["start"] == "ribbons" && rv["threshold"] == 0.1
+    # No pair of groups: the score compared nothing, and the tooltip says so by leaving it out.
+    @test rv["score"] == 0.0 && rv["pairs"] === false
+    @test "area" in marks(vl) && !("rule" in marks(vl))
+    iv = other(vl)
+    @test view_meta(iv)["view"] == "intervals" && view_meta(iv)["pairs"] === false
+    @test count(==("rule"), marks(iv)) == 2 && count(==("point"), marks(iv)) == 1
+    # One panel per compartment in both drawings.
+    @test iv["facet"] == vl["facet"]
+    # One interval per dose at the dose itself: `__aov_x` is the dose, on the
+    # ribbon's log axis with room for the median point. Nothing dodges and
+    # nothing is coloured by dose: the rules keep the ribbon's ink, the median
+    # point its white fill.
+    ink = AoV._fixed_color_mark_props(:ink)
+    AoV._each_encoded(iv) do d, _
+        enc = d["encoding"]
+        x = enc["x"]
+        @test x["field"] == "__aov_x" && x["type"] == "quantitative" && x["title"] == "Dose (mg)"
+        @test x["scale"] == Dict("type" => "log", "padding" => 10, "nice" => false)
+        @test !haskey(enc, "xOffset") && !haskey(enc, "color")
+        @test d["transform"][end] == Dict("calculate" => AoV._ribbon_dodge_expr("dose", nothing, [], 1.0, :log),
+            "as" => "__aov_x")
+        m = d["mark"]
+        if m["type"] == "rule"
+            @test all(m[k] == v for (k, v) in ink)
+        else
+            @test m["color"] == "white"
+        end
+    end
+    @test AoV._ribbon_dodge_expr("dose", nothing, [], 1.0, :log) == "isValid(datum[\"dose\"]) ? datum[\"dose\"] : null"
+    # The recipe has no colour, so the picker can dodge by one a reader adds.
+    dx = iv["_aov"]["dodgeX"]
+    @test isnothing(dx["by"]) && isempty(dx["domain"]) && dx["scale"] == "log" && dx["field"] == "dose"
+    @test dx["span"] ≈ 0.7 * log(60 / 40)
+    # The Julia query, and a fixed start.
+    @test ribbon_view(fig * logx) == (; offered=true, why_not=nothing, start=:ribbons, score=0.0, threshold=0.1)
+    @test ribbon_view(fig, scales(X=(; scale=log10))).offered
+    @test view_meta(to_vegalite(data(df) * mapping(:dose, :q50; layout=:panel) *
+        lineribbon(bands=[:q2_5 => :q97_5], intervals=true) * logx))["start"] == "intervals"
+
+    @test !haskey(get(iv["config"], "style", Dict()), "aov-mark-color")
+    # Without a fixed colour the rules take the default mark colour, as the
+    # ribbon's areas and line do: no colour encoding (the intervals' fallback
+    # would give each dose its own colour), and the style `aov-mark-color`,
+    # since Vega-Lite draws a rule black by default.
+    one = overlapping(; groups=("A",))
+    for spec in (data(one) * mapping(:dose, :med) * lineribbon(bands=BANDS),
+                 data(one) * mapping(:dose, :med) * ribbon(bands=BANDS))
+        alt = other(to_vegalite(spec * logx))
+        AoV._each_encoded(alt) do d, _
+            @test !haskey(d["encoding"], "color") && !haskey(d["encoding"], "xOffset")
+            d["mark"]["type"] == "rule" && @test d["mark"]["style"] == "aov-mark-color" && !haskey(d["mark"], "color")
+        end
+        @test alt["config"]["style"]["aov-mark-color"] == Dict("color" => "#4c78a8")
+        @test isnothing(alt["_aov"]["dodgeX"]["by"])
+    end
+    # An authored mark colour is the rules' colour too.
+    red = other(to_vegalite(data(one) * mapping(:dose, :med) * lineribbon(bands=BANDS) * logx *
+        config(config=Dict("mark" => Dict("color" => "#e45756")))))
+    @test red["config"]["style"]["aov-mark-color"] == Dict("color" => "#e45756")
+    # Raw draws: the same summary, one interval per dose.
+    draws = (; dose=repeat(one.dose; inner=50), draw=repeat(1:50; outer=length(one.dose)),
+        y=vcat((collect(range(lo, hi; length=50)) for (lo, hi) in zip(one.q025, one.q975))...))
+    raw = to_vegalite(data(draws) * mapping(:dose, :y; group=:draw) * lineribbon() * logx)
+    @test view_meta(raw)["start"] == "ribbons" && view_meta(raw)["pairs"] === false
+    @test length(other(raw)["data"]["values"]) == length(one.dose)
+    # On a doubling ladder over a linear axis the intervals sit on slots,
+    # undodged: an `xOffset` value would move them to the slot's start. The
+    # tag lets the picker dodge them by a colour a reader adds.
+    slots = other(to_vegalite(data(one) * mapping(:dose, :med) * lineribbon(bands=BANDS)))
+    @test all(x -> x["type"] == "nominal", x_encodings(slots)) && !haskey(get(slots, "_aov", Dict()), "dodgeX")
+    tagged = Ref(0)
+    AoV._each_encoded(slots) do d, _
+        @test !haskey(d["encoding"], "xOffset") && !haskey(d["encoding"], "color")
+        tagged[] += get(d, "_undodged", false) === true
+    end
+    @test tagged[] == 4   # three rules and the median point
+    # A coloured ribbon's intervals carry no tag.
+    AoV._each_encoded(to_vegalite(ribbon_fig(overlapping()))) do d, _
+        @test !haskey(d, "_undodged")
+    end
+    # A colour with one value is one group as well; a coloured figure with
+    # overlapping groups keeps its metadata as it was.
+    single = view_meta(to_vegalite(ribbon_fig(one)))
+    @test single["pairs"] === false && single["start"] == "ribbons"
+    @test !haskey(view_meta(to_vegalite(ribbon_fig(overlapping()))), "pairs")
+    # The ribbon drawing is the figure's plain lowering, as before.
+    @test AoV._without_ribbon_view(vl) == AoV._record_summary!(AoV._apply_finish_defaults!(
+        AoV._lower_vegaspec(fig * logx)), fig * logx)
 end
 
 @testitem "on a log x the intervals keep true positions, dodged around each dose" setup=[AoVRibbonViewFixtures] tags=[:translation, :ribbon] begin
@@ -354,6 +464,19 @@ end
     picker_fig(t) = (data(studies(t)) * mapping(:dose => "Dose (mg)", :med => "Response"; color=:group) *
         lineribbon(bands=BANDS) + data(obs) * mapping(:dose, :y) * visual(Scatter; color=:ink)) * config(height=160)
     remap = (; dims=["group" => "Group", "study" => "Study"], pinned=:row)
+    # The picker figure starting without a colour: groups on rows, studies on
+    # columns. (Both on rows would combine them into one facet field, which
+    # the picker passes to the analysis as a `detail=` split: no switch.)
+    uncoloured = (; remap..., color=String[], column=["study"])
+    # The reporter's figure (snag `ribbons-interval-05a26b01`): one uncoloured
+    # ribbon per panel, in ink, over five doses.
+    reporter = let doses = [5, 10, 20, 40, 60]
+        rows = [(; dose=d, panel=p, q50=m, q2_5=m - 2, q97_5=m + 2, q25=m - 1, q75=m + 1)
+                for p in ("PBMC", "CSF") for (d, m) in zip(doses, (p == "PBMC" ? 1.0 : 0.5) .* log.(doses))]
+        df = (; (k => [getproperty(r, k) for r in rows] for k in keys(first(rows)))...)
+        data(df) * mapping(:dose => "Dose (mg)", :q50 => "Concentration"; layout=:panel) *
+            lineribbon(bands=[:q2_5 => :q97_5, :q25 => :q75]) * visual(; color=:ink)
+    end
     shifted = let t = overlapping()
         merge(t, (; (k => getproperty(t, k) .+ 1.0 for k in (:med, :q025, :q975, :q10, :q90, :q25, :q75))...))
     end
@@ -371,6 +494,11 @@ end
                 vdraw(data(obs) * mapping(:dose, :y) * visual(Scatter); id="ribbon-none"),
                 with_plot_caption(picker_fig(overlapping()) * config(scales=scales(X=(; scale=log10))),
                     "Log doses"; plot_id="ribbon-log", auto_remap=remap),
+                vdraw(reporter * config(height=120, scales=scales(X=(; scale=log10))); id="ribbon-ink"),
+                with_plot_caption(picker_fig(overlapping()) * config(scales=scales(X=(; scale=log10))),
+                    "Uncoloured"; plot_id="ribbon-uncol", auto_remap=uncoloured),
+                with_plot_caption(picker_fig(overlapping()), "Uncoloured slots";
+                    plot_id="ribbon-uncol-slots", auto_remap=uncoloured),
             ]
             runtime = join(html(n) for n in vega_head(source=:inline))
             payload = replace(JSON.json((; updates, updated_median=shifted.med[1])), "</" => "<\\/")
@@ -389,7 +517,7 @@ end
             if !isnothing(result)
                 report = JSON.parse(replace(result[1], "&quot;" => "\"", "&lt;" => "<",
                     "&gt;" => ">", "&amp;" => "&"))
-                @test report["checks"] >= 45
+                @test report["checks"] >= 64
                 @test isempty(report["failures"])
                 @info "ribbon switch browser checks" checks=report["checks"]
                 isempty(report["failures"]) || println(JSON.json(report["failures"]))

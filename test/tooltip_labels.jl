@@ -1,7 +1,7 @@
 using TestItemRunner
 
 # A generated tooltip names each mapped column by its mapping label, the name its
-# axis, legend or facet header shows. Before AoV 0.2.31 every generated tooltip
+# axis, legend or facet header shows. Before AoV 0.2.32 every generated tooltip
 # listed raw column names: a heatmap cell of
 # `mapping(:east => "East (km)", :north => "North (km)", :value => "Field value")`
 # read "east | 55 | north | 5 | value | −0.31" while its axes read "East (km)" and

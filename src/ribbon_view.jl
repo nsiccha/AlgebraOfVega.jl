@@ -1,8 +1,9 @@
-# --- A coloured ribbon's point-interval view (`lineribbon(...; intervals=…)`) ---
+# --- A ribbon's point-interval view (`lineribbon(...; intervals=…)`) ---
 #
-# A ribbon coloured by group over a handful of numeric x values (a dose ladder)
-# is lowered a second time as the vertical `pointinterval` of the same rows: at
-# each x one interval per colour group, dodged by colour. The x axis stays the
+# A ribbon over a handful of numeric x values (a dose ladder), coloured by group
+# or not, is lowered a second time as the vertical `pointinterval` of the same
+# rows: at each x one interval per colour group, dodged by colour (one interval,
+# at the x itself, without a colour mapping). The x axis stays the
 # ribbon's (a log scale included), each group's intervals sitting a small
 # step from the true x (`_true_x_axis!`); where the x values are too unevenly
 # spaced on that axis for the step to stay readable, or the scale is neither
@@ -18,12 +19,13 @@
 # pass to both; finished, the spec is the starting view and carries the other
 # as `_aov.ribbonView.alt`.
 
-# The coloured ribbon a figure's interval view is drawn from: the figure has
-# exactly one ribbon layer, it maps `color=` (and no `detail`), its x is numeric
-# and has at most `_RIBBON_INTERVAL_MAX_X` distinct values. `cells` are the
-# outer band of each (facet panel, colour group, x), which the overlap score
-# reads; `slots` the x values in ascending order. A figure that misses one of
-# these gets the condition it misses, as the Symbol `ribbon_view` reports.
+# The ribbon a figure's interval view is drawn from: the figure has exactly one
+# ribbon layer, with no `detail`, and its x is numeric and has at most
+# `_RIBBON_INTERVAL_MAX_X` distinct values. `color_field` is its colour mapping,
+# `nothing` without one (one group). `cells` are the outer band of each (facet
+# panel, colour group, x), which the overlap score reads; `slots` the x values
+# in ascending order. A figure that misses one of these gets the condition it
+# misses, as the Symbol `ribbon_view` reports.
 function _ribbon_view_source(v)
     layers = _spec_layers_or_nothing(_spec_drawable(v))
     isnothing(layers) && return :no_ribbon
@@ -34,7 +36,6 @@ function _ribbon_view_source(v)
     isempty(found) && return :no_ribbon
     length(found) == 1 || return :several_ribbons
     index, layer, a = only(found)
-    haskey(layer.named, :color) || return :no_color
     isempty(a.detail_fields) || return :detail
     # A ribbon without data or a y does not lower at all.
     table = length(layer.positional) >= 2 ? extract_data(layer) : nothing
@@ -42,7 +43,7 @@ function _ribbon_view_source(v)
     x_field = _field_name(layer.positional[1])
     x_col = Tables.getcolumn(table, Symbol(x_field))
     _ribbon_x_type(x_col) == "quantitative" || return :not_numeric_x
-    color_field = _field_name(layer.named[:color])
+    color_field = haskey(layer.named, :color) ? _field_name(layer.named[:color]) : nothing
     _, facet_fields = _extract_facet_info(layer)
     rows, lo, hi = _ribbon_outer_rows(a, layer, table, x_field, color_field, facet_fields)
     cells = NamedTuple{(:panel, :color, :x, :lo, :hi),Tuple{Tuple,Any,Float64,Float64,Float64}}[]
@@ -62,7 +63,7 @@ function _ribbon_view_source(v)
     isempty(slots) && return any(x -> !(isnothing(x) || ismissing(x) || (x isa Real && !(x isa Bool))), x_col) ?
         :not_numeric_x : :no_x_values
     length(slots) > _RIBBON_INTERVAL_MAX_X && return :too_many_x
-    (; index, analysis=a, x_field, x_title=_field_label(layer.positional[1]), lo, hi, cells,
+    (; index, analysis=a, x_field, x_title=_field_label(layer.positional[1]), color_field, lo, hi, cells,
        slots=Any[slots[k] for k in sort!(collect(keys(slots)))])
 end
 
@@ -82,16 +83,32 @@ end
 
 # The ribbon's interval view as a figure: the ribbon layer replaced by the
 # vertical point-interval of the same rows (computed ones from the same draws,
-# `bands=` ones from the same columns), its `group=` dropped. A `visual` on the
-# ribbon is dropped too: its fixed colour yields to the colour mapping anyway.
+# `bands=` ones from the same columns), its `group=` dropped. Of a `visual` on
+# the ribbon, the intervals keep `inspectable=false` (a ribbon that lets the
+# pointer through does so in both drawings) and, without a colour mapping, the
+# fixed colour (a colour mapping wins over it anyway).
+#
+# Without a colour mapping the interval layers carry no `xOffset` from the
+# lowering, which is how `_true_x_axis!` tells them from other layers on the
+# ribbon's x (observations, dose `VLines`); they get `_RIBBON_UNDODGED`, an
+# offset of nothing, through the drawable's per-layer encoding overrides, which
+# reach exactly the units that layer lowers to.
+const _RIBBON_UNDODGED = Dict{String,Any}("xOffset" => Dict{String,Any}("value" => 0))
 function _ribbon_intervals_spec(v, src)
     layers = collect(_spec_layers_or_nothing(_spec_drawable(v)))
     l = layers[src.index]
     m = AlgebraOfGraphics.mapping(l.positional...; (k => s for (k, s) in pairs(l.named) if k !== :group)...)
     intervals = AlgebraOfGraphics.Layer(_interval_view_analysis(src.analysis), l.data, m.positional, m.named)
-    # A ribbon that lets the pointer through does so in both drawings.
-    layers[src.index] = _layer_passive(l) ? intervals * AlgebraOfGraphics.visual(; inspectable=false) : intervals
-    _wrap_with_config(v, length(layers) == 1 ? only(layers) : reduce(+, layers))
+    vis = extract_visual(l)
+    kept = isnothing(vis) ? Symbol[] : [k for k in (:color, :inspectable) if haskey(vis.attributes, k) &&
+                                        (k === :inspectable ? vis.attributes[k] === false : isnothing(src.color_field))]
+    layers[src.index] = isempty(kept) ? intervals :
+        intervals * AlgebraOfGraphics.visual(; (k => vis.attributes[k] for k in kept)...)
+    drawable = length(layers) == 1 ? only(layers) : reduce(+, layers)
+    isnothing(src.color_field) || return _wrap_with_config(v, drawable)
+    encs = _layer_encodings(v)
+    encs[src.index] = _merge_vl_objects(encs[src.index], _RIBBON_UNDODGED)
+    VegaSpec(drawable, _summand_config(v), encs, _spec_layer_transforms(v))
 end
 
 _interval_view_analysis(a::LineRibbonAnalysis) = PointIntervalAnalysis(a.probs, :median, a.detail_fields, :vertical)
@@ -151,18 +168,72 @@ function _finish_ribbon_views!(vl::Dict)
     aov = vl["_aov"]
     delete!(aov, "ribbonView")
     isempty(aov) && delete!(vl, "_aov")
-    _true_x_axis!(alt, vl, src) || _slot_x_axis!(alt, src) || return vl
-    score = _ribbon_overlap_score(vl, src)
+    uncoloured = isnothing(src.color_field)
+    uncoloured && _one_colour_intervals!(alt, src)
+    if !_true_x_axis!(alt, vl, src)
+        _slot_x_axis!(alt, src) || return vl
+        uncoloured && _slot_undodged!(alt, src)
+    end
+    (; score, pairs) = _ribbon_overlap(vl, src)
     iv = src.analysis.intervals
     start = iv.start === :auto ? (score > iv.threshold ? "intervals" : "ribbons") : string(iv.start)
+    # `pairs => false`: no two colour groups share an x in a facet panel (one
+    # group, as without a colour mapping), so the score compared nothing and
+    # the switch's tooltip leaves it out.
     meta(view) = Dict{String,Any}("view" => view, "start" => start, "score" => round(score; digits=3),
-        "threshold" => iv.start === :auto ? iv.threshold : nothing)
+        "threshold" => iv.start === :auto ? iv.threshold : nothing, (pairs ? () : ("pairs" => false,))...)
     shown, other = start == "ribbons" ? (vl, alt) : (alt, vl)
     get!(Dict{String,Any}, other, "_aov")["ribbonView"] = meta(start == "ribbons" ? "intervals" : "ribbons")
     shown_meta = meta(start)
     shown_meta["alt"] = other
     get!(Dict{String,Any}, shown, "_aov")["ribbonView"] = shown_meta
     shown
+end
+
+# The interval layers of a ribbon without a colour mapping, in the ribbon's one
+# colour. The lowering's fallback colours ungrouped intervals by their x, one
+# colour per x: dropped. Without a fixed colour the ribbon's areas and line take
+# the default mark colour (`config.mark.color`), but Vega-Lite draws a rule
+# black (its `config.rule`), so the rules carry the style `_AOV_MARK_COLOR`,
+# whose colour is the spec's mark colour; the runtime's host theme moves it with
+# the mark colour on a dark page (`hostThemeConfig`, vendor/aov-runtime.js).
+const _AOV_MARK_COLOR = "aov-mark-color"
+const _VL_MARK_COLOR = "#4c78a8"  # Vega-Lite's default `config.mark.color`
+function _one_colour_intervals!(alt::Dict, src)
+    styled = Ref(false)
+    _each_encoded(alt) do d, _
+        enc = d["encoding"]
+        (_is_interval_x(get(enc, "x", nothing), src) && haskey(enc, "xOffset")) || return
+        c = _as_dict(get(enc, "color", nothing))
+        !isnothing(c) && get(c, "field", nothing) == src.x_field && delete!(enc, "color")
+        m = _as_dict(get(d, "mark", nothing))
+        (isnothing(m) || get(m, "type", nothing) != "rule" || haskey(m, "color") ||
+            (haskey(m, "style") && _AOV_INK in _style_list(m["style"]))) && return
+        d["mark"] = _mark_with_style(m, _AOV_MARK_COLOR)
+        styled[] = true
+    end
+    if styled[]
+        cfg = get!(Dict{String,Any}, alt, "config")
+        mark = _as_dict(get(cfg, "mark", nothing))
+        color = isnothing(mark) ? _VL_MARK_COLOR : get(mark, "color", _VL_MARK_COLOR)
+        get!(Dict{String,Any}, get!(Dict{String,Any}, cfg, "style"), _AOV_MARK_COLOR)["color"] = color
+    end
+    alt
+end
+
+# On slots, the interval layers of a ribbon without a colour mapping trade the
+# `_RIBBON_UNDODGED` mark `_ribbon_intervals_spec` gave them (an `xOffset` value
+# moves a mark to its band's start on a nominal axis) for the layer tag
+# `_undodged`, from which the picker dodges them by a colour a reader adds
+# (`_remappedSpec`, vendor/aov-runtime.js).
+function _slot_undodged!(alt::Dict, src)
+    _each_encoded(alt) do d, _
+        enc = d["encoding"]
+        get(enc, "xOffset", nothing) == _RIBBON_UNDODGED["xOffset"] || return
+        delete!(enc, "xOffset")
+        d["_undodged"] = true
+    end
+    alt
 end
 
 # Visit every spec of a Vega-Lite tree that has an encoding, with the chain of
@@ -248,7 +319,8 @@ const _RIBBON_DODGE_FIELD = "__aov_x"
 const _RIBBON_DODGE_SPAN = 0.7
 
 # The interval view on the ribbon's x axis: the interval layers' x (the ones the
-# lowering dodges with `xOffset`) becomes the dodged `__aov_x`, and every other
+# lowering dodges with `xOffset`, or marks `_RIBBON_UNDODGED` without a colour
+# mapping) becomes the dodged `__aov_x`, and every other
 # x on the ribbon's x field (observations, dose `VLines`, which the lowering made
 # nominal to share the category axis) keeps its field; all of them quantitative
 # on the ribbon's x scale with room for the dodge (`_dodged_x_scale`), with its
@@ -256,6 +328,9 @@ const _RIBBON_DODGE_SPAN = 0.7
 # ribbon's x scale is neither linear nor log, or the x values are so unevenly
 # spaced on it that the closest pair gets less than a quarter of an even share
 # of the axis (a dose ladder on a linear axis): evenly spaced slots read better.
+# Without a colour mapping there is one group and nothing to dodge: the
+# intervals sit at the true x (`__aov_x` is the x itself), and the recipe has no
+# `by`, so the picker dodges them when a reader moves a field onto Colour.
 function _true_x_axis!(alt::Dict, vl::Dict, src)
     scale = _ribbon_x_scale(vl, src)
     kind = _ribbon_dodge_kind(scale)
@@ -263,15 +338,18 @@ function _true_x_axis!(alt::Dict, vl::Dict, src)
     gap = _ribbon_dodge_gap(src.slots, kind)
     isnothing(gap) && return false
     color = Ref{Any}(nothing)
+    marked = Ref(false)
     _each_encoded(alt) do d, _
-        isnothing(color[]) || return
         (_is_interval_x(get(d["encoding"], "x", nothing), src) && haskey(d["encoding"], "xOffset")) || return
+        marked[] = true
+        isnothing(color[]) || return
         c = _as_dict(get(d["encoding"], "color", nothing))
         isnothing(c) || (color[] = c)
     end
-    isnothing(color[]) && return false
-    by = string(color[]["field"])
-    domain = _ribbon_dodge_domain(Any[c.color for c in src.cells], get(color[], "sort", nothing))
+    coloured = !isnothing(src.color_field)
+    (marked[] && !(coloured && isnothing(color[]))) || return false
+    by = coloured ? string(color[]["field"]) : nothing
+    domain = coloured ? _ribbon_dodge_domain(Any[c.color for c in src.cells], get(color[], "sort", nothing)) : Any[]
     span = _RIBBON_DODGE_SPAN * gap
     expr = _ribbon_dodge_expr(src.x_field, by, domain, span, kind)
     xscale = _dodged_x_scale(scale, alt, src, kind, span)
@@ -393,7 +471,8 @@ function _ribbon_dodge_domain(colors, sort)
 end
 
 # The Vega expression for `__aov_x`; kept in step with `_dodgeXExpr` in
-# vendor/aov-runtime.js. A row whose colour is not in `domain` stays at its x.
+# vendor/aov-runtime.js. A row whose colour is not in `domain` stays at its x,
+# and so does every row with fewer than two groups (`by === nothing` included).
 function _ribbon_dodge_expr(field, by, domain, span, kind)
     f = "datum[" * _vl_json(string(field)) * "]"
     n = length(domain)
@@ -490,16 +569,19 @@ end
 # overlap of their outer bands; the largest over panels and pairs. The y range
 # is the axis domain when the spec fixes one, else the bands' extent (each
 # panel's own under independent y scales); a log y axis is measured in log10.
-function _ribbon_overlap_score(vl::Dict, src)
+# `pairs`: whether some pair of groups shared an x in a panel; without one (one
+# group, as without a colour mapping) the score is 0.0 and compared nothing.
+function _ribbon_overlap(vl::Dict, src)
     y = _ribbon_y_scale(vl, src)
     tr(v) = y.log ? (v > 0 ? log10(v) : NaN) : v
     cells = [(; c.panel, c.color, c.x, lo=tr(c.lo), hi=tr(c.hi)) for c in src.cells]
     filter!(c -> isfinite(c.lo) && isfinite(c.hi), cells)
-    isempty(cells) && return 0.0
+    isempty(cells) && return (; score=0.0, pairs=false)
     extent(cs) = maximum(c -> c.hi, cs) - minimum(c -> c.lo, cs)
     fixed = isnothing(y.domain) ? nothing : tr(y.domain[2]) - tr(y.domain[1])
     shared = extent(cells)
     score = 0.0
+    pairs = false
     for panel in unique(c.panel for c in cells)
         pcells = filter(c -> isequal(c.panel, panel), cells)
         range = something(fixed, y.per_panel ? extent(pcells) : shared)
@@ -512,6 +594,7 @@ function _ribbon_overlap_score(vl::Dict, src)
         for i in eachindex(groups), j in (i+1):lastindex(groups)
             xs = intersect(keys(groups[i]), keys(groups[j]))
             isempty(xs) && continue
+            pairs = true
             overlap = sum(xs) do x
                 (lo1, hi1), (lo2, hi2) = groups[i][x], groups[j][x]
                 max(0.0, min(hi1, hi2) - max(lo1, lo2)) / range
@@ -519,7 +602,7 @@ function _ribbon_overlap_score(vl::Dict, src)
             score = max(score, overlap / length(xs))
         end
     end
-    score
+    (; score, pairs)
 end
 
 # The y scale the ribbon's outer band is drawn on: a fixed two-value domain or
@@ -554,8 +637,8 @@ end
     ribbon_view(spec; auto_remap=nothing) -> NamedTuple
     ribbon_view(spec, scales(...); auto_remap=nothing) -> NamedTuple
 
-Whether a coloured `lineribbon`/`ribbon` figure gets the "Ribbons | Intervals"
-switch, and which drawing it starts in: the facts the switch's tooltip shows,
+Whether a `lineribbon`/`ribbon` figure gets the "Ribbons | Intervals" switch,
+and which drawing it starts in: the facts the switch's tooltip shows,
 read from the figure `to_vegalite` lowers from the same arguments (pass the
 picker's keywords as `auto_remap` for a figure drawn through the channel
 picker). Returns `(; offered, why_not, start, score, threshold)`:
@@ -563,17 +646,19 @@ picker). Returns `(; offered, why_not, start, score, threshold)`:
 - `offered`: whether the figure carries the switch.
 - `why_not`: `nothing` when it does; otherwise the condition the figure misses.
   `:no_ribbon` (no `lineribbon`/`ribbon` layer), `:several_ribbons` (more than
-  one), `:no_color` (the ribbon maps no `color=`), `:detail` (a `detail=`
-  split), `:not_numeric_x` (a date or text x), `:no_x_values` (no rows with an x
-  value yet), `:too_many_x` (more than $(_RIBBON_INTERVAL_MAX_X) distinct x
-  values across the figure) or `:x_off_slots` (the point-interval drawing puts
-  the x values on evenly spaced slots, and another layer's x cannot sit on one:
-  a value that is not one of the ribbon's x values, or a binned, aggregated or
-  `datum` x).
+  one), `:detail` (a `detail=` split), `:not_numeric_x` (a date or text x),
+  `:no_x_values` (no rows with an x value yet), `:too_many_x` (more than
+  $(_RIBBON_INTERVAL_MAX_X) distinct x values across the figure) or
+  `:x_off_slots` (the point-interval drawing puts the x values on evenly spaced
+  slots, and another layer's x cannot sit on one: a value that is not one of the
+  ribbon's x values, or a binned, aggregated or `datum` x).
 - `start`: `:ribbons` or `:intervals`, the drawing the figure starts in.
 - `score`: the overlap score the tooltip shows (to three decimals): how far the
   colour groups' outer bands overlap, as a share of the y range. It is measured
-  whatever `intervals=` says, so a fixed start can be calibrated too.
+  whatever `intervals=` says, so a fixed start can be calibrated too. It is
+  `0.0` when no two colour groups share an x in a panel, as for a ribbon without
+  a `color=` mapping (one group), which therefore starts as ribbons under
+  `:auto`; the tooltip then leaves the score out.
 - `threshold`: the share `intervals=:auto` compared `score` against;
   `nothing` when `intervals=true`/`false` fixes the start.
 

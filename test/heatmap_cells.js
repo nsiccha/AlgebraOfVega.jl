@@ -1,7 +1,9 @@
 // Heatmap cell browser checks: each drawn cell spans Makie's edges for its
 // value (read back through the plot's scales), cells are coloured by their
-// value, a faceted figure edges each panel's grid, `updateData` re-edges the
-// new rows, and the dataset keeps the rows as given.
+// value and stroked in it so no page background shows between them, a
+// highlight drops the dimmed cells' stroke, a faceted figure edges each
+// panel's grid, `updateData` re-edges the new rows, and the dataset keeps the
+// rows as given.
 (async function () {
     const failures = [];
     let checks = 0;
@@ -25,6 +27,47 @@
         return out;
     }
     const close = (a, b) => Math.abs(a - b) <= 1e-6 * Math.max(1, Math.abs(b));
+    // Each cell's box in view coordinates, cut to the frame of the group that
+    // holds it (the plot, or a facet panel), as the mark's clip cuts it.
+    function framedCells(view) {
+        const out = [];
+        (function walk(mark, ox, oy, frame) {
+            (mark.items || []).forEach(it => {
+                if (mark.marktype === 'rect' && mark.role === 'mark') {
+                    out.push({x0: Math.max(ox + it.x, frame.x0), y0: Math.max(oy + it.y, frame.y0),
+                        x1: Math.min(ox + it.x + it.width, frame.x1), y1: Math.min(oy + it.y + it.height, frame.y1), frame});
+                } else if (mark.marktype === 'group') {
+                    const gx = ox + (it.x || 0), gy = oy + (it.y || 0);
+                    const f = it.width && it.height ? {x0: gx, y0: gy, x1: gx + it.width, y1: gy + it.height} : frame;
+                    (it.items || []).forEach(m => walk(m, gx, gy, f));
+                }
+            });
+        })(view.scenegraph().root, 0, 0, {x0: -Infinity, y0: -Infinity, x1: Infinity, y1: Infinity});
+        return out;
+    }
+    // How much page background shows inside the cells, drawn at `scale` device
+    // pixels per px on a transparent background: the worst pixel's share and
+    // the share of pixels that are not opaque. Each panel is the union of its
+    // cells, 2 device px in from its edges.
+    async function background(view, scale) {
+        const canvas = await view.toCanvas(scale), pad = view.padding();
+        const ox = view._origin[0] + (pad.left || 0), oy = view._origin[1] + (pad.top || 0);
+        const px = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data;
+        const panels = new Map();
+        framedCells(view).forEach(b => {
+            const p = panels.get(b.frame) || {x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity};
+            panels.set(b.frame, {x0: Math.min(p.x0, b.x0), y0: Math.min(p.y0, b.y0), x1: Math.max(p.x1, b.x1), y1: Math.max(p.y1, b.y1)});
+        });
+        let n = 0, open = 0, minAlpha = 255;
+        panels.forEach(p => {
+            for (let y = Math.ceil((p.y0 + oy) * scale) + 2; y < Math.floor((p.y1 + oy) * scale) - 2; y++)
+                for (let x = Math.ceil((p.x0 + ox) * scale) + 2; x < Math.floor((p.x1 + ox) * scale) - 2; x++) {
+                    const a = px[(y * canvas.width + x) * 4 + 3];
+                    n++; if (a < 255) open++; if (a < minAlpha) minAlpha = a;
+                }
+        });
+        return {pixels: n, worst: 1 - minAlpha / 255, share: open / Math.max(n, 1)};
+    }
     // Each cell's edges in data units against Makie's edges for its x and y.
     function edged(id, view, xEdges, yEdges, count) {
         const cells = cellsOf(view), xs = view.scale('x'), ys = view.scale('y');
@@ -69,6 +112,49 @@
         const raw = grid.data('source_0');
         check(raw.length === 9 && raw.every(r => Object.keys(r).sort().join() === 'east,north,value'),
             'grid: source rows carry computed fields: ' + JSON.stringify(Object.keys(raw[0] || {})));
+
+        // Seamless cells (snag draw-a-numeric-h-450a4bc9): each cell is stroked
+        // in its own colour, under the fill's one colour bar.
+        cells.forEach(c => check(c.stroke === c.fill && c.strokeWidth === 1.5,
+            'grid: cell ' + c.datum.east + ',' + c.datum.north + ' stroke ' + c.stroke + '/' + c.strokeWidth + ', fill ' + c.fill));
+        let legends = 0;
+        (function walk(node) {
+            if (node.role === 'legend') legends += (node.items || []).length;
+            (node.items || []).forEach(walk);
+        })(grid.scenegraph().root);
+        check(legends === 1, 'grid: expected one legend, got ' + legends);
+        // No page background between cells, measured on a transparent background
+        // at the device scales of an ordinary and a high-density screen. The
+        // control is the same plot with `strokeWidth=0`, which must show the
+        // seams (about a quarter of the background in the worst pixel).
+        const control = await ready('bare');
+        check(cellsOf(control).every(c => !c.stroke), 'bare: strokeWidth=0 still strokes its cells');
+        for (const scale of [1, 2]) {
+            const seams = await background(control, scale), stroked = await background(grid, scale);
+            check(seams.pixels > 10000 && seams.worst > 0.15,
+                'bare at scale ' + scale + ': the probe saw no seams without the stroke: ' + JSON.stringify(seams));
+            check(stroked.pixels > 10000 && stroked.worst <= (scale === 1 ? 0.02 : 0),
+                'grid at scale ' + scale + ': page background shows between cells: ' + JSON.stringify(stroked));
+        }
+        const facets = await background(await ready('panels'), 1);
+        check(facets.pixels > 10000 && facets.worst <= 0.02, 'panels: page background shows between cells: ' + JSON.stringify(facets));
+
+        // A highlight dims the other cells' fill and drops their stroke, whose
+        // overlap with the neighbours would otherwise draw the lattice again.
+        // An undimmed cell has no opacity of its own (null), which `< 1` would read as 0.
+        const bright = c => c.opacity == null || c.opacity >= 1;
+        AoV.highlight('grid', {east: 50, north: 50});
+        for (let i = 0; i < 100 && cellsOf(grid).every(bright); i++) await pause();
+        cellsOf(grid).forEach(c => {
+            const lit = c.datum.east === 50 && c.datum.north === 50;
+            check(lit ? c.strokeOpacity !== 0 && bright(c) : c.strokeOpacity === 0 && !bright(c),
+                'grid: highlighted ' + lit + ' cell ' + c.datum.east + ',' + c.datum.north +
+                ' has opacity ' + c.opacity + ', stroke opacity ' + c.strokeOpacity);
+        });
+        AoV.clearHighlight('grid');
+        for (let i = 0; i < 100 && !cellsOf(grid).every(bright); i++) await pause();
+        check(cellsOf(grid).every(c => c.strokeOpacity !== 0 && bright(c)),
+            'grid: cleared highlight left cells dimmed or unstroked');
 
         edged('uneven', await ready('uneven'), {0: [-5, 5], 10: [5, 25], 40: [25, 55]},
             {0: [-0.5, 0.5], 1: [0.5, 1.5]}, 6);

@@ -40,8 +40,10 @@ end
     @test enc["y"]["field"] == "__aov_y0" && enc["y2"] == Dict{String,Any}("field" => "__aov_y1")
     @test enc["x"]["title"] == "East (km)" && enc["y"]["title"] == "North (km)"
     @test enc["x"]["type"] == "quantitative"
-    # Cut at the frame as Makie cuts it, which matters under authored axis limits.
-    @test u["mark"] == Dict{String,Any}("type" => "rect", "clip" => true, "style" => "aov-own-clip")
+    # Cut at the frame as Makie cuts it, which matters under authored axis limits;
+    # stroked in its own colour (the next item).
+    @test u["mark"] == Dict{String,Any}("type" => "rect", "clip" => true, "strokeWidth" => 1.5,
+        "style" => Any["aov-heatmap", "aov-own-clip"])
     @test only(rect_units(to_vegalite(field() * visual(; clip=false))))["mark"]["clip"] === false
     # Computed in the dataflow: x's window, join and two edges, then y's.
     @test kinds(u) == repeat(["window", "joinaggregate", "calculate", "calculate"], 2)
@@ -81,7 +83,10 @@ end
     temps = (; month=["Jan", "Feb", "Jan", "Feb"], city=["A", "A", "B", "B"], temp=[1.0, 2.0, 3.0, 4.0])
     u = only(rect_units(to_vegalite(data(temps) * mapping(:month, :city; color=:temp) * visual(Heatmap))))
     @test u["encoding"]["x"] == Dict{String,Any}("field" => "month", "type" => "nominal")
-    @test !haskey(u, "transform") && !haskey(u["encoding"], "x2") && u["mark"] == "rect"
+    @test !haskey(u, "transform") && !haskey(u["encoding"], "x2")
+    # Its bands meet as numeric cells do, so it is stroked and cut at the frame too.
+    @test u["mark"] == Dict{String,Any}("type" => "rect", "clip" => true, "strokeWidth" => 1.5, "style" => "aov-heatmap")
+    @test u["encoding"]["stroke"]["field"] == "temp"
     # One numeric axis: only that axis is edged.
     mixed = (; t=[1.0, 2.0, 1.0, 2.0], city=["A", "A", "B", "B"], v=[1.0, 2.0, 3.0, 4.0])
     u = only(rect_units(to_vegalite(data(mixed) * mapping(:t, :city, :v) * visual(Heatmap))))
@@ -98,9 +103,64 @@ end
         "x" => Dict("bin" => Dict("maxbins" => 15)), "y" => Dict("bin" => Dict("maxbins" => 15)),
         "color" => Dict("aggregate" => "count", "type" => "quantitative"))))))
     @test hist["encoding"]["x"]["field"] == "hp" && !haskey(hist, "transform")
+    @test hist["mark"] == "rect" && !haskey(hist["encoding"], "stroke")
 end
 
-@testitem "Heatmap cells are drawn on Makie's grid in the browser, and follow update_data" setup=[AoVHeatmapFixtures] tags=[:regression, :browser] begin
+# Vega antialiases each rect's edges on its own, so where two cells meet on a
+# fractional pixel the page background showed through: a lattice of 1 px lines
+# over every heatmap, light grey on a dark page (snag `draw-a-numeric-h-450a4bc9`).
+# Each cell is stroked in its own colour, which covers the seam.
+@testitem "Heatmap cells are stroked in their own colour, under one colour bar" setup=[AoVHeatmapFixtures] tags=[:translation, :regression] begin
+    paint(e) = Dict(k => get(e, k, nothing) for k in ("field", "type", "title", "condition"))
+    # The reporter's figure: a fixed range, row and column facets, station points.
+    timed = [(; r..., time=t, panel=p) for t in ("Time 1", "Time 3") for p in ("Field", "Median") for r in grid]
+    stations = data([(; east=30.0, north=40.0, time="Time 1", panel="Field")]) *
+        mapping(:east, :north; row=:time, col=:panel) * visual(Scatter)
+    sc = scales(Color=(; colormap=:blueorange, colorrange=(-2, 2)))
+    vl = to_vegalite(data(timed) * mapping(:east, :north, :value; row=:time, col=:panel) * visual(Heatmap) + stations, sc)
+    u = only(rect_units(vl))
+    color, stroke = u["encoding"]["color"], u["encoding"]["stroke"]
+    @test paint(stroke) == paint(color)
+    @test u["mark"]["strokeWidth"] == 1.5
+    # The same scale, its range spelled so Vega-Lite keeps the fill's colour bar
+    # and the stroke draws no legend of its own (`_one_colour_bar!`).
+    @test color["scale"] == Dict{String,Any}("scheme" => "blueorange", "domain" => [-2, 2], "clamp" => true)
+    @test stroke["scale"] == Dict{String,Any}("scheme" => "blueorange", "domainMin" => -2, "domainMax" => 2, "clamp" => true)
+    @test isnothing(stroke["legend"]) && color["legend"] isa Dict
+    # A range from the data: the same.
+    plain = only(rect_units(to_vegalite(field())))
+    @test plain["encoding"]["stroke"]["scale"] == Dict{String,Any}("domain" => Dict{String,Any}("unionWith" => Any[]))
+    @test isnothing(plain["encoding"]["stroke"]["legend"])
+
+    # Clipped values and a NaN colour paint the stroke as they paint the fill;
+    # without the NaN colour on the stroke Vega-Lite would drop a NaN cell.
+    vl = to_vegalite(field(), scales(Color=(; colormap=:viridis, colorrange=(-10, 10), lowclip=:red, nan_color=:grey)))
+    u = only(rect_units(vl))
+    @test haskey(u["encoding"]["color"], "condition")
+    @test u["encoding"]["stroke"]["condition"] == u["encoding"]["color"]["condition"]
+    @test vl["config"]["scale"]["invalid"]["stroke"] == vl["config"]["scale"]["invalid"]["color"]
+    # A raw colour override is part of what the fill paints.
+    raw = only(rect_units(to_vegalite(field() * config(encoding=Dict("color" => Dict("scale" => Dict("scheme" => "magma")))))))
+    @test raw["encoding"]["stroke"]["scale"]["scheme"] == "magma"
+
+    # Left as written: a heatmap that strokes itself, a translucent one (the
+    # stroke's overlap with the neighbour would show), and a categorical colour
+    # (a legend selection dims fill and stroke together).
+    for vis in (visual(; strokecolor="white"), visual(; stroke=:ink), visual(; alpha=0.5), visual(; fillOpacity=0.4))
+        @test !haskey(only(rect_units(to_vegalite(field() * vis)))["encoding"], "stroke")
+    end
+    outlined = [(; r..., other=r.east) for r in grid]
+    own = only(rect_units(to_vegalite(data(outlined) * mapping(:east, :north, :value; strokecolor=:other) * visual(Heatmap))))
+    @test own["encoding"]["stroke"]["field"] == "other" && !haskey(own["mark"], "strokeWidth")
+    classes = [(; r..., class=r.value > 0 ? "up" : "down") for r in grid]
+    @test !haskey(only(rect_units(to_vegalite(data(classes) * mapping(:east, :north, :class) * visual(Heatmap))))["encoding"], "stroke")
+    # An authored width is the stroke's width, and 0 draws none.
+    wide = only(rect_units(to_vegalite(field() * visual(; strokewidth=3))))
+    @test wide["mark"]["strokeWidth"] == 3 && haskey(wide["encoding"], "stroke")
+    @test !haskey(only(rect_units(to_vegalite(field() * visual(; strokeWidth=0))))["encoding"], "stroke")
+end
+
+@testitem "Heatmap cells are drawn on Makie's grid in the browser, without seams, and follow update_data" setup=[AoVHeatmapFixtures] tags=[:regression, :browser] begin
     using HTMX
     html(x) = sprint(show, MIME"text/html"(), x)
     chrome = something(Sys.which("google-chrome"), Sys.which("chromium"), "")
@@ -116,6 +176,8 @@ end
                 mapping(:east, :north; col=:time) * visual(Scatter)
             figures = Dict(
                 "grid" => field() * config(width=300, height=300),
+                # The same plot without its own-colour stroke: the seam control.
+                "bare" => field() * visual(; strokeWidth=0) * config(width=300, height=300),
                 "uneven" => data(uneven) * mapping(:east, :north, :value) * visual(Heatmap) * config(width=300, height=100),
                 "panels" => (data(timed) * mapping(:east, :north, :value; col=:time) * visual(Heatmap) + stations) *
                     config(width=200, height=200),
@@ -137,7 +199,7 @@ end
             if !isnothing(result)
                 report = JSON.parse(replace(result[1], "&quot;" => "\"", "&lt;" => "<",
                     "&gt;" => ">", "&amp;" => "&"))
-                @test report["checks"] >= 30
+                @test report["checks"] >= 120
                 @test isempty(report["failures"])
                 @info "heatmap cell browser checks" checks=report["checks"]
                 isempty(report["failures"]) || println(JSON.json(report["failures"]))

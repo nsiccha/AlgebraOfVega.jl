@@ -16,9 +16,10 @@ struct GradientIntervalAnalysis <: TidybayesAnalysis
     orientation::Symbol
 end
 
-# Which view a coloured ribbon with few x values starts in (`intervals=`):
-# `:auto` picks point-intervals when its colour groups' bands overlap by more
-# than `threshold` of the y range; `:ribbons`/`:intervals` always start there.
+# Which view a ribbon with few x values starts in (`intervals=`): `:auto`
+# picks point-intervals when its colour groups' bands overlap by more than
+# `threshold` of the y range (one group, as without a colour mapping, overlaps
+# nothing); `:ribbons`/`:intervals` always start there.
 struct RibbonIntervals
     start::Symbol
     threshold::Float64
@@ -121,8 +122,9 @@ are x and the value or median. `detail` preserves grouping columns. A color mapp
 separate series; fixed `visual(; color=...)` colors a series without grouping.
 
 At a single x position, `single_x_glyph=true` uses an interval glyph.
-The `intervals` option controls the ribbon/interval drawing choice for grouped
-ribbons. Use `ribbon_view` to inspect that choice before rendering.
+Over at most 12 numeric x values (a dose ladder), coloured or not, the figure
+can also be drawn as point-intervals, and the `intervals` option picks the
+drawing it starts in. Use `ribbon_view` to inspect that choice before rendering.
 """
 function lineribbon(; probs=[0.95, 0.8, 0.5], bands=nothing, detail=Symbol[], single_x_glyph=true,
                     intervals=:auto)

@@ -15,7 +15,7 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
-## 0.2.31
+## 0.2.32
 
 - AoV's automatic tooltips name each mapped column by its mapping label, the name its
   axis, legend or facet header shows: hovering a cell of
@@ -32,6 +32,22 @@ failing at run time with a `MethodError`.
   (`item.tooltip["Field value"]`). A tooltip written with
   `config(encoding=Dict(:tooltip => …))` is unchanged. Before, every automatic tooltip
   listed raw column names, so it disagreed with the axes and legend of its own figure.
+
+## 0.2.31
+
+- A `lineribbon`/`ribbon` **without** a `color=` mapping over at most 12 numeric x values
+  (a dose ladder) gets the "Ribbons | Intervals" switch, as a coloured one does. Its
+  interval drawing has one point-interval per x, at the true x on the ribbon's own linear
+  or log axis (evenly spaced slots where the x values are too unevenly spaced on it), in
+  the ribbon's one colour: its `visual(; color=…)`, `:ink` included, or the default mark
+  colour. It starts as ribbons under `intervals=:auto`, because one group has no bands to
+  overlap; `intervals=true` starts it as intervals. When a reader moves a field onto
+  Colour in the channel picker, the intervals dodge by it. Before, such a figure drew
+  ribbons only (web-sim's single-scenario dose views).
+- `ribbon_view(spec)` no longer returns `why_not=:no_color`: such a figure is offered,
+  with `start=:ribbons` and `score=0.0`. The score is `0.0` whenever no two colour groups
+  share an x in a facet panel, a colour with one value included, and the switch's
+  tooltip then leaves the overlap out.
 
 ## 0.2.30
 
