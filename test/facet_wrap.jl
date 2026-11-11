@@ -27,6 +27,8 @@ end
         vl = to_vegalite(spec)
         @test columns(vl) == 4
         @test auto(vl) === true
+        @test vl["resolve"]["axis"]["x"] == "independent"
+        @test get(get(vl["resolve"], "scale", Dict()), "x", "shared") == "shared"
     end
     @test haskey(to_vegalite(plain)["encoding"], "facet")
     # The count is AoG's own rule: 2→2, 9→3, 10→4, and the panel aspect from an
@@ -46,6 +48,9 @@ end
     # A grid facet does not wrap and gets no count.
     vc = to_vegalite(data(rows) * mapping(:year, :q50; col=:region) * visual(Lines))
     @test isnothing(columns(vc)) && !auto(vc)
+    @test !haskey(get(vc, "resolve", Dict()), "axis")
+    authored = to_vegalite(ribbon * config(columns=4, resolve=(; axis=(; x="shared"))))
+    @test authored["resolve"]["axis"]["x"] == "shared"
 end
 
 @testitem "an authored layout= column count is kept" setup=[AoVFacetWrapFixtures] tags=[:translation, :facet, :regression] begin

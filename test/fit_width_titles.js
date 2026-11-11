@@ -41,7 +41,8 @@
         check(floor.width === 100, 'oversized headers: stopped before the readable minimum: ' + floor.width);
         check(el.parentElement.scrollWidth > el.parentElement.clientWidth, 'oversized headers: no in-frame scroll');
         check(el.parentElement.tabIndex === 0, 'oversized headers: scrolling frame is not keyboard reachable');
-        check(fitTitleEmbeds['ft-floor'].length <= 4, 'oversized headers: too many attempts: ' + fitTitleEmbeds['ft-floor']);
+        check(floor.nCols === 1, 'oversized headers: stopped before trying one column');
+        check(fitTitleEmbeds['ft-floor'].length <= 6, 'oversized headers: too many attempts: ' + fitTitleEmbeds['ft-floor']);
 
         for (const theme of ['dark', 'light']) {
             document.documentElement.dataset.theme = theme;
