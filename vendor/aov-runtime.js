@@ -170,7 +170,7 @@ window.AoV = window.AoV || {
         };
         var fit = this._fitSized(spec), wrap = this._autoColumns(spec);
         if (!fit && !wrap) return unsized();
-        var el = document.getElementById(id);
+        var el = this._elOf(id);
         if (!el) return unsized();
         var containerWidth = budget;
         if (containerWidth === undefined) {
@@ -273,7 +273,7 @@ window.AoV = window.AoV || {
         var info = (self._computedWidths || {})[id];
         if (!info) return;
         if (self._correctedRegime && self._correctedRegime[id] === info.regime) return;
-        var el = document.getElementById(id);
+        var el = self._elOf(id);
         var canvas = el && el.querySelector('canvas.marks');
         if (!canvas) return;
         // Layout px (pre-zoom): CSS zoom scales the canvas and the budget's
@@ -505,11 +505,14 @@ window.AoV = window.AoV || {
     // buttons, first in its captioned figure's action row (HTMXObjects'
     // caption styles give them the row's look), else in a group right after
     // the plot (as a frame player). Removed when a new spec no longer
-    // offers the point-interval drawing.
+    // offers the point-interval drawing. Only the buttons beside this
+    // element count: a figure that an htmx swap is replacing still holds
+    // its own pair while the new figure's script runs (_plotElement), and
+    // reusing that pair left the new figure without one.
     _ribbonViewControls: function(id, el) {
         var self = this, st = this._ribbonViews[id];
         var sel = '[data-aov-ribbon-view-for="' + id + '"]';
-        var buttons = document.querySelectorAll(sel);
+        var buttons = this._ownRibbonButtons(el, sel);
         if (!st) {
             buttons.forEach(function(b) {
                 var group = b.parentElement;
@@ -547,7 +550,7 @@ window.AoV = window.AoV || {
                 var host = el.parentElement && el.parentElement.classList.contains('aov-plot-area') ? el.parentElement : el;
                 host.insertAdjacentElement('afterend', group);
             }
-            buttons = document.querySelectorAll(sel);
+            buttons = made;
         }
         if (!buttons.length) return;
         var text = this._texts(buttons[0]);
@@ -564,6 +567,17 @@ window.AoV = window.AoV || {
             if (tip) b.title = tip; else b.removeAttribute('title');
             b.setAttribute('aria-pressed', String(b.dataset.view === st.view));
         });
+    },
+    // The switch buttons (`sel`) of the plot drawn in `el`: those in its
+    // captioned figure, else those in the group right after it.
+    _ownRibbonButtons: function(el, sel) {
+        if (!el) return [];
+        var fig = el.closest('figure.captioned');
+        if (fig) return Array.prototype.slice.call(fig.querySelectorAll(sel));
+        var host = el.parentElement && el.parentElement.classList.contains('aov-plot-area') ? el.parentElement : el;
+        var next = host.nextElementSibling;
+        return next && next.classList.contains('aov-ribbon-view') ?
+            Array.prototype.slice.call(next.querySelectorAll(sel)) : [];
     },
 
     // --- Polygon winding (geometry loaded from a URL) ---
@@ -693,6 +707,35 @@ window.AoV = window.AoV || {
     // microtask checkpoint, so a node removed and re-inserted synchronously
     // stays live; it compares element identity, so a same-id re-render
     // already embedded into its new element is untouched.
+    // The element a new embed of plot `id` draws into. An id names one
+    // element, except while an htmx 2 swap runs: htmx runs a swapped
+    // fragment's scripts as it inserts them, before it removes what they
+    // replace, and HTMXObjects keeps the parts a running read sent ahead
+    // above its finished answer until that swap has ended. For that moment
+    // the old figure and the new one share the id, and getElementById names
+    // the old one whenever it comes first (sent-ahead parts do). An embed
+    // the old element then owned was disposed with it when it left the page
+    // (_sweepDetached): no switch, no fit, no view. So an embed called from
+    // an inline script (to_node's sits beside its plot) takes the element
+    // nearest that script; any other call takes _elOf(id).
+    _plotElement: function(id) {
+        var script = document.currentScript;
+        if (script && script.parentNode && typeof CSS !== 'undefined' && CSS.escape) {
+            var sel = '#' + CSS.escape(id);
+            for (var n = script.parentNode; n && n.querySelector; n = n.parentNode) {
+                var hit = n.querySelector(sel);
+                if (hit) return hit;
+            }
+        }
+        return this._elOf(id);
+    },
+    // The element plot `id` lives in: the one its last embed took while that
+    // is still in the page, else the one the id names. Sizing, observers and
+    // exports read it, so they follow the embed's own element (_plotElement).
+    _elOf: function(id) {
+        var el = this._els[id];
+        return el && el.isConnected ? el : document.getElementById(id);
+    },
     _sweepDetached: function() {
         var self = this;
         Object.keys(self._els).forEach(function(id) {
@@ -892,7 +935,7 @@ window.AoV = window.AoV || {
         // Same element: the one the last embed recorded — which also covers
         // a re-embed issued while the previous one is still in flight (no
         // view registered yet), e.g. the two remaps of one picker change.
-        var prev = self.views[id], el = document.getElementById(id);
+        var prev = self.views[id], el = self._plotElement(id);
         var sameEl = el && (self._els[id] === el || (prev && el.contains(prev.container())));
         if (!sameEl) {
             // A hover on the replaced element ends (its link group hears the
@@ -964,9 +1007,8 @@ window.AoV = window.AoV || {
         // min(container, cap). (JS-sized layered/faceted specs are capped
         // through the sizing budget in _applyResponsiveWidth instead.)
         var _cap = (spec._aov && spec._aov.maxWidth) || (window.AoV && window.AoV.maxWidth);
-        if (_cap !== undefined && _cap !== null && isFinite(_cap) && spec.width === 'container') {
-            var _capEl = document.getElementById(id);
-            if (_capEl) _capEl.style.maxWidth = _cap + 'px';
+        if (_cap !== undefined && _cap !== null && isFinite(_cap) && spec.width === 'container' && el) {
+            el.style.maxWidth = _cap + 'px';
         }
 
         // `budget` (the correction re-embed only) pins the sizing budget.
@@ -1001,6 +1043,10 @@ window.AoV = window.AoV || {
                 settled = true;
                 if (--self._inFlight[id] <= 0) delete self._inFlight[id];
             };
+            // By selector, as pages and test harnesses that wrap vegaEmbed
+            // expect. vega-embed resolves it only after its own awaits, by
+            // which time a swap that briefly gave two elements this id
+            // (_plotElement) has removed the old one.
             return vegaEmbed('#' + id, s, self._withLiveRows(id, embedOpts, gen)).then(function(result) {
                 settle();
                 if (self._gens[id] !== gen) {
@@ -1072,7 +1118,7 @@ window.AoV = window.AoV || {
     _observeResize: function(id, spec) {
         var self = this;
         if (spec._aov || self._fitSized(spec)) {
-            var el = document.getElementById(id);
+            var el = self._elOf(id);
             if (el && el.parentElement && window.ResizeObserver) {
                 var timer = null;
                 var lastWidth = el.parentElement.clientWidth;
@@ -1190,7 +1236,7 @@ window.AoV = window.AoV || {
     _wrapChanged: function(id, spec) {
         var info = (this._computedWidths || {})[id];
         if (!info || info.kind !== 'wrap') return true;
-        var el = document.getElementById(id);
+        var el = this._elOf(id);
         var budget = el ? this._sizingBudget(el, spec) : null;
         return budget !== null && this._wrapColumns(spec, budget, false) !== info.estimate;
     },
@@ -1483,7 +1529,7 @@ window.AoV = window.AoV || {
     // applied. Records the theme so refreshTheme can tell when it changed.
     _themedOpts: function(id, spec, opts) {
         if (!this._themeOn(spec)) { delete this._themeKeys[id]; return opts; }
-        var el = this._els[id] || document.getElementById(id);
+        var el = this._elOf(id);
         var cfg = this.hostThemeConfig(el), tip = this._tooltipTheme(el);
         this._themeKeys[id] = this._themeKey(cfg, tip);
         this._hostInk(spec, cfg);
@@ -2036,12 +2082,12 @@ window.AoV = window.AoV || {
     // legend selection and the canvas survive; any structural change
     // (panels, layers, encodings, size) re-embeds in place.
     updateSpec: function(id, spec, opts) {
-        var self = this, el = document.getElementById(id);
+        var self = this, el = self._plotElement(id);
         // Not embedded into this element yet (a first render, or a fresh
         // element from an htmx swap): an ordinary embed.
         if (el && self._els[id] !== el) return self.embed(id, spec, opts);
         self.whenReady(id, function(view) {
-            var now = document.getElementById(id);
+            var now = self._elOf(id);
             // Sent while no element had this id: apply to the plot that
             // has since embedded under it (as appendData/updateData do).
             if (!el) { if (now) self.updateSpec(id, spec, opts); return; }
@@ -3632,7 +3678,7 @@ window.AoV = window.AoV || {
     // promise that settles once the file is handed to the browser.
     downloadPlotHtml: function(id, filenameBase) {
         filenameBase = filenameBase || id;
-        var anchor = document.getElementById(id);
+        var anchor = this._elOf(id);
         if (!anchor) { console.warn('AoV.downloadPlotHtml: no element for', id); return; }
         var root = anchor.closest('[data-aov-fragment]') || anchor.closest('figure');
         if (!root) { console.warn('AoV.downloadPlotHtml: no card root for', id); return; }
