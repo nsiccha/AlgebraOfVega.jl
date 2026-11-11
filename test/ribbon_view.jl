@@ -217,19 +217,26 @@ one colour, and it starts as ribbons: one group has no bands to overlap.
     @test view_meta(to_vegalite(data(df) * mapping(:dose, :q50; layout=:panel) *
         lineribbon(bands=[:q2_5 => :q97_5], intervals=true) * logx))["start"] == "intervals"
 
+    @test !haskey(get(iv["config"], "style", Dict()), "aov-mark-color")
     # Without a fixed colour the rules take the default mark colour, as the
-    # ribbon does: no colour encoding (the intervals' fallback would give each
-    # dose its own colour) and no mark colour.
+    # ribbon's areas and line do: no colour encoding (the intervals' fallback
+    # would give each dose its own colour), and the style `aov-mark-color`,
+    # since Vega-Lite draws a rule black by default.
     one = overlapping(; groups=("A",))
     for spec in (data(one) * mapping(:dose, :med) * lineribbon(bands=BANDS),
                  data(one) * mapping(:dose, :med) * ribbon(bands=BANDS))
         alt = other(to_vegalite(spec * logx))
         AoV._each_encoded(alt) do d, _
             @test !haskey(d["encoding"], "color") && !haskey(d["encoding"], "xOffset")
-            d["mark"]["type"] == "rule" && @test !haskey(d["mark"], "color") && !haskey(d["mark"], "style")
+            d["mark"]["type"] == "rule" && @test d["mark"]["style"] == "aov-mark-color" && !haskey(d["mark"], "color")
         end
+        @test alt["config"]["style"]["aov-mark-color"] == Dict("color" => "#4c78a8")
         @test isnothing(alt["_aov"]["dodgeX"]["by"])
     end
+    # An authored mark colour is the rules' colour too.
+    red = other(to_vegalite(data(one) * mapping(:dose, :med) * lineribbon(bands=BANDS) * logx *
+        config(config=Dict("mark" => Dict("color" => "#e45756")))))
+    @test red["config"]["style"]["aov-mark-color"] == Dict("color" => "#e45756")
     # Raw draws: the same summary, one interval per dose.
     draws = (; dose=repeat(one.dose; inner=50), draw=repeat(1:50; outer=length(one.dose)),
         y=vcat((collect(range(lo, hi; length=50)) for (lo, hi) in zip(one.q025, one.q975))...))

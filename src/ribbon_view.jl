@@ -169,7 +169,7 @@ function _finish_ribbon_views!(vl::Dict)
     delete!(aov, "ribbonView")
     isempty(aov) && delete!(vl, "_aov")
     uncoloured = isnothing(src.color_field)
-    uncoloured && _drop_group_color!(alt, src)
+    uncoloured && _one_colour_intervals!(alt, src)
     if !_true_x_axis!(alt, vl, src)
         _slot_x_axis!(alt, src) || return vl
         uncoloured && _slot_undodged!(alt, src)
@@ -190,16 +190,33 @@ function _finish_ribbon_views!(vl::Dict)
     shown
 end
 
-# The interval layers of a ribbon without a colour mapping: the lowering's
-# fallback colours ungrouped intervals by their x, one colour per x; the ribbon
-# is drawn in one colour (its fixed one, or the default mark colour), so are
-# its intervals.
-function _drop_group_color!(alt::Dict, src)
+# The interval layers of a ribbon without a colour mapping, in the ribbon's one
+# colour. The lowering's fallback colours ungrouped intervals by their x, one
+# colour per x: dropped. Without a fixed colour the ribbon's areas and line take
+# the default mark colour (`config.mark.color`), but Vega-Lite draws a rule
+# black (its `config.rule`), so the rules carry the style `_AOV_MARK_COLOR`,
+# whose colour is the spec's mark colour; the runtime's host theme moves it with
+# the mark colour on a dark page (`hostThemeConfig`, vendor/aov-runtime.js).
+const _AOV_MARK_COLOR = "aov-mark-color"
+const _VL_MARK_COLOR = "#4c78a8"  # Vega-Lite's default `config.mark.color`
+function _one_colour_intervals!(alt::Dict, src)
+    styled = Ref(false)
     _each_encoded(alt) do d, _
         enc = d["encoding"]
         (_is_interval_x(get(enc, "x", nothing), src) && haskey(enc, "xOffset")) || return
         c = _as_dict(get(enc, "color", nothing))
         !isnothing(c) && get(c, "field", nothing) == src.x_field && delete!(enc, "color")
+        m = _as_dict(get(d, "mark", nothing))
+        (isnothing(m) || get(m, "type", nothing) != "rule" || haskey(m, "color") ||
+            (haskey(m, "style") && _AOV_INK in _style_list(m["style"]))) && return
+        d["mark"] = _mark_with_style(m, _AOV_MARK_COLOR)
+        styled[] = true
+    end
+    if styled[]
+        cfg = get!(Dict{String,Any}, alt, "config")
+        mark = _as_dict(get(cfg, "mark", nothing))
+        color = isnothing(mark) ? _VL_MARK_COLOR : get(mark, "color", _VL_MARK_COLOR)
+        get!(Dict{String,Any}, get!(Dict{String,Any}, cfg, "style"), _AOV_MARK_COLOR)["color"] = color
     end
     alt
 end

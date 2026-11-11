@@ -208,9 +208,14 @@
         let uview = await ready(un);
         check(pressed(un).join() === 'ribbons' && drawsRibbons(uview) &&
             switches(un).every(b => !b.hasAttribute('title')), 'uncoloured picker: starts as ribbons, no tooltip');
+        const lineStroke = items(uview, i => i.mark?.marktype === 'line' && i.mark?.items?.length)[0]?.stroke;
         button(un, 'intervals').click();
         uview = await ready(un, uview);
         let usc = uview.scale('x');
+        // The rules in the ribbon's own colour (Vega-Lite's default rule is black).
+        const ruleStrokes = [...new Set(rules(uview).map(i => i.stroke))];
+        check(lineStroke && ruleStrokes.length === 1 && ruleStrokes[0] === lineStroke,
+            'uncoloured picker intervals: the ribbon line\'s colour: ' + ruleStrokes + ' vs ' + lineStroke);
         check(drawsIntervals(uview) && at(uview, 5, 'A', 'S1').length > 0 &&
             at(uview, 5, 'A', 'S1').every(x => Math.abs(x - usc(5)) < 1), 'uncoloured picker intervals: at the dose');
         check(AoV._cur[un].spec._aov.dodgeX.by === null, 'uncoloured picker: an undodged recipe');

@@ -1315,6 +1315,9 @@ window.AoV = window.AoV || {
         if (dark) {
             cfg.range = {category: dark};
             cfg.mark = {color: dark[0]};
+            // Rules drawn in the default mark colour (an uncoloured
+            // ribbon's interval drawing, src/ribbon_view.jl) follow it.
+            cfg.style['aov-mark-color'] = {color: dark[0]};
         }
         if (cs) this._hostLook(cfg, el, cs);
         return cfg;
@@ -1449,13 +1452,16 @@ window.AoV = window.AoV || {
     // resolves, and `aov-ink-stroke` / `aov-ink-fill` (`stroke=:ink`,
     // `fill=:ink`), whose colour the server also wrote onto every mark that
     // carries them. LOCKSTEP: `_AOV_INK_STYLES` (src/to_vegalite.jl).
+    // `aov-mark-color` likewise, unless the spec set a mark colour other
+    // than Vega-Lite's default (`_AOV_MARK_COLOR`, src/ribbon_view.jl).
     _hostInk: function(spec, theme) {
         var styles = spec.config && spec.config.style;
         if (!styles) return;
         var paint = [];
         Object.keys(theme.style).forEach(function(name) {
             var prop = Object.keys(theme.style[name])[0], own = styles[name];
-            if (!own || own[prop] !== '#333') return;
+            var base = name === 'aov-mark-color' ? '#4c78a8' : '#333';
+            if (!own || own[prop] !== base) return;
             own[prop] = theme.style[name][prop];
             if (prop !== 'color') paint.push([name, prop, own[prop]]);
         });
