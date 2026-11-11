@@ -1,16 +1,15 @@
 # AlgebraOfVega.jl
 
-[![Dev Docs](https://img.shields.io/badge/docs-dev-blue.svg)](https://nsiccha.github.io/AlgebraOfVega.jl/dev/)
+AlgebraOfVega turns AlgebraOfGraphics expressions into interactive Vega-Lite figures for the browser.
 
-Translates [AlgebraOfGraphics.jl](https://github.com/MakieOrg/AlgebraOfGraphics.jl) plot specifications to [Vega-Lite](https://vega.github.io/vega-lite/) JSON, enabling web-friendly interactive visualizations.
+[Documentation](https://nsiccha.github.io/AlgebraOfVega.jl/dev/) · [Worked examples](https://nsiccha.github.io/AlgebraOfVega.jl/dev/examples/measurements)
 
 ## Installation
 
-```julia
-using Pkg
-Pkg.add(url="https://github.com/nsiccha/AlgebraOfVega.jl")
+The [installer](docs/install.jl) resolves the package and its unregistered dependencies together. From the shell:
+
+```sh
+curl -fsSL https://nsiccha.github.io/AlgebraOfVega.jl/dev/install.jl | julia
 ```
 
-## See also
-
-- [HTMX.jl](https://github.com/nsiccha/HTMX.jl) — Julia HTMX utilities for serving plots in web apps
+Run it in the Julia environment where you want the package installed. The [Start page](https://nsiccha.github.io/AlgebraOfVega.jl/dev/) supplies a complete first figure with its rendered result.

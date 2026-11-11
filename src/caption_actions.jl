@@ -1,9 +1,5 @@
-# Caption-row share/download actions (upstreamed from Bruno).
+# Caption-row share/download actions.
 #
-# Bruno's per-card Share / JSON-download buttons used to live as Bruno-local
-# helpers (`web-pkpd/src/analysis.jl`, `captions.jl`, `qt.jl`, `qt/fit.jl`).
-# They now live here so every AoV consumer gets them. The client-side
-# semantics are preserved exactly:
 # - the copied link is resolved to an ABSOLUTE URL against `window.location`
 #   (correct under the production `/p/<Slug>/` reverse-proxy prefix);
 # - `force=` / `plot_height=` params are stripped before copying;
@@ -127,7 +123,7 @@ its caption-actions row (via [`caption_action_inject`](@ref)). Unlike the
 share helpers the `url` is used verbatim (no param stripping).
 """
 function with_caption_download(rv, url::AbstractString, label::AbstractString, filename::AbstractString)
-    # Bruno's original spliced these raw; escaping only changes bytes when a
+    # Escape interpolated attribute values; this changes bytes only when a
     # quote/backslash is actually present, in which case the raw form broke.
     u, lab, fn = _js_squote(url), _js_squote(label), _js_squote(filename)
     caption_action_inject(rv, """

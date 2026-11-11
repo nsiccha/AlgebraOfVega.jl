@@ -683,7 +683,7 @@ end""")),
             auto_remap    = (; dims=[:panel => "Condition", :site => "Site"])
             page_title    = "Captioned plot demo"
             page_intro    = "Verifies the HTMXObjects caption integration on the most common " *
-                            "bruno path: pre-aggregated lineribbon + auto_remap_node via spec dispatch."
+                            "pre-aggregated ribbon path with channel controls."
         end
 
         @include spec = begin
@@ -799,13 +799,13 @@ end""")),
             [randn(50) for _ in 1:2]
         ) * visual(BoxPlot) * config(title="2. Without renamer")
 
-        # Test case 3: Bruno QT pattern (axes/eachcol)
-        cdslope = randn(5000)
-        cdslope_mat = reshape(cdslope, 1000, 5)
+        # Test case 3: Synthetic grouped values (axes/eachcol)
+        synthetic_values = randn(5000)
+        synthetic_values_mat = reshape(synthetic_values, 1000, 5)
         spec3 = pregrouped(
-            fill.(axes(cdslope_mat, 2), size(cdslope_mat, 1)) => renamer(string.([0, 10, 20, 40, 80])),
-            collect(eachcol(cdslope_mat))
-        ) * visual(BoxPlot) * config(title="3. Bruno QT pattern (axes/eachcol)")
+            fill.(axes(synthetic_values_mat, 2), size(synthetic_values_mat, 1)) => renamer(["A", "B", "C", "D", "E"]),
+            collect(eachcol(synthetic_values_mat))
+        ) * visual(BoxPlot) * config(title="3. Synthetic grouped values (axes/eachcol)")
 
         specs = [spec1, spec2, spec3]
         # vega_head() is already injected by AppContext.__page__ (extra_head);

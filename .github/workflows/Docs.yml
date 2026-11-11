@@ -25,8 +25,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Configure git for private repos
-        run: git config --global url."https://x-access-token:${{ secrets.PAT_TOKEN }}@github.com/".insteadOf "https://github.com/"
       - uses: julia-actions/setup-julia@v2
         with:
           version: '1'
@@ -38,19 +36,14 @@ jobs:
         run: cd docs && npm install
       - name: Install dependencies
         run: |
-          # Clone deps OUTSIDE the checkout (see test.yml). The pinned refs are
-          # the combination that actually resolves together: HTMXObjects on
-          # `devibe` + DynamicObjects on `pre-inference` (0.5.0). devibe bounds
-          # DynamicObjects to 0.4.4+, which the old `sbpmx-reflect` line (still
-          # stamped 0.4.3) cannot satisfy; the registry max is 0.4.3 too, so
-          # DynamicObjects must be developed here rather than pulled from the
-          # registry.
+          # Resolve the public unregistered dependencies together, outside
+          # the checkout so package discovery cannot scan their test suites.
           DEPS="$RUNNER_TEMP/aov-ci-deps"
           mkdir -p "$DEPS"
           git clone -b pre-inference https://github.com/nsiccha/DynamicObjects.jl.git "$DEPS/DynamicObjects.jl"
           git clone -b dev https://github.com/nsiccha/HTMX.jl.git "$DEPS/HTMX.jl"
           git clone -b devibe https://github.com/nsiccha/HTMXObjects.jl.git "$DEPS/HTMXObjects.jl"
-          git clone https://github.com/nsiccha/Treebars.jl.git "$DEPS/Treebars.jl"
+          git clone -b main https://github.com/nsiccha/Treebars.jl.git "$DEPS/Treebars.jl"
           julia --project=docs -e '
             # See test.yml: Julia 1.11+ rejects path-develop of a package the
             # active project already sources by url/rev. Strip [sources] from
@@ -75,3 +68,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: julia --project=docs docs/make.jl
+      - name: Verify deployed pages and assets
+        if: github.ref == 'refs/heads/dev' && github.event_name != 'pull_request'
+        run: python3 docs/check_site.py --url https://nsiccha.github.io/AlgebraOfVega.jl/dev/ --revision "$GITHUB_SHA" --wait 600

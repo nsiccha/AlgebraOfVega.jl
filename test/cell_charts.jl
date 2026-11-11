@@ -1,13 +1,7 @@
 using TestItemRunner
 
-# A table cell that holds a breakdown shows it as a small chart on a scale the
-# column shares, plus its total (user principle `distributions-as-charts`,
-# `VerkehrsStrukturdaten:ux/decisions/2026-10-26T14-22-29-072-06zfdtk`). Before
-# `cell_charts`, an app drew one full `vdraw` per cell (one Vega view, compile
-# and resize observer each: about 0.3–0.55 s and 13 MB per 60 cells), hid the
-# axes and legend through raw `config(...)`, passed the shared maximum by hand
-# and built the Markdown text itself (snag `aov-in-cell-brea-2051993f`, design
-# decision `AlgebraOfVega:snag.aov-in-cell-brea-2051993f/decisions/2026-10-26T18-24-16-240-15i6kwf`).
+# Synthetic table cells compare their breakdowns on a shared scale.
+# Check totals, text output, empty rows, and browser rendering.
 
 @testsnippet AoVCellFixtures begin
     cell_classes = ["200–499", "500–999", "1000–2499"]

@@ -5,7 +5,7 @@
 # new deps. It relates directly to the spec's numeric `width`/`height` and to a
 # vl-convert render of the same spec.
 #
-# Why it exists: a consumer (Bruno's report PDF export) needs to paginate a
+# Why it exists: a report renderer needs to paginate a
 # figure that renders too tall for a page WITHOUT rediscovering LaTeX's
 # `\maxdimen` overflow per-figure. The split of responsibility (decision
 # `15u664q`) is: **AoV measures; the consumer owns page policy** (papersize,
@@ -158,31 +158,10 @@ _size_panel(spec::Dict) = something(_as_dict(get(spec, "spec", nothing)), spec)
 """
     plot_size(spec) → (; width, height)
 
-Estimate the rendered size of a Vega-Lite `spec`, in the spec's own px units,
-from its structure alone — no rendering, no extra dependencies. `spec` may be a
-VL spec `Dict` (as produced by [`to_vegalite`](@ref)) or a `Layer` / `Layers` /
-`VegaSpec` (lowered via `to_vegalite` first). The result destructures as
-`w, h = plot_size(spec)` and exposes `.width` / `.height` (`Float64`, px).
-
-The model:
-
-- **faceted** — `height ≈ n_rows × (panel_h + spacing) + overhead`, `width`
-  symmetrically over `n_cols`. `n_rows`/`n_cols` come from the facet fields'
-  cardinality (distinct values in the embedded data) and the `columns` /
-  row-column layout; it covers the `facet` operator (single-field wrap and
-  row/column channels) and the `encoding.row`/`encoding.column`/`encoding.facet`
-  shorthand.
-- **single categorical axis** — a nominal/ordinal `y` (or `x`) with no explicit
-  size gives `n_categories × step`, so a tall category list is measured.
-- **plain continuous** — an explicit numeric `width`/`height`, else Vega-Lite's
-  200px continuous default.
-
-Chrome overhead (axis, title, facet header) is *estimated*: this is a fast,
-deterministic structural predictor (Plan A, decision `1dmk88u`), so a consumer
-that paginates on the result should pad conservatively. It exists so a consumer
-(e.g. a PDF export) can decide how to split a too-tall figure while owning page
-policy itself — `plot_size` measures, it does not know about pages (decision
-`15u664q`).
+Estimate a figure's width and height in pixels from its specification.
+Accepts a drawable or Vega-Lite dictionary. The estimate includes structural
+layout overhead but is not a browser measurement; reserve extra space when
+using it to paginate a report.
 """
 function plot_size(spec::AbstractDict)
     top::Dict = spec isa Dict ? spec : Dict{String,Any}(string(k) => v for (k, v) in spec)

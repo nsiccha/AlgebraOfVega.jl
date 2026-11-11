@@ -240,43 +240,14 @@ end
     cell_charts(spec[, scales]; texts=table_texts(), sigdigits=3, id=nothing,
                 total=nothing, label=nothing, text=nothing) -> CellCharts
 
-A column of small charts for a table, one per row: each table cell shows its
-row's total and a small chart (no axes or legend; a tooltip on each mark), and
-every cell of the column shares one scale, so the rows compare at a glance.
-`spec` is a figure faceted by the table's row key with `layout=`; its panels
-become the cells:
+Build a column of small charts from a specification faceted by the table's
+row key through `layout`. Index the result with `cells[key]` to obtain the
+row's HTML table cell. Cells share scales unless the figure unlinks an axis.
+Requires `using HTMXObjects` and a host page with `vega_head()`.
 
-```julia
-# one row per (site, size class): vb_nr, klasse, n
-cells = cell_charts(data(site_classes) *
-    mapping(:klasse => sorter(class_labels) => "Größenklasse", :n => "Betriebe"; layout=:vb_nr) *
-    visual(BarPlot); texts=table_texts(:de))
-h.tr(h.td(r.name), cells[r.vb_nr])
-```
-
-`cells[key]` is the `<td>` of the row `key`:
-- the total, written as the table writes numbers (`texts`, `sigdigits`), and
-  the chart, drawn in the browser by the AoV runtime (`vega_head()`): the
-  cells near the viewport first, the others while the browser is idle (and
-  at once when the page prints);
-- `data-sort-value` and `data-htmxo-number` = the total, so the table sorts by
-  it and its ⬇ CSV writes it;
-- in the page's Markdown view (and so a `pdf_report`) the breakdown as text
-  instead of the chart: `19 (200–499: 13; 500–999: 2)`, zero parts left out.
-
-The column's figure is written as any AoV figure (`sorter`, labels,
-`visual(BarPlot; color=…)`, `scales(...)`); `config(width=…, height=…)` sets the
-cell size (default 120×24 px). Every scale is shared across the column's cells,
-as AoG links a facet's axes; `config(facet=(; linkyaxes=:none))` lets each cell
-fit its own y axis (`linkxaxes` its x axis). Bars start at zero unless the
-figure sets `zero` itself. A key that has no rows gets an empty chart and a
-total of 0.
-
-The total is the sum of the value positional (`mapping(:klasse, :n)`), or the
-number of rows with only a category (`mapping(:klasse) * frequency()`). Replace
-it with `total = rows -> number`, its shown text with `label = x -> string`, and
-the Markdown text with `text = rows -> string` (`rows` are the key's rows of the
-first layer, as NamedTuples). `id` names the column (default: a hash of its
-figure). Implementation lives in the `AlgebraOfVegaHTMXObjectsExt` extension.
+`texts` localizes labels and `sigdigits` controls numeric display. The default
+total is the sum of values, or the row count for a frequency plot. `total`,
+`label`, and `text` customize that calculation, its label, and its Markdown
+representation. Missing row keys produce an empty chart and a zero total.
 """
 function cell_charts end

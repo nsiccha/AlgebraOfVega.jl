@@ -2,9 +2,7 @@ using TestItemRunner
 
 # Which rows a figure's ⬇ CSV button and "Show data" pane give: one group per
 # dataset that draws values, for a figure with or without facets. Before, a figure
-# without facets gave only its first layer's rows, so a map whose first layer was
-# the region names exported 16 rows of state names, and its field values not at all
-# (snag `plot-csv-exports-f9be9108`, reporter ODLPlaus:review:ux; decision `1nxymn0`).
+# without facets gave only its first layer's rows and omitted later layers.
 @testitem "a figure's CSV and data preview in the browser" tags=[:caption, :browser] begin
     using AlgebraOfVega, AlgebraOfGraphics, HTMXObjects, JSON
     Text = AlgebraOfVega.Makie.Text

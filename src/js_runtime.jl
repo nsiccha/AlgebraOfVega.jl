@@ -37,13 +37,9 @@ const _AOV_STYLE_FILE = "aov.css"
 """
     vega_vendor_dir() -> String
 
-Absolute path of the directory holding AoV's browser assets: the vendored
-Vega/Vega-Lite/Vega-Embed builds (the exact-pinned trio `vega_head()` serves
-from CDN by default) plus AoV's own runtime (`aov-runtime.js`) and stylesheet
-(`aov.css`). Serve this directory from your app (e.g. mount it at `/vendor`
-with a static route) and pass `vega_head(; source=:vendor, base="/vendor")` to
-render plots with no CDN dependency — plus `runtime=:linked` to load AoV's
-runtime and stylesheet from it too, instead of inlining them in every page.
+Return the directory containing the vendored Vega, Vega-Lite, and Vega-Embed
+libraries together with AoV's browser runtime and stylesheet. Serve the whole
+directory from `base` when using `vega_head(source=:vendor)`.
 """
 vega_vendor_dir() = normpath(joinpath(pkgdir(AlgebraOfVega), "vendor"))
 
@@ -145,88 +141,31 @@ _check_theme(theme) = throw(ArgumentError("theme must be a Symbol (:host or :non
 """
     vega_head(; vega_version, vegalite_version, vega_embed_version, source, base, runtime, zoom, max_width, actions, theme)
 
-Return a vector of `h.script`/`h.style`/`h.link` nodes to include in `htmx(; extra_head=vega_head())`.
+Return HTML head nodes for the plotting libraries and AoV browser runtime.
+Include them once in a host page. `source=:cdn` uses pinned URLs and integrity
+hashes; `:vendor` loads from `base`; `:inline` embeds the vendored bytes.
+`runtime=:linked` requires `source=:vendor` and links the runtime and stylesheet.
 
-`source` selects where the Vega/Vega-Lite/Vega-Embed scripts come from:
-`:cdn` (default) emits exact-pinned CDN tags with subresource integrity;
-`:vendor` emits same-origin `<base>/vega.min.js?v=<content hash>` tags —
-serve `vega_vendor_dir()` at `base` from your app; `:inline` inlines the
-vendored bytes. Version overrides apply only to `:cdn`.
+The default `theme=:host` follows the plot element's inherited foreground and
+font. `theme=:none` keeps Vega's own appearance. `zoom`, `max_width`, and
+`actions` set page defaults. Author-specified mark palettes remain unchanged
+when the host theme switches.
 
-`runtime` selects how AoV's own runtime and stylesheet (~96 KB) reach the
-page. `:inline` (default) inlines them. `:linked` — which needs
-`source=:vendor` — references `<base>/aov-runtime.js` and `<base>/aov.css`
-from the same mount instead, so the browser caches them rather than
-receiving them in every full page. Every `:vendor` URL carries a `?v=`
-content hash that changes exactly when the file's bytes do, so the mount may
-serve them with a far-future `immutable` cache lifetime. The page settings
-below (`zoom`, `max_width`, `actions`, `theme`) stay an inline per-page
-script either way.
+CSS properties on the plot or an ancestor can set the host appearance:
 
-`zoom` uniformly scales all plots (chart area, fonts, axes, legend). Responsive plots
-are sized to `containerWidth / zoom` so they don't overflow their container.
+| Property | Meaning |
+| --- | --- |
+| `--aov-font` | Font-family list. |
+| `--aov-category` | Default categorical colors, separated by commas. |
+| `--aov-axis-label-color`, `--aov-axis-title-color` | Axis text colors. |
+| `--aov-grid-color`, `--aov-tick-color`, `--aov-domain-color` | Grid, ticks, and axis lines; `none` removes them. |
+| `--aov-view-color` | Plot frame color; `none` removes it. |
+| `--aov-legend-label-color`, `--aov-legend-title-color` | Legend text colors. |
+| `--aov-header-label-color`, `--aov-header-title-color` | Facet header colors. |
 
-`max_width` caps plot width at `max_width` px: a plot in a wider container is
-sized as if the container were `max_width` px (layered/faceted specs), or fills
-at most `max_width` px of its container (single-view specs). A per-plot
-`config(max_width=...)` overrides this page-level value for that plot.
-
-`theme` selects how plots follow the page's look. `:host` (the default) draws
-axes, legends, facet headers, titles and unencoded text in the CSS `color` each
-plot element inherits, in its `font-family` (a page left on the browser's
-default font keeps Vega's sans-serif), on a transparent background, and
-re-renders the plots when the page's colour scheme changes (a
-`prefers-color-scheme` change, or a `class` / `data-theme` / `style` change on
-`<html>` or `<body>`). Authored palette and literal mark colours are unchanged.
-On a dark page (light text), Vega's default palette draws its first colour,
-`#4c78a8`, as `#4893e2` (also the default colour of a mark with no colour
-mapping), since the former reads as navy there; its other colours are kept.
-`visual(...; color=:ink)` uses the plot's inherited foreground colour instead, and
-`stroke=:ink` (or `strokecolor=:ink`) and `fill=:ink` use it on that side of the
-mark only.
-A spec's own `config(config=Dict(...))` values still win. PNG/SVG
-downloads of such a plot are painted on the page background behind it, and its
-tooltips show on that background in the plot's text colour (a page's own
-`#vg-tooltip-element` rules still win). `:none` keeps Vega's own defaults (white
-background, black text, sans-serif). A per-plot `config(theme=...)` overrides
-this page-level value for that plot.
-
-A page restyles its host-themed plots further with optional CSS custom
-properties, set on the plot element or any ancestor. Their values may use
-`currentColor` and `light-dark()`, which resolve where the plot sits, and
-`var(...)` tokens, which CSS resolves where the property is declared (a token
-defined only on a descendant, such as `body` for a property set on `html`,
-invalidates the whole property):
-
-| Property | Sets |
-|:---|:---|
-| `--aov-font` | the plot font, a `font-family` list, instead of the element's own |
-| `--aov-category` | the default categorical palette, a comma-separated colour list |
-| `--aov-axis-label-color`, `--aov-axis-title-color` | axis labels and titles |
-| `--aov-grid-color`, `--aov-tick-color`, `--aov-domain-color` | grid lines, ticks and the axis line; `none` leaves them out |
-| `--aov-view-color` | the frame around each plot area (and facet cell); `none` leaves it out |
-| `--aov-legend-label-color`, `--aov-legend-title-color` | legend labels and titles |
-| `--aov-header-label-color`, `--aov-header-title-color` | facet header labels and titles |
-
-An unset property keeps the host default. `--aov-category` only replaces the
-default range: `scales(Color=(; palette))`, an explicit scale range or scheme,
-and literal mark colours keep theirs. An invalid value is reported on the
-browser console and ignored. For example:
-
-```css
-html[data-look=brand] {
-  --aov-font: "Brand Sans", sans-serif;
-  --aov-category: #1f6f8b, #e07a1f, #6a994e, var(--brand-accent);
-  --aov-grid-color: light-dark(#eceff3, #2a2f37);
-  --aov-domain-color: none;
-}
-```
-
-To switch a look live, change the CSS (for example that attribute on `<html>`)
-and call `AoV.refreshTheme()`; it re-renders every plot whose look changed,
-keeping its data and picker state. A `class`, `data-theme` or `style` change on
-`<html>` or `<body>` re-renders by itself. PNG/SVG downloads keep the font and
-look, and a saved card (`downloadPlotHtml`) pins them on its plot element.
+These defaults leave explicit mark colors and scale palettes intact. Class,
+`data-theme`, or style changes on the document root or body refresh the plots.
+After other stylesheet changes, call `AoV.refreshTheme()` in the browser.
 """
 function vega_head(;
     vega_version=VEGA_VERSION,
@@ -260,13 +199,9 @@ end
 """
     vega_controls(; zoom=true, actions=true)
 
-Return an `h.div` node with client-side controls for Vega plots:
-- **Zoom ±**: adjust CSS zoom on all `.vega-embed` elements (like Bruno's sidebar controls)
-- **Actions**: toggle visibility of Vega-Embed's action menu (⋯ button) on all plots
-
-Drop this into a sidebar, header, or anywhere on the page:
-
-    nav_sidebar(items)(vega_controls())
+Return optional controls for CSS plot zoom and the Vega action menu.
+These are page controls; plot selections and legend interactions belong to the
+figure specification.
 """
 function vega_controls(; zoom=true, actions=true)
     children = []
@@ -369,107 +304,7 @@ end
 """
     vega_runtime()
 
-Return a `h.script` node with the AlgebraOfVega JS runtime, inlined. Its
-source is the file `aov-runtime.js` in `vega_vendor_dir()`, which
-`vega_head(source=:vendor, runtime=:linked)` references by URL instead.
-Manages Vega views by ID and provides helpers for HTMX integration.
-
-Client-side API:
-- `AoV.views[id]` — access Vega views by element ID
-- `AoV.embed(id, spec, opts)` — embed and register a view; calling it again for the
-  same `id` (e.g. with a spec that has more layers) replaces the view
-- `AoV.whenReady(id, fn)` — call `fn(view)` now, or once the view has been embedded
-- `AoV.updateData(id, data)` — swap a view's data without re-creating it
-- `AoV.appendData(id, data, name, maxRows)` — insert rows into a view's data,
-  optionally keeping only the most recent `maxRows`
-- `AoV.replaceData(id, data, key, name)` — replace the rows of the groups `data`
-  carries (rows whose `key` field values match a row of `data`), keeping the
-  other groups' rows
-- `AoV.removeData(id, values, key, name)` — remove one explicitly named keyed
-  group without replacement rows.
-- `data` is a row array or the columnar `{n, columns}` form `update_data` /
-  `append_data` / `replace_data` send; `AoV.embed`/`AoV.updateSpec` expand
-  inline datasets in that form too (`AoV._rowsFromColumns`)
-- `AoV.onSignal(id, signal, callback)` — listen to a Vega signal
-- Signal→HTMX wiring is set up automatically by `to_node(; signals=...)`
-- `aov:click` — a DOM event every plot element dispatches (bubbling) when the
-  reader clicks a data mark, on every view the runtime embeds for it;
-  `event.detail` is `{id, datum, event}`: the plot id, a copy of the clicked
-  mark's row, and the browser's mouse event. Legend, axis, title and empty-space
-  clicks send none. Listen with `document.addEventListener('aov:click', …)` or
-  htmx `hx-trigger="aov:click from:#<id>"`
-- `aov:hover` / `aov:hoverend` — DOM events (bubbling) a plot element dispatches
-  when the pointer moves onto a data mark and leaves it again (the marks `aov:click`
-  reports; on a scatter with tooltips, the nearest point); `event.detail` is
-  `{id, datum, event}`. Moving from one mark to the next sends the old mark's
-  `aov:hoverend`, then the new mark's `aov:hover`
-- `AoV.highlight(id, match)` / `AoV.clearHighlight(id)` — dim every mark of plot `id`
-  whose row does not match to 15 % of its opacity, as a legend selection does, and
-  undo it. `match` is `{field: value}` or `{field: [values]}` (values compare as
-  strings, several fields must all match; a row with none of the fields is left
-  alone) or a function `datum => boolean`. Repaints the live view (no re-embed) and
-  is kept across re-embeds
-- Link groups: a plot with `config(link=(; group, key))` announces a hovered mark's
-  `key` as a `CustomEvent('htmxo:link', {detail: {group, key, keys, source}})` on
-  `document` (`keys` is `[key]`; `key: null` and `keys: []` when the hover ends), and
-  highlights its marks whose `key` is one of the `keys` another member of the group
-  announces (a table's group row sends all its members' keys, with `key: null`; a
-  sender without `keys` is read as `[key]`) — the contract HTMXObjects' tables share
-- `AoV.refreshTheme()` — re-render host-themed plots whose inherited text colour,
-  font or `--aov-*` look changed (automatic on `prefers-color-scheme` and
-  `<html>`/`<body>` class, `data-theme` or `style` changes; call it after other
-  theme switches, such as a custom attribute on `<html>`)
-- `AoV.hostThemeConfig(el)` / `AoV.hostBackground(el)` — the Vega-Lite config a
-  host-themed plot in `el` embeds with, and the background its image downloads use
-- `AoV.dispose(id)` — tear a plot down: finalize its Vega view and drop all
-  per-plot runtime state. A plot whose element stays in the page keeps its
-  last frame, as a static copy: a new `<canvas>` with the same attributes and
-  pixels (or a clone of the `<svg>`) replaces the drawing, and the actions menu
-  is removed
-- `AoV.disposeWithin(root)` — dispose every plot whose element is `root` or
-  inside it (works on detached subtrees too)
-
-A Vega view registers `window`/`document` listeners (`width: "container"`
-resize, zoom/pan drags, the actions menu) that keep it — its data, scenegraph
-and canvas — reachable until it is finalized, so the runtime finalizes it. A
-plot whose element leaves the document is disposed automatically: one
-`MutationObserver` sweeps the registry after DOM removals, once the removing
-script yields. A node removed and re-inserted synchronously stays live, and a
-same-id re-render already embedded into its new element is untouched; a plot
-detached and re-attached later is not revived (re-run its embed). `dispose`
-finalizes through vega-embed's own `finalize`, as does
-every re-embed (`View.finalize` alone leaves the actions menu's `document`
-listener, which keeps the replaced view alive). Only the latest embed of a plot
-registers: one superseded by a newer embed or by `dispose` is finalized when it
-resolves, and resize/fit re-embeds scheduled by a superseded embed are inert.
-A finalized view also stays reachable from the drawing it leaves: Vega's
-listeners on the canvas, the svg nodes' scenegraph items and the actions
-menu's export links all hold it. That is why `dispose` swaps the drawing of a
-plot that stays in the page for a static copy, including one disposed while its
-embed was in flight; code that kept a reference to the old `<canvas>` or `<svg>`
-then holds a detached node. A plot whose element has left the page is not
-copied: it is collectable as it is.
-
-Plots whose first render has an empty dataset (the incremental-plot pattern)
-hide legends bound to empty scale domains until the first data change: Vega
-renders an empty legend as a zero-item group whose inverted bounds collapse
-the whole canvas to 0x0. The first `appendData`/`updateData` re-embeds once
-with the accumulated rows, restoring the legend bound to the real domain.
-
-A coloured `lineribbon`/`ribbon` draws each colour group as its own layers
-(tagged `_lr_group`; an empty first render has `_lr_proto` template layers
-instead), so the groups paint in order. A data change whose rows bring a group
-without layers re-embeds once with layers for every group of the rows; rows of
-groups that already have layers are swapped into the live view.
-
-`AoV.embed` sizes the plot element of a `width: "container"` spec to its
-container itself, so single-view plots fill their container on any page —
-without it vega-embed's `display: inline-block` shrink-wraps the element and
-the view measures 0px wide wherever no page stylesheet widens it.
-
-An `AoV.embed` issued while the page is still being parsed (the inline script
-`to_node` writes) renders once the document is parsed: until then the plots
-after it in a grid or flex row do not exist, and the row's first track would
-span the whole row. Embeds after load (htmx swaps) render at once.
+Return AoV's browser runtime as an inline script node. Prefer `vega_head()`
+to install the complete library, stylesheet, and runtime set.
 """
 vega_runtime() = h.script(Raw(_vega_vendor_inline(_AOV_RUNTIME_FILE)))

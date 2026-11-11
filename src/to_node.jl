@@ -211,10 +211,8 @@ end
 """
     PlotSummary(text)
 
-A markdown-only child of an AoV plot node. Renders `text` under
-`MIME"text/markdown"` and *nothing at all* under `MIME"text/html"`, so it is
-invisible in the browser while making a `?plain` / `Accept: text/markdown` read
-of a figure non-empty. Built by [`to_node`](@ref) from [`plot_summary_md`](@ref).
+A figure summary that renders as Markdown and contributes no HTML.
+Use when a host's text view needs a description beside an interactive figure.
 """
 struct PlotSummary
     text::String
@@ -312,14 +310,9 @@ end
 """
     plot_summary_md(vl::Dict; id=nothing)
 
-Return a short, bounded markdown description of a Vega-Lite spec: mark type(s),
-the channel→field encoding table, inline row/column counts, plot size and facet
-fields. Data *values* are never emitted — only counts — and every truncation is
-marked, so the result can never read as the complete value.
-
-Used by [`to_node`](@ref) to give every plot node a non-empty `text/markdown`
-rendering, so a `?plain` read of a route that renders a real figure is
-distinguishable from one that renders nothing.
+Return a Markdown description of the figure's mapped data and summaries.
+Accepts a drawable or a lowered Vega-Lite dictionary. This describes the figure;
+it is not a substitute for model diagnostics or a scientific caption.
 """
 function plot_summary_md(vl::Dict; id=nothing)
     views, encs, datas = _md_walk!(Dict[], Dict[], Dict[], vl)
@@ -433,20 +426,10 @@ _sig_get(sig, key::Symbol, default) = get(sig, string(key), default)
 """
     to_node(spec; id, width, height, actions, signals)
 
-Convert a spec to an HTMX `Node` containing a div + script that calls `vegaEmbed`.
-Requires vega/vega-lite/vega-embed scripts to be loaded (use `vega_head()` in page head).
-
-## Keyword arguments
-- `id`: element ID (auto-generated if not provided)
-- `width`, `height`: override spec dimensions
-- `actions`: show Vega action links (default false)
-- `signals`: vector of signal→HTMX wirings. Each entry is a NamedTuple or Dict:
-  `(signal="brush", url="/on_brush", target="#detail")` or with optional `swap`, `debounce`.
-- `fit_width`: when `true` (default) set `width: "container"` for single-view specs and
-  apply numeric responsive widths for layered/faceted specs. An explicit `width`
-  (kwarg or `config(width=…)`) or `fit_width=false` keeps the authored width: the
-  runtime then neither resizes the plot to its container nor re-embeds it when
-  the container resizes.
+Return an embeddable plot node. `id` gives the plot a stable browser identity;
+`width` and `height` override dimensions; `actions` controls export actions.
+`signals` wires browser signal changes to host callbacks. `fit_width` enables
+fitting to the available container width. Include `vega_head()` in the host.
 """
 function to_node(spec; id=nothing, width=nothing, height=nothing, actions=false, signals=nothing, fit_width=true)
     vl = _embed_spec(spec; width, height, fit_width)
@@ -551,19 +534,12 @@ end
 """
     update_data(id, table; name="source_0")
 
-Return an `h.script` node that replaces an existing Vega view's dataset with the
-rows of `table`, verbatim. Useful for HTMX responses that should update a plot
-without re-rendering.
+Replace the named raw-row dataset in an existing figure. `id` identifies the
+plot; `name` identifies its Vega dataset. Returns an HTML update fragment.
 
-Raw rows only fit a plot whose embedded dataset *is* raw rows. A plot that AoV
-lowered server-side — an interval/ribbon summary (`pointinterval`,
-`lineribbon`, …), a faceted `density`, a merged multi-layer dataset, picker
-combo columns — embeds derived rows, so refresh it with
-[`update_spec`](@ref) instead. The runtime refuses (console error, data left
-unchanged) when the new rows lack a field that its current rows carry and that
-places or selects the plot's marks (a positional/facet channel field or a
-`filter` field — e.g. a summary's `lo_*`/`hi_*` bounds or a merged dataset's
-`__src`).
+Use `update_spec` when the browser data were summarized or otherwise lowered
+in Julia; replacing those data with raw observations would not recompute the
+summary. The runtime retains accepted row updates during responsive re-embeds.
 """
 function update_data(id, table; name="source_0")
     id = _sanitize_id(id)
@@ -751,23 +727,9 @@ _rows_payload(table) = _vl_json(_wire_table(table))
 """
     append_data(id, table; name="source_0", max_rows=nothing)
 
-Return an `h.script` node that inserts the rows of `table` into an existing Vega
-view's dataset, keeping the rows already there; scales and axes grow to fit.
-With `max_rows`, only the most recent `max_rows` rows are kept (a sliding window).
-
-`table` is any Tables.jl source, read column by column (lazy columns stay lazy)
-and sent in a compact columnar form: a regular coordinate as a sequence, a
-constant column once, sorted labels as runs, other columns as flat arrays. The
-runtime rebuilds the identical rows.
-
-For plots whose data arrives incrementally, e.g. one `append_data` fragment per
-chunk pushed over an HTMXObjects `@ws` route or returned by an HTMX poller.
-Calls that arrive before the view has finished embedding are applied once it
-is ready, and appended rows survive the view's responsive re-embeds.
-
-Like [`update_data`](@ref), this inserts raw rows: refresh an AoV-lowered plot
-(interval/ribbon summaries, merged multi-layer datasets) with
-[`update_spec`](@ref), which recomputes the lowering.
+Append raw rows to a rendered dataset. `max_rows` optionally retains only the
+most recent rows. `id` is the stable plot id and `name` the dataset name.
+Use `update_spec` for Julia-computed summaries or a changed layer structure.
 """
 function append_data(id, table; name="source_0", max_rows=nothing)
     id = _sanitize_id(id)
@@ -777,30 +739,10 @@ end
 """
     replace_data(id, table; key, name="source_0")
 
-Return an `h.script` node that replaces, in an existing Vega view's dataset, the
-rows of the groups `table` carries: every row whose `key` values (one column, or
-a vector of columns for a composite key) equal those of some row of `table` is
-removed, and the rows of `table` are inserted, in one change. Rows of every
-other group stay as they are, so a group that is refined in stages — one
-scenario's provisional posterior bands, re-sent as its draws accumulate — costs
-only its own rows on the wire and in the view (sent in the same columnar form as
-[`append_data`](@ref)):
-
-```julia
-vdraw(data(rows) * mapping(:x, :y; color=:scenario) *
-    lineribbon(bands=[:lower => :upper]); id="bands")
-replace_data("bands", scenario_rows; key=:scenario)   # one scenario's rows, each stage
-```
-
-A group that `table` does not carry cannot be removed this way; send
-[`update_data`](@ref) for that. Like `append_data`/`update_data`, the rows
-survive the view's responsive re-embeds, calls arriving before the view has
-embedded are applied once it is ready, and raw rows are refused for a dataset
-AoV lowered server-side (refresh those with [`update_spec`](@ref)). A coloured
-`lineribbon`/`ribbon` draws each colour group as its own layers; a group first
-brought by a data change gets its layers then (the plot re-embeds once) — except
-in a ribbon layered with other layers, which logs a console warning instead:
-send `update_spec` when a group first appears there.
+Replace rows belonging to the groups present in `table`, retaining other
+groups. `key` is a column or vector of columns defining group identity.
+`name` selects the dataset. Returns an HTML update fragment for plot `id`.
+Use `update_spec` when refreshing summaries computed in Julia.
 """
 function replace_data(id, table; key, name="source_0")
     id = _sanitize_id(id)
@@ -821,24 +763,9 @@ end
 """
     remove_data(id, value; key, name="source_0")
 
-Remove one keyed group from an existing Vega view without replacing its other
-rows or re-embedding the plot. `value` is the value of the `key` column, or a
-tuple of values in the same order as a composite `key` vector:
-
-```julia
-remove_data("bands", "Scenario A"; key=:scenario)
-remove_data("bands", ("Scenario A", "panel 1"); key=[:scenario, :panel])
-```
-
-Like [`replace_data`](@ref), the change is queued until the view is ready and
-survives responsive re-embeds. The key names fields in the embedded dataset;
-if its rows lack them, the runtime reports an error and leaves the data alone.
-A data-derived colour domain and legend shrink when the last row of a colour
-group is removed. To keep surviving groups' colours stable across removals and
-later additions, pin the full `Color` scale with
-`config(scales=scales(Color=(; categories=all_groups, palette=colors)))`.
-That fixed domain also keeps every category in the Vega legend; render a
-separate selection legend if it should show enabled groups only.
+Remove rows whose `key` matches `value` from the named dataset of plot `id`.
+`key` can identify one or several columns. Returns an HTML update fragment;
+the page needs the AoV runtime, which queues updates until the view is ready.
 """
 function remove_data(id, value; key, name="source_0")
     id = _sanitize_id(id)
@@ -857,26 +784,13 @@ end
 """
     update_spec(id, spec; auto_remap=nothing, width, height, actions, fit_width)
 
-Return an `h.script` node that refreshes the existing plot `id` (created by
-[`to_node`](@ref), `vdraw`, [`auto_remap_node`](@ref) or `with_plot_caption`)
-from a new `spec` — new data, an additional layer, or both. `spec` is lowered
-server-side exactly like a first render, so analysis summaries, merged
-multi-layer datasets and facet densification are recomputed from the new raw
-rows: this is how an AoV-lowered plot (`pointinterval`, `lineribbon`, a faceted
-`density`, …) is refreshed as data arrives.
+Refresh a rendered figure by lowering a new drawable, including its data,
+analyses, and layers. For a remappable plot, pass the same `auto_remap` options
+used to create its controls. The reader's current assignment is reapplied.
 
-For a plot rendered through the channel picker, pass the picker's keywords as
-`auto_remap` — the same `(; dims, fixed, pinned, off, …)` given to
-`auto_remap_node` (or `with_plot_caption(...; auto_remap=…)`) — so the new spec
-is lowered through the same channel resolution.
-
-The reader's state carries over: the picker's current channel assignment is
-re-applied to the new spec, and when only the data changed the view's datasets
-are swapped in place, keeping zoom/pan, legend selection and the canvas. A
-structural change (new facet panels, a new layer, changed encodings or size)
-re-embeds the plot in place. Signal listeners wired via `to_node(; signals)`
-carry over either way; rows added earlier by `append_data`/`update_data` are
-replaced by the new spec's data.
+A data-only refresh can retain the live view and zoom. Structural changes
+re-embed the figure. Optional size and action settings override the refreshed
+figure's display settings.
 """
 function update_spec(id, spec; auto_remap::Union{Nothing,NamedTuple}=nothing,
                      width=nothing, height=nothing, actions=false, fit_width=true)
@@ -889,21 +803,10 @@ end
 """
     resolve_channels(dimensions; color_default, row_default, column_default, detail_default, pinned, fixed, channels)
 
-Compute which dimension field maps to which visual channel, returning kwargs
-ready to splice into `mapping()` and `lineribbon()`. This is the single source
-of truth for channel resolution — both `mapping_controls` and server-side spec
-construction should use this.
-
-Returns a NamedTuple with:
-- `color_kw`: NamedTuple to splat into `mapping(; color_kw...)`
-- `row_kw`: NamedTuple to splat into `mapping(; row_kw...)`
-- `column_kw`: NamedTuple to splat into `mapping(; column_kw...)`  (from non-fixed column defaults)
-- `fixed_kw`: NamedTuple to splat into `mapping(; fixed_kw...)` (from fixed channels)
-- `detail`: `Vector{Symbol}` for `lineribbon(; detail)`
-- `color_fields`, `row_fields`, `column_fields`, `detail_fields`: raw field name vectors
-- `dim_label_map`: `Dict{String,String}` field → human label
-- `dims`: filtered dimension pairs
-- `defaults`: `Dict{String,Vector{String}}` channel → field names (including pinned auto-fill)
+Resolve named dimensions into color, row, column, and detail assignments.
+Defaults suggest assignments; `fixed` pins selected channels; `pinned` collects
+unassigned dimensions. `channels` selects the available channels. Returns the
+resolved assignment used by remapping controls.
 """
 function resolve_channels(dimensions;
     color_default=String[], row_default=String[], column_default=String[], detail_default=String[],
@@ -1093,20 +996,10 @@ end
 """
     refine_channels(resolved, tables...)
 
-Return a new `resolved` with dimensions stripped if they are absent from
-**every** `table` or have ≤1 unique value in every table that has them.
-Same treatment for fixed-channel assignments. Use this once before building
-your spec so that:
-
-- the static server-side render's auto-generated row/col/color labels only
-  reference dims that actually vary,
-- the pinned catch-all channel doesn't auto-absorb meaningless dims,
-- `mapping_controls`' picker reflects the same set.
-
-Per-layer combo construction is still done by `apply_combos!` against the
-returned (refined) `resolved`. Layers that don't have every component of a
-combo column will have it left unset, and the broadcast pass will replicate
-them across the surviving facet panels.
+Remove dimensions that are absent from every table, or have at most one
+distinct value in every table containing them. This also filters fixed
+assignments. Pass the result of `resolve_channels` and the tables the figure
+actually uses.
 """
 function refine_channels(resolved::NamedTuple, tables...)
     isempty(tables) && return resolved

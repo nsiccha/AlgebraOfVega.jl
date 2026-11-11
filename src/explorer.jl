@@ -128,31 +128,9 @@ _default_marks() = [
 """
     explorer_js(; namespace="", plot_selector="#explorer-plot", spec_selector=nothing, width="container", height=350)
 
-Return a String of JS code that implements the explorer widget logic.
-
-Generates two JS functions: `_explorerUpdateDropdowns` (repopulates dropdown options
-when the dataset changes) and `explorerUpdate` (builds and renders the Vega-Lite spec).
-
-Dropdowns: dataset, x, y, color, group (detail encoding), facet column, facet row, mark type.
-Checkboxes: independent X/Y axis (adds VL `resolve` for faceted specs), log X/Y scale.
-The group dropdown maps to Vega-Lite's `detail` encoding channel, which groups data
-(e.g. draws separate lines per group) without assigning a visual property like color.
-
-- `namespace`: JS namespace prefix for functions (e.g. "AoV." for web app, "" for standalone)
-- `plot_selector`: CSS selector for the plot container
-- `spec_selector`: CSS selector for spec JSON display (nothing to skip)
-- `width`: plot width for non-faceted specs (integer or "container")
-- `height`: plot height for non-faceted specs
-
-Faceted specs are marked with the `_aov` responsive hint (`fitWidth`, plus the column
-count for column facets) and embedded through `AoV.embed` when the AoV runtime
-is present, so they get the same container-fit sizing, `max_width` cap, and
-resize handling as `to_node` plots. Without the runtime (or when `plot_selector`
-is not a plain `#id`), the spec embeds via raw `vegaEmbed` with the client-side
-fallback width below. Non-faceted specs use `width` (`"container"` by default).
-Fallback (no-runtime) faceted widths: container `clientWidth` divided by the
-number of unique facet column values (min 100px); row-only facets use full
-container width minus padding (min 250px); 800px if the container is not found.
+Return the browser code for an explorer. `namespace` separates independent
+explorers; selectors identify the plot and optional specification display.
+Use `explorer_widget` unless the host needs to assemble its own controls.
 """
 function explorer_js(; namespace="", plot_selector="#explorer-plot", spec_selector=nothing, width="container", height=350)
     spec_line = isnothing(spec_selector) ? "" : """

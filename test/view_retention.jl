@@ -1,7 +1,6 @@
 using TestItemRunner
 
-# Vega views a plot element keeps alive (snags `attachtouch-clos-f2d7a0dc` and
-# `dispose-in-place-cbce89a5`, reporter Bruno:arv393). A long report that
+# Vega views a plot element keeps alive. A long synthetic report that
 # releases offscreen plots with `AoV.disposeWithin` and keeps their drawings
 # ran Chromium out of memory at 4 GB of JS heap. Two things held the views:
 # - the element listeners `_attachTouch` added once per plot element shared a

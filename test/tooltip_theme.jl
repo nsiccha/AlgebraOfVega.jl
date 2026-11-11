@@ -1,7 +1,6 @@
 using TestItemRunner
 
-# A plot's tooltip reads as one surface in the page's own colours (snag
-# `dark-theme-toolt-2697a3d5`, reporter ODLPlaus:review:ux). Before, AoV left it
+# A plot's tooltip reads as one surface in the page's own colours. Before, AoV left it
 # in vega-tooltip's light look while Pico painted every cell in the page's
 # background: on a dark page a white frame around dark cells, with a white band
 # wherever a key wrapped onto a second line, and a dark page without Pico got a
