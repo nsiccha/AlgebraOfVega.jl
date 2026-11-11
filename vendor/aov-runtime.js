@@ -1040,9 +1040,11 @@ window.AoV = window.AoV || {
                 settled = true;
                 if (--self._inFlight[id] <= 0) delete self._inFlight[id];
             };
-            // Into this embed's element, not whichever one the id names when
-            // vega-embed looks it up (_plotElement).
-            return vegaEmbed(el || '#' + id, s, self._withLiveRows(id, embedOpts, gen)).then(function(result) {
+            // By selector, as pages and test harnesses that wrap vegaEmbed
+            // expect. vega-embed resolves it only after its own awaits, by
+            // which time a swap that briefly gave two elements this id
+            // (_plotElement) has removed the old one.
+            return vegaEmbed('#' + id, s, self._withLiveRows(id, embedOpts, gen)).then(function(result) {
                 settle();
                 if (self._gens[id] !== gen) {
                     result.finalize();
