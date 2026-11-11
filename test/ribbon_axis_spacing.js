@@ -31,7 +31,8 @@
             check(axes.length > 0, theme + ': rendered x axes found');
             for (const axis of axes) {
                 const labels = [...axis.querySelectorAll('g.role-axis-label text')]
-                    .filter(t => t.textContent.trim());
+                    // Vega keeps culled labels in the SVG with opacity zero.
+                    .filter(t => t.textContent.trim() && +getComputedStyle(t).opacity > 0);
                 check(labels.length > 1 && labels.length < 10, theme + ': bounded numeric ticks');
                 check(labels.every(t => t.textContent.length <= 6), theme + ': concise numeric labels');
                 const boxes = labels.map(t => t.getBoundingClientRect()).sort((a, b) => a.left - b.left);
