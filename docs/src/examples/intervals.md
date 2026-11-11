@@ -5,6 +5,7 @@ Two sets of simulated measurement errors describe instruments with different pre
 ## Data
 
 ```@example intervals
+__docs_output__ = begin # hide
 using AlgebraOfVega, Statistics
 using Main.DocsPlots # hide
 errors_a = collect(-2.0:0.1:2.0)
@@ -15,6 +16,9 @@ errors = (
 )
 [(instrument=name, observations=count(==(name), errors.instrument),
   range_C=extrema(errors.error[errors.instrument .== name])) for name in ["A", "B"]]
+end # hide
+show(stdout, MIME"text/plain"(), __docs_output__) # hide
+println() # hide
 ```
 
 The equally spaced values make the construction visible. This spacing is not a sampling assumption or a recommended way to approximate a posterior. It gives a reproducible table whose quantiles can be checked independently. Each row remains an individual error, and the instrument label identifies the group whose distribution is summarized. There is no time coordinate: a line joining these values would suggest an ordering that the comparison does not use.
@@ -24,12 +28,16 @@ The equally spaced values make the construction visible. This spacing is not a s
 Compute the central and outer quantiles for each instrument before drawing the intervals.
 
 ```@example intervals
+__docs_output__ = begin # hide
 summary = preaggregate(errors; y=:error, group_keys=[:instrument],
                        probs=[0.025, 0.25, 0.5, 0.75, 0.975])
 [(instrument=summary.instrument[i], median_C=summary.median[i],
   central_interval_C=(summary.q25[i], summary.q75[i]),
   outer_interval_C=(summary.q025[i], summary.q975[i]))
  for i in eachindex(summary.instrument)]
+end # hide
+show(stdout, MIME"text/plain"(), __docs_output__) # hide
+println() # hide
 ```
 
 The summary keeps one row per instrument. The median is the central marker; the paired lower and upper columns define the interval endpoints. These are quantiles of the observed values, interpolated by the quantile implementation. An interval does not necessarily contain the corresponding fraction of a small sample as an integer count. It describes endpoints of an empirical distribution, rather than a guarantee about future measurements.
@@ -60,6 +68,7 @@ The `bands` argument names already computed columns, with the widest interval fi
 Check the summary against direct quantiles of each source group and verify that the inner interval lies inside the outer one.
 
 ```@example intervals
+__docs_output__ = begin # hide
 checks = map(eachindex(summary.instrument)) do i
     source = errors.error[errors.instrument .== summary.instrument[i]]
     actual = [summary.q025[i], summary.q25[i], summary.median[i],
@@ -72,6 +81,9 @@ checks = map(eachindex(summary.instrument)) do i
      outer_width_C=round(last(actual) - first(actual); digits=2))
 end
 checks
+end # hide
+show(stdout, MIME"text/plain"(), __docs_output__) # hide
+println() # hide
 ```
 
 These checks connect the displayed endpoints to the input table. They would fail if a summary column were renamed incorrectly, its groups were mismatched, or its endpoints were reversed. They do not test the quality of a model fit. A diagnostics section for posterior draws would also need the sampler's convergence and effective-sample-size measures; a visually narrow interval alone does not indicate reliable computation.
@@ -87,9 +99,13 @@ A summary row must retain every identifier needed to distinguish the distributio
 The specification has one interval layer for each supplied band and a point layer for the center. Its structure can be inspected before it reaches a browser.
 
 ```@example intervals
+__docs_output__ = begin # hide
 spec = to_vegalite(intervals; interactive=false)
 [(mark=layer["mark"] isa AbstractDict ? layer["mark"]["type"] : layer["mark"],
   channels=sort!(collect(keys(layer["encoding"])))) for layer in spec["layer"]]
+end # hide
+show(stdout, MIME"text/plain"(), __docs_output__) # hide
+println() # hide
 ```
 
 This structural view complements the numerical checks. An exported Vega-Lite specification records marks, mappings, and data; it does not carry the scientific interpretation of the intervals by itself. Include the units, interval definition, and source of the summaries in the caption of a saved report. The [output guide](../guides/output.md) describes browser documents and image exports, while the [analysis reference](../reference/analyses.md) covers related interval and ribbon functions.

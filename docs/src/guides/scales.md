@@ -27,9 +27,13 @@ DocsPlots.figure(plot, "scales"; caption="Equal vertical steps indicate equal co
 The generated y scale is logarithmic; the original concentrations remain unchanged.
 
 ```@example scales
+__docs_output__ = begin # hide
 spec = to_vegalite(plot; interactive=false)
 (scale_type=spec["encoding"]["y"]["scale"]["type"],
  source_concentration_mg_per_L=values.concentration)
+end # hide
+show(stdout, MIME"text/plain"(), __docs_output__) # hide
+println() # hide
 ```
 
 Use a log axis for strictly positive quantities spanning multiplicative ranges. Transforming the values beforehand would change the numbers shown in tooltips. When genuine zeros must remain visible across a wide range, `symlog` provides a linear region around zero and logarithmic behavior farther away. Choose the scale based on the quantity being compared; do not use a log axis to conceal invalid nonpositive data.

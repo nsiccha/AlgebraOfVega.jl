@@ -21,10 +21,14 @@ DocsPlots.figure(plot, "output"; caption="The browser node draws the three obser
 A standalone document can contain the libraries it needs.
 
 ```@example output
+__docs_output__ = begin # hide
 html = to_html(to_node(plot; id="saved-plot"); source=:inline)
 write("saved-plot.html", html)
 (starts_with_doctype=startswith(lstrip(html), "<!DOCTYPE html>"),
  has_plot=occursin("saved-plot", html))
+end # hide
+show(stdout, MIME"text/plain"(), __docs_output__) # hide
+println() # hide
 ```
 
 Open the generated HTML in a browser. `source=:inline` avoids external script requests; `source=:cdn` uses the package's pinned CDN scripts. For a site that serves its own assets, use `source=:vendor`, mount `vega_vendor_dir()`, and set `base` to that mount's browser URL. `runtime=:linked` then loads the package runtime as a separate cacheable file.
@@ -34,10 +38,14 @@ The node form above uses the AoV runtime. The bare `to_html(plot)` form uses Veg
 ## Specifications
 
 ```@example output
+__docs_output__ = begin # hide
 specification = to_vegalite(plot; interactive=false)
 json = to_json(plot; interactive=false)
 write("saved-plot.json", json)
 (schema=specification["\$schema"], mark=specification["mark"]["type"])
+end # hide
+show(stdout, MIME"text/plain"(), __docs_output__) # hide
+println() # hide
 ```
 
 `to_vegalite` returns a Julia dictionary; `to_json` serializes it. These are useful for inspection and integration with a Vega-Lite renderer. `interactive=false` removes automatic interaction parameters; it does not remove explicitly requested selections.

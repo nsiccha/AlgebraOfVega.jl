@@ -25,8 +25,12 @@ A named tuple of equal-length columns is enough; `data` accepts Tables.jl source
 The generated specification preserves both marks.
 
 ```@example composition
+__docs_output__ = begin # hide
 spec = to_vegalite(plot; interactive=false)
 [layer["mark"]["type"] for layer in spec["layer"]]
+end # hide
+show(stdout, MIME"text/plain"(), __docs_output__) # hide
+println() # hide
 ```
 
 Each layer can instead have its own table. A threshold rule needs only the coordinate that positions the rule. The [measurements example](../examples/measurements.md) overlays such a rule with observed trajectories.

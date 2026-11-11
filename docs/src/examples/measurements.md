@@ -5,6 +5,7 @@ Two thermometers record a vessel during a short heating experiment. The table be
 ## Data
 
 ```@example measurements
+__docs_output__ = begin # hide
 using AlgebraOfVega, Statistics
 using Main.DocsPlots # hide
 readings = (
@@ -15,6 +16,9 @@ readings = (
 )
 [(time_min=readings.minute[i], temperature_C=readings.temperature[i],
   instrument=readings.instrument[i]) for i in eachindex(readings.minute)]
+end # hide
+show(stdout, MIME"text/plain"(), __docs_output__) # hide
+println() # hide
 ```
 
 Each row is one reading. Keeping both instruments in the same columns makes the instrument identifier available to color, grouping, and tooltips. A named tuple of equal-length columns satisfies the table interface; a DataFrame is optional. The measurements retain their physical units in the data. Labels add the units to the axes, without changing the numeric values supplied to the browser.
@@ -48,10 +52,14 @@ The algebra separates these decisions. Multiplication adds mappings and a visual
 The generated specification exposes the actual marks and coordinate fields that the browser receives.
 
 ```@example measurements
+__docs_output__ = begin # hide
 vl = to_vegalite(comparison; interactive=false)
 marktype(layer) = layer["mark"] isa AbstractDict ? layer["mark"]["type"] : layer["mark"]
 [(mark=marktype(layer),
   channels=sort!(collect(keys(get(layer, "encoding", Dict()))))) for layer in vl["layer"]]
+end # hide
+show(stdout, MIME"text/plain"(), __docs_output__) # hide
+println() # hide
 ```
 
 Inspect the generated channels when a figure does not match an intended mapping, before adding raw Vega-Lite overrides. The specification describes a browser figure; it is not a Makie scene. `interactive=false` omits the automatically added interaction parameters for this inspection. It does not change the observations or turn the connected lines into a fitted model.
@@ -61,6 +69,7 @@ Inspect the generated channels when a figure does not match an intended mapping,
 Before interpreting differences, check that the instruments were observed at matching times and that every value is finite.
 
 ```@example measurements
+__docs_output__ = begin # hide
  a = findall(==("A"), readings.instrument)
  b = findall(==("B"), readings.instrument)
 @assert readings.minute[a] == readings.minute[b]
@@ -69,6 +78,9 @@ differences = readings.temperature[b] .- readings.temperature[a]
 (paired_times_min=readings.minute[a],
  difference_B_minus_A_C=round.(differences; digits=2),
  mean_difference_C=round(mean(differences); digits=2))
+end # hide
+show(stdout, MIME"text/plain"(), __docs_output__) # hide
+println() # hide
 ```
 
 The differences are positive at every paired time, consistent with the orange points appearing above the blue ones. Their mean is a descriptive offset for these readings. It is not a confidence interval or an estimate of instrument bias in an independent population. A calibration study would need a reference standard, repeated experiments, and a model for measurement error. Here, the numerical check supports precisely the visual claim: one instrument reads higher throughout this table.
@@ -76,10 +88,14 @@ The differences are positive at every paired time, consistent with the orange po
 The threshold comparison also comes from the data used in the figure.
 
 ```@example measurements
+__docs_output__ = begin # hide
 [(instrument=name,
   first_recorded_time_above_limit_min=minimum(readings.minute[i] for i in eachindex(readings.minute)
       if readings.instrument[i] == name && readings.temperature[i] > limit))
  for name in ["A", "B"]]
+end # hide
+show(stdout, MIME"text/plain"(), __docs_output__) # hide
+println() # hide
 ```
 
 These are the first recorded times above the threshold. The table cannot determine the exact crossing time between observations. Reading an interpolated crossing off a connecting segment would add an assumption absent from the data. If the table had no reading above the threshold, the query would need to represent that case explicitly instead of reporting a time.
@@ -97,10 +113,14 @@ These choices concern the data represented by the marks. Zooming or hiding a ser
 The same object can be saved as an HTML document for a browser. A rendered node uses the package runtime, including its handling of the host theme.
 
 ```@example measurements
+__docs_output__ = begin # hide
 html = to_html(to_node(comparison; id="temperature-comparison"); source=:inline)
 write("temperature-export.html", html)
 (html_document=startswith(lstrip(html), "<!DOCTYPE html>"),
  contains_figure=occursin("temperature-comparison", html))
+end # hide
+show(stdout, MIME"text/plain"(), __docs_output__) # hide
+println() # hide
 ```
 
 An inline document includes the plotting libraries so it can open without fetching a CDN. Keep generated documents outside version control. The [output guide](../guides/output.md) distinguishes this export from a JSON specification and from a static image. For a report that needs uncertainty estimates, start from the actual distribution or fitted-model summary and use the [interval example](intervals.md); connecting these measurements alone provides no uncertainty calculation.
