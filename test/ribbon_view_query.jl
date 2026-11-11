@@ -59,7 +59,7 @@ end
     @test why(data(overlapping(; groups=("A",), doses=1:13)) * mapping(:dose, :med) * lineribbon(bands=BANDS)) === :too_many_x
     # Off-grid observations work on numeric axes, but not the slot fallback.
     off_grid = ribbon_fig(t) + data((; dose=[7], y=[1.0])) * mapping(:dose, :y) * visual(Scatter)
-    @test why(off_grid) === nothing
+    @test ribbon_view(off_grid).offered && isnothing(ribbon_view(off_grid).why_not)
     @test why(off_grid * config(encoding=Dict("x" => Dict("scale" => Dict("type" => "sqrt"))))) === :x_off_slots
 end
 

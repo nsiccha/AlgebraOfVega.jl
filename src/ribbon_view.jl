@@ -97,7 +97,12 @@ const _RIBBON_UNDODGED = Dict{String,Any}("xOffset" => Dict{String,Any}("value" 
 function _ribbon_intervals_spec(v, src)
     layers = collect(_spec_layers_or_nothing(_spec_drawable(v)))
     l = layers[src.index]
-    m = AlgebraOfGraphics.mapping(l.positional...; (k => s for (k, s) in pairs(l.named) if k !== :group)...)
+    named = Dict(k => s for (k, s) in pairs(l.named) if k !== :group)
+    # This alternate view deliberately dodges by colour, including when the
+    # groups were sampled at different x values. Request that explicitly:
+    # standalone pointinterval only auto-dodges colours sharing a position.
+    isnothing(src.color_field) || get!(named, :dodge_x, l.named[:color])
+    m = AlgebraOfGraphics.mapping(l.positional...; named...)
     intervals = AlgebraOfGraphics.Layer(_interval_view_analysis(src.analysis), l.data, m.positional, m.named)
     vis = extract_visual(l)
     kept = isnothing(vis) ? Symbol[] : [k for k in (:color, :inspectable) if haskey(vis.attributes, k) &&

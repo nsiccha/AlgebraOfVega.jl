@@ -22,7 +22,8 @@ failing at run time with a `MethodError`.
   to equally spaced categories, losing the source scale and printing long raw
   numeric labels in narrow facets. The colour-group offsets still use 70% of
   the closest gap, and observations keep their true positions. Closely spaced
-  marks can overlap; the numeric axis and its zoom remain available.
+  marks can overlap; the numeric axis and its zoom remain available. This also
+  works when colour groups are sampled at different x values.
 
 ## 0.2.33
 
