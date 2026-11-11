@@ -61,7 +61,7 @@ vendored htmx 2.
         mktempdir(prefix="kb-aov-ahead-") do dir
             HTMXObjects.copy_vendorfiles(joinpath(dir, "htmxo"); packages=(:htmx,), runtime=false)
             head = join(html.(HTMXObjects.vendor_head("htmxo"; packages=(:htmx,)))) *
-                   html(vega_head(; source=:vendor, base="/vendor")) * html(HTMXObjects.sent_ahead_script())
+                   join(html.(vega_head(; source=:vendor, base="/vendor"))) * html(HTMXObjects.sent_ahead_script())
             parts = (; part1="<div id=\"dr-ahead\">$(figure(3))</div>",
                 part2="<div id=\"dr-ahead\" hx-swap-oob=\"true\">$(figure(4))</div>",
                 final="<div class=\"treebar-terminal-content\">$(figure(5))</div>")
@@ -74,7 +74,7 @@ vendored htmx 2.
                 <div class="treebar-poller"><div class="treebar-poller-inner" hx-get="/never">running</div></div>
                 </main>
                 <pre id="aov-ahead-results"></pre>
-                <script>window.AOV_PARTS = $(JSON.json(parts));</script>
+                <script>window.AOV_PARTS = $(replace(JSON.json(parts), "</" => "<\\/"));</script>
                 <script>$driver</script>
                 </body></html>
                 """)
@@ -88,7 +88,7 @@ vendored htmx 2.
                 if !isnothing(result)
                     report = JSON.parse(replace(result[1], "&quot;" => "\"", "&lt;" => "<",
                         "&gt;" => ">", "&amp;" => "&"))
-                    @test report["checks"] >= 24
+                    @test report["checks"] >= 29
                     @test isempty(report["failures"])
                     @info "sent-ahead swap browser checks" checks=report["checks"]
                     isempty(report["failures"]) || println(JSON.json(report["failures"]))
