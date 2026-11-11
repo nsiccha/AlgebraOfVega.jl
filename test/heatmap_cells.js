@@ -98,8 +98,8 @@
         const fills = new Set(Object.values(fillOf));
         check(fills.size === 5, 'grid: 5 values need 5 fills, got ' + JSON.stringify(fillOf));
         check(!fills.has('#4c78a8'), 'grid: a cell is drawn in the default blue');
-        // The value is in each cell's tooltip, formatted by Vega ("−50").
-        cells.forEach(c => check(c.tooltip && Number(String(c.tooltip.value).replace('−', '-')) === c.datum.value,
+        // The value is in each cell's tooltip under its label, formatted by Vega ("−50").
+        cells.forEach(c => check(c.tooltip && Number(String(c.tooltip['Field value']).replace('−', '-')) === c.datum.value,
             'grid: tooltip lacks the value: ' + JSON.stringify(c.tooltip)));
         // A colour scale and its legend.
         let gradient = false;

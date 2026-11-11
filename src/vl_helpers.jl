@@ -89,12 +89,29 @@ function _facet_levels(vl::Dict, field)
     isnothing(vals) ? 0 : _size_field_cardinality(vals, field)
 end
 
+# A generated tooltip names each mapped column by the mapping's label, the
+# name its axis, legend or facet header shows, so the tooltip agrees with the
+# figure it sits on (`mapping(:east => "East (km)")` reads "East (km)", not
+# "east"). An unlabelled column keeps its own name, and so does one labelled
+# "": a header hidden with `row=:time => ""` would otherwise give a tooltip row
+# with no name. Before this, every generated tooltip listed raw column names
+# (snag `hover-a-cell-of-a723ea83`).
+_is_tooltip_label(label, field) = label isa AbstractString && !isempty(label) && label != string(field)
+
+"""A generated tooltip row for `field`, titled with `label` when that is a label (`_is_tooltip_label`)."""
+function _tooltip_entry(field, type=nothing, label=nothing)
+    entry = Dict{String,Any}("field" => field)
+    isnothing(type) || (entry["type"] = type)
+    _is_tooltip_label(label, field) && (entry["title"] = label)
+    entry
+end
+
 _vl_tooltip_entry!(args...) = nothing
 function _vl_tooltip_entry!(tt, enc::Dict)
     haskey(enc, "field") || return
-    entry = Dict{String,Any}("field" => enc["field"])
-    haskey(enc, "type") && (entry["type"] = enc["type"])
-    push!(tt, entry)
+    # One row per column: `color=:g, strokecolor=:g` maps one column twice.
+    any(t -> t["field"] == enc["field"], tt) && return
+    push!(tt, _tooltip_entry(enc["field"], get(enc, "type", nothing), get(enc, "title", nothing)))
 end
 
 # Channels are listed in this order when present; anything else follows
@@ -112,7 +129,8 @@ _channel_sort_key(ch) = let name = string(ch)
     (something(findfirst(==(name), _CHANNEL_ORDER), length(_CHANNEL_ORDER) + 1), name)
 end
 
-"""Collect tooltip fields from an encoding dict (all channels that have a "field" key), in channel order."""
+"""Collect tooltip fields from an encoding dict (all channels that have a "field" key), in channel order,
+each column once and titled with its channel's label."""
 function vl_tooltips(encoding)
     tt = Dict{String,Any}[]
     for ch in sort!(collect(keys(encoding)); by=_channel_sort_key)
