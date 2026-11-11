@@ -93,6 +93,10 @@ function _plain_layer_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false,
         ["y", "y2"]
     elseif !isnothing(vis) && plot_type <: Union{Band, Rangebars, Errorbars}
         ["x", "y", "y2"]
+    elseif !isnothing(vis) && plot_type <: Heatmap
+        # AoG's `aesthetic_mapping(Heatmap, 3)`: the third positional is the
+        # cells' value, drawn as their colour.
+        ["x", "y", "color"]
     else
         ["x", "y"]
     end
@@ -132,7 +136,86 @@ function _plain_layer_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false,
         !isempty(tt) && (encoding["tooltip"] = tt)
     end
 
+    # After the tooltip, which names each cell's centre, not its edges.
+    !isnothing(vis) && plot_type <: Heatmap && _heatmap_cells!(spec, encoding)
+
     !isempty(encoding) && (spec["encoding"] = encoding)
+    spec
+end
+
+# --- Heatmap cells ---
+
+# Makie's `heatmap(x, y, z)` from three columns (AoG's
+# `mapping(:x, :y, :z) * visual(Heatmap)`) draws one cell per row on the grid
+# of the sorted distinct x and y values: each cell reaches halfway to its
+# neighbours, the first and last half a step beyond their value, and a lone
+# value ±0.5 (`Makie.edges`). A Vega-Lite `rect` placed by a continuous x
+# alone instead reaches from the axis origin to the value, so every cell
+# overlapped the others and the figure was one block of colour (snag
+# `heatmap-position-0f5b34fc`).
+#
+# So on a numeric axis the rect is placed by the cell's edges, `x`/`x2`
+# (`y`/`y2`), which the dataflow computes from the rows: a `window` gives each
+# row the values before and after it in sorted order, a `joinaggregate` over
+# the rows of one value the nearest distinct neighbours, and a `calculate`
+# Makie's edges. Being dataflow, they follow `update_data`/`append_data`, rows
+# fetched `by_url`, and the shown frame of `config(frame=…)`, and the rows
+# themselves (the CSV download, `source_0`) stay as given: Vega's `window`
+# derives new tuples. Each facet panel has its own grid, as AoG draws each
+# panel with its own `heatmap`: a unit faceted through its own encoding names
+# its facet fields here, and Vega-Lite adds a facet operator's to `groupby`.
+#
+# A heatmap whose colour comes from the rows, the third positional or a
+# `color=` mapping, is placed this way; one coloured by `config(encoding=…)`,
+# such as a 2D histogram that bins x and y there, is left as written. A
+# categorical axis keeps its band scale, which already gives each value a
+# cell, and a date axis is left as before.
+const _HEATMAP_CELL_FIELDS = Dict(ch => (lo="__aov_$(ch)0", hi="__aov_$(ch)1",
+    lag="__aov_$(ch)_lag", lead="__aov_$(ch)_lead", prev="__aov_$(ch)_prev", next="__aov_$(ch)_next")
+    for ch in ("x", "y"))
+
+function _heatmap_cells!(spec::Dict, encoding::Dict)
+    get(encoding, "color", nothing) isa Dict && haskey(encoding["color"], "field") || return spec
+    panels = Any[encoding[f]["field"] for f in ("row", "column", "facet")
+        if get(encoding, f, nothing) isa Dict && haskey(encoding[f], "field")]
+    transforms = Any[]
+    for ch in ("x", "y")
+        e = get(encoding, ch, nothing)
+        _vl_measure(e) && haskey(e, "field") && !_vl_agg(e) && !haskey(encoding, ch * "2") || continue
+        f, n = e["field"], _HEATMAP_CELL_FIELDS[ch]
+        v = "datum[" * _vl_json(f) * "]"
+        prev, next = "datum.$(n.prev)", "datum.$(n.next)"
+        has_prev = "isValid($prev) && $prev < $v"
+        has_next = "isValid($next) && $next > $v"
+        append!(transforms, Any[
+            Dict{String,Any}("window" => Any[
+                    Dict{String,Any}("op" => "lag", "field" => f, "as" => n.lag),
+                    Dict{String,Any}("op" => "lead", "field" => f, "as" => n.lead)],
+                "sort" => Any[Dict{String,Any}("field" => f, "order" => "ascending")],
+                "groupby" => copy(panels)),
+            # Among the rows of one value, only the first in sorted order has
+            # the previous value as its `lag` (the others have their own), and
+            # only the last the next value as its `lead`.
+            Dict{String,Any}("joinaggregate" => Any[
+                    Dict{String,Any}("op" => "min", "field" => n.lag, "as" => n.prev),
+                    Dict{String,Any}("op" => "max", "field" => n.lead, "as" => n.next)],
+                "groupby" => Any[panels..., f]),
+            Dict{String,Any}("calculate" => "!isValid($v) ? null : $has_prev ? ($prev + $v) / 2 : " *
+                "$has_next ? $v - ($next - $v) / 2 : $v - 0.5", "as" => n.lo),
+            Dict{String,Any}("calculate" => "!isValid($v) ? null : $has_next ? ($v + $next) / 2 : " *
+                "$has_prev ? $v + ($v - $prev) / 2 : $v + 0.5", "as" => n.hi),
+        ])
+        # The axis keeps the column's title, not the edge field's name.
+        encoding[ch] = merge(e, Dict{String,Any}("field" => n.lo, "title" => get(e, "title", f)))
+        encoding[ch * "2"] = Dict{String,Any}("field" => n.hi)
+    end
+    isempty(transforms) && return spec
+    spec["transform"] = Any[something(_as_vec(get(spec, "transform", nothing)), Any[])...; transforms...]
+    # Makie cuts a heatmap at its axis. The axis covers every cell unless
+    # limits are authored (`config(axis=(; limits))`) inside the outer cells'
+    # edges; those cells then end at the frame instead of over the axis labels.
+    # An authored `visual(Heatmap; clip=false)` is kept.
+    spec["mark"] = _with_mark_property(spec["mark"], "clip", true)
     spec
 end
 
