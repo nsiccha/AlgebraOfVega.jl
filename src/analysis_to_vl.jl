@@ -167,11 +167,17 @@ function _interval_offset(rows, group_field, color_field, facet_fields,
     nothing, nothing
 end
 
+# The group and colour rows of an interval tooltip, titled with their mapping labels.
+function _interval_group_tooltips!(tt, group_field, color_field, group_label, color_label)
+    !isnothing(group_field) && push!(tt, _tooltip_entry(group_field, "nominal", group_label))
+    !isnothing(color_field) && color_field != group_field && push!(tt, _tooltip_entry(color_field, "nominal", color_label))
+    tt
+end
+
 function _interval_tooltips(value_label, group_field, color_field, probs;
-                              point_field::String="__point__")
+                              point_field::String="__point__", group_label=nothing, color_label=nothing)
     tt = Dict{String,Any}[Dict{String,Any}("field" => point_field, "type" => "quantitative", "title" => "$value_label (estimate)")]
-    !isnothing(group_field) && push!(tt, Dict{String,Any}("field" => group_field, "type" => "nominal"))
-    !isnothing(color_field) && color_field != group_field && push!(tt, Dict{String,Any}("field" => color_field, "type" => "nominal"))
+    _interval_group_tooltips!(tt, group_field, color_field, group_label, color_label)
     widest = maximum(probs)
     push!(tt, Dict{String,Any}("field" => _vl_prob_field("lo", widest), "type" => "quantitative", "title" => "$(round(Int, widest*100))% lo"))
     push!(tt, Dict{String,Any}("field" => _vl_prob_field("hi", widest), "type" => "quantitative", "title" => "$(round(Int, widest*100))% hi"))
@@ -216,7 +222,8 @@ function analysis_to_vl(a::PointIntervalAnalysis, layer::AlgebraOfGraphics.Layer
                                          value_axis=ax.value_axis, group_sort, offset_field, offset_sort,
                                          marker_field, marker_label, marker_sort,
                                          size=80, color="white"))
-    _add_analysis_tooltips!(layers, _interval_tooltips(value_label, group_field, color_field, a.probs))
+    _add_analysis_tooltips!(layers, _interval_tooltips(value_label, group_field, color_field, a.probs;
+        group_label, color_label))
 
     spec = Dict{String,Any}("data" => Dict{String,Any}("values" => summary), "layer" => layers)
     if !is_sublayer
@@ -273,8 +280,7 @@ function analysis_to_vl(a::PrecomputedIntervalAnalysis, layer::AlgebraOfGraphics
     tt = Dict{String,Any}[
         Dict{String,Any}("field" => value_field, "type" => "quantitative", "title" => "$value_label (estimate)"),
     ]
-    !isnothing(group_field) && push!(tt, Dict{String,Any}("field" => group_field, "type" => "nominal"))
-    !isnothing(color_field) && color_field != group_field && push!(tt, Dict{String,Any}("field" => color_field, "type" => "nominal"))
+    _interval_group_tooltips!(tt, group_field, color_field, group_label, color_label)
     push!(tt, Dict{String,Any}("field" => widest_lo, "type" => "quantitative", "title" => widest_lo))
     push!(tt, Dict{String,Any}("field" => widest_hi, "type" => "quantitative", "title" => widest_hi))
     _add_analysis_tooltips!(layers, tt)
@@ -324,7 +330,8 @@ function analysis_to_vl(a::GradientIntervalAnalysis, layer::AlgebraOfGraphics.La
                                          value_axis=ax.value_axis, group_sort, offset_field, offset_sort,
                                          marker_field, marker_label, marker_sort,
                                          size=50, color="white"))
-    _add_analysis_tooltips!(layers, _interval_tooltips(value_label, group_field, color_field, a.probs))
+    _add_analysis_tooltips!(layers, _interval_tooltips(value_label, group_field, color_field, a.probs;
+        group_label, color_label))
 
     spec = Dict{String,Any}("data" => Dict{String,Any}("values" => summary), "layer" => layers)
     if !is_sublayer
@@ -340,16 +347,17 @@ end
 # otherwise.
 _ribbon_x_type(col) = vl_type(col) == "temporal" ? "temporal" : "quantitative"
 
-function _ribbon_tooltips(x_field, x_label, median_col, color_field, band_cols, band_labels; x_type::String)
+function _ribbon_tooltips(x_field, x_label, median_col, color_field, band_cols, band_labels; x_type::String,
+        color_label=nothing)
     widest_lo, widest_hi = band_cols[1]
     widest_label = isnothing(band_labels) ? "" : band_labels[1]
     lo_title = widest_label == "" ? widest_lo : "$(widest_label) lo"
     hi_title = widest_label == "" ? widest_hi : "$(widest_label) hi"
     tt = Dict{String,Any}[
-        Dict{String,Any}("field" => x_field, "type" => x_type, "title" => x_label),
+        _tooltip_entry(x_field, x_type, x_label),
         Dict{String,Any}("field" => median_col, "type" => "quantitative", "title" => "median"),
     ]
-    !isnothing(color_field) && push!(tt, Dict{String,Any}("field" => color_field, "type" => "nominal"))
+    !isnothing(color_field) && push!(tt, _tooltip_entry(color_field, "nominal", color_label))
     push!(tt, Dict{String,Any}("field" => widest_lo, "type" => "quantitative", "title" => lo_title))
     push!(tt, Dict{String,Any}("field" => widest_hi, "type" => "quantitative", "title" => hi_title))
     tt
@@ -553,7 +561,8 @@ function _ribbon_to_vl(
         end
     end
 
-    _add_analysis_tooltips!(layers, _ribbon_tooltips(x_field, x_label, median_col, color_field, band_cols, band_labels; x_type))
+    _add_analysis_tooltips!(layers, _ribbon_tooltips(x_field, x_label, median_col, color_field, band_cols, band_labels;
+        x_type, color_label))
 
     spec = Dict{String,Any}("data" => summary_data, "layer" => layers)
     if !isnothing(color_field)
@@ -726,7 +735,8 @@ function analysis_to_vl(a::DotIntervalAnalysis, layer::AlgebraOfGraphics.Layer; 
                                                    group_sort, offset_field, offset_sort,
                                                    marker_field, marker_label, marker_sort,
                                                    size=50, color="white"))
-    _add_analysis_tooltips!(interval_layers, _interval_tooltips(value_label, group_field, color_field, a.probs))
+    _add_analysis_tooltips!(interval_layers, _interval_tooltips(value_label, group_field, color_field, a.probs;
+        group_label, color_label))
 
     push!(layers, Dict{String,Any}(
         "data" => Dict{String,Any}("values" => summary),
@@ -1691,6 +1701,9 @@ function geoshape_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer::Bool=false)
 
     encoding = Dict{String,Any}()
     fields = String[]
+    # Each tooltip row's label: the key's from its positional, a value's from its channel.
+    labels = Dict{String,Any}()
+    isnothing(a.key) && (labels[data_key] = _field_label(layer.positional[1]))
     for (name, ch) in ((:color, "color"), (:strokecolor, "stroke"))
         haskey(layer.named, name) || continue
         sel = layer.named[name]
@@ -1701,6 +1714,7 @@ function geoshape_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer::Bool=false)
         enc["type"] = vl_type(Tables.getcolumn(table, Symbol(f)))
         encoding[ch] = enc
         f in fields || push!(fields, f)
+        _is_tooltip_label(get(labels, f, nothing), f) || (labels[f] = get(enc, "title", nothing))
     end
 
     # The table drives the layer and each row looks up its Feature, so a
@@ -1727,13 +1741,8 @@ function geoshape_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer::Bool=false)
     spec["mark"] = isempty(props) ? "geoshape" :
         merge(Dict{String,Any}("type" => "geoshape"), props)
 
-    tooltip = [Dict{String,Any}("field" => data_key,
-        "type" => vl_type(Tables.getcolumn(table, Symbol(data_key))))]
-    for f in fields
-        f == data_key && continue
-        push!(tooltip, Dict{String,Any}("field" => f,
-            "type" => vl_type(Tables.getcolumn(table, Symbol(f)))))
-    end
+    tooltip = [_tooltip_entry(f, vl_type(Tables.getcolumn(table, Symbol(f))), get(labels, f, nothing))
+        for f in unique!([data_key; fields])]
     encoding["tooltip"] = tooltip
     spec["encoding"] = encoding
 

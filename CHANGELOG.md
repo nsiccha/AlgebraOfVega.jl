@@ -15,6 +15,24 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
+## 0.2.31
+
+- AoV's automatic tooltips name each mapped column by its mapping label, the name its
+  axis, legend or facet header shows: hovering a cell of
+  `mapping(:east => "East (km)", :north => "North (km)", :value => "Field value") * visual(Heatmap)`
+  reads "East (km) | 55 | North (km) | 5 | Field value | −0.31", not
+  "east | 55 | north | 5 | value | −0.31". This holds for plain marks of every kind, marks on
+  a map, `visual(ECDFPlot)`, the interval analyses (`pointinterval`, `gradient_interval`,
+  `dotinterval`, also with `bands=`), both drawings of a coloured `lineribbon`/`ribbon`,
+  `geoshape` maps, and the colour field the channel picker moves in. An unlabelled column,
+  and one labelled `""` (a facet header hidden with `row=:time => ""`), keeps its own name.
+  A column mapped on two channels (`color=:v, strokecolor=:v`) is listed once.
+  Vega keys a drawn item's tooltip by these names, so page or test code that reads one
+  (`item.tooltip.value`) finds a labelled column under its label
+  (`item.tooltip["Field value"]`). A tooltip written with
+  `config(encoding=Dict(:tooltip => …))` is unchanged. Before, every automatic tooltip
+  listed raw column names, so it disagreed with the axes and legend of its own figure.
+
 ## 0.2.30
 
 - `mapping(:x, :y, :z) * visual(Heatmap)` draws as in AlgebraOfGraphics: the third

@@ -4463,7 +4463,8 @@ window.AoV = window.AoV || {
                             return t.type !== 'nominal' || t.field === (spec.facet && spec.facet.row && spec.facet.row.field) ||
                                    t.field === (spec.facet && spec.facet.column && spec.facet.column.field);
                         });
-                        if (cf) l.encoding.tooltip.push({field: cf, type: 'nominal'});
+                        // Named by its picker label, as the axis remap below names its row.
+                        if (cf) l.encoding.tooltip.push({field: cf, type: 'nominal', title: _fieldTitle(cf)});
                     }
                 });
             }
