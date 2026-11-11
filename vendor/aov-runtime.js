@@ -3326,7 +3326,14 @@ window.AoV = window.AoV || {
             } else {
                 return;
             }
-            u.encoding = Object.assign({}, u.encoding, {opacity: next});
+            var extra = {opacity: next};
+            // A heatmap's cells are stroked in their own colour, reaching into
+            // their neighbours (`_heatmap_seams!`, src/to_vegalite.jl). Dimmed,
+            // that overlap would draw a lattice, so a dimmed cell drops it.
+            var style = typeof u.mark === 'object' ? u.mark.style : undefined;
+            if (enc.stroke && [].concat(style || []).indexOf('aov-heatmap') !== -1 && enc.strokeOpacity === undefined)
+                extra.strokeOpacity = {condition: {test: dimmed, value: 0}};
+            u.encoding = Object.assign({}, u.encoding, extra);
         });
         return spec;
     },
