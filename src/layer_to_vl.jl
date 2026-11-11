@@ -170,12 +170,17 @@ end
 # such as a 2D histogram that bins x and y there, is left as written. A
 # categorical axis keeps its band scale, which already gives each value a
 # cell, and a date axis is left as before.
+#
+# Every such heatmap's mark carries the `aov-heatmap` style, so the finish pass
+# can stroke its cells in their own colour once the colour encoding is final
+# (`_heatmap_seams!`, snag `draw-a-numeric-h-450a4bc9`).
 const _HEATMAP_CELL_FIELDS = Dict(ch => (lo="__aov_$(ch)0", hi="__aov_$(ch)1",
     lag="__aov_$(ch)_lag", lead="__aov_$(ch)_lead", prev="__aov_$(ch)_prev", next="__aov_$(ch)_next")
     for ch in ("x", "y"))
 
 function _heatmap_cells!(spec::Dict, encoding::Dict)
     get(encoding, "color", nothing) isa Dict && haskey(encoding["color"], "field") || return spec
+    spec["mark"] = _mark_with_style(spec["mark"], _AOV_HEATMAP)
     panels = Any[encoding[f]["field"] for f in ("row", "column", "facet")
         if get(encoding, f, nothing) isa Dict && haskey(encoding[f], "field")]
     transforms = Any[]
@@ -209,12 +214,14 @@ function _heatmap_cells!(spec::Dict, encoding::Dict)
         encoding[ch] = merge(e, Dict{String,Any}("field" => n.lo, "title" => get(e, "title", f)))
         encoding[ch * "2"] = Dict{String,Any}("field" => n.hi)
     end
-    isempty(transforms) && return spec
-    spec["transform"] = Any[something(_as_vec(get(spec, "transform", nothing)), Any[])...; transforms...]
+    isempty(transforms) ||
+        (spec["transform"] = Any[something(_as_vec(get(spec, "transform", nothing)), Any[])...; transforms...])
     # Makie cuts a heatmap at its axis. The axis covers every cell unless
     # limits are authored (`config(axis=(; limits))`) inside the outer cells'
     # edges; those cells then end at the frame instead of over the axis labels.
-    # An authored `visual(Heatmap; clip=false)` is kept.
+    # The cells' own-colour stroke reaches half its width past the outer cells,
+    # on a categorical axis too, and ends at the frame the same way. An
+    # authored `visual(Heatmap; clip=false)` is kept.
     spec["mark"] = _with_mark_property(spec["mark"], "clip", true)
     spec
 end

@@ -257,6 +257,9 @@ _is_passive_mark(mark) = mark isa AbstractDict && _uses_style_name(get(mark, "st
 # this style, which the patch skips (`_keep_own_clips!`). LOCKSTEP:
 # `_panZoomClip` (vendor/aov-runtime.js) and `_PAN_ZOOM_CLIP_JS` (src/to_html.jl).
 const _AOV_OWN_CLIP = "aov-own-clip"
+# The style of a heatmap's cells (`_heatmap_cells!`), which `_heatmap_seams!`
+# strokes in their own colour. LOCKSTEP: `_withHighlight` (vendor/aov-runtime.js).
+const _AOV_HEATMAP = "aov-heatmap"
 _keep_own_clips!(_) = nothing
 _keep_own_clips!(v::AbstractVector) = foreach(_keep_own_clips!, v)
 function _keep_own_clips!(d::AbstractDict)
@@ -2095,7 +2098,7 @@ end
 _finish_vegalite!(spec, ::Dict) = spec
 _finish_vegalite!(spec, v) =
     _record_summary!(_finish_ribbon_views!(_each_ribbon_view!(_apply_finish_defaults!, spec)), v)
-_apply_finish_defaults!(spec) = _apply_ink_paint!(_fit_gradient_labels!(_one_colour_bar!(_apply_log_bar_base!(_apply_no_zero_default!(_apply_wrap_default!(spec))))))
+_apply_finish_defaults!(spec) = _apply_ink_paint!(_fit_gradient_labels!(_one_colour_bar!(_heatmap_seams!(_apply_log_bar_base!(_apply_no_zero_default!(_apply_wrap_default!(spec)))))))
 
 # Half a legend label's width. Vega expressions cannot measure text, so it counts
 # characters at 0.54 em each: about Arial's digits (0.556 em), and wide for `.`, `,`
@@ -2146,6 +2149,72 @@ function _fit_gradient_labels!(spec::Dict)
     end
     _fit_gradient_labels!(get(spec, "spec", nothing))
     spec
+end
+
+# The width of a heatmap cell's own-colour stroke, in px: the narrowest that
+# leaves no background showing between cells at a device scale of 1 or more
+# (1 px left 1.2 % of it at scale 1, the 0.7 px §4a gives maps 4.7 %).
+const _HEATMAP_STROKE_WIDTH = 1.5
+
+"""A heatmap draws one continuous surface, as Makie draws it. Vega antialiases each cell's
+edges on its own, so where two cells meet on a fractional pixel each covers it in part and
+the page background shows through: a lattice of lines over every heatmap, about a quarter
+of the background in each seam pixel, a light grey grid on a dark page (snag
+`draw-a-numeric-h-450a4bc9`). Vega has no `shape-rendering` and canvas no other way to stop
+the antialiasing, so each cell (a mark with the `aov-heatmap` style) is stroked in its own
+colour instead: the stroke reaches past its edge into the neighbour, which covers the seam.
+
+The stroke copies the unit's colour encoding as it stands after every scale override, raw
+encoding override and `lowclip`/`highclip` condition, so it paints what the fill paints;
+`_one_colour_bar!`, which runs next, leaves the figure the fill's one colour bar. A
+`nan_color` reaches the stroke too, which Vega-Lite would otherwise drop with the cell. Only
+a continuous colour is stroked: a categorical one's legend selection dims a cell's fill and
+stroke alike, and their overlap would draw the lattice it removes. A unit is left as written
+when it strokes itself (a `strokecolor=` mapping, a fixed stroke colour or `stroke=:ink`) or
+is translucent (`alpha`, `opacity` or `fillOpacity` below 1, or mapped), where the overlap
+would show; an authored `strokeWidth` sets the stroke's width, and 0 draws none."""
+_heatmap_seams!(spec) = spec
+function _heatmap_seams!(spec::Dict)
+    _stroke_heatmap_cells!(spec) || return spec
+    cfg = get(spec, "config", nothing)
+    scale = cfg isa AbstractDict ? get(cfg, "scale", nothing) : nothing
+    invalid = scale isa AbstractDict ? get(scale, "invalid", nothing) : nothing
+    invalid isa AbstractDict && haskey(invalid, "color") && !haskey(invalid, "stroke") &&
+        (invalid["stroke"] = deepcopy(invalid["color"]))
+    spec
+end
+
+# Whether this unit, or one inside it, got a stroke.
+function _stroke_heatmap_cells!(d::AbstractDict)
+    stroked = _stroke_heatmap_unit!(d)
+    for key in ("layer", "hconcat", "vconcat", "concat")
+        children = get(d, key, nothing)
+        children isa AbstractVector || continue
+        for c in children
+            c isa AbstractDict && (stroked |= _stroke_heatmap_cells!(c))
+        end
+    end
+    inner = get(d, "spec", nothing)
+    inner isa AbstractDict && (stroked |= _stroke_heatmap_cells!(inner))
+    stroked
+end
+
+function _stroke_heatmap_unit!(unit::AbstractDict)
+    mark, enc = get(unit, "mark", nothing), _as_dict(get(unit, "encoding", nothing))
+    mark isa AbstractDict && !isnothing(enc) || return false
+    styles = get(mark, "style", nothing)
+    _uses_style_name(styles, _AOV_HEATMAP) || return false
+    color = _as_dict(get(enc, "color", nothing))
+    !isnothing(color) && haskey(color, "field") && _color_kind(color) === :continuous || return false
+    (haskey(enc, "stroke") || haskey(mark, "stroke") || _uses_style_name(styles, "aov-ink-stroke")) && return false
+    any(k -> haskey(enc, k), ("opacity", "fillOpacity")) && return false
+    any(k -> !(get(mark, k, 1) isa Real) || get(mark, k, 1) < 1, ("opacity", "fillOpacity")) && return false
+    width = get!(mark, "strokeWidth", _HEATMAP_STROKE_WIDTH)
+    width isa Real && width <= 0 && return false
+    stroke = deepcopy(color)
+    delete!(stroke, "legend")
+    enc["stroke"] = stroke
+    true
 end
 
 # What a colour and a stroke encoding must agree on to paint one value alike.
