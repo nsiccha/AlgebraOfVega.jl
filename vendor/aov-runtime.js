@@ -4214,6 +4214,18 @@ window.AoV = window.AoV || {
         return enc;
     },
 
+    // Explicit domains and category orders belong to the authored field.
+    // Each remap starts from the original spec, so choosing that field again
+    // restores them. Keep other scale settings and non-array sort policies.
+    _clearRemappedAxisDomain: function(enc, field) {
+        if (enc.field === field) return;
+        if (enc.scale && typeof enc.scale === 'object') {
+            delete enc.scale.domain;
+            if (Object.keys(enc.scale).length === 0) delete enc.scale;
+        }
+        if (Array.isArray(enc.sort)) delete enc.sort;
+    },
+
     // The `calculate` expression of a ribbon interval drawing's dodge on
     // the ribbon's own x axis: `field` moved by the step of the row's
     // `by` group in `domain`, added on a linear axis, multiplied in as
@@ -4335,7 +4347,6 @@ window.AoV = window.AoV || {
                         var encC = l.encoding[axis];
                         if (!encC || typeof encC !== 'object' || encC.field === undefined) return;
                         var oldField = encC.field;
-                        encC.field = newField;
                         if (newTypeC) {
                             encC.type = newTypeC;
                             if (newTypeC !== 'quantitative' && encC.scale && encC.scale.type) {
@@ -4343,6 +4354,8 @@ window.AoV = window.AoV || {
                                 if (stC === 'log' || stC === 'sqrt' || stC === 'pow') delete encC.scale.type;
                             }
                         }
+                        self._clearRemappedAxisDomain(encC, newField);
+                        encC.field = newField;
                         encC.title = _fieldTitleC(newField);
                         if (Array.isArray(encC.tooltip)) {
                             encC.tooltip.forEach(function(t) {
@@ -4743,7 +4756,6 @@ window.AoV = window.AoV || {
                 if (!enc || !enc[axis] || typeof enc[axis] !== 'object') return;
                 var oldField = enc[axis].field;
                 if (oldField === undefined) return;
-                enc[axis].field = newField;
                 if (newType) {
                     enc[axis].type = newType;
                     // When the axis type flips from quantitative to nominal, a log/sqrt
@@ -4756,6 +4768,8 @@ window.AoV = window.AoV || {
                         }
                     }
                 }
+                self._clearRemappedAxisDomain(enc[axis], newField);
+                enc[axis].field = newField;
                 enc[axis].title = _fieldTitle(newField);
                 var tt = enc.tooltip;
                 if (Array.isArray(tt)) {
