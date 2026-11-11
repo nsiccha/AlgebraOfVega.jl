@@ -99,7 +99,8 @@ window.AoV = window.AoV || {
     // for the y axis on the left and ~6px of x-label overhang per panel
     // (measured on Vega-Lite 5.23: 170px panels take 196px each). At most one
     // row of every level; without inline rows the Julia count stays. A first
-    // paint that still overshoots drops columns once (_fitCorrection).
+    // paint that still overshoots drops columns until it fits or reaches
+    // one column (_fitCorrection).
     _wrapColumns: function(spec, budget, fit) {
         var n = this._distinctCount(spec.data && spec.data.values, this._wrapField(spec));
         if (!n) return spec.columns;
@@ -260,9 +261,13 @@ window.AoV = window.AoV || {
     // headers, per-panel axes, spacing, legends) varies per spec — so the
     // first paint can overshoot the budget it was sized for. Measure the
     // rendered canvas; if it overshoots, shrink the cells by the excess
-    // and re-embed once via reembed(budget). Bounded: at most one correction
-    // per regime (budget/kind/columns/fields); a resize/remap opens a new
-    // regime. The re-embed reuses the measured budget rather than measuring
+    // and remeasure via reembed(budget). Facet titles can become wider than
+    // the cells as they shrink, so the first correction need not fit.
+    // Every overflow correction reduces the cell width (or wrap count),
+    // bounded below by the readable minimum (or one column). If shrinking
+    // stops reducing the drawing, try that minimum directly. After a
+    // correction, never grow: chrome thresholds could oscillate.
+    // Re-embeds reuse the measured budget rather than measuring
     // again: in a container that grows with its content the overshooting
     // paint has already widened it, so a fresh measurement opened a new
     // regime on every pass and the corrections never ended. When cells
@@ -272,7 +277,7 @@ window.AoV = window.AoV || {
         var self = window.AoV || {};
         var info = (self._computedWidths || {})[id];
         if (!info) return;
-        if (self._correctedRegime && self._correctedRegime[id] === info.regime) return;
+        var corrected = self._correctedRegime && self._correctedRegime[id] === info.regime;
         var el = self._elOf(id);
         var canvas = el && el.querySelector('canvas.marks');
         if (!canvas) return;
@@ -292,6 +297,7 @@ window.AoV = window.AoV || {
         // comes back with its first rows, so widening it would only replace
         // the view twice (keyed removal of the last group, then its return).
         if (over < -2) {
+            if (corrected) return;
             var corr = self._corrections[id];
             if (info.kind === 'wrap' || !corr || corr.regime !== info.regime || !(info.computed > info.width)) return;
             if (!self._drawsMarks(self.views[id])) return;
@@ -315,10 +321,18 @@ window.AoV = window.AoV || {
             return;
         }
         var shrink = perCell ? Math.ceil(over / info.nCols) : Math.ceil(over);
-        var newWidth = info.width - shrink;
-        if (newWidth >= info.width || newWidth < minCell) return;
+        var previous = self._corrections[id];
+        if (corrected && previous && previous.previousWidth > info.width) {
+            // Use the observed width reduction when fixed-size titles or
+            // labels kept some columns from shrinking with their cells.
+            var gain = (previous.previousRendered - canvas.clientWidth) / (previous.previousWidth - info.width);
+            shrink = gain > 0 ? Math.max(shrink, Math.ceil(over / gain)) : info.width - minCell;
+        }
+        var newWidth = Math.max(minCell, info.width - shrink);
+        if (newWidth >= info.width) return;
         self._correctedRegime[id] = info.regime;
-        self._corrections[id] = {regime: info.regime, width: newWidth};
+        self._corrections[id] = {regime: info.regime, width: newWidth,
+            previousWidth: info.width, previousRendered: canvas.clientWidth};
         reembed(info.budget);
     },
 
@@ -1070,7 +1084,7 @@ window.AoV = window.AoV || {
                 var pending = self._pending[id] || [];
                 delete self._pending[id];
                 pending.forEach(function(fn) { fn(view); });
-                // One bounded correction pass for JS-sized specs whose
+                // Bounded correction passes for JS-sized specs whose
                 // rendered chrome overshoots the computed budget. Not for an
                 // embed a newer spec has superseded before it resolved: its
                 // correction would describe the old chrome and be read by
