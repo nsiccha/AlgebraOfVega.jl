@@ -52,7 +52,7 @@
         // The interval drawing pads its domain for dodged points. Axis
         // resolution must leave the one shared scale's definition unchanged.
         const reference = structuredClone(AoV._results[id].spec);
-        reference.resolve.axis.x = 'shared';
+        reference.resolve.axis = Object.assign({}, reference.resolve.axis, {x: 'shared'});
         const originalX = vegaLite.compile(reference).spec.scales.find(s => s.name === 'x');
         check(JSON.stringify(sharedX) === JSON.stringify(originalX), label + ': shared dose scale changed');
         if (fit) {
