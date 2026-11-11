@@ -1,14 +1,11 @@
 """
     to_html(spec; id, width, height, source, base)
 
-Serialize a figure as HTML. A bare drawable produces a fragment using
-Vega-Embed's default appearance. An HTML node, such as `to_node(spec)`, produces
-a standalone document with AoV's runtime and host-theme support.
-
-`source=:cdn`, `:vendor`, or `:inline` selects plotting-library delivery.
-The inline form embeds the libraries for use without a network connection.
-The node overload also accepts `title`, `head_extra`, localized `texts`, and
-`runtime=:linked` with vendor delivery. Save the returned string to a file.
+Serialize a bare drawable as an HTML fragment using Vega-Embed's default
+appearance. `id`, `width`, and `height` override the figure's identity and size.
+For a standalone document with host-theme support, pass `to_node(spec)` to the
+node overload instead. Library delivery uses the `source` and `base` options
+described by [`vega_head`](@ref).
 """
 function to_html(spec; id=nothing, width=nothing, height=nothing,
         source::Symbol=:cdn, base::AbstractString="/vendor")
@@ -107,14 +104,11 @@ _html_escape(s::AbstractString) =
 """
     to_html(node::HTMX.Node; texts=plot_texts(), title=texts.untitled, head_extra="", source, base, runtime) -> String
 
-Serialize a figure as HTML. A bare drawable produces a fragment using
-Vega-Embed's default appearance. An HTML node, such as `to_node(spec)`, produces
-a standalone document with AoV's runtime and host-theme support.
-
-`source=:cdn`, `:vendor`, or `:inline` selects plotting-library delivery.
-The inline form embeds the libraries for use without a network connection.
-The node overload also accepts `title`, `head_extra`, localized `texts`, and
-`runtime=:linked` with vendor delivery. Save the returned string to a file.
+Serialize an HTML node as a standalone document with AoV's runtime and
+host-theme support. `title` names the document, `head_extra` adds head content,
+and `texts` supplies localized labels. Library delivery uses the `source`,
+`base`, and `runtime` options of [`vega_head`](@ref). Save the returned string
+to a file.
 """
 function to_html(node::HTMX.Node; texts::PlotTexts=_EN_PLOT_TEXTS,
         title::AbstractString=texts.untitled, head_extra::AbstractString="",
@@ -149,10 +143,8 @@ end
 """
     vdraw(spec; kwargs...)
 
-Return an HTML node for a browser-rendered figure. An optional second
-`scales` argument configures scales using the AlgebraOfGraphics API.
-The host must load `vega_head()`; notebooks may provide their own HTML display.
-Use `to_vegalite` for a dictionary or `to_html(to_node(spec))` for a document.
+Return an HTML node for a browser-rendered figure. This is an alias for
+[`to_node`](@ref), with the same host requirements and keyword arguments.
 """
 vdraw(spec; kwargs...) = to_node(spec; kwargs...)
 vdraw(; kwargs...) = spec -> vdraw(spec; kwargs...)
@@ -160,10 +152,8 @@ vdraw(; kwargs...) = spec -> vdraw(spec; kwargs...)
 """
     vdraw(spec, scales; kwargs...)
 
-Return an HTML node for a browser-rendered figure. An optional second
-`scales` argument configures scales using the AlgebraOfGraphics API.
-The host must load `vega_head()`; notebooks may provide their own HTML display.
-Use `to_vegalite` for a dictionary or `to_html(to_node(spec))` for a document.
+Apply an AlgebraOfGraphics `scales(...)` object while lowering the figure,
+then return its browser node. Other keyword arguments pass to `to_node`.
 """
 vdraw(spec, sc::AlgebraOfGraphics.Scales; kwargs...) = to_node(to_vegalite(spec, sc); kwargs...)
 

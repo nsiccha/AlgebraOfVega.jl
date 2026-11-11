@@ -765,7 +765,7 @@ end
 
 Remove rows whose `key` matches `value` from the named dataset of plot `id`.
 `key` can identify one or several columns. Returns an HTML update fragment;
-the plot must already exist in a page with the AoV runtime.
+the page needs the AoV runtime, which queues updates until the view is ready.
 """
 function remove_data(id, value; key, name="source_0")
     id = _sanitize_id(id)
@@ -996,9 +996,10 @@ end
 """
     refine_channels(resolved, tables...)
 
-Refine a resolved channel assignment against the supplied tables, removing
-redundant group dimensions while preserving fixed assignments. Pass the result
-of `resolve_channels` and the tables the figure actually uses.
+Remove dimensions that are absent from every table, or have at most one
+distinct value in every table containing them. This also filters fixed
+assignments. Pass the result of `resolve_channels` and the tables the figure
+actually uses.
 """
 function refine_channels(resolved::NamedTuple, tables...)
     isempty(tables) && return resolved

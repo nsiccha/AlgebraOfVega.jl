@@ -3,7 +3,7 @@
     mapping_controls(id, resolved::NamedTuple; table=nothing, spec=nothing)
 
 Build channel-assignment controls for a plot id and named dimensions.
-`table` or `spec` supplies available values; keyword options configure fixed
+`table` and `spec` validate dimension fields; keyword options configure fixed
 assignments and available channels. Prefer `auto_remap_node` when the controls
 and plot should be rendered together.
 """
@@ -419,9 +419,11 @@ end
     auto_remap_node(plot_id, spec; dims, fixed=Dict(), pinned=:row, axes=false, texts=plot_texts())
 
 Render a figure with controls that assign dimensions to color, row, column,
-and detail channels. `dims` supplies named dimensions. `fixed` pins channel
-assignments; `pinned` selects the channel that retains dimensions otherwise
-unassigned. `axes` enables axis remapping. `texts` controls UI labels.
+and detail channels. `dims` is a vector of `field => label` pairs. `fixed` maps
+channels to fields that cannot be reassigned by the reader; `pinned` selects
+the channel that retains dimensions otherwise
+unassigned. `axes` enables axis remapping for marks whose axes are not bound
+to computed analysis columns. `texts` controls UI labels.
 
 Use a stable `plot_id`. When updating or exporting the figure, pass the same
 remapping options as `auto_remap` to `update_spec`, `to_vegalite`, or `to_json`.

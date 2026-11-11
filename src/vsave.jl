@@ -20,7 +20,7 @@ Save the Vega-rendered figure to PDF, SVG, or PNG and return `path`.
 Requires the vl-convert command-line executable on `PATH`, or at the path in
 `AOV_VL_CONVERT`. Supports AoV geographic and interval analyses.
 
-`scale` controls output scaling and `ppi` the PNG resolution. Pass `locale`
+`scale` and `ppi` control PNG resolution; PDF and SVG accept neither. Pass `locale`
 for number/date formatting, and the original `auto_remap` options when exporting
 a channel-picker figure. This function does not require a Makie backend.
 """

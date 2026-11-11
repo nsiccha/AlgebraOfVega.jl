@@ -3,15 +3,21 @@ using AlgebraOfVega, Documenter, SHA, Markdown
 const BUILD = joinpath(@__DIR__, "build")
 const PUBLIC = joinpath(BUILD, "public")
 const FIGURES = joinpath(PUBLIC, "figures")
+struct Figure
+    markup::String
+end
+Base.show(io::IO, ::MIME"text/markdown", figure::Figure) = print(io, figure.markup)
 function prepare_assets()
     mkpath(PUBLIC)
     cp(joinpath(@__DIR__, "install.jl"), joinpath(PUBLIC, "install.jl"); force=true)
     cp(vega_vendor_dir(), joinpath(PUBLIC, "vendor"); force=true)
+    # VitePress discovers Markdown even in public assets; this is source metadata.
+    rm(joinpath(PUBLIC, "vendor", "README.md"); force=true)
 end
 function figure(spec, id; caption="")
     mkpath(FIGURES)
     write(joinpath(FIGURES, id * ".json"), to_json(spec))
-    Base.HTML("""
+    Figure("""
     <figure class="docs-figure">
     <VegaPlot src="/figures/$id.json" plot-id="docs-$id" />
     <figcaption>$caption</figcaption>

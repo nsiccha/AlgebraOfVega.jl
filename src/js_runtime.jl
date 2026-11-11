@@ -150,6 +150,22 @@ The default `theme=:host` follows the plot element's inherited foreground and
 font. `theme=:none` keeps Vega's own appearance. `zoom`, `max_width`, and
 `actions` set page defaults. Author-specified mark palettes remain unchanged
 when the host theme switches.
+
+CSS properties on the plot or an ancestor can set the host appearance:
+
+| Property | Meaning |
+| --- | --- |
+| `--aov-font` | Font-family list. |
+| `--aov-category` | Default categorical colors, separated by commas. |
+| `--aov-axis-label-color`, `--aov-axis-title-color` | Axis text colors. |
+| `--aov-grid-color`, `--aov-tick-color`, `--aov-domain-color` | Grid, ticks, and axis lines; `none` removes them. |
+| `--aov-view-color` | Plot frame color; `none` removes it. |
+| `--aov-legend-label-color`, `--aov-legend-title-color` | Legend text colors. |
+| `--aov-header-label-color`, `--aov-header-title-color` | Facet header colors. |
+
+These defaults leave explicit mark colors and scale palettes intact. Class,
+`data-theme`, or style changes on the document root or body refresh the plots.
+After other stylesheet changes, call `AoV.refreshTheme()` in the browser.
 """
 function vega_head(;
     vega_version=VEGA_VERSION,
