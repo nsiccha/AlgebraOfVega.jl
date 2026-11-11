@@ -57,7 +57,7 @@
             'captioned: overlap tooltip: ' + button(cap, 'ribbons').title);
         check(pressed(cap).join() === 'intervals', 'captioned: starts as intervals');
         check(drawsIntervals(view), 'captioned: draws point-intervals');
-        // Dodged by colour around each dose slot; the observations sit on the slot's centre.
+        // Dodged by colour around each true dose; observations keep that dose.
         const atDose = d => rules(view).filter(i => i.datum.dose === d && i.datum.study === 'S1');
         const xs = [...new Set(atDose(5).map(pageX).map(x => Math.round(x)))];
         check(xs.length === 3, 'captioned: three groups dodged at one dose: ' + xs);
@@ -66,7 +66,7 @@
         check(obs.length > 0 && obs.every(i => Math.abs(pageX(i) - centre) < 2),
             'captioned: observations on the slot centre');
         const slotXs = [5, 10, 20].map(d => Math.round(mean(atDose(d).map(pageX))));
-        check(Math.abs((slotXs[1] - slotXs[0]) - (slotXs[2] - slotXs[1])) <= 1, 'captioned: evenly spaced slots');
+        check(Math.abs(2 * (slotXs[1] - slotXs[0]) - (slotXs[2] - slotXs[1])) <= 2, 'captioned: true linear dose distances');
 
         // The reader switches to ribbons.
         button(cap, 'ribbons').click();
@@ -103,8 +103,9 @@
         check(drawsIntervals(view) && cells(view).length === 3, 're-facet intervals: drawn per group row');
         const offsets = layers(AoV._cur[cap].spec).map(l => l.encoding && l.encoding.xOffset).filter(Boolean);
         const color = layers(AoV._cur[cap].spec).map(l => l.encoding && l.encoding.color).filter(Boolean)[0];
-        check(offsets.length > 0 && color && offsets.every(o => o.field === color.field) && color.field !== 'group',
-            're-facet intervals: dodged by the colour field: ' + JSON.stringify([offsets[0], color]));
+        const dodge = AoV._cur[cap].spec._aov.dodgeX;
+        check(offsets.length === 0 && color && dodge.by === color.field && color.field !== 'group',
+            're-facet intervals: dodged by the colour field: ' + JSON.stringify([dodge, color]));
 
         (0, eval)(fixture.updates.same);
         await pause();
@@ -235,7 +236,7 @@
         check(AoV._cur[un].spec._aov.dodgeX.by === null && at(uview, 5, 'A', 'S2').length > 0 &&
             at(uview, 5, 'A', 'S2').every(x => Math.abs(x - usc(5)) < 1), 'uncoloured picker, Colour cleared: on the dose');
 
-        // The same on slots (a doubling ladder on a linear axis).
+        // The same on slots (the unsupported sqrt axis).
         const us = 'ribbon-uncol-slots';
         let sview = await ready(us);
         button(us, 'intervals').click();

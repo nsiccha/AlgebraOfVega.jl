@@ -5,9 +5,9 @@
 # rows: at each x one interval per colour group, dodged by colour (one interval,
 # at the x itself, without a colour mapping). The x axis stays the
 # ribbon's (a log scale included), each group's intervals sitting a small
-# step from the true x (`_true_x_axis!`); where the x values are too unevenly
-# spaced on that axis for the step to stay readable, or the scale is neither
-# linear nor log, they sit on evenly spaced x slots instead (`_slot_x_axis!`).
+# step from the true x (`_true_x_axis!`), including unevenly spaced values.
+# Scales other than linear or log still use evenly spaced x slots instead
+# (`_slot_x_axis!`).
 # Both drawings go to the browser, where a "Ribbons | Intervals" control swaps
 # them (`AoV.setRibbonView`, vendor/aov-runtime.js); the figure starts in the
 # one `intervals=` picks from the overlap of the groups' outer bands.
@@ -97,7 +97,12 @@ const _RIBBON_UNDODGED = Dict{String,Any}("xOffset" => Dict{String,Any}("value" 
 function _ribbon_intervals_spec(v, src)
     layers = collect(_spec_layers_or_nothing(_spec_drawable(v)))
     l = layers[src.index]
-    m = AlgebraOfGraphics.mapping(l.positional...; (k => s for (k, s) in pairs(l.named) if k !== :group)...)
+    named = Dict(k => s for (k, s) in pairs(l.named) if k !== :group)
+    # This alternate view deliberately dodges by colour, including when the
+    # groups were sampled at different x values. Request that explicitly:
+    # standalone pointinterval only auto-dodges colours sharing a position.
+    isnothing(src.color_field) || get!(named, :dodge_x, l.named[:color])
+    m = AlgebraOfGraphics.mapping(l.positional...; named...)
     intervals = AlgebraOfGraphics.Layer(_interval_view_analysis(src.analysis), l.data, m.positional, m.named)
     vis = extract_visual(l)
     kept = isnothing(vis) ? Symbol[] : [k for k in (:color, :inspectable) if haskey(vis.attributes, k) &&
@@ -325,9 +330,8 @@ const _RIBBON_DODGE_SPAN = 0.7
 # nominal to share the category axis) keeps its field; all of them quantitative
 # on the ribbon's x scale with room for the dodge (`_dodged_x_scale`), with its
 # x title. Returns false, changing nothing, when the
-# ribbon's x scale is neither linear nor log, or the x values are so unevenly
-# spaced on it that the closest pair gets less than a quarter of an even share
-# of the axis (a dose ladder on a linear axis): evenly spaced slots read better.
+# ribbon's x scale is neither linear nor log, or has no usable gap. Close x
+# values shrink the dodge; they must not turn a numeric axis into categories.
 # Without a colour mapping there is one group and nothing to dodge: the
 # intervals sit at the true x (`__aov_x` is the x itself), and the recipe has no
 # `by`, so the picker dodges them when a reader moves a field onto Colour.
@@ -449,7 +453,9 @@ function _ribbon_dodge_kind(scale)
 end
 
 # The smallest gap between adjacent x values on the axis (natural-log units on
-# a log axis), or `nothing` when there is no gap or it is too small to read.
+# a log axis), or `nothing` when there is no gap or log x is nonpositive.
+# Even a very small gap is meaningful: using nominal slots instead would
+# change distances and replace numeric ticks with every raw x value's label.
 function _ribbon_dodge_gap(slots, kind)
     xs = Float64[Float64(s) for s in slots]
     length(xs) >= 2 || return nothing
@@ -457,8 +463,7 @@ function _ribbon_dodge_gap(slots, kind)
         all(>(0), xs) || return nothing
         xs = log.(xs)
     end
-    gap = minimum(diff(xs))
-    gap >= (last(xs) - first(xs)) / (4 * (length(xs) - 1)) ? gap : nothing
+    minimum(diff(xs))
 end
 
 # The colour groups in the colour scale's order: a sort array's values first,

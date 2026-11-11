@@ -15,6 +15,16 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
+## 0.2.34
+
+- A ribbon's Intervals drawing keeps its linear or log x axis even when some
+  x values are close together. Previously a spacing heuristic changed the axis
+  to equally spaced categories, losing the source scale and printing long raw
+  numeric labels in narrow facets. The colour-group offsets still use 70% of
+  the closest gap, and observations keep their true positions. Closely spaced
+  marks can overlap; the numeric axis and its zoom remain available. This also
+  works when colour groups are sampled at different x values.
+
 ## 0.2.33
 
 - Fixed colours accept Makie's `(colour, alpha)` tuples and `Colorant` values on

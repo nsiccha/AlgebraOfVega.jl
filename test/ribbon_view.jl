@@ -6,8 +6,7 @@ A coloured ribbon's point-interval view (`lineribbon(...; intervals=…)`).
 A ribbon coloured by group over a few numeric x values (a dose ladder) is
 lowered twice: as drawn, and as the vertical `pointinterval` of the same rows,
 dodged by colour: around the true x on the ribbon's own (linear or log) x axis,
-or on evenly spaced x slots when the x values are too unevenly spaced on that
-axis to dodge readably (a dose ladder on a linear axis). The figure starts in the
+or on evenly spaced x slots for other scale types. The figure starts in the
 point-interval view when the colour groups' outer bands overlap by more than
 10% of the y range on average (in some facet panel, for some pair of groups),
 and the browser runtime swaps between the two with a "Ribbons | Intervals"
@@ -78,18 +77,15 @@ end
     @test view_meta(sig)["score"] < 0.05
     @test view_meta(other(sig))["view"] == "intervals"
 
-    # The point-interval drawing of a dose ladder on a linear axis: evenly
-    # spaced dose slots in ascending order, dodged by colour, the ribbon's x
-    # title, upright labels.
-    slots = Any[5, 10, 20, 40, 80, 160, 320]
+    # Uneven doses keep their numeric distances on a linear axis.
     for x in x_encodings(over)
-        @test x["type"] == "nominal" && x["scale"] == Dict("domain" => slots)
-        @test x["title"] == "Dose (mg)" && x["axis"]["labelAngle"] == 0
-        @test !haskey(x["axis"], "title")
+        @test x["type"] == "quantitative" && x["field"] == "__aov_x"
+        @test x["title"] == "Dose (mg)" && !haskey(x["scale"], "domain")
     end
     AoV._each_encoded(over) do d, _
-        haskey(d["encoding"], "y") && @test d["encoding"]["xOffset"]["field"] == "group"
+        @test !haskey(d["encoding"], "xOffset")
     end
+    @test over["_aov"]["dodgeX"]["span"] == 3.5
     # The same rows in both drawings.
     @test over["data"]["values"] == ribbons["data"]["values"]
 end
@@ -149,9 +145,10 @@ end
     t = overlapping(; doses=[5, 10, 20, 40])
     dated = merge(t, (; day=[days[findfirst(==(d), [5, 10, 20, 40])] for d in t.dose]))
     @test unoffered(data(dated) * mapping(:day, :med; color=:group) * lineribbon(bands=BANDS))
-    # A layer whose x values miss the slots cannot sit on them.
+    # Observations off the ribbon's x grid keep their numeric positions.
     off_slot = ribbon_fig(overlapping()) + data((; dose=[7], y=[1.0])) * mapping(:dose, :y) * visual(Scatter)
-    @test unoffered(off_slot)
+    @test !isnothing(view_meta(to_vegalite(off_slot)))
+    @test unoffered(off_slot * config(encoding=Dict("x" => Dict("scale" => Dict("type" => "sqrt")))))
     # On a log axis the intervals keep true positions, so it stays at 7.
     @test !isnothing(view_meta(to_vegalite(off_slot * config(scales=scales(X=(; scale=log10))))))
     # Two ribbons, or a detail split: no single set of groups to dodge.
@@ -243,10 +240,11 @@ one colour, and it starts as ribbons: one group has no bands to overlap.
     raw = to_vegalite(data(draws) * mapping(:dose, :y; group=:draw) * lineribbon() * logx)
     @test view_meta(raw)["start"] == "ribbons" && view_meta(raw)["pairs"] === false
     @test length(other(raw)["data"]["values"]) == length(one.dose)
-    # On a doubling ladder over a linear axis the intervals sit on slots,
+    # On an unsupported sqrt axis the intervals sit on slots,
     # undodged: an `xOffset` value would move them to the slot's start. The
     # tag lets the picker dodge them by a colour a reader adds.
-    slots = other(to_vegalite(data(one) * mapping(:dose, :med) * lineribbon(bands=BANDS)))
+    slots = other(to_vegalite(data(one) * mapping(:dose, :med) * lineribbon(bands=BANDS) *
+        config(encoding=Dict("x" => Dict("scale" => Dict("type" => "sqrt"))))))
     @test all(x -> x["type"] == "nominal", x_encodings(slots)) && !haskey(get(slots, "_aov", Dict()), "dodgeX")
     tagged = Ref(0)
     AoV._each_encoded(slots) do d, _
@@ -368,9 +366,8 @@ the default `nice` rounded a 1–1000 mg log axis out to 0.1–10,000.
     @test all(s -> !haskey(s, "padding"), x_scales(sq))
 end
 
-@testitem "true positions where the x values leave room, slots where they do not" setup=[AoVRibbonViewFixtures] tags=[:translation, :ribbon] begin
-    # The closest pair needs a quarter of an even share of the axis.
-    @test isnothing(AoV._ribbon_dodge_gap(DOSES, :linear))
+@testitem "true positions on linear and log axes, slots for unsupported scales" setup=[AoVRibbonViewFixtures] tags=[:translation, :ribbon] begin
+    @test AoV._ribbon_dodge_gap(DOSES, :linear) == 5
     @test AoV._ribbon_dodge_gap(DOSES, :log) ≈ log(2)
     @test AoV._ribbon_dodge_gap([10, 20, 30, 40, 50], :linear) == 10
     @test isnothing(AoV._ribbon_dodge_gap([5], :linear)) && isnothing(AoV._ribbon_dodge_gap([0, 5, 10], :log))
@@ -497,7 +494,7 @@ end
                 vdraw(reporter * config(height=120, scales=scales(X=(; scale=log10))); id="ribbon-ink"),
                 with_plot_caption(picker_fig(overlapping()) * config(scales=scales(X=(; scale=log10))),
                     "Uncoloured"; plot_id="ribbon-uncol", auto_remap=uncoloured),
-                with_plot_caption(picker_fig(overlapping()), "Uncoloured slots";
+                with_plot_caption(picker_fig(overlapping()) * config(encoding=Dict("x" => Dict("scale" => Dict("type" => "sqrt")))), "Uncoloured slots";
                     plot_id="ribbon-uncol-slots", auto_remap=uncoloured),
             ]
             runtime = join(html(n) for n in vega_head(source=:inline))
