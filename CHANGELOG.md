@@ -15,6 +15,19 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
+## 0.2.33
+
+- Fixed colours accept Makie's `(colour, alpha)` tuples and `Colorant` values on
+  `vdraw` and `vsave`, including non-RGB colour spaces. For example,
+  `visual(BarPlot; color=(:red, 0.1), strokecolor=:red, strokewidth=2)` draws a
+  faint red fill with an opaque red outline, as `sdraw` does. The conversion
+  also reaches fixed ribbon and interval colours, `fill`/`stroke`, categorical
+  colour palettes, and `lowclip`/`highclip`/`nan_color`. Alpha stays in the
+  colour and combines with the mark's own opacity. CSS strings, plain colour
+  symbols and theme-following `:ink` keep their existing output. Previously,
+  Julia's printed colour values reached Vega as unreadable CSS and could draw
+  solid black.
+
 ## 0.2.32
 
 - AoV's automatic tooltips name each mapped column by its mapping label, the name its

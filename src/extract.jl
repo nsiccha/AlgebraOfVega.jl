@@ -380,6 +380,17 @@ end
 _visual_name(vis::AlgebraOfGraphics.Visual) =
     vis.plottype === Makie.Plot{Makie.plot} ? "visual(...)" : "visual($(Makie.plotsym(vis.plottype)))"
 
+# Keep CSS names and expressions as authored. Makie's colour values and
+# (colour, alpha) tuples need CSS rather than Julia's printed representation.
+# Resolve through Makie so non-RGB colour spaces and tuple alpha agree with
+# sdraw; keep alpha in the colour, independently of the mark's opacity.
+_color_to_css(c) = c
+_color_to_css(c::Union{AbstractString,Symbol}) = string(c)
+function _color_to_css(c::Union{Makie.Colorant,Tuple{Any,Real}})
+    rgba = Makie.RGBAf(Makie.to_color(c))
+    "rgba($(255 * Makie.red(rgba)), $(255 * Makie.green(rgba)), $(255 * Makie.blue(rgba)), $(Makie.alpha(rgba)))"
+end
+
 function visual_attrs_to_mark_props(vis::AlgebraOfGraphics.Visual)
     props = Dict{String,Any}()
     # Only a true Scatter becomes a Vega point mark, where `size` is an area.
@@ -415,9 +426,11 @@ function visual_attrs_to_mark_props(vis::AlgebraOfGraphics.Visual)
             # (snag `aov-fillopacity-893e8d27`).
             p["opacity"] = v
         elseif k === :color
-            p["color"] = string(v)
+            p["color"] = _color_to_css(v)
         elseif k === :strokecolor
-            p["stroke"] = string(v)
+            p["stroke"] = _color_to_css(v)
+        elseif k === :stroke || k === :fill
+            p[sk] = _color_to_css(v)
         elseif k === :strokeDash || k === :linestyle
             dash = _linestyle_to_strokedash(v)
             isnothing(dash) || (p["strokeDash"] = dash)

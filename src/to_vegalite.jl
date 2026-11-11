@@ -1469,7 +1469,7 @@ function _color_scale_props_to_vl(props)
         if pal isa Symbol || pal isa AbstractString
             categorical["scheme"] = string(pal)
         else
-            categorical["range"] = collect(pal)
+            categorical["range"] = [_color_to_css(c) for c in pal]
         end
     end
     continuous = Dict{String,Any}()
@@ -1479,14 +1479,14 @@ function _color_scale_props_to_vl(props)
         lo, hi = props[:colorrange]
         continuous["domain"] = [lo, hi]
         continuous["clamp"] = true
-        haskey(props, :lowclip) && push!(clips, ("<", lo, string(props[:lowclip])))
-        haskey(props, :highclip) && push!(clips, (">", hi, string(props[:highclip])))
+        haskey(props, :lowclip) && push!(clips, ("<", lo, _color_to_css(props[:lowclip])))
+        haskey(props, :highclip) && push!(clips, (">", hi, _color_to_css(props[:highclip])))
     end
     if haskey(props, :scale)
         scale_type = _aog_scale_fn_to_vl(props[:scale])
         isnothing(scale_type) || merge!(continuous, scale_type)
     end
-    nan_color = haskey(props, :nan_color) ? string(props[:nan_color]) : nothing
+    nan_color = haskey(props, :nan_color) ? _color_to_css(props[:nan_color]) : nothing
     authored(kind) = Symbol[k for k in _COLOR_SCALE_KEYS[kind] if haskey(props, k)]
     _ColorScaleVL((; categorical, continuous),
                   (; categorical=authored(:categorical), continuous=authored(:continuous)),
