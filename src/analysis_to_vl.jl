@@ -506,9 +506,16 @@ function _ribbon_to_vl(
         # With no group yet (an incremental plot's empty first render) the
         # template layers stand in, unfiltered and tagged `_lr_proto`: they
         # give the plot its dataset and are what the first groups copy.
-        for gval in color_vals
-            filter_expr = "datum[$(_vl_json(color_field))] === $(_vl_json(gval))"
-            for tl in template_layers
+        # The layers paint by kind: every group's outer band, then each
+        # narrower band, then every median line, so no group's band covers
+        # another group's line, and every group's narrower band sits above
+        # every wider one. Within a kind the groups paint in colour order (one
+        # filtered layer per group, `87465a0`). This is the order `sdraw`'s
+        # Band/Lines layers paint, and the runtime's `_ribbonGroupLayers`
+        # keeps it (snag `coloured-linerib-16df559b`, decision `05w7kaw`).
+        for tl in template_layers
+            for gval in color_vals
+                filter_expr = "datum[$(_vl_json(color_field))] === $(_vl_json(gval))"
                 gl = deepcopy(tl)
                 gl["transform"] = [Dict{String,Any}("filter" => filter_expr)]
                 gl["encoding"]["color"] = copy(color_enc)

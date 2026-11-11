@@ -63,7 +63,9 @@ data change that brings a new group re-embeds once with that group's layers.
     ribbon(tbl; kw...) = data(tbl) * mapping(:x, :y; color=:scenario, kw...) * lineribbon(bands=[:lower => :upper])
     vl = to_vegalite(ribbon(cat(rows("A"), rows("B"; off=3))))
     groups = [l for l in vl["layer"] if get(l, "_lr_layer", false)]
-    @test [l["_lr_group"] for l in groups] == ["A", "A", "B", "B"]
+    # painted by kind: both bands, then both lines (snag `coloured-linerib-16df559b`)
+    @test [(l["mark"]["type"], l["_lr_group"]) for l in groups] ==
+        [("area", "A"), ("area", "B"), ("line", "A"), ("line", "B")]
     @test all(l -> l["transform"][end]["filter"] == "datum[\"scenario\"] === \"$(l["_lr_group"])\"", groups)
     ev = to_vegalite(ribbon(typed_empty))
     @test length(ev["layer"]) == 2 && all(l -> get(l, "_lr_proto", false), ev["layer"])

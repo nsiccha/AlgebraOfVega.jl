@@ -15,6 +15,21 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
+## 0.2.30
+
+- `mapping(:x, :y, :z) * visual(Heatmap)` draws as in AlgebraOfGraphics: the third
+  positional colours each cell, with a colour legend and the value in the tooltip, and on
+  a numeric axis each row is a cell on the grid of the distinct x and y values, reaching
+  halfway to its neighbours (the first and last half a step beyond, a lone value ±0.5),
+  as Makie draws it, cut at the plot frame as Makie cuts it (which matters under axis
+  `limits` inside the outer cells). Each facet panel has its own grid. The edges are computed in the
+  browser, so `update_data`/`append_data`, rows read `by_url` and `config(frame=…)` keep
+  working, and the rows and their CSV download stay as given. A categorical axis keeps one
+  band per value, and a heatmap coloured through `config(encoding=…)` (a 2D histogram
+  binned there) is unchanged. Before, the third positional was dropped without a word,
+  and each cell reached from the axis origin to its value, so the figure was one block of
+  Vega's default blue with no legend.
+
 ## 0.2.29
 
 - An interactive plot (`vdraw`, `to_node`, `with_plot_caption`, a bare `to_html(spec)`)
