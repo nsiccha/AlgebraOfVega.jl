@@ -45,6 +45,27 @@
         return out;
     };
     const rowsOf = (view, s) => view.data('source_0').filter(r => r.scenario === s);
+    // The drawn area/line marks of each panel (or of the plot, unfaceted) as
+    // `type:scenario`, in the order Vega paints them (a group's marks paint
+    // in order). A coloured ribbon paints by kind: every band, then every
+    // median line (snag `coloured-linerib-16df559b`).
+    function paintOrder(view) {
+        const scopes = cells(view).length ? cells(view) : view.scenegraph().root.items;
+        return scopes.map(scope => {
+            const out = [];
+            (function walk(item) {
+                (item.items || []).forEach(mark => {
+                    const type = mark.marktype, first = (mark.items || [])[0];
+                    if ((type === 'area' || type === 'line') && first?.datum?.scenario !== undefined)
+                        out.push(type + ':' + first.datum.scenario);
+                    else (mark.items || []).forEach(walk);
+                });
+            })(scope);
+            return out.join();
+        });
+    }
+    const byKind = (groups, n) => Array(n).fill(
+        groups.map(g => 'area:' + g).concat(groups.map(g => 'line:' + g)).join()).join('|');
     // Parameter names declared anywhere in a spec.
     function params(spec) {
         const names = [];
@@ -139,6 +160,8 @@
         check(cells(view).length === 2, 'ribbon: two panels');
         d = drawn(view);
         check(d['area:A'] === 10 && d['area:B'] === 10 && !d['area:C'], 'ribbon: initial groups');
+        check(paintOrder(view).join('|') === byKind(['A', 'B'], 2),
+            'ribbon: painted by kind ' + paintOrder(view).join('|'));
         const paramsBefore = params(AoV._cur[id].spec);
         const ribbonA = rowsOf(view, 'A');
         send('ribbon_C1');
@@ -152,7 +175,9 @@
         check(JSON.stringify(params(AoV._cur[id].spec)) === JSON.stringify(paramsBefore),
             'ribbon new group: parameters not duplicated ' + params(AoV._cur[id].spec));
         const groups = (AoV._cur[id].spec.spec.layer || []).filter(l => l._lr_layer).map(l => l._lr_group);
-        check(groups.join() === 'A,A,B,B,C,C', 'ribbon new group: layers in group order ' + groups);
+        check(groups.join() === 'A,B,C,A,B,C', 'ribbon new group: layers by kind ' + groups);
+        check(paintOrder(view).join('|') === byKind(['A', 'B', 'C'], 2),
+            'ribbon new group: painted by kind ' + paintOrder(view).join('|'));
         // A later stage of the same group: data swapped in place.
         const ribbonB = rowsOf(view, 'B');
         send('ribbon_C2');
@@ -203,6 +228,8 @@
         view = await ready(id, view);
         d = drawn(view);
         check(d['area:A'] === 5 && d['area:B'] === 5, 'empty second group: A and B drawn');
+        check(paintOrder(view).join('|') === byKind(['A', 'B'], 1),
+            'empty second group: painted by kind ' + paintOrder(view).join('|'));
         send('empty_A2');
         await view.runAsync();
         check(AoV.views[id] === view, 'empty next stage: same view');
@@ -219,6 +246,8 @@
         d = drawn(view);
         check(d['area:A'] === 5 && d['area:B'] === 5 && d['area:C'] === 5, 'remap after live groups: all drawn');
         check(view.scale('color').domain().join() === 'A,B,C', 'remap after live groups: legend');
+        check(paintOrder(view).join('|') === byKind(['A', 'B', 'C'], 1),
+            'remap after live groups: painted by kind ' + paintOrder(view).join('|'));
 
         // --- A lowered dataset refuses raw rows.
         id = 'rk-interval';
