@@ -5,9 +5,9 @@ A captioned figure that an htmx swap replaces with a new one under the same
 plot id: a part HTMXObjects' `send_ahead` replaces out of band, and the
 finished answer that replaces the parts.
 
-Regression (snag `opened-the-same-c95278ca`, reporter `Bruno:simulator:ux`):
-web-sim sends its dose figure ahead dose by dose under one id (`each_dose`),
-then answers with the whole figure. htmx 2 runs a swapped fragment's scripts as
+Regression (snag `opened-the-same-c95278ca`): an app sent its dose figure ahead
+dose by dose under one plot id, then answered with the whole figure. htmx 2 runs
+a swapped fragment's scripts as
 it inserts them, before it removes what they replace, and HTMXObjects keeps the
 parts above the finished answer until that swap ends. So each embed ran while
 the old figure, with the same id and its own Ribbons | Intervals buttons, was
@@ -20,8 +20,8 @@ still in the page:
   so the figure was a dead drawing: no switch, no fit correction (wider than
   its column, the legend off-screen), no view.
 
-A cached answer sends no parts, so the reporter's dark run, served from the
-cache, looked right. The item lands parts through HTMXObjects' own
+An answer within the grace period (a cached one) sends no parts and looked right,
+in either colour scheme. The item lands parts through HTMXObjects' own
 `sent_ahead_script()` and swaps the finished answer as Treebars does (outerHTML
 of the polling inner, `select` of `.treebar-terminal-content`), with the
 vendored htmx 2.
@@ -65,7 +65,7 @@ vendored htmx 2.
             parts = (; part1="<div id=\"dr-ahead\">$(figure(3))</div>",
                 part2="<div id=\"dr-ahead\" hx-swap-oob=\"true\">$(figure(4))</div>",
                 final="<div class=\"treebar-terminal-content\">$(figure(5))</div>")
-            # 1040 px: web-sim's content column at a 1440 px window.
+            # 1040 px: an app's content column at a 1440 px window.
             write(joinpath(dir, "page.html"), """
                 <!DOCTYPE html>
                 <html><head><meta charset="utf-8">$head
