@@ -191,13 +191,13 @@ window.AoV = window.AoV || {
             var wrapEst = this._wrapColumns(spec, containerWidth, fit);
             var wrapRegime = [containerWidth, 'wrap', wrapEst, this._wrapField(spec)].join('|');
             var wrapCorr = (self._corrections || {})[id];
-            var wrapCols = (wrapCorr && wrapCorr.regime === wrapRegime && wrapCorr.cols) ? wrapCorr.cols : wrapEst;
+            var wrapCols = (wrapCorr && wrapCorr.wrapRegime === wrapRegime && wrapCorr.cols) ? wrapCorr.cols : wrapEst;
             spec = Object.assign({}, spec, {columns: wrapCols,
                 _aov: Object.assign({}, spec._aov, {nFacetCols: wrapCols})});
             if (!fit) {
                 self._computedWidths = self._computedWidths || {};
                 self._computedWidths[id] = {kind: 'wrap', nCols: wrapCols, estimate: wrapEst,
-                    budget: containerWidth, regime: wrapRegime};
+                    budget: containerWidth, regime: wrapRegime, wrapRegime: wrapRegime};
                 return spec;
             }
         }
@@ -252,7 +252,8 @@ window.AoV = window.AoV || {
             spec = Object.assign({}, spec, {width: width});
         }
         self._computedWidths = self._computedWidths || {};
-        self._computedWidths[id] = {kind: kind, width: width, computed: computed, nCols: nCols, budget: containerWidth, regime: regime};
+        self._computedWidths[id] = {kind: kind, width: width, computed: computed, nCols: nCols,
+            budget: containerWidth, regime: regime, wrapRegime: wrap ? wrapRegime : null};
         return spec;
     },
 
@@ -266,24 +267,27 @@ window.AoV = window.AoV || {
     // Every overflow correction reduces the cell width (or wrap count),
     // bounded below by the readable minimum (or one column). If shrinking
     // stops reducing the drawing, try that minimum directly. After a
-    // correction, never grow: chrome thresholds could oscillate.
+    // correction, never grow within the same column count: chrome thresholds
+    // could oscillate. At the minimum, an automatic wrap can take fewer columns
+    // and fit their cells afresh; authored counts keep their scrolling frame.
     // Re-embeds reuse the measured budget rather than measuring
     // again: in a container that grows with its content the overshooting
     // paint has already widened it, so a fresh measurement opened a new
     // regime on every pass and the corrections never ended. When cells
-    // already sit at the readable minimum there is nothing to shrink — the
-    // frame's in-frame scroll takes over.
+    // already sit at the readable minimum and no further wrapping is possible,
+    // the frame's in-frame scroll takes over.
     _fitCorrection: function(id, reembed) {
         var self = window.AoV || {};
         var info = (self._computedWidths || {})[id];
         if (!info) return;
         var corrected = self._correctedRegime && self._correctedRegime[id] === info.regime;
         var el = self._elOf(id);
-        var canvas = el && el.querySelector('canvas.marks');
-        if (!canvas) return;
-        // Layout px (pre-zoom): CSS zoom scales the canvas and the budget's
+        var drawing = el && el.querySelector('canvas.marks, svg.marks');
+        if (!drawing) return;
+        // Layout px (pre-zoom): CSS zoom scales the drawing and the budget's
         // container alike, so the factor cancels in the difference.
-        var over = canvas.clientWidth - info.budget;
+        var rendered = drawing.clientWidth;
+        var over = rendered - info.budget;
         self._correctedRegime = self._correctedRegime || {};
         self._corrections = self._corrections || {};
         var minCell = 100;
@@ -305,18 +309,23 @@ window.AoV = window.AoV || {
             var wider = Math.min(info.computed, info.width + grow);
             if (wider <= info.width) return;
             self._correctedRegime[id] = info.regime;
-            self._corrections[id] = {regime: info.regime, width: wider};
+            self._corrections[id] = {regime: info.regime, width: wider,
+                wrapRegime: info.wrapRegime, cols: info.nCols};
             reembed(info.budget);
             return;
         }
-        if (over <= 2) return;
-        if (info.kind === 'wrap') {
-            // Authored panel widths stay: the row takes fewer panels instead.
+        // Automatic wraps can fit exactly; even a 1px overshoot gives their
+        // scroll frame a horizontal scrollbar. Preserve the existing rounding
+        // tolerance for shapes whose column count is not ours to change.
+        if (over <= (info.wrapRegime ? 0 : 2)) return;
+        if (info.kind === 'wrap' || (info.wrapRegime && info.width <= minCell)) {
+            // Authored widths stay; fitted cells have exhausted their readable
+            // width. In either case only an automatic count may be reduced.
             if (info.nCols <= 1) return;
             var cols = Math.max(1, Math.min(info.nCols - 1,
-                Math.floor(info.nCols * info.budget / canvas.clientWidth)));
+                Math.floor(info.nCols * info.budget / rendered)));
             self._correctedRegime[id] = info.regime;
-            self._corrections[id] = {regime: info.regime, cols: cols};
+            self._corrections[id] = {wrapRegime: info.wrapRegime, cols: cols};
             reembed(info.budget);
             return;
         }
@@ -325,14 +334,15 @@ window.AoV = window.AoV || {
         if (corrected && previous && previous.previousWidth > info.width) {
             // Use the observed width reduction when fixed-size titles or
             // labels kept some columns from shrinking with their cells.
-            var gain = (previous.previousRendered - canvas.clientWidth) / (previous.previousWidth - info.width);
+            var gain = (previous.previousRendered - rendered) / (previous.previousWidth - info.width);
             shrink = gain > 0 ? Math.max(shrink, Math.ceil(over / gain)) : info.width - minCell;
         }
         var newWidth = Math.max(minCell, info.width - shrink);
         if (newWidth >= info.width) return;
         self._correctedRegime[id] = info.regime;
         self._corrections[id] = {regime: info.regime, width: newWidth,
-            previousWidth: info.width, previousRendered: canvas.clientWidth};
+            wrapRegime: info.wrapRegime, cols: info.nCols,
+            previousWidth: info.width, previousRendered: rendered};
         reembed(info.budget);
     },
 

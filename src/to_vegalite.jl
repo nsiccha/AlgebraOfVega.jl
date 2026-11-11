@@ -1871,7 +1871,17 @@ layout."""
 _apply_wrap_default!(spec) = spec
 function _apply_wrap_default!(spec::Dict)
     facet = _wrap_facet(spec)
-    (isnothing(facet) || !isnothing(_wrap_columns(spec, facet))) && return spec
+    isnothing(facet) && return spec
+    # A shared x axis lives in Vega-Lite's column footer, below the entire
+    # grid: an incomplete last row then draws axes where no panel exists.
+    # Give each occupied panel its own guide while keeping its shared scale.
+    # An explicit axis-resolution choice remains authoritative.
+    resolve = Dict{String,Any}(string(k) => v for (k, v) in pairs(get(spec, "resolve", (;))))
+    axes = Dict{String,Any}(string(k) => v for (k, v) in pairs(get(resolve, "axis", (;))))
+    get!(axes, "x", "independent")
+    resolve["axis"] = axes
+    spec["resolve"] = resolve
+    !isnothing(_wrap_columns(spec, facet)) && return spec
     n = _facet_levels(spec, facet["field"])
     n > 0 || return spec
     panel = something(_as_dict(get(spec, "spec", nothing)), spec)
