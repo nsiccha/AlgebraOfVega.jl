@@ -107,10 +107,11 @@ end
     Test.@test_logs (:warn, r"inspectable") match_mode=:any to_vegalite(pts * mapping(:x, :y) * visual(Scatter; inspectable=1))
 
     # The bare `to_html(spec)` embed makes the marks non-interactive itself;
-    # a spec without a passive layer embeds as before.
+    # a spec without a passive layer embeds without that patch (a map still
+    # gets the one that cuts its marks once zoomed, test/map_zoom.jl).
     @test occursin("m.interactive = false", to_html(name_map(true); id="bare"))
     plain = to_html(name_map(false); id="bare")
-    @test !occursin("interactive", plain) && occursin("{actions: false}).catch", plain)
+    @test !occursin("interactive", plain) && occursin("{actions: false, patch: function (vg) { if (vg && (vg.signals", plain)
 
     # Static path: Makie's own attribute reaches the Makie plot.
     fig = Makie.Figure()

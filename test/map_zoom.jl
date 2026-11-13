@@ -73,9 +73,10 @@ end
     # An x/y plot keeps its own pan and zoom.
     xy = to_vegalite(data((; a=[1.0, 2.0], b=[3.0, 4.0])) * mapping(:a, :b) * visual(Scatter))
     @test "grid" in [p["name"] for p in xy["params"]] && !("aov_zoom" in param_names(xy))
-    # A bare `to_html` map cuts its marks once zoomed, as the runtime does.
-    @test occursin("aov_zoom.k !== 1", to_html(regions)) && occursin("aov_zoom.k !== 1", AlgebraOfVega._PAN_ZOOM_CLIP_JS)
-    @test !occursin("aov_zoom.k !== 1", to_html(data((; a=[1.0, 2.0], b=["x", "y"])) * mapping(:a, :b) * visual(BarPlot)))
+    # A bare `to_html` map gets the patch that cuts its marks once zoomed, as
+    # the runtime does; a still map does not need it.
+    @test AlgebraOfVega._uses_pan_zoom(to_vegalite(regions)) && occursin("aov_zoom.k !== 1", to_html(regions))
+    @test !AlgebraOfVega._uses_pan_zoom(to_vegalite(regions; interactive=false))
 end
 
 @testitem "map zoom in the browser: wheel, drag, pinch, reset, re-embed, clip, facets" setup=[AoVMapZoomFixtures] tags=[:regression, :browser, :geoshape, :interactivity] begin
