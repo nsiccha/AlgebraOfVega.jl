@@ -88,6 +88,7 @@ end
             german = JSON.json(Dict("reset_zoom" => "Zoom zurücksetzen"))
             page = [html(vdraw(town_map * config(width=420, height=300); id="mz-map")),
                 html(vdraw(facet_map * config(width=220, height=200); id="mz-facet")),
+                html(vdraw(regions * visual(; clip=true) * config(width=200, height=150); id="mz-clip")),
                 "<div data-aov-texts='$german'>" * html(vdraw(regions * config(width=200, height=150); id="mz-de")) * "</div>",
                 html(vdraw(data((; a=[1.0, 2.0], b=[3.0, 4.0])) * mapping(:a, :b) * visual(Scatter) *
                     config(width=200, height=150); id="mz-xy"))]

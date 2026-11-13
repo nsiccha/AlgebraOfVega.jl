@@ -264,6 +264,13 @@
             near(oth2.x - tgt2.x, 2 * (oth.x - tgt.x), 2), 'facet: pinch in the second cell ' +
             JSON.stringify({z, tgt: [tgt.x, tgt.y], tgt2: [tgt2.x, tgt2.y]}));
 
+        // ---- A map whose layers author `clip=true` (a framed map) stays cut
+        // at its frame at rest too.
+        view = await ready('mz-clip');
+        check(clipped(view, 'shape'), 'authored clip: a framed map is uncut at rest');
+        await wheel('mz-clip', 40, 40, -200);
+        check(clipped(view, 'shape') && zoomOf(view).k > 1, 'authored clip: not cut while zoomed');
+
         // ---- Texts: a figure carrying German texts names its button so.
         view = await ready('mz-de');
         const w = await wheel('mz-de', 50, 30, -200);

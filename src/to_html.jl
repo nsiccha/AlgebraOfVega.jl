@@ -39,7 +39,7 @@ const _PAN_ZOOM_CLIP_JS = "function (vg) { " *
     "(function walk(group) { var marks = group.marks || []; " *
     "var map = marks.some(function (m) { return m.type === 'shape'; }); " *
     "marks.forEach(function (m) { if (m.type === 'group') return walk(m); " *
-    "if (!map || [].concat(m.style || []).indexOf('aov-own-clip') !== -1) return; " *
+    "if (!map || m.clip) return; " *
     "m.clip = {signal: moved}; }); })(vg); } " *
     "if (!vg || !(vg.signals || []).some(function (s) { return s.name === 'grid'; })) return vg; " *
     "function size(v) { return v && typeof v.signal === 'string' ? '(' + v.signal + ')' : typeof v === 'number' ? String(v) : null; } " *
