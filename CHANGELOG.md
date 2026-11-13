@@ -15,6 +15,19 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
+## 0.2.35
+
+- A drag that starts on a data mark no longer sends `aov:click`. Dragging pans
+  every AoV x/y plot, and a pan moves the mark along with the pointer, so the
+  release often landed on the same mark and Vega reported a click on it. A pan
+  of a scatter clicked the point it started on. On a map that a page made
+  pannable, 2 of 3 pans drilled into the region they started on. Now a mouse
+  press whose pointer moves more than 4 px before release is a drag, not a
+  click, even if the pointer comes back to its start. A pen gets 10 px, as a
+  finger does for its long press. A click where the hand jitters by a pixel or
+  two still reports the mark. Touch input is unchanged: a long press is the
+  click and a tap is not. A double-click still sends two `aov:click`s.
+
 ## 0.2.34
 
 - A ribbon's Intervals drawing keeps its linear or log x axis even when some
