@@ -31,8 +31,16 @@ const _PASSIVE_PATCH_JS = "function (vg) { (function walk(marks) { (marks || [])
     "walk(m.marks); }); })(vg && vg.marks); return vg; }"
 # A spec with AoV's automatic pan/zoom gets the patch that draws its marks whole
 # until the reader zooms, then cuts them at the frame along the zoomed axes only
-# (`_AOV_OWN_CLIP`). LOCKSTEP: `_panZoomClip` (vendor/aov-runtime.js).
+# (`_AOV_OWN_CLIP`); a map's marks are cut at their whole frame once it is zoomed
+# or moved (`_AOV_ZOOM`). LOCKSTEP: `_panZoomClip` (vendor/aov-runtime.js).
 const _PAN_ZOOM_CLIP_JS = "function (vg) { " *
+    "if (vg && (vg.signals || []).some(function (s) { return s.name === 'aov_zoom'; })) { " *
+    "var moved = 'aov_zoom.k !== 1 || aov_zoom.x !== 0 || aov_zoom.y !== 0'; " *
+    "(function walk(group) { var marks = group.marks || []; " *
+    "var map = marks.some(function (m) { return m.type === 'shape'; }); " *
+    "marks.forEach(function (m) { if (m.type === 'group') return walk(m); " *
+    "if (!map || m.clip) return; " *
+    "m.clip = {signal: moved}; }); })(vg); } " *
     "if (!vg || !(vg.signals || []).some(function (s) { return s.name === 'grid'; })) return vg; " *
     "function size(v) { return v && typeof v.signal === 'string' ? '(' + v.signal + ')' : typeof v === 'number' ? String(v) : null; } " *
     "(function walk(group, w, h, fields) { " *
@@ -48,13 +56,14 @@ const _PAN_ZOOM_CLIP_JS = "function (vg) { " *
     "y && !x && h ? \"pathShape('M-100000,0H100000V' + \" + h + \" + 'H-100000Z')\" : 'true'; " *
     "m.clip = {signal: '(' + zoomed + ') ? ' + cut + ' : false'}; }); " *
     "})(vg, 'width', 'height', null); return vg; }"
-# Whether the spec carries AoV's automatic pan/zoom selection (`add_auto_interactivity!`).
+# Whether the spec carries AoV's automatic pan/zoom (`add_auto_interactivity!`):
+# the x/y selection bound to the scales, or a map's zoom.
 _uses_pan_zoom(_) = false
 _uses_pan_zoom(v::AbstractVector) = any(_uses_pan_zoom, v)
 function _uses_pan_zoom(d::AbstractDict)
     ps = get(d, "params", nothing)
-    ps isa AbstractVector && any(p -> p isa AbstractDict && get(p, "name", nothing) == "grid" &&
-        get(p, "bind", nothing) == "scales", ps) && return true
+    ps isa AbstractVector && any(p -> p isa AbstractDict && ((get(p, "name", nothing) == "grid" &&
+        get(p, "bind", nothing) == "scales") || get(p, "name", nothing) == _AOV_ZOOM), ps) && return true
     any(k -> haskey(d, k) && _uses_pan_zoom(d[k]), ("layer", "spec", "hconcat", "vconcat", "concat"))
 end
 function _standalone_embed_opts(vl)

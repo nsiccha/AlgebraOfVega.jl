@@ -2542,14 +2542,105 @@ function _zoom_owner(layers::AbstractVector, channels)
     best
 end
 
+# A map pans and zooms through its one projection. Vega fits the projection's
+# target (an authored `fit`, else what the map draws) into its pixel `extent`,
+# so a signal-driven extent `[[x, y], [x + k·w, y + k·h]]` zooms the fitted map
+# by `k` and moves it by `(x, y)` for every projection type, and every layer
+# (polygons, lon/lat marks, `scale('projection', …)` expressions) follows. At
+# rest, `{k: 1, x: 0, y: 0}`, the extent is the frame and the map is exactly
+# the fitted one. The mouse gestures are signal handlers in the spec, so a bare
+# `to_html` embed pans and zooms too:
+# - wheel: zoom around the pointer, at the rate Vega-Lite's x/y zoom uses. It
+#   reads the pointer in the coordinates of the group it is over
+#   (`x(group())`, a facet cell), since a facet's cells share the one
+#   projection, each in its own frame;
+# - a left-button drag: pan, until the button is released anywhere.
+# Touch is the runtime's (`_mapPinch`): two fingers pinch-zoom and pan, and
+# one finger still scrolls the page. A touch handler in the spec cannot do
+# that: Vega cancels every view event it listens to except the wheel (its
+# default `events` config), which would stop one-finger scrolling and taps,
+# and it cancels them only after a running redraw, too late to hold off the
+# page's own pinch zoom. The runtime also adds the reset control, carries the
+# zoom across re-embeds and cuts marks at the frame once zoomed (`_mapZoom`,
+# `_panZoomClip`). LOCKSTEP: `_AOV_ZOOM` and `_MAP_ZOOM_MAX` in
+# vendor/aov-runtime.js, and `_PAN_ZOOM_CLIP_JS` (src/to_html.jl).
+const _AOV_ZOOM = "aov_zoom"
+const _MAP_ZOOM_MAX = 1000
+function _map_zoom_params()
+    z, drag = _AOV_ZOOM, "$(_AOV_ZOOM)_drag"
+    # The zoom about the pointer to scale k: the point under it stays put.
+    k = "clamp($z.k * pow(1.001, -event.deltaY * pow(16, event.deltaMode)), 1, $_MAP_ZOOM_MAX)"
+    px, py = "x(group())", "y(group())"
+    wheel = "{k: $k, x: $px - $k / $z.k * ($px - $z.x), y: $py - $k / $z.k * ($py - $z.y)}"
+    press = Dict{String,Any}("type" => "mousedown", "filter" => "event.button === 0")
+    release = Dict{String,Any}("source" => "window", "type" => "mouseup")
+    Dict{String,Any}[
+        Dict{String,Any}("name" => drag, "value" => nothing, "on" => Any[
+            Dict{String,Any}("events" => press, "update" => "{x: x(), y: y(), zx: $z.x, zy: $z.y}"),
+            Dict{String,Any}("events" => release, "update" => "null")]),
+        Dict{String,Any}("name" => z, "value" => Dict{String,Any}("k" => 1, "x" => 0, "y" => 0), "on" => Any[
+            Dict{String,Any}("events" => Dict{String,Any}("type" => "wheel", "consume" => true), "update" => wheel),
+            Dict{String,Any}("events" => Dict{String,Any}("source" => "window", "type" => "mousemove",
+                    "consume" => true, "between" => Any[press, release]),
+                "update" => "$drag ? {k: $z.k, x: $drag.zx + x() - $drag.x, y: $drag.zy + y() - $drag.y} : $z")]),
+    ]
+end
+
+# Every projection the spec's units draw through (they are one map's, shared by
+# `_share_map_projection!`), in the order Vega-Lite merges them.
+_map_projections!(out, _) = out
+function _map_projections!(out, d::AbstractDict)
+    p = get(d, "projection", nothing)
+    p isa AbstractDict && push!(out, d)
+    for k in ("layer", "spec")
+        v = get(d, k, nothing)
+        v isa AbstractVector ? foreach(x -> _map_projections!(out, x), v) : _map_projections!(out, v)
+    end
+    out
+end
+
+# Whether the spec is drawn in facet cells, whose size Vega-Lite names
+# `child_width`/`child_height` (the operator form, or a single view's
+# `column`/`row`/`facet` encoding).
+function _faceted_spec(spec::AbstractDict)
+    haskey(spec, "facet") && return true
+    enc = get(spec, "encoding", nothing)
+    enc isa AbstractDict && any(k -> haskey(enc, k), ("column", "row", "facet"))
+end
+
+# Gives a map figure its pan and zoom: the gesture params at the top level and
+# the zoom's extent on every unit's projection. A projection placed by the
+# author (`scale`, `translate`, `extent` or `size`) is not fitted, so it is left
+# alone, as is any figure that already carries params.
+function _add_map_zoom!(spec::Dict{String,Any})
+    units = _map_projections!(Any[], spec)
+    isempty(units) && return false
+    _has_vl_params(spec) && return true
+    any(u -> any(k -> haskey(u["projection"], k), ("scale", "translate", "extent", "size")), units) && return true
+    w, h = _faceted_spec(spec) ? ("child_width", "child_height") : ("width", "height")
+    z = _AOV_ZOOM
+    extent = "[[$z.x, $z.y], [$z.x + $z.k * $w, $z.y + $z.k * $h]]"
+    for u in units
+        # A fresh Dict: the projection may be shared with the term that set it.
+        u["projection"] = merge(u["projection"], Dict{String,Any}("extent" => Dict{String,Any}("expr" => extent)))
+    end
+    spec["params"] = _map_zoom_params()
+    true
+end
+
 """
     add_auto_interactivity!(spec)
 
 Add zoom/pan and point hover parameters without overriding user parameters.
+A map figure (a `geoshape`, with any lon/lat layers) pans and zooms through its
+projection instead (`_add_map_zoom!`).
 Legend selection is added separately after facet/concat lowering, so a selection
 has exactly one unit owner even when per-column scale lowering copies layers.
 """
 function add_auto_interactivity!(spec::Dict{String,Any})
+    # A map has no x/y axes: it zooms through its projection, and its one
+    # unit is a geoshape, so no nearest-point hover applies either.
+    _add_map_zoom!(spec) && return spec
     # Don't add interactivity if user already defined params (via config)
     has_user_params = haskey(spec, "params")
 

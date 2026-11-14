@@ -31,7 +31,10 @@ end
 @testitem "geoshape: inline GeoJSON joined on the positional key" setup=[AoVGeoshapeFixtures] tags=[:translation, :geoshape] begin
     vl = to_vegalite(data(effects) * mapping(:AGS; color=:effect) * geoshape(geojson))
     @test vl["mark"] == "geoshape"
-    @test vl["projection"] == Dict("type" => "mercator")
+    # The projection as lowered; an interactive map adds its zoom's `extent`
+    # (test/map_zoom.jl).
+    @test to_vegalite(data(effects) * mapping(:AGS; color=:effect) * geoshape(geojson);
+        interactive=false)["projection"] == Dict("type" => "mercator")
     # The table drives the layer: each row looks up its feature by AGS. GeoJSON
     # Feature tuples keep their key under `properties`, so the lookup key
     # addresses that path (a bare key matches no feature and paints nothing).
@@ -117,7 +120,7 @@ end
 
 @testitem "geoshape: URL geometry, explicit key and projection" setup=[AoVGeoshapeFixtures] tags=[:translation, :geoshape] begin
     vl = to_vegalite(data(effects) * mapping(color=:effect) *
-        geoshape("https://example.invalid/districts.geojson"; key=:AGS, projection=:albers))
+        geoshape("https://example.invalid/districts.geojson"; key=:AGS, projection=:albers); interactive=false)
     lookup = only(vl["transform"])
     @test lookup["from"]["data"] == Dict{String,Any}("url" => "https://example.invalid/districts.geojson",
         "format" => Dict{String,Any}("type" => "json", "property" => "features"))
@@ -346,17 +349,20 @@ end
     @test !any(haskey(enc, ch) for ch in ("x", "y"))
     @test enc["color"]["field"] == "kind"
     @test [t["field"] for t in enc["tooltip"]] == ["lon", "lat", "kind"]
-    # One projection for the whole map; Vega-Lite fits it to both layers.
-    @test pts["projection"] == geo["projection"] == Dict{String,Any}("type" => "mercator")
+    # One projection for the whole map; Vega-Lite fits it to both layers. As
+    # lowered (an interactive map adds its zoom's `extent`, test/map_zoom.jl):
+    pts0 = to_vegalite(kreis_map + points; interactive=false)["layer"][2]
+    @test pts0["projection"] == Dict{String,Any}("type" => "mercator")
+    @test pts["projection"] == geo["projection"]
     # A map has no x/y scales to zoom, so no x/y zoom parameter anywhere.
     @test !any(any(p -> get(p, "name", "") == "grid", get(l, "params", Any[])) for l in vl["layer"])
 
     # Order and projection choice do not matter.
-    first_pts, first_geo = to_vegalite(points + kreis_map)["layer"]
+    first_pts, first_geo = to_vegalite(points + kreis_map; interactive=false)["layer"]
     @test haskey(first_pts["encoding"], "longitude") && first_geo["mark"] == "geoshape"
     @test first_pts["projection"] == Dict{String,Any}("type" => "mercator")
     albers = to_vegalite(data(kreise) * mapping(:AGS; color=:effect) *
-        geoshape(kreise_geo; projection=:albers) + points)
+        geoshape(kreise_geo; projection=:albers) + points; interactive=false)
     @test albers["layer"][2]["projection"] == Dict{String,Any}("type" => "albers")
     # Lines and labels stand on the map too.
     @test haskey(to_vegalite(kreis_map + data(sites) * mapping(:lon, :lat) * visual(Lines))["layer"][2]["encoding"], "longitude")
@@ -420,8 +426,10 @@ end
     outline = data((; AGS=["01002"])) * mapping(:AGS) * geoshape(kreise_geo) *
         visual(; fill=nothing, stroke="red")
     want = Dict{String,Any}("type" => "mercator", "fit" => region)
+    # The projections as lowered; an interactive map adds the same zoom
+    # `extent` to each (test/map_zoom.jl).
     for spec in (choropleth + outline, outline + choropleth, choropleth + outline + points)
-        @test all(l -> l["projection"] == want, to_vegalite(spec)["layer"])
+        @test all(l -> l["projection"] == want, to_vegalite(spec; interactive=false)["layer"])
     end
     # Each unit owns its copy, so a later pass that edits one leaves the rest.
     l1, l2 = to_vegalite(choropleth + outline)["layer"]
@@ -432,7 +440,7 @@ end
         visual(; fill=nothing, stroke="red"))
     # A map where no geoshape sets one draws through the default.
     @test all(l -> l["projection"] == Dict{String,Any}("type" => "mercator"),
-        to_vegalite(kreis_map + outline + points)["layer"])
+        to_vegalite(kreis_map + outline + points; interactive=false)["layer"])
     # `nothing` still emits no projection on that geoshape.
     bare = to_vegalite(choropleth + data(kreise) * mapping(:AGS) * geoshape(kreise_geo; projection=nothing))
     @test !haskey(bare["layer"][2], "projection")
