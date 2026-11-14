@@ -3145,10 +3145,31 @@ window.AoV = window.AoV || {
     // of the point under it, whose own datum is the row. On touch input a
     // long press is the click and a tap is not (see _attachTouch), so the
     // click a browser sends after a touch is not reported here.
+    // A press whose pointer moved more than _CLICK_SLOP px (a pen's:
+    // _TOUCH_SLOP) before its release was a drag, not a click, and is not
+    // reported either. Vega sends a click whenever the release lands on the
+    // item the press picked, and a pan (a scale-bound interval, a map's
+    // projection) moves that item along with the pointer, so a drag that
+    // starts on a large mark usually ends on it again.
+    _CLICK_SLOP: 4,
     _attachClick: function(id, view) {
-        var self = this;
+        var self = this, press = null;
+        var moved = function(event) {
+            var dx = event.clientX - press.x, dy = event.clientY - press.y;
+            return dx * dx + dy * dy > press.slop * press.slop;
+        };
+        view.addEventListener('pointerdown', function(event) {
+            press = {x: event.clientX, y: event.clientY, moved: false,
+                slop: event.pointerType === 'pen' ? self._TOUCH_SLOP : self._CLICK_SLOP};
+        });
+        // A drag that wanders off and comes back before release is a drag too.
+        view.addEventListener('pointermove', function(event) {
+            if (press && !press.moved && moved(event)) press.moved = true;
+        });
         view.addEventListener('click', function(event, item) {
-            if (self._fromTouch(id, event)) return;
+            var dragged = press && (press.moved || moved(event));
+            press = null;
+            if (dragged || self._fromTouch(id, event)) return;
             if (!item || !item.mark || item.mark.role !== 'mark') return;
             var datum = item.datum;
             while (datum && datum.mark && datum.mark.marktype && datum.datum) datum = datum.datum;

@@ -5,7 +5,9 @@ using TestItemRunner
 # design decision `14jo691`). Before it, an app that opened a table row from a
 # chart polled `window.AoV.views` every 500 ms to re-attach Vega click
 # listeners, because every re-embed (resize, picker, theme, `update_spec`)
-# replaces the view and drops them.
+# replaces the view and drops them. A drag is no click: a pan that starts on a
+# mark moves it with the pointer, so it ended on the mark again and drilled a
+# map down into the region it started on (snag `a-pan-drag-that-624d0e39`).
 @testitem "mark clicks in the browser: one aov:click per data-mark click, on every view" tags=[:regression, :browser, :interactivity] begin
     using AlgebraOfVega, AlgebraOfGraphics, JSON
     html(x) = sprint(show, MIME"text/html"(), x)
@@ -58,7 +60,7 @@ using TestItemRunner
             if !isnothing(result)
                 report = JSON.parse(replace(result[1], "&quot;" => "\"", "&lt;" => "<",
                     "&gt;" => ">", "&amp;" => "&"))
-                @test report["checks"] >= 19
+                @test report["checks"] >= 25
                 @test isempty(report["failures"])
                 @info "mark click browser checks" checks=report["checks"]
                 isempty(report["failures"]) || println(JSON.json(report["failures"]))

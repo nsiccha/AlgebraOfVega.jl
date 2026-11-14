@@ -2,8 +2,9 @@
 // `aov:click` on the plot element carrying the mark's row, on every view the
 // runtime embeds (first embed, resize re-embed, a same-id element swap).
 // Legend, axis and empty-space clicks dispatch none, and the legend keeps
-// its own highlight. Clicks are sent the way a pointer does: Vega reports a
-// click on the item that was under the pointer at pointerdown.
+// its own highlight, and neither does a drag (a pan) that ends on the mark it
+// started on. Clicks are sent the way a pointer does: Vega reports a click on
+// the item that was under the pointer at pointerdown.
 (async function () {
     const failures = [];
     let checks = 0;
@@ -59,6 +60,31 @@
         clickAt(id, at.x, at.y);
         return events.slice();
     }
+    // The events a drag dispatched: a press at path[0], the pointer moving
+    // through the rest of `path` (view coordinates) and the release at its
+    // last point, as a pointer sends them. Vega follows the release with a
+    // click whenever it lands on the item the press picked. The view runs
+    // after each move, and the pointer is picked once more where it stops,
+    // so a pan has moved the plot under it as on a screen.
+    async function dragged(id, path, pointerType = 'mouse') {
+        const view = AoV.views[id];
+        const canvas = document.querySelector('#' + id + ' canvas');
+        const rect = canvas.getBoundingClientRect(), origin = view.origin(), pad = view.padding();
+        const at = (p, buttons) => ({bubbles: true, cancelable: true, buttons, pointerId: 1, isPrimary: true, pointerType,
+            clientX: rect.left + origin[0] + pad.left + p.x, clientY: rect.top + origin[1] + pad.top + p.y});
+        events.length = 0;
+        canvas.dispatchEvent(new PointerEvent('pointermove', at(path[0], 0)));
+        canvas.dispatchEvent(new PointerEvent('pointerdown', at(path[0], 1)));
+        for (const p of path.slice(1).concat([path[path.length - 1]])) {
+            canvas.dispatchEvent(new PointerEvent('pointermove', at(p, 1)));
+            await view.runAsync();
+        }
+        const end = at(path[path.length - 1], 0);
+        canvas.dispatchEvent(new PointerEvent('pointerup', end));
+        canvas.dispatchEvent(new MouseEvent('click', end));
+        await view.runAsync();
+        return events.slice();
+    }
     const isRow = (field, value) => item => item.mark.role === 'mark' && item.datum && item.datum[field] === value
         && item.mark.marktype !== 'path';
 
@@ -96,6 +122,18 @@
         check(got.length === 1 && got[0].detail.datum.g === 'a',
             'scatter after re-embed: ' + JSON.stringify(got.map(e => e.detail.datum)));
 
+        // A pan is no click (snag a-pan-drag-that-624d0e39). A drag that
+        // starts on point b pans the scatter (AoV's automatic scale-bound
+        // zoom), which moves the point along with the pointer, so the release
+        // lands on it again and Vega reports a click on it.
+        const before = view.scale('x').domain().slice();
+        const start = one(view, 'scatter point b before a pan', isRow('g', 'b'));
+        const pan = [start];
+        for (let i = 1; i <= 8; i++) pan.push({x: start.x + 5 * i, y: start.y + 2.5 * i});
+        got = await dragged('mc-scatter', pan);
+        check(view.scale('x').domain()[0] !== before[0], 'scatter: the drag did not pan the plot');
+        check(got.length === 0, 'scatter: a pan from point b sent ' + JSON.stringify(got.map(e => e.detail.datum)));
+
         // Lon/lat points drawn on a map: a point reports its own row, and the
         // open part of a district reports the district's row.
         view = await ready('mc-mappts');
@@ -123,6 +161,21 @@
         const bar = one(view, 'bar a', isRow('k', 'a'));
         got = clicked('mc-bars', {x: bar.x, y: 3});
         check(got.length === 0, 'bars: a click on empty plot space dispatched ' + got.length + ' events');
+
+        // A press that moved is a click only within the slop: 4 px for a
+        // mouse (hand jitter), 10 px for a pen. A drag that leaves its start
+        // and comes back before the release is no click either.
+        const mid = one(view, 'bar b for drags', isRow('k', 'b'));
+        const by = (dx, dy) => ({x: mid.x + dx, y: mid.y + dy});
+        const rows = got => JSON.stringify(got.map(e => e.detail.datum.k));
+        got = await dragged('mc-bars', [mid, by(2, 3)]);
+        check(got.length === 1 && got[0].detail.datum.k === 'b', 'bars: a click that moved 3.6 px sent ' + rows(got));
+        got = await dragged('mc-bars', [mid, by(0, 6)]);
+        check(got.length === 0, 'bars: a 6 px mouse drag within bar b sent ' + rows(got));
+        got = await dragged('mc-bars', [mid, by(0, 6)], 'pen');
+        check(got.length === 1 && got[0].detail.datum.k === 'b', 'bars: a pen click that moved 6 px sent ' + rows(got));
+        got = await dragged('mc-bars', [mid, by(0, 20), by(1, 1)]);
+        check(got.length === 0, 'bars: a drag away and back to bar b sent ' + rows(got));
 
         // Faceted bars: a bar reports its row with the facet field; the empty
         // part of a cell (a group, role "scope") reports nothing.
