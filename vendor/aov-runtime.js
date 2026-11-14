@@ -1588,18 +1588,27 @@ window.AoV = window.AoV || {
     // carries them. LOCKSTEP: `_AOV_INK_STYLES` (src/to_vegalite.jl).
     // `aov-mark-color` likewise, unless the spec set a mark colour other
     // than Vega-Lite's default (`_AOV_MARK_COLOR`, src/ribbon_view.jl).
+    // A palette's `:ink` entries (`scales(Color=(; palette=[:ink, …]))`)
+    // follow the `aov-ink` colour: `_aov.inkPalette` records the range as
+    // written and the ink entries' positions, and every colour scale with
+    // exactly that range takes the host ink there, so the category's marks
+    // and legend symbol do. LOCKSTEP: `_record_ink_palette!`
+    // (src/to_vegalite.jl).
     _hostInk: function(spec, theme) {
         var styles = spec.config && spec.config.style;
         if (!styles) return;
-        var paint = [];
+        var paint = [], ink = null;
         Object.keys(theme.style).forEach(function(name) {
             var prop = Object.keys(theme.style[name])[0], own = styles[name];
             var base = name === 'aov-mark-color' ? '#4c78a8' : '#333';
             if (!own || own[prop] !== base) return;
             own[prop] = theme.style[name][prop];
+            if (name === 'aov-ink') ink = own[prop];
             if (prop !== 'color') paint.push([name, prop, own[prop]]);
         });
-        if (!paint.length) return;
+        var pal = ink && spec._aov && spec._aov.inkPalette;
+        var palKey = pal && Array.isArray(pal.range) && Array.isArray(pal.ink) ? JSON.stringify(pal.range) : null;
+        if (!paint.length && !palKey) return;
         (function walk(node) {
             if (Array.isArray(node)) { node.forEach(walk); return; }
             if (!node || typeof node !== 'object') return;
@@ -1607,6 +1616,13 @@ window.AoV = window.AoV || {
             paint.forEach(function(p) {
                 var styled = style === p[0] || (Array.isArray(style) && style.indexOf(p[0]) !== -1);
                 if (styled && node[p[1]] === '#333') node[p[1]] = p[2];
+            });
+            var enc = palKey && node.encoding;
+            if (enc && typeof enc === 'object') ['color', 'stroke', 'fill'].forEach(function(ch) {
+                var sc = enc[ch] && enc[ch].scale;
+                if (!sc || !Array.isArray(sc.range) || JSON.stringify(sc.range) !== palKey) return;
+                sc.range = sc.range.slice();
+                pal.ink.forEach(function(i) { sc.range[i] = ink; });
             });
             Object.keys(node).forEach(function(k) {
                 if (k !== 'data' && k !== 'datasets' && k !== 'config') walk(node[k]);
