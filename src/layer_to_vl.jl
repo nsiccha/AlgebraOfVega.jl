@@ -10,6 +10,7 @@ _ANALYSIS_TYPES = Type[
     AlgebraOfGraphics.SmoothAnalysis,
     AlgebraOfGraphics.HistogramAnalysis,
     GeoShapeAnalysis,
+    GeoBoxAnalysis,
 ]
 
 """Find the dispatch key for a layer: an analysis object, Val(:ecdf), or nothing (plain layer)."""
@@ -33,6 +34,7 @@ _layer_to_vl(::AlgebraOfGraphics.SmoothAnalysis, layer; kw...) = smooth_to_vl(la
 _layer_to_vl(::AlgebraOfGraphics.HistogramAnalysis, layer; kw...) = histogram_to_vl(layer; kw...)
 _layer_to_vl(::Val{:ecdf}, layer; kw...) = ecdf_to_vl(layer; kw...)
 _layer_to_vl(::GeoShapeAnalysis, layer; kw...) = geoshape_to_vl(layer; kw...)
+_layer_to_vl(::GeoBoxAnalysis, layer; kw...) = geobox_to_vl(layer; kw...)
 _layer_to_vl(::Nothing, layer; kw...) = _plain_layer_to_vl(layer; kw...)
 
 function layer_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
@@ -284,9 +286,10 @@ function _bar_fixed_base!(encoding::Dict, vis::AlgebraOfGraphics.Visual, channel
     encoding
 end
 
-# --- Layers drawn on a geoshape map ---
+# --- Layers drawn on a map (a figure with a geoshape or geobox layer) ---
 
-_is_geoshape_layer(layer) = !isnothing(extract_transformation(layer, GeoShapeAnalysis))
+# A map's area layer: a `geoshape` or a `geobox`. A figure with one is a map.
+_is_map_area_layer(layer) = !isnothing(extract_transformation(layer, MapAreaAnalysis))
 
 # Vega-Lite marks that can stand at a longitude/latitude.
 const _MAP_MARKS = ("point", "circle", "square", "text", "line", "trail")
@@ -295,7 +298,7 @@ _map_layer_kind(a) = "the $(nameof(typeof(a))) analysis"
 _map_layer_kind(::Val{:ecdf}) = "visual(ECDFPlot)"
 
 """
-On a map figure (a `+` sum holding a `geoshape` layer) every other layer is
+On a map figure (a `+` sum holding a `geoshape` or `geobox` layer) every other layer is
 drawn at geographic positions, as on an AlgebraOfGraphics/GeoMakie `GeoAxis`:
 its two positionals are longitude and latitude, and they lower to Vega-Lite's
 `longitude`/`latitude` channels instead of Cartesian `x`/`y`, which a map does
@@ -330,18 +333,18 @@ function _map_layer_to_vl(layer::AlgebraOfGraphics.Layer)
 end
 
 # Every unit of a map figure draws through one projection, which Vega-Lite then
-# fits to the polygons and the points together, as on an AlgebraOfGraphics
-# `GeoAxis`. A geoshape layer that sets `projection=` sets the map's, and every
-# other layer draws through it, a geoshape that left it out included (else
-# through the default such a geoshape lowered with). Two geoshape layers that
-# set different projections cannot share one map.
+# fits to the areas and the points together, as on an AlgebraOfGraphics
+# `GeoAxis`. An area layer (geoshape or geobox) that sets `projection=` sets the
+# map's, and every other layer draws through it, an area layer that left it out
+# included (else through the default such a layer lowered with). Two area
+# layers that set different projections cannot share one map.
 function _share_map_projection!(layers, units)
     sets = unique((i, u["projection"]) for (i, (l, us)) in enumerate(zip(layers, units))
         if _sets_projection(l) for u in us if haskey(u, "projection"))
     projs = unique(last.(sets))
     length(projs) > 1 && throw(ArgumentError(_projection_conflict_message(sets)))
     shared = isempty(projs) ? [u["projection"] for (l, us) in zip(layers, units)
-        if _is_geoshape_layer(l) for u in us if haskey(u, "projection")] : projs
+        if _is_map_area_layer(l) for u in us if haskey(u, "projection")] : projs
     isempty(shared) && return
     for (l, us) in zip(layers, units)
         _sets_projection(l) && continue
@@ -351,24 +354,24 @@ function _share_map_projection!(layers, units)
     end
 end
 
-# Whether a layer sets the map's projection: a geoshape given `projection=`
+# Whether a layer sets the map's projection: an area layer given `projection=`
 # (`nothing` included, which emits none).
 _sets_projection(layer::AlgebraOfGraphics.Layer) =
-    _sets_projection(extract_transformation(layer, GeoShapeAnalysis))
+    _sets_projection(extract_transformation(layer, MapAreaAnalysis))
 _sets_projection(::Nothing) = false
-_sets_projection(a::GeoShapeAnalysis) = !(a.projection isa Makie.Automatic)
+_sets_projection(a::MapAreaAnalysis) = !(a.projection isa Makie.Automatic)
 
-# Names the projection properties two geoshape layers disagree on, then each
+# Names the projection properties two area layers disagree on, then each
 # layer's projection, so that two projections of one type read apart.
 function _projection_conflict_message(sets)
     props = unique(Iterators.flatten(keys(p) for (_, p) in sets))
     differ = sort!([k for k in props if !allequal(get(p, k, missing) for (_, p) in sets)];
         by=k -> (k != "type", k))
-    "geoshape: one map draws through one projection, but its geoshape layers set different ones, " *
+    "geoshape: one map draws through one projection, but its geoshape/geobox layers set different ones, " *
         "which differ in $(join(("`$k`" for k in differ), ", ", " and ")):\n" *
         join(("  layer $i of the sum: projection = $(_projection_text(p))" for (i, p) in sets), "\n") *
-        "\nSet `projection=` on one geoshape layer and leave it out on the others, which then draw " *
-        "through it, or give every geoshape layer the same `projection=`."
+        "\nSet `projection=` on one geoshape/geobox layer and leave it out on the others, which then draw " *
+        "through it, or give every such layer the same `projection=`."
 end
 
 _projection_text(p::AbstractDict) = "{" * join(("$k: $(_projection_value_text(p[k]))"
@@ -384,25 +387,43 @@ _projection_value_text(v::AbstractDict) = _is_geojson(v) ? "a GeoJSON $(v["type"
 _projection_value_text(v::AbstractVector) =
     !isempty(v) && all(_is_geojson, v) ? "$(length(v)) GeoJSON objects" : JSON.json(v)
 
-# Vega-Lite cannot compile a geoshape's `lookup` inside a layered facet: the
-# projection the layers share is fitted from outside the facet, and the fit
-# then names the lookup's dataset out of scope ("Undefined data set name:
-# child_layer_0_lookup_0", vega-lite 5.23). So a faceted map runs each
-# geoshape's lookup on the merged rows before the facet splits them. Each
-# lookup writes its own field, so two geoshapes keep their own features; rows
-# of the other layers match no feature, or carry one they never draw.
-function _hoist_geoshape_lookup!(spec::Dict, ls::Dict)
-    _mark_type(get(ls, "mark", nothing)) == "geoshape" || return
-    transforms = ls["transform"]
-    i = findfirst(t -> t isa AbstractDict && haskey(t, "lookup") &&
-        get(t, "as", nothing) == _GEOSHAPE_FIELD, transforms)
+# Vega-Lite cannot compile an area layer's `lookup` inside a layered facet:
+# the projection the layers share is fitted from outside the facet, and the
+# fit then names the lookup's dataset out of scope ("Undefined data set name:
+# child_layer_0_lookup_0", vega-lite 5.23). So a faceted map runs each area
+# layer's lookup on the merged rows before the facet splits them. Each lookup
+# writes fields of its own, so two area layers keep their own areas; rows of
+# the other layers match no area, or carry one they never draw.
+function _hoist_map_lookup!(spec::Dict, ls::Dict)
+    _mark_type(get(ls, "mark", nothing)) in ("geoshape", "rect") || return
+    transforms = get(ls, "transform", nothing)
+    transforms isa AbstractVector || return
+    i = findfirst(_is_map_lookup, transforms)
     isnothing(i) && return
     lookup = popat!(transforms, i)
     hoisted = get!(spec, "transform", Any[])
-    field = "__geometry_$(count(t -> t isa AbstractDict && haskey(t, "lookup"), hoisted) + 1)__"
-    lookup["as"] = field
+    n = count(t -> t isa AbstractDict && haskey(t, "lookup"), hoisted) + 1
+    _rename_map_lookup!(lookup, lookup["as"], ls["encoding"], n)
     push!(hoisted, lookup)
-    ls["encoding"]["shape"]["field"] = field
+end
+
+# The lookup an area term wrote (`_map_lookup`), told apart by its output.
+_is_map_lookup(t) = t isa AbstractDict && haskey(t, "lookup") && _is_map_output(get(t, "as", nothing))
+_is_map_output(as::AbstractString) = as == _GEOSHAPE_FIELD
+_is_map_output(as::AbstractVector) = Tuple(as) == _GEOBOX_FIELDS
+_is_map_output(_) = false
+
+# A geoshape's Feature lands in `__geometry_<n>__`, a geobox's edges in
+# `__west_<n>__` …, and the encoding that places the area follows.
+function _rename_map_lookup!(lookup, ::AbstractString, enc, n)
+    lookup["as"] = "__geometry_$(n)__"
+    enc["shape"]["field"] = lookup["as"]
+end
+function _rename_map_lookup!(lookup, ::AbstractVector, enc, n)
+    lookup["as"] = ["__$(e)_$(n)__" for e in _GEOBOX_EDGES]
+    for (ch, f) in zip(("longitude", "latitude", "longitude2", "latitude2"), lookup["as"])
+        enc[ch]["field"] = f
+    end
 end
 
 # Merge each AoG layer's own encoding override (`VegaSpec.layer_encodings`, set
@@ -530,8 +551,8 @@ function layers_to_vl(layers::AlgebraOfGraphics.Layers; layer_encodings::Abstrac
     end
 
     # Check if any layer is an analysis type (produces own summarized data)
-    # or a geoshape (carries its own table, joined to the geometry by lookup)
-    map_figure = any(_is_geoshape_layer, layers.layers)
+    # or a map area (carries its own table, joined to its areas by lookup)
+    map_figure = any(_is_map_area_layer, layers.layers)
     has_analysis = map_figure ||
         any(l -> !isnothing(extract_transformation(l, TidybayesAnalysis)), layers.layers)
 
@@ -546,7 +567,7 @@ function layers_to_vl(layers::AlgebraOfGraphics.Layers; layer_encodings::Abstrac
     units = Vector{Dict{String,Any}}[]
 
     for layer in layers.layers
-        ls = map_figure && !_is_geoshape_layer(layer) ? _map_layer_to_vl(layer) :
+        ls = map_figure && !_is_map_area_layer(layer) ? _map_layer_to_vl(layer) :
             layer_to_vl(layer; is_sublayer=true)
         n_before = length(layer_specs)
 
@@ -611,7 +632,7 @@ function layers_to_vl(layers::AlgebraOfGraphics.Layers; layer_encodings::Abstrac
         # partitions it as it does inline rows, with no merge.
         for ls in layer_specs
             delete!(ls, "data")
-            map_figure && _hoist_geoshape_lookup!(spec, ls)
+            map_figure && _hoist_map_lookup!(spec, ls)
         end
         for ls in layer_specs
             enc = get(ls, "encoding", nothing)
@@ -673,7 +694,7 @@ function layers_to_vl(layers::AlgebraOfGraphics.Layers; layer_encodings::Abstrac
             existing = get(ls, "transform", Dict{String,Any}[])
             pushfirst!(existing, Dict{String,Any}("filter" => "datum.__src === '$(tag)'"))
             ls["transform"] = existing
-            map_figure && _hoist_geoshape_lookup!(spec, ls)
+            map_figure && _hoist_map_lookup!(spec, ls)
         end
         # Strip column/row/facet from sublayer encodings — facet is at top level
         for ls in layer_specs

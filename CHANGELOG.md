@@ -15,6 +15,28 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
+## 0.2.37
+
+- New map term `geobox(boxes; key, projection)`: each table row draws the
+  longitude/latitude box its key names, as one Vega-Lite `rect` placed by
+  `longitude`/`latitude`/`longitude2`/`latitude2` through the map's
+  projection. It is the counterpart of `geoshape` for a grid of cells, such
+  as census grid squares: `data(rows) * mapping(:cell; color=:value) *
+  geobox(boxes)`. `boxes` is a table with the key column and the columns
+  `west`, `south`, `east` and `north` (degrees), given inline, as
+  `by_url(table, url)`, or as the URL of its JSON rows (`rows_json`), so the
+  boxes are loaded once and only the value rows travel with each figure.
+  Everything a geoshape layer takes works the same: `color=` and
+  `strokecolor=` on one colour scale and legend, `col=`/`row=`/`layout=`
+  facets, `config(frame=…)`, a fixed `visual(...)`, the shared projection
+  (its `fit` included), other layers on the map, tooltips, hover links,
+  `aov:click`, pan and zoom, the CSV download and `vsave`. Boxes draw the
+  same picture several times faster than the same cells as GeoJSON
+  polygons: on a 16,129-cell map in headless Chrome, 201 instead of 656 ms
+  to draw and 96 instead of 544 ms to redraw (a resize or a zoom step). A
+  box is exact through projections that keep longitude and latitude lines
+  straight and at right angles, such as the default Mercator.
+
 ## 0.2.36
 
 - A drag that starts on a data mark no longer sends `aov:click`. Dragging pans

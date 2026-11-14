@@ -260,6 +260,11 @@ const _AOV_OWN_CLIP = "aov-own-clip"
 # The style of a heatmap's cells (`_heatmap_cells!`), which `_heatmap_seams!`
 # strokes in their own colour. LOCKSTEP: `_withHighlight` (vendor/aov-runtime.js).
 const _AOV_HEATMAP = "aov-heatmap"
+# The style of a `geobox` layer's cells. A map's areas are what tells the
+# zoom's clip patch which group is a map: a geoshape's are Vega `shape` marks,
+# a geobox's are `rect` marks with this style. LOCKSTEP: `_panZoomClip`
+# (vendor/aov-runtime.js) and `_PAN_ZOOM_CLIP_JS` (src/to_html.jl).
+const _AOV_GEOBOX = "aov-geobox"
 _keep_own_clips!(_) = nothing
 _keep_own_clips!(v::AbstractVector) = foreach(_keep_own_clips!, v)
 function _keep_own_clips!(d::AbstractDict)
