@@ -190,6 +190,33 @@ end
     @test occursin("geobox", msg) && occursin("vdraw", msg) && occursin("vsave", msg)
 end
 
+@testitem "geobox: vsave writes the cells, from an inline table, a box file and by_url" setup=[AoVGeoboxFixtures] tags=[:static, :geoshape, :vsave] begin
+    using JSON
+    if isnothing(Sys.which("vl-convert")) && !haskey(ENV, "AOV_VL_CONVERT")
+        @test_skip "vl-convert is not installed"
+    else
+        mktempdir() do dir
+            cd(dir) do
+                write("boxes.json", rows_json(boxes))
+                cell_map(b) = (outline + data(vals) * mapping(:cell; color=:v) * geobox(b)) *
+                    config(width=300, height=200)
+                cells_in(svg) = count("aria-roledescription=\"rect mark\"", read(svg, String))
+                vsave(cell_map(boxes), "inline.svg")
+                @test cells_in("inline.svg") == length(boxes.cell)
+                # vl-convert loads no local file and no address: both are read in.
+                vsave(cell_map("boxes.json"), "file.svg")
+                @test read("file.svg") == read("inline.svg")
+                vsave(cell_map(by_url(boxes, "/nowhere/boxes.json")), "byurl.svg")
+                @test read("byurl.svg") == read("inline.svg")
+                # A framed figure is written at its start frame.
+                vsave(data(years) * mapping(:cell; color=:v) * geobox(boxes) *
+                    config(frame=(; field=:year, start=:last)), "frame.svg")
+                @test cells_in("frame.svg") == 6
+            end
+        end
+    end
+end
+
 @testitem "geobox in the browser: cells in place, from every source, with hover, click, zoom, CSV, facets and frames" setup=[AoVBrowserServer, AoVGeoboxFixtures] tags=[:regression, :browser, :geoshape, :facet] begin
     using HTMXObjects, JSON
     html(x) = sprint(show, MIME"text/html"(), x)
