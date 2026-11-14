@@ -47,6 +47,11 @@ window.AoV = window.AoV || {
     // The observers that keep a plot's scroll frame keyboard-reachable while
     // it scrolls (see _syncScrollFrame).
     _scrollFrames: {},
+    // A map's pan and zoom ({k, x, y} of its `aov_zoom` signal), carried into
+    // the re-embeds of its element (see _mapZoom).
+    _mapZooms: {},
+    // A two-finger gesture on a map in progress (see _mapPinchStart).
+    _mapPinches: {},
 
     // Every map keyed by plot id; dispose() clears each. A new per-plot
     // map belongs in this list.
@@ -54,7 +59,8 @@ window.AoV = window.AoV || {
         '_signals', '_liveRows', '_specRows', '_origSpecs', '_droppedLegends',
         '_embedOpts', '_observers', '_computedWidths', '_corrections', '_correctedRegime',
         '_cur', '_pickers', '_mappings', '_themeKeys', '_reembeds', '_frames',
-        '_highlights', '_hovers', '_touches', '_unmeasured', '_ribbonViews', '_scrollFrames'],
+        '_highlights', '_hovers', '_touches', '_unmeasured', '_ribbonViews', '_scrollFrames',
+        '_mapZooms', '_mapPinches'],
 
     // Whether the runtime sizes this spec to its container: Julia's
     // `_embed_spec` marks a responsive layered/faceted/per-column spec with
@@ -973,6 +979,7 @@ window.AoV = window.AoV || {
             delete self._mappings[id];
             self._frameStop(id);
             delete self._frames[id];
+            delete self._mapZooms[id];
         } else if (!keepData) {
             delete self._liveRows[id];
         }
@@ -1089,6 +1096,7 @@ window.AoV = window.AoV || {
                 self._attachClick(id, view);
                 self._attachHover(id, view);
                 self._attachTouch(id, view);
+                self._mapZoom(id, view, result.vgSpec);
                 self._frameSync(id, view);
                 // Run anything queued before the view was ready (e.g. appendData)
                 var pending = self._pending[id] || [];
@@ -1331,7 +1339,10 @@ window.AoV = window.AoV || {
     // look is a theme of its own: one rule, written once. The rule ranks with
     // vega-tooltip's defaults and comes right after them, so a page's own
     // `#vg-tooltip-element` rules still win.
-    _tooltipTheme: function(el) {
+    // An opaque surface in the page's colours for chrome drawn over a plot
+    // (the tooltip, a map's reset control): the page's text colour on its
+    // background.
+    _surfaceLook: function(el) {
         var cs = el ? getComputedStyle(el) : null;
         var text = (cs && this._rgba(cs.color)) || [0, 0, 0, 1];
         var back = (el && this._rgba(this.hostBackground(el))) || [255, 255, 255, 1];
@@ -1343,8 +1354,12 @@ window.AoV = window.AoV || {
         if ((Math.max(lt, lb) + 0.05) / (Math.min(lt, lb) + 0.05) < 3) {
             back = this._lightText(text) ? [32, 32, 32, 1] : [255, 255, 255, 1];
         }
-        var surface = this._withAlpha(back, 1), color = this._withAlpha(text, 1);
-        var border = this._withAlpha(text, 0.15), key = this._withAlpha(text, 0.75);
+        return {surface: this._withAlpha(back, 1), color: this._withAlpha(text, 1),
+            border: this._withAlpha(text, 0.15), key: this._withAlpha(text, 0.75)};
+    },
+    _tooltipTheme: function(el) {
+        var l = this._surfaceLook(el);
+        var surface = l.surface, color = l.color, border = l.border, key = l.key;
         var look = [surface, color, border, key].join('|');
         var theme = this._tipThemes[look];
         if (theme) return theme;
@@ -1684,6 +1699,7 @@ window.AoV = window.AoV || {
             }
         });
         el.querySelectorAll('svg.marks').forEach(function(svg) { svg.replaceWith(svg.cloneNode(true)); });
+        el.querySelectorAll('.aov-zoom-reset').forEach(function(b) { b.remove(); });
         el.querySelectorAll('.vega-actions').forEach(function(menu) {
             var details = menu.closest('details');
             (details && el.contains(details) ? details : menu).remove();
@@ -2307,7 +2323,26 @@ window.AoV = window.AoV || {
     // A layer that authors `clip: true` keeps it: its marks carry
     // `aov-own-clip`. LOCKSTEP: `_AOV_OWN_CLIP` (src/to_vegalite.jl) and the
     // bare `to_html(spec)` embed's `_PAN_ZOOM_CLIP_JS` (src/to_html.jl).
+    //
+    // A map (`aov_zoom`, Julia's `_add_map_zoom!`) is cut the same way at its
+    // whole frame: every mark of a group that draws its polygons (the view,
+    // or each facet cell) is drawn whole until the reader zooms or pans, and
+    // cut at the group's frame from then until the reset. Vega-Lite clips no
+    // map mark of its own, so a mark already clipped was authored so (a
+    // framed RegionExplorer map clips every layer) and stays cut throughout.
     _panZoomClip: function(vg) {
+        if (vg && (vg.signals || []).some(function(s) { return s.name === 'aov_zoom'; })) {
+            var moved = 'aov_zoom.k !== 1 || aov_zoom.x !== 0 || aov_zoom.y !== 0';
+            (function walk(group) {
+                var marks = group.marks || [];
+                var map = marks.some(function(m) { return m.type === 'shape'; });
+                marks.forEach(function(m) {
+                    if (m.type === 'group') return walk(m);
+                    if (!map || m.clip) return;
+                    m.clip = {signal: moved};
+                });
+            })(vg);
+        }
         if (!vg || !(vg.signals || []).some(function(s) { return s.name === 'grid'; })) return vg;
         function size(v) {
             return v && typeof v.signal === 'string' ? '(' + v.signal + ')' : typeof v === 'number' ? String(v) : null;
@@ -2346,6 +2381,8 @@ window.AoV = window.AoV || {
             // An embed superseded or disposed while compiling still compiles;
             // it must not re-create the plot's state.
             if (self._gens[id] !== gen) return vg;
+            var zoom = self._mapZooms[id];
+            if (zoom) (vg.signals || []).forEach(function(s) { if (s.name === self._AOV_ZOOM) s.value = zoom; });
             var live = self._liveRows[id] || {}, specRows = self._specRows[id] = {};
             (vg.data || []).forEach(function(d) {
                 if (Array.isArray(d.values)) specRows[d.name] = d.values;
@@ -2354,6 +2391,169 @@ window.AoV = window.AoV || {
             self._dropEmptyLegends(id, vg);
             return vg;
         }});
+    },
+
+    // --- Map pan and zoom (Julia's `_add_map_zoom!`) ---
+    // A map's spec carries its mouse gestures (wheel, drag) as handlers of
+    // its `aov_zoom` signal, so they work in any Vega embed. The runtime adds
+    // what a spec cannot hold:
+    // - touch: two fingers pinch-zoom around their midpoint and move the map
+    //   with them (_mapPinchStart/_mapPinchMove), and one finger still
+    //   scrolls the page. Vega cannot do this from the spec: it cancels every
+    //   view event it listens to except the wheel (its default `events`
+    //   config), so a touch handler there would stop one-finger scrolls and
+    //   taps, and it cancels only once a running redraw has finished, too
+    //   late to hold off the page's own pinch zoom. The runtime cancels a
+    //   two-finger move at once, and nothing else;
+    // - a wheel over the drawing never scrolls the page, also while a heavy
+    //   map is still redrawing the previous step (Vega's own cancel waits for
+    //   that redraw);
+    // - a reset control, shown while the map is zoomed or moved, that brings
+    //   back the fitted view. Not a double-click: on a map every pixel is a
+    //   region, so a double-click is also two `aov:click`s, which a
+    //   click-to-drill map acts on;
+    // - the zoom carried into every re-embed of the same element (container
+    //   resize, fit correction, theme, update_spec, a picker or legend
+    //   restore), set as the compiled signal's starting value (_withLiveRows)
+    //   so the map is never drawn at the fitted view in between. A new
+    //   element (an htmx swap) starts at the fitted view;
+    // - marks cut at the frame once zoomed (_panZoomClip).
+    // LOCKSTEP: `_AOV_ZOOM` and `_MAP_ZOOM_MAX` in src/to_vegalite.jl.
+    _AOV_ZOOM: 'aov_zoom',
+    _MAP_ZOOM_MAX: 1000,
+    _mapZoom: function(id, view, vg) {
+        var self = this, name = self._AOV_ZOOM;
+        var has = vg && (vg.signals || []).some(function(s) { return s.name === name; });
+        if (!has) { delete self._mapZooms[id]; return; }
+        var o = view.origin(), pad = view.padding();
+        self._zoomResetControl(id, self._els[id], o[0] + pad.left, o[1] + pad.top);
+        self._mapZoomElement(id, self._els[id]);
+        // Held by the view, so it may close over it; it reaches the control
+        // by id.
+        view.addSignalListener(name, function(n, value) { self._mapZoomChanged(id, value); });
+        self._mapZoomChanged(id, view.signal(name));
+    },
+    // The live view of a plot that zooms as a map, else null.
+    _mapView: function(id) {
+        var view = this.views[id];
+        if (!view) return null;
+        try { view.signal(this._AOV_ZOOM); } catch (err) { return null; }
+        return view;
+    },
+    // The element's own listeners, attached once per element and kept across
+    // re-embeds; they reach the plot by id and hold no view (R3).
+    _mapZoomElement: function(id, el) {
+        var self = this;
+        if (!el || el._aovMapZoom) return;
+        el._aovMapZoom = true;
+        var mine = function() { return self._els[id] === el; };
+        el.addEventListener('touchstart', function(event) { if (mine()) self._mapPinchStart(id, event); }, {passive: true});
+        el.addEventListener('touchmove', function(event) { if (mine()) self._mapPinchMove(id, event); }, {passive: false});
+        var end = function(event) { if (mine()) self._mapPinchStart(id, event); };
+        el.addEventListener('touchend', end, {passive: true});
+        el.addEventListener('touchcancel', end, {passive: true});
+        el.addEventListener('wheel', function(event) {
+            var t = event.target;
+            if (mine() && t && t.closest && t.closest('canvas.marks, svg.marks') && self._mapView(id)) event.preventDefault();
+        }, {passive: false});
+    },
+    // A point given in client coordinates, in the coordinates of the facet
+    // cell it lies in (the view's own when it is not faceted), with that
+    // cell's offset: the frame Vega's `x(group())` reads for the wheel.
+    _mapPoint: function(id, view, cx, cy) {
+        var el = this._els[id], drawing = el && el.querySelector('canvas.marks, svg.marks');
+        if (!drawing) return null;
+        var r = drawing.getBoundingClientRect(), o = view.origin(), pad = view.padding();
+        var x = cx - r.left - (drawing.clientLeft || 0) - o[0] - pad.left;
+        var y = cy - r.top - (drawing.clientTop || 0) - o[1] - pad.top;
+        var ox = 0, oy = 0, scene = view.scenegraph().root, top = scene && scene.items && scene.items[0];
+        ((top && top.items) || []).forEach(function(mark) {
+            if (mark.marktype !== 'group' || mark.name !== 'cell') return;
+            (mark.items || []).forEach(function(c) {
+                if (x >= c.x && x <= c.x + c.width && y >= c.y && y <= c.y + c.height) { ox = c.x; oy = c.y; }
+            });
+        });
+        return {x: x - ox, y: y - oy, ox: ox, oy: oy};
+    },
+    _touchSpan: function(event) {
+        var a = event.touches[0], b = event.touches[1];
+        return {d: Math.max(Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY), 1),
+            x: (a.clientX + b.clientX) / 2, y: (a.clientY + b.clientY) / 2};
+    },
+    // Two fingers down start a pinch from the map's zoom at that moment; any
+    // other count of fingers ends it (one finger is the page's, or a tap).
+    _mapPinchStart: function(id, event) {
+        delete this._mapPinches[id];
+        var view = this._mapView(id);
+        if (!view || !event.touches || event.touches.length !== 2) return;
+        var span = this._touchSpan(event), m = this._mapPoint(id, view, span.x, span.y);
+        var z = view.signal(this._AOV_ZOOM);
+        if (m && z) this._mapPinches[id] = {d: span.d, x: m.x, y: m.y, ox: m.ox, oy: m.oy, z: {k: z.k, x: z.x, y: z.y}};
+    },
+    // The point under the first midpoint stays under the current one, and
+    // the zoom follows the fingers' spread.
+    _mapPinchMove: function(id, event) {
+        var p = this._mapPinches[id], view = p && this._mapView(id);
+        if (!view || !event.touches || event.touches.length !== 2) return;
+        if (event.cancelable) event.preventDefault();
+        var span = this._touchSpan(event), m = this._mapPoint(id, view, span.x, span.y);
+        if (!m) return;
+        var mx = m.x + m.ox - p.ox, my = m.y + m.oy - p.oy;
+        var k = Math.min(Math.max(p.z.k * span.d / p.d, 1), this._MAP_ZOOM_MAX);
+        view.signal(this._AOV_ZOOM, {k: k, x: mx - k / p.z.k * (p.x - p.z.x), y: my - k / p.z.k * (p.y - p.z.y)});
+        view.runAsync();
+    },
+    _mapZoomAtRest: function(z) { return !z || (z.k === 1 && z.x === 0 && z.y === 0); },
+    _mapZoomChanged: function(id, value) {
+        var rest = this._mapZoomAtRest(value);
+        if (rest) delete this._mapZooms[id]; else this._mapZooms[id] = {k: value.k, x: value.x, y: value.y};
+        var el = this._els[id], b = el && el.querySelector('.aov-zoom-reset');
+        if (b) b.hidden = rest;
+    },
+    // Public: bring a map back to its fitted view.
+    resetZoom: function(id) {
+        var view = this.views[id];
+        delete this._mapZooms[id];
+        if (!view) return Promise.resolve();
+        try { view.signal(this._AOV_ZOOM, {k: 1, x: 0, y: 0}); } catch (err) { return Promise.resolve(); }
+        return view.runAsync();
+    },
+    // The reset control, over the map's top-left corner (vega-embed empties
+    // the element on every embed, so each embed adds it again). It reads the
+    // plot by id and holds no view (view retention, R3). Its colours are the
+    // page's text on the page's background, like the tooltip's, so it is
+    // readable over any region colour and never takes a theme's primary
+    // colour; aov.css adds the focus ring.
+    _zoomResetControl: function(id, el, left, top) {
+        var self = this;
+        if (!el || el.querySelector('.aov-zoom-reset')) return;
+        if (getComputedStyle(el).position === 'static') el.style.position = 'relative';
+        var look = self._surfaceLook(el);
+        var b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'aov-zoom-reset';
+        b.hidden = true;
+        b.textContent = self._texts(el)('reset_zoom');
+        var st = b.style;
+        st.position = 'absolute';
+        st.left = (left + 6) + 'px';
+        st.top = (top + 6) + 'px';
+        st.zIndex = '1';
+        st.width = 'auto';
+        st.margin = '0';
+        st.padding = '0.15em 0.6em';
+        st.fontSize = '0.8em';
+        st.lineHeight = '1.3';
+        st.borderRadius = '0.25rem';
+        st.border = '1px solid ' + look.border;
+        st.backgroundColor = look.surface;
+        st.color = look.color;
+        st.cursor = 'pointer';
+        b.addEventListener('click', function(event) {
+            event.stopPropagation();
+            self.resetZoom(id);
+        });
+        el.appendChild(b);
     },
 
     onSignal: function(id, signal, callback) {
@@ -3752,7 +3952,7 @@ window.AoV = window.AoV || {
         }
         // Frame players and ribbon switches: the fresh page's embed builds
         // its own controls.
-        clone.querySelectorAll('[data-aov-frame-for], [data-aov-ribbon-view-for], .aov-ribbon-view').forEach(function(c) { c.remove(); });
+        clone.querySelectorAll('[data-aov-frame-for], [data-aov-ribbon-view-for], .aov-ribbon-view, .aov-zoom-reset').forEach(function(c) { c.remove(); });
         // A download menu's place is set whenever it opens.
         clone.querySelectorAll('.aov-download-menu').forEach(function(m) { m.removeAttribute('style'); });
         // Lazy data shells: drop rendered bodies; the fresh page re-renders lazily.
@@ -3850,7 +4050,7 @@ window.AoV = window.AoV || {
     // (`plot_texts`, src/plot_texts.jl); without that attribute they are
     // English. LOCKSTEP: `_TEXTS_EN` is the English set of
     // `_RUNTIME_TEXT_NAMES` in src/plot_texts.jl; test/plot_texts.jl pins them.
-    _TEXTS_EN: {"no_data": "(no data available)", "no_summary": "(no summary data available)", "median": "Median", "interval": "{point} [{width} credible interval]", "value": "value", "untitled": "AoV plot", "lang": "en", "play": "Play", "pause": "Pause", "ribbons": "Ribbons", "intervals": "Intervals", "ribbon_view": "Drawing", "overlap": "Bands overlap {score} of the y range", "overlap_auto": "Bands overlap {score} of the y range; intervals above {threshold}", "scrollable": "Scrollable plot", "scrollable_table": "Scrollable table"},
+    _TEXTS_EN: {"no_data": "(no data available)", "no_summary": "(no summary data available)", "median": "Median", "interval": "{point} [{width} credible interval]", "value": "value", "untitled": "AoV plot", "lang": "en", "play": "Play", "pause": "Pause", "ribbons": "Ribbons", "intervals": "Intervals", "ribbon_view": "Drawing", "overlap": "Bands overlap {score} of the y range", "overlap_auto": "Bands overlap {score} of the y range; intervals above {threshold}", "scrollable": "Scrollable plot", "scrollable_table": "Scrollable table", "reset_zoom": "Reset zoom"},
     _texts: function(el) {
         var host = el && el.closest ? el.closest('[data-aov-texts]') : null;
         var texts = host ? JSON.parse(host.dataset.aovTexts) : {};

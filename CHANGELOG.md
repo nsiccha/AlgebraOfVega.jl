@@ -15,7 +15,7 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
-## 0.2.35
+## 0.2.36
 
 - A drag that starts on a data mark no longer sends `aov:click`. Dragging pans
   every AoV x/y plot, and a pan moves the mark along with the pointer, so the
@@ -27,6 +27,24 @@ failing at run time with a `MethodError`.
   finger does for its long press. A click where the hand jitters by a pixel or
   two still reports the mark. Touch input is unchanged: a long press is the
   click and a tap is not. A double-click still sends two `aov:click`s.
+
+## 0.2.35
+
+- Every map pans and zooms by default, as x/y plots do. A figure drawn
+  through a projection (a `geoshape`, with any longitude/latitude layers on
+  it) zooms around the pointer on the mouse wheel and pans on a left-button
+  drag. On touch, two fingers pinch-zoom and pan the map, while one finger
+  still scrolls the page and taps and long presses keep their meaning. Every
+  layer moves under the one projection, facet panels zoom together, and
+  marks are cut at the map's frame only once it is zoomed or moved. While the
+  map is zoomed or moved, a "Reset zoom" button over its top-left corner
+  brings back the fitted view; it is not a double-click, which on a
+  click-to-drill map would also be two `aov:click`s. The zoom survives the
+  runtime's re-embeds (container resize, theme, `update_spec`). `AoV.resetZoom(id)`
+  resets it from app code, and `plot_texts` has a new `reset_zoom` text
+  ("Zoom zurücksetzen" in `:de`). `interactive=false`, a figure with its own
+  `params`, and a projection placed with `scale`/`translate`/`extent`/`size`
+  keep the map still. Previously wheel and drag did nothing on a map.
 
 ## 0.2.34
 
