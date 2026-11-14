@@ -785,6 +785,70 @@ window.AoV = window.AoV || {
         this._removalObserver.observe(document.documentElement, {childList: true, subtree: true});
     },
 
+    // The element styles a single `width: "container"` view needs, written at
+    // each embed and again after an htmx settle (_restoreSettled).
+    // - Its width: Vega-Lite sizes the view from the embed element's own
+    //   width, and vega-embed makes that element display:inline-block, which
+    //   shrink-wraps its (not yet rendered) content: unless a page stylesheet
+    //   happens to widen it, the container measures 0 and the plot renders
+    //   0px wide. Sized here, where the runtime runs, single-view plots fill
+    //   their container on any page (vega_head pages, to_html files,
+    //   runtime-only docs embeds).
+    // - Its cap: width:"container" has no max, so the element itself is
+    //   bounded and the plot fills min(container, cap). (JS-sized
+    //   layered/faceted specs are capped through the sizing budget in
+    //   _applyResponsiveWidth instead.)
+    _styleElement: function(el, spec) {
+        if (!spec) return;
+        if (spec.width === 'container' && el) el.style.width = '100%';
+        var cap = (spec._aov && spec._aov.maxWidth) || (window.AoV && window.AoV.maxWidth);
+        if (cap !== undefined && cap !== null && isFinite(cap) && spec.width === 'container' && el) {
+            el.style.maxWidth = cap + 'px';
+        }
+    },
+
+    // An htmx swap that brings a plot element in under the id of one it
+    // replaces settles it: the swap gives the new element the old one's
+    // `class` and `style`, and the settle, about 20 ms later, puts the served
+    // values back (htmx.config.attributesToSettle). The plot's script runs
+    // in between, so whatever its embed wrote there first is reverted:
+    // vega-embed's `vega-embed` and `has-actions` classes (its stylesheet
+    // makes the element the positioned box the reset control hangs from, and
+    // lays out the actions menu) and the runtime's width and cap
+    // (_styleElement). Each plot the settle covered gets them back, so a
+    // swapped-in figure matches a freshly loaded one (snag
+    // map-reset-button-4351fbe6: on every RegionExplorer drill-down the
+    // reset button hung from the map column, over the caption). One listener
+    // per page; it holds no view (R3).
+    _watchSettles: function() {
+        if (this._settleListener || typeof document === 'undefined') return;
+        var self = this;
+        this._settleListener = function(event) { self._restoreSettled(event.target); };
+        document.addEventListener('htmx:afterSettle', this._settleListener);
+    },
+    _restoreSettled: function(root) {
+        var self = this;
+        if (!root || typeof root.contains !== 'function') return;
+        Object.keys(self._els).forEach(function(id) {
+            var el = self._els[id];
+            if (!el || !root.contains(el)) return;
+            // vega-embed's classes, once it has drawn into the element (an
+            // embed yet to draw adds them itself): `has-actions` goes with the
+            // chart wrapper it makes for an actions menu.
+            var wrapper = false, drawing = false;
+            Array.prototype.forEach.call(el.children, function(c) {
+                if (c.classList.contains('chart-wrapper')) wrapper = true;
+                if (c.classList.contains('marks')) drawing = true;
+            });
+            if (wrapper || drawing) {
+                el.classList.add('vega-embed');
+                if (wrapper) el.classList.add('has-actions');
+            }
+            self._styleElement(el, self._origSpecs[id]);
+            if (el.querySelector('.aov-zoom-reset')) self._positionedBox(el);
+        });
+    },
+
     // The primitive units of a spec, each with the data and encoding it
     // inherits from its ancestors and its colour-legend scope. Vega-Lite merges
     // the legends of a shared colour scale whatever fields its units colour
@@ -957,6 +1021,7 @@ window.AoV = window.AoV || {
         }
         var self = this;
         self._watchRemovals();
+        self._watchSettles();
         self._watchTheme();
         self._watchLinks();
         // Live state (rows added via updateData/appendData, onSignal listeners) belongs
@@ -1024,23 +1089,7 @@ window.AoV = window.AoV || {
         var framePlan = self._frameSetup(id, el, origSpec, opts);
         self._ribbonViewControls(id, el);
 
-        // width:"container" sizes the view from the embed element's own
-        // width, and vega-embed makes that element display:inline-block,
-        // which shrink-wraps its (not yet rendered) content: unless a page
-        // stylesheet happens to widen it, the container measures 0 and the
-        // plot renders 0px wide. Size the element here, where the runtime
-        // runs, so single-view plots fill their container on any page
-        // (vega_head pages, to_html files, runtime-only docs embeds).
-        if (spec.width === 'container' && el) el.style.width = '100%';
-
-        // Width cap for VL-native single-view specs: width:"container" has
-        // no max, so bound the embed element itself and the plot fills
-        // min(container, cap). (JS-sized layered/faceted specs are capped
-        // through the sizing budget in _applyResponsiveWidth instead.)
-        var _cap = (spec._aov && spec._aov.maxWidth) || (window.AoV && window.AoV.maxWidth);
-        if (_cap !== undefined && _cap !== null && isFinite(_cap) && spec.width === 'container' && el) {
-            el.style.maxWidth = _cap + 'px';
-        }
+        self._styleElement(el, spec);
 
         // `budget` (the correction re-embed only) pins the sizing budget.
         var doEmbed = function(budget) {
@@ -2518,6 +2567,13 @@ window.AoV = window.AoV || {
         try { view.signal(this._AOV_ZOOM, {k: 1, x: 0, y: 0}); } catch (err) { return Promise.resolve(); }
         return view.runAsync();
     },
+    // The plot element as the positioned box the reset control is placed in:
+    // vega-embed's stylesheet makes it one (`.vega-embed`), and where that
+    // does not apply the runtime does. An htmx settle can take both away;
+    // _restoreSettled gives them back.
+    _positionedBox: function(el) {
+        if (getComputedStyle(el).position === 'static') el.style.position = 'relative';
+    },
     // The reset control, over the map's top-left corner (vega-embed empties
     // the element on every embed, so each embed adds it again). It reads the
     // plot by id and holds no view (view retention, R3). Its colours are the
@@ -2527,7 +2583,7 @@ window.AoV = window.AoV || {
     _zoomResetControl: function(id, el, left, top) {
         var self = this;
         if (!el || el.querySelector('.aov-zoom-reset')) return;
-        if (getComputedStyle(el).position === 'static') el.style.position = 'relative';
+        self._positionedBox(el);
         var look = self._surfaceLook(el);
         var b = document.createElement('button');
         b.type = 'button';
