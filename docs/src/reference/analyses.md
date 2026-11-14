@@ -25,6 +25,7 @@ ribbon_view
 
 ```@docs
 geoshape
+geobox
 ecdf_grid
 ppc_overlay
 ```
