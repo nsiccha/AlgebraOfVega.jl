@@ -236,6 +236,8 @@ end
             data(site_years) * mapping(:lon, :lat; col=:year) * visual(Scatter)) * config(width=200, height=140),
         "gb-frame" => data(years) * mapping(:cell; color=:v) * geobox(boxes) *
             config(width=300, height=200, frame=:year),
+        # A hover link group keyed on the cell, as a map beside its table.
+        "gb-link" => cells * config(width=300, height=200, link=(; group="cells", key=:cell)),
     ]
     chrome = something(Sys.which("google-chrome"), Sys.which("chromium"), "")
     if isempty(chrome)
@@ -259,7 +261,7 @@ end
                 if !isnothing(result)
                     report = JSON.parse(replace(result[1], "&quot;" => "\"", "&lt;" => "<",
                         "&gt;" => ">", "&amp;" => "&"))
-                    @test report["checks"] >= 60
+                    @test report["checks"] >= 70
                     @test isempty(report["failures"])
                     @info "geobox browser checks" checks=report["checks"]
                     isempty(report["failures"]) || println(JSON.json(report["failures"]))

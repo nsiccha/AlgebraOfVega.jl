@@ -2,7 +2,7 @@
 // box as a rect, in place on the map (the 3 × 2 grid of test/geobox.jl), from
 // an inline box table, a URL and `by_url`; beside polygons and lon/lat marks
 // under one projection; with the own-colour seam stroke, one legend,
-// tooltips, `aov:click`, highlight, the CSV rows, pan/zoom and its clip, facet
+// tooltips, `aov:click`, highlight and hover links, the CSV rows, pan/zoom and its clip, facet
 // panels and frames.
 (async function () {
     const failures = [];
@@ -18,8 +18,9 @@
         }
         throw new Error(id + ': embed did not complete');
     }
-    const events = [];
+    const events = [], links = [];
     document.addEventListener('aov:click', e => events.push({target: e.target.id, detail: e.detail}));
+    document.addEventListener('htmxo:link', e => links.push(e.detail));
 
     // Scenegraph items matching `pred`, with their box in view coordinates and
     // the facet panel (its year) that holds them.
@@ -222,6 +223,31 @@
         check(shown.length === 6 && shown.every(r => r.item.datum.year === '2021'),
             'gb-frame: second frame ' + JSON.stringify(shown.map(r => r.item.datum)));
         samePositions(byCell(shown), map, 'gb-frame 2021');
+
+        // ---- A link group keyed on the cell: hovering a cell announces its
+        // key, and a key announced elsewhere (a table row) lights that cell.
+        view = await ready('gb-link');
+        const linked = byCell(rects(view));
+        links.length = 0;
+        const c = client('gb-link', linked.c20.x, linked.c20.y);
+        const hoverOpts = {bubbles: true, cancelable: true, clientX: c.clientX, clientY: c.clientY,
+            pointerId: 1, isPrimary: true, pointerType: 'mouse'};
+        c.canvas.dispatchEvent(new PointerEvent('pointermove', hoverOpts));
+        c.canvas.dispatchEvent(new MouseEvent('mousemove', hoverOpts));
+        for (let i = 0; i < 50 && !links.length; i++) await pause();
+        check(links.some(l => l.group === 'cells' && l.key === 'c20'),
+            'gb-link: hovering c20 announced ' + JSON.stringify(links.map(l => [l.group, l.key])));
+        c.canvas.dispatchEvent(new PointerEvent('pointerout', {bubbles: true, pointerId: 1, pointerType: 'mouse'}));
+        c.canvas.dispatchEvent(new MouseEvent('mouseout', {bubbles: true}));
+        document.getElementById('gb-link').dispatchEvent(new PointerEvent('pointerleave', {pointerId: 1, pointerType: 'mouse'}));
+        for (let i = 0; i < 100 && !rects(view).every(bright); i++) await pause();
+        document.dispatchEvent(new CustomEvent('htmxo:link', {detail: {group: 'cells', key: 'c01', source: null}}));
+        for (let i = 0; i < 100 && rects(view).every(bright); i++) await pause();
+        check(rects(view).every(r => (r.item.datum.cell === 'c01') === bright(r)),
+            'gb-link: announced c01 lit ' + JSON.stringify(rects(view).map(r => [r.item.datum.cell, r.item.opacity])));
+        document.dispatchEvent(new CustomEvent('htmxo:link', {detail: {group: 'cells', key: null, source: null}}));
+        for (let i = 0; i < 100 && !rects(view).every(bright); i++) await pause();
+        check(rects(view).every(bright), 'gb-link: a cleared link left cells dimmed');
     } catch (e) {
         failures.push(String(e && e.stack || e));
     }
