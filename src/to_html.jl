@@ -37,7 +37,7 @@ const _PAN_ZOOM_CLIP_JS = "function (vg) { " *
     "if (vg && (vg.signals || []).some(function (s) { return s.name === 'aov_zoom'; })) { " *
     "var moved = 'aov_zoom.k !== 1 || aov_zoom.x !== 0 || aov_zoom.y !== 0'; " *
     "(function walk(group) { var marks = group.marks || []; " *
-    "var map = marks.some(function (m) { return m.type === 'shape'; }); " *
+    "var map = marks.some(function (m) { return m.type === 'shape' || [].concat(m.style || []).indexOf('aov-geobox') !== -1; }); " *
     "marks.forEach(function (m) { if (m.type === 'group') return walk(m); " *
     "if (!map || m.clip) return; " *
     "m.clip = {signal: moved}; }); })(vg); } " *

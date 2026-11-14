@@ -2374,8 +2374,9 @@ window.AoV = window.AoV || {
     // bare `to_html(spec)` embed's `_PAN_ZOOM_CLIP_JS` (src/to_html.jl).
     //
     // A map (`aov_zoom`, Julia's `_add_map_zoom!`) is cut the same way at its
-    // whole frame: every mark of a group that draws its polygons (the view,
-    // or each facet cell) is drawn whole until the reader zooms or pans, and
+    // whole frame: every mark of a group that draws its areas (the view, or
+    // each facet cell: a geoshape's `shape` marks, a geobox's `rect` marks
+    // with the `aov-geobox` style) is drawn whole until the reader zooms or pans, and
     // cut at the group's frame from then until the reset. Vega-Lite clips no
     // map mark of its own, so a mark already clipped was authored so (a
     // framed RegionExplorer map clips every layer) and stays cut throughout.
@@ -2384,7 +2385,9 @@ window.AoV = window.AoV || {
             var moved = 'aov_zoom.k !== 1 || aov_zoom.x !== 0 || aov_zoom.y !== 0';
             (function walk(group) {
                 var marks = group.marks || [];
-                var map = marks.some(function(m) { return m.type === 'shape'; });
+                var map = marks.some(function(m) {
+                    return m.type === 'shape' || [].concat(m.style || []).indexOf('aov-geobox') !== -1;
+                });
                 marks.forEach(function(m) {
                     if (m.type === 'group') return walk(m);
                     if (!map || m.clip) return;

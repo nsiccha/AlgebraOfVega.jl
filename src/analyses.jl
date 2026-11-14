@@ -167,7 +167,12 @@ dotinterval(; probs=[0.95, 0.5], n_dots=50, point=:median, detail=Symbol[], orie
 
 # --- Geoshape / choropleth ---
 
-struct GeoShapeAnalysis
+# A map's area terms: each table row draws the area its key names, through the
+# map's one projection. `geoshape` draws a GeoJSON polygon, `geobox` a
+# longitude/latitude box. A figure holding one is a map (`layers_to_vl`).
+abstract type MapAreaAnalysis end
+
+struct GeoShapeAnalysis <: MapAreaAnalysis
     geometry::Any
     key::Any
     projection::Any
@@ -193,8 +198,8 @@ only a theme-aware boundary should be drawn.
 """
 function geoshape(geometry; key=nothing, projection=Makie.automatic)
     _check_geoshape_geometry(geometry)
-    _check_geoshape_key(key)
-    _check_geoshape_projection(projection)
+    _check_map_key(key, "geoshape", "geo_property")
+    _check_projection(projection, "geoshape")
     Layer(transformation=GeoShapeAnalysis(geometry, key, projection))
 end
 
@@ -212,18 +217,72 @@ end
 _check_geoshape_geometry(g) = throw(ArgumentError(
     "geoshape: geometry must be a GeoJSON URL string, a FeatureCollection Dict, or a vector of Feature Dicts; got $(typeof(g))."))
 
-_check_geoshape_key(::Nothing) = nothing
-_check_geoshape_key(::Union{Symbol,AbstractString}) = nothing
-_check_geoshape_key(k::Pair) =
+_check_map_key(::Nothing, _, _) = nothing
+_check_map_key(::Union{Symbol,AbstractString}, _, _) = nothing
+_check_map_key(k::Pair, term, side) =
     (first(k) isa Union{Symbol,AbstractString} && last(k) isa Union{Symbol,AbstractString}) ||
-    throw(ArgumentError("geoshape: a pair `key` must be `data_column => geo_property` with symbol/string sides."))
-_check_geoshape_key(k) = throw(ArgumentError(
-    "geoshape: `key` must be a column name, a `data_column => geo_property` pair, or omitted; got $(typeof(k))."))
+    throw(ArgumentError("$term: a pair `key` must be `data_column => $side` with symbol/string sides."))
+_check_map_key(k, term, side) = throw(ArgumentError(
+    "$term: `key` must be a column name, a `data_column => $side` pair, or omitted; got $(typeof(k))."))
 
-_check_geoshape_projection(::Union{Nothing,Makie.Automatic}) = nothing
-_check_geoshape_projection(::Union{Symbol,AbstractString,AbstractDict,NamedTuple}) = nothing
-_check_geoshape_projection(p) = throw(ArgumentError(
-    "geoshape: `projection` must be a projection type name, a Dict/NamedTuple of Vega-Lite projection properties, or `nothing`; got $(typeof(p))."))
+_check_projection(::Union{Nothing,Makie.Automatic}, _) = nothing
+_check_projection(::Union{Symbol,AbstractString,AbstractDict,NamedTuple}, _) = nothing
+_check_projection(p, term) = throw(ArgumentError(
+    "$term: `projection` must be a projection type name, a Dict/NamedTuple of Vega-Lite projection properties, or `nothing`; got $(typeof(p))."))
+
+struct GeoBoxAnalysis <: MapAreaAnalysis
+    boxes::Any
+    key::Any
+    projection::Any
+end
+
+# The box table's edge columns, in degrees, in the order Vega-Lite's
+# `longitude`, `latitude`, `longitude2` and `latitude2` take them.
+const _GEOBOX_EDGES = ("west", "south", "east", "north")
+
+"""
+    geobox(boxes; key=nothing, projection=automatic)
+
+Draw each table row as the longitude/latitude box its key names, a map's grid
+cell. `boxes` is a table with the key column and one box per key in the
+columns `west`, `south`, `east` and `north` (degrees): any Tables.jl table,
+`by_url(table, url)` for a table the browser loads from an address, or the
+URL of such a table as JSON rows (`rows_json(table)`). `key` is the column
+both tables share, or a `data_column => box_column` pair; when omitted, the
+positional mapping supplies it. Rows whose key has no box, and boxes no row
+names, are not drawn.
+
+It takes what `geoshape` takes: `color` and `strokecolor` mappings, `col`,
+`row` and `layout` facets, fixed `visual(...)` attributes, `projection`, and
+other layers on the map. Each box is drawn as one rectangle between its
+projected south-west and north-east corners, which is exact for projections
+that keep longitude and latitude lines straight and at right angles, such as
+the default Mercator. Through a projection that bends them, such as
+`:albers`, the rectangle between those two corners only approximates the box;
+draw such cells as polygons with `geoshape`.
+
+This is a browser/Vega-Lite analysis. `vsave` can export it; the Makie `sdraw`
+path does not implement it.
+"""
+function geobox(boxes; key=nothing, projection=Makie.automatic)
+    _check_geobox_boxes(boxes)
+    _check_map_key(key, "geobox", "box_column")
+    _check_projection(projection, "geobox")
+    Layer(transformation=GeoBoxAnalysis(boxes, key, projection))
+end
+
+_check_geobox_boxes(b::AbstractString) =
+    isempty(b) && throw(ArgumentError("geobox: the box table's URL must not be empty."))
+function _check_geobox_boxes(b)
+    _is_geojson_source(b) && throw(ArgumentError(
+        "geobox: `boxes` is GeoJSON; draw GeoJSON polygons with `geoshape`, or give `geobox` a table of `west`, `south`, `east` and `north` columns."))
+    Tables.istable(b) || throw(ArgumentError(
+        "geobox: `boxes` must be a table (with the key and `west`, `south`, `east`, `north` columns), `by_url(table, url)`, or the URL of such a table as JSON rows; got $(typeof(b))."))
+    nothing
+end
+_is_geojson_source(b::AbstractDict) = haskey(b, "features") || haskey(b, :features)
+_is_geojson_source(b::AbstractVector) = !isempty(b) && all(f -> f isa AbstractDict && get(f, "type", nothing) == "Feature", b)
+_is_geojson_source(_) = false
 
 # Direct hit on `T` — dispatches over the value's type rather than `isa`.
 _find_part(::Type, _) = nothing

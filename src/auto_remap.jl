@@ -156,14 +156,14 @@ end
 
 # True if any layer carries a TidybayesAnalysis — for those, x/y picker
 # channels are disabled because at least one axis is bound to computed
-# summary columns (lo_*/hi_*/__point__/__median__). A GeoShapeAnalysis
-# blocks for the simpler reason that it has no x/y channels at all.
+# summary columns (lo_*/hi_*/__point__/__median__). A map's area layer
+# (geoshape, geobox) blocks for the simpler reason that it has no x/y channels.
 # Per-axis refuse-tagging is a planned follow-up (see TODO in
 # Claude/algebraofvega.md).
 function _has_axis_blocker(layers)
     for layer in layers
         !isnothing(extract_transformation(layer, TidybayesAnalysis)) && return true
-        !isnothing(extract_transformation(layer, GeoShapeAnalysis)) && return true
+        !isnothing(extract_transformation(layer, MapAreaAnalysis)) && return true
     end
     false
 end
