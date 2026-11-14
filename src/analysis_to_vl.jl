@@ -1663,16 +1663,107 @@ _geoshape_data(g::AbstractVector) = Dict{String,Any}("values" => _rewind_geojson
 const _GEOSHAPE_FIELD = "__geometry__"
 
 _geoshape_projection(::Nothing) = nothing
-# Left out: the map's default. On a map with a geoshape that sets one,
+# Left out: the map's default. On a map with an area layer that sets one,
 # `_share_map_projection!` replaces it with that one.
 _geoshape_projection(::Makie.Automatic) = Dict{String,Any}("type" => "mercator")
 _geoshape_projection(p::Union{Symbol,AbstractString}) = Dict{String,Any}("type" => string(p))
 _geoshape_projection(p::Union{AbstractDict,NamedTuple}) = _owned_copy(p)
 
-function _geoshape_keys(a::GeoShapeAnalysis, layer, table)
-    data_key, geo_key = if isnothing(a.key)
+# --- A map's area terms: geoshape (GeoJSON polygons), geobox (lon/lat boxes) ---
+#
+# Both lower the same way: the table drives the layer, and one `lookup` joins
+# each row to its key's area, which the mark then draws through the map's
+# projection. Driving it from the table, not the areas, is what lets a
+# `col=`/`row=`/`layout=` facet partition rows that carry the facet field (one
+# map per level): driving it from the geometry faceted Features that lack the
+# field and joined one row per key, a single panel. What differs per term is
+# below: its name in messages, the lookup, the encoding that places the area,
+# and the mark.
+
+_map_term(::GeoShapeAnalysis) = "geoshape"
+_map_term(::GeoBoxAnalysis) = "geobox"
+_map_key_example(::GeoShapeAnalysis) = "`geoshape(geo; key=:AGS)`"
+_map_key_example(::GeoBoxAnalysis) = "`geobox(boxes; key=:cell)`"
+_map_mark(::GeoShapeAnalysis) = "geoshape"
+_map_mark(::GeoBoxAnalysis) = "rect"
+# A geobox's cells carry a style that tells the runtime's zoom clip they are a
+# map's areas (`_AOV_GEOBOX`); a geoshape's are told by their Vega mark type.
+_map_mark_style(mark, ::GeoShapeAnalysis) = mark
+_map_mark_style(mark, ::GeoBoxAnalysis) = _mark_with_style(mark, _AOV_GEOBOX)
+
+# GeoJSON Feature tuples keep their key under `properties`, so the lookup key
+# addresses that path — a bare key matches no feature and paints nothing.
+function _map_lookup(a::GeoShapeAnalysis, data_key, geo_key)
+    geo_field = startswith(geo_key, "properties.") ? geo_key : "properties." * geo_key
+    Dict{String,Any}("lookup" => data_key,
+        "from" => Dict{String,Any}("data" => _geoshape_data(a.geometry), "key" => geo_field),
+        "as" => _GEOSHAPE_FIELD)
+end
+function _map_place!(encoding, ::GeoShapeAnalysis)
+    encoding["shape"] = Dict{String,Any}("field" => _GEOSHAPE_FIELD, "type" => "geojson")
+end
+
+# A box row's edges land in AoV's own fields, so a value column of the table
+# that happens to be called `west` keeps its meaning.
+const _GEOBOX_FIELDS = Tuple("__$(e)__" for e in _GEOBOX_EDGES)
+
+function _map_lookup(a::GeoBoxAnalysis, data_key, box_key)
+    Dict{String,Any}("lookup" => data_key,
+        "from" => Dict{String,Any}("data" => _geobox_data(a.boxes, box_key), "key" => box_key,
+            "fields" => collect(_GEOBOX_EDGES)),
+        "as" => collect(_GEOBOX_FIELDS))
+end
+# The south-west corner to the north-east one. Vega-Lite projects each corner
+# (fitting the map to both) and Vega draws the rectangle between them.
+function _map_place!(encoding, ::GeoBoxAnalysis)
+    for (ch, f) in zip(("longitude", "latitude", "longitude2", "latitude2"), _GEOBOX_FIELDS)
+        encoding[ch] = Dict{String,Any}("field" => f, "type" => "quantitative")
+    end
+end
+
+# The box table: read from its address (a URL, or a `by_url` table, which
+# `vsave` inlines), else written into the plot. A table AoV can read is
+# checked here; a URL's rows reach only the browser.
+_geobox_data(url::AbstractString, _) =
+    Dict{String,Any}("url" => url, "format" => Dict{String,Any}("type" => "json"))
+function _geobox_data(boxes, box_key)
+    cols = Tables.columns(boxes)
+    names = Tables.columnnames(cols)
+    missing_cols = [c for c in (box_key, _GEOBOX_EDGES...) if !(Symbol(c) in names)]
+    isempty(missing_cols) || throw(ArgumentError(
+        "geobox: the box table has no column$(length(missing_cols) == 1 ? "" : "s") $(join(("\"$c\"" for c in missing_cols), ", ")) " *
+        "(columns: $(join(names, ", "))); it needs the key \"$box_key\" and one box per key in `west`, `south`, `east`, `north` (degrees)."))
+    for e in _GEOBOX_EDGES
+        T = nonmissingtype(eltype(Tables.getcolumn(cols, Symbol(e))))
+        T <: Real || throw(ArgumentError(
+            "geobox: the box table's `$e` column must hold numbers (degrees); its element type is $T."))
+    end
+    data_to_vl(cols)
+end
+
+# Vega joins a lookup on equal values, so a number never matches its digits
+# as a string: a key that is text on one side and numbers on the other draws
+# nothing. Checked when both tables are known in Julia.
+_key_kind(::Type{<:Union{AbstractString,Symbol,AbstractChar}}) = "text"
+_key_kind(::Type{<:Real}) = "numbers"
+_key_kind(::Type) = nothing
+_check_key_kinds(_, _, ::AbstractString, _) = nothing
+function _check_key_kinds(table, data_key, boxes, box_key)
+    kind(t, k) = _key_kind(nonmissingtype(eltype(Tables.getcolumn(Tables.columns(t), Symbol(k)))))
+    d, b = kind(table, data_key), kind(boxes, box_key)
+    (isnothing(d) || isnothing(b) || d == b) || throw(ArgumentError(
+        "geobox: the key column holds $d in the data table (\"$data_key\") but $b in the box table (\"$box_key\"), so no row would find its box; give both columns the same type."))
+    nothing
+end
+_check_map_keys(::GeoShapeAnalysis, _, _, _) = nothing
+_check_map_keys(a::GeoBoxAnalysis, table, data_key, box_key) =
+    _check_key_kinds(table, data_key, a.boxes, box_key)
+
+function _map_keys(a::MapAreaAnalysis, layer, table)
+    term = _map_term(a)
+    data_key, area_key = if isnothing(a.key)
         length(layer.positional) == 1 || throw(ArgumentError(
-            "geoshape: name the join key — either `mapping(<key>; …)` with one positional, or `geoshape(geo; key=:AGS)`."))
+            "$term: name the join key — either `mapping(<key>; …)` with one positional, or $(_map_key_example(a))."))
         k = _field_name(layer.positional[1])
         (k, k)
     elseif a.key isa Pair
@@ -1682,21 +1773,26 @@ function _geoshape_keys(a::GeoShapeAnalysis, layer, table)
         (k, k)
     end
     Symbol(data_key) in Tables.columnnames(table) || throw(ArgumentError(
-        "geoshape: the data table has no key column \"$data_key\" (columns: $(join(Tables.columnnames(table), ", ")))."))
-    (data_key, geo_key)
+        "$term: the data table has no key column \"$data_key\" (columns: $(join(Tables.columnnames(table), ", ")))."))
+    (data_key, area_key)
 end
 
-function geoshape_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer::Bool=false)
-    a = extract_transformation(layer, GeoShapeAnalysis)
+geoshape_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer::Bool=false) =
+    _map_area_to_vl(extract_transformation(layer, GeoShapeAnalysis), layer)
+geobox_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer::Bool=false) =
+    _map_area_to_vl(extract_transformation(layer, GeoBoxAnalysis), layer)
+
+function _map_area_to_vl(a::MapAreaAnalysis, layer::AlgebraOfGraphics.Layer)
+    term = _map_term(a)
     table = extract_data(layer)
     isnothing(table) && throw(ArgumentError(
-        "geoshape: the layer needs a `data(...)` table holding the join key and the mapped value columns."))
+        "$term: the layer needs a `data(...)` table holding the join key and the mapped value columns."))
     length(layer.positional) > 1 && throw(ArgumentError(
-        "geoshape: a geoshape has no x/y channels, so the mapping takes at most one positional (the join key); got $(length(layer.positional))."))
-    data_key, geo_key = _geoshape_keys(a, layer, table)
+        "$term: a $term has no x/y channels, so the mapping takes at most one positional (the join key); got $(length(layer.positional))."))
+    data_key, area_key = _map_keys(a, layer, table)
     for name in keys(layer.named)
         name in (:color, :strokecolor, :col, :row, :layout) || throw(ArgumentError(
-            "geoshape: mapping channel `$name` is not supported on a geoshape; use `color=`, `strokecolor=`, or a `col=`/`row=`/`layout=` facet."))
+            "$term: mapping channel `$name` is not supported on a $term; use `color=`, `strokecolor=`, or a `col=`/`row=`/`layout=` facet."))
     end
 
     encoding = Dict{String,Any}()
@@ -1709,7 +1805,7 @@ function geoshape_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer::Bool=false)
         sel = layer.named[name]
         f = _field_name(sel)
         Symbol(f) in Tables.columnnames(table) || throw(ArgumentError(
-            "geoshape: the data table has no column \"$f\" mapped to `$name` (columns: $(join(Tables.columnnames(table), ", ")))."))
+            "$term: the data table has no column \"$f\" mapped to `$name` (columns: $(join(Tables.columnnames(table), ", ")))."))
         enc = selector_to_field(sel)
         enc["type"] = vl_type(Tables.getcolumn(table, Symbol(f)))
         encoding[ch] = enc
@@ -1717,19 +1813,11 @@ function geoshape_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer::Bool=false)
         _is_tooltip_label(get(labels, f, nothing), f) || (labels[f] = get(enc, "title", nothing))
     end
 
-    # The table drives the layer and each row looks up its Feature, so a
-    # `col=`/`row=`/`layout=` facet partitions rows that carry the facet field
-    # (one map per level). Driving it from the geometry instead faceted
-    # Features that lack the field and joined one row per key: a single
-    # panel. GeoJSON Feature tuples keep their key under `properties`, so the
-    # lookup key addresses that path — a bare key matches no feature.
-    geo_field = startswith(geo_key, "properties.") ? geo_key : "properties." * geo_key
     spec = Dict{String,Any}("data" => data_to_vl(table),
-        "transform" => [Dict{String,Any}("lookup" => data_key,
-            "from" => Dict{String,Any}("data" => _geoshape_data(a.geometry),
-                "key" => geo_field),
-            "as" => _GEOSHAPE_FIELD)])
-    encoding["shape"] = Dict{String,Any}("field" => _GEOSHAPE_FIELD, "type" => "geojson")
+        "transform" => [_map_lookup(a, data_key, area_key)])
+    # After the lookup, which checks the box table has the key column.
+    _check_map_keys(a, table, data_key, area_key)
+    _map_place!(encoding, a)
     proj = _geoshape_projection(a.projection)
     isnothing(proj) || (spec["projection"] = proj)
 
@@ -1738,8 +1826,8 @@ function geoshape_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer::Bool=false)
     if haskey(props, "color")
         props["fill"] = pop!(props, "color")
     end
-    spec["mark"] = isempty(props) ? "geoshape" :
-        merge(Dict{String,Any}("type" => "geoshape"), props)
+    spec["mark"] = _map_mark_style(isempty(props) ? _map_mark(a) :
+        merge(Dict{String,Any}("type" => _map_mark(a)), props), a)
 
     tooltip = [_tooltip_entry(f, vl_type(Tables.getcolumn(table, Symbol(f))), get(labels, f, nothing))
         for f in unique!([data_key; fields])]

@@ -112,7 +112,7 @@ function _auto_summary_args end
 # Tidybayes-style analysis exports
 export pointinterval, gradient_interval, lineribbon, ribbon, dotinterval
 export ribbon_view
-export geoshape
+export geoshape, geobox
 # High-level widget/recipe exports
 export ecdf_grid, ppc_overlay
 # Dataset exports
