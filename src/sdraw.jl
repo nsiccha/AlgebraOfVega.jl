@@ -74,6 +74,7 @@ end
 # so AoG alone would wrap with aspect 1; the count goes in as the `Layout` palette
 # `wrapped(cols=k)` instead. An authored `Layout` palette is AoG's own and wins.
 function _sdraw_scales(scales_obj, drawable, cfg)
+    scales_obj = _static_ink_palette(scales_obj)
     n = _layout_levels(drawable)
     n > 0 || return scales_obj
     dict = isnothing(scales_obj) ? Dict{Symbol,Any}() :
@@ -324,6 +325,20 @@ end
 # readable on exports. Any other colour is already a Makie colour.
 _static_color(color) = color === :ink ?
     Makie.to_value(Makie.theme(:textcolor; default=:black)) : color
+
+# A `Color` palette's `:ink` entries (`scales(Color=(; palette=[:ink, …]))`, which
+# `vdraw` draws in the page's text colour) take that text colour too; Makie
+# itself has no colour named `ink`.
+_static_ink_palette(s) = s
+function _static_ink_palette(s::AlgebraOfGraphics.Scales)
+    color = get(s.dict, :Color, nothing)
+    (isnothing(color) || !haskey(color, :palette)) && return s
+    pal = color[:palette]
+    (pal isa Union{AbstractVector,Tuple} && any(c -> c === :ink, pal)) || return s
+    dict = Dict{Symbol,Any}(k => (; pairs(v)...) for (k, v) in pairs(s.dict))
+    dict[:Color] = merge(dict[:Color], (; palette=Any[_static_color(c) for c in pal]))
+    AlgebraOfGraphics.scales(; dict...)
+end
 
 _to_linestyle(v::AbstractVector{<:Real}) = Makie.Linestyle(collect(Float64, v))
 _to_linestyle(v) = v

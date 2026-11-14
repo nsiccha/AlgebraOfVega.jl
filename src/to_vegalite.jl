@@ -284,18 +284,22 @@ _uses_style_name(styles::AbstractVector, name) = name in styles
 _apply_ink_default!(_) = nothing
 function _apply_ink_default!(spec::Dict)
     for (name, prop) in _AOV_INK_STYLES
-        _uses_style(spec, name) || continue
-        cfg = get!(spec, "config", Dict{String,Any}())
-        style = get!(get!(cfg, "style", Dict{String,Any}()), name, Dict{String,Any}())
-        haskey(style, prop) || (style[prop] = _AOV_INK_COLOR)
+        _uses_style(spec, name) && _ink_style_default!(spec, name, prop)
     end
     spec
+end
+function _ink_style_default!(spec::Dict, name, prop)
+    cfg = get!(spec, "config", Dict{String,Any}())
+    style = get!(get!(cfg, "style", Dict{String,Any}()), name, Dict{String,Any}())
+    haskey(style, prop) || (style[prop] = _AOV_INK_COLOR)
+    return
 end
 
 # The stroke and fill inks' colours — the spec's config, which a caller's
 # `config(config=…)` may have set — onto each mark (or composite-mark part) that
-# carries their style and does not set that side itself. A finishing pass: it
-# runs after the caller's config is merged.
+# carries their style and does not set that side itself, and the `aov-ink`
+# colour onto a palette's ink entries (`_record_ink_palette!`). A finishing pass:
+# it runs after the caller's config is merged.
 _apply_ink_paint!(spec) = spec
 function _apply_ink_paint!(spec::Dict)
     cfg = get(spec, "config", nothing)
@@ -306,7 +310,48 @@ function _apply_ink_paint!(spec::Dict)
         style = get(styles, name, nothing)
         style isa AbstractDict && haskey(style, prop) && _set_style_paint!(spec, name, prop, style[prop])
     end
+    _paint_ink_palette!(spec, styles)
     spec
+end
+
+# A caller who set the `aov-ink` colour (`config(config=Dict("style" => Dict("aov-ink" =>
+# Dict("color" => c))))`) gets it on a palette's ink entries too, as on `color=:ink`
+# marks; the runtime then leaves both alone, as it leaves every ink a spec set.
+function _paint_ink_palette!(spec::Dict, styles::AbstractDict)
+    pal = _as_dict(get(something(_as_dict(get(spec, "_aov", nothing)), Dict()), "inkPalette", nothing))
+    ink_style = _as_dict(get(styles, _AOV_INK, nothing))
+    (isnothing(pal) || isnothing(ink_style)) && return
+    color = get(ink_style, "color", _AOV_INK_COLOR)
+    color == _AOV_INK_COLOR && return
+    old = pal["range"]
+    new = copy(old)
+    for i in pal["ink"]
+        new[i + 1] = color
+    end
+    _foreach_colour_range(spec) do scale
+        scale["range"] == old && (scale["range"] = copy(new))
+    end
+    pal["range"] = new
+    return
+end
+
+# `f(scale)` for every colour, stroke or fill encoding's scale that has an explicit
+# `range` array, in every view of `spec` (layers, facets, concatenations). Data,
+# config and AoV's own metadata are not views.
+_foreach_colour_range(f, x) = nothing
+_foreach_colour_range(f, v::AbstractVector) = foreach(x -> _foreach_colour_range(f, x), v)
+function _foreach_colour_range(f, d::AbstractDict)
+    enc = _as_dict(get(d, "encoding", nothing))
+    if !isnothing(enc)
+        for ch in ("color", "stroke", "fill")
+            col = _as_dict(get(enc, ch, nothing))
+            scale = isnothing(col) ? nothing : _as_dict(get(col, "scale", nothing))
+            !isnothing(scale) && get(scale, "range", nothing) isa AbstractVector && f(scale)
+        end
+    end
+    for (k, x) in d
+        k in ("data", "datasets", "config", "_aov", "encoding") || _foreach_colour_range(f, x)
+    end
 end
 _set_style_paint!(x, name, prop, color) = nothing
 _set_style_paint!(v::AbstractVector, name, prop, color) =
@@ -1434,12 +1479,35 @@ part describes, as AlgebraOfGraphics splits its props. `scale.categorical` (doma
 palette) merges into nominal/ordinal colour encodings that carry a field; `scale.continuous`
 (scheme, domain, clamp and scale type) and `clips` (the `lowclip`/`highclip` conditions, as
 `(comparison, bound, colour)`) into quantitative/temporal ones; `nan_color` becomes the
-chart's `config.scale.invalid.color`. `keys` names the authored attributes of each kind."""
+chart's `config.scale.invalid.color`. `keys` names the authored attributes of each kind.
+`ink` holds the 0-based positions of `:ink` entries in the palette's `range`
+(`_record_ink_palette!`)."""
 struct _ColorScaleVL
     scale::@NamedTuple{categorical::Dict{String,Any}, continuous::Dict{String,Any}}
     keys::@NamedTuple{categorical::Vector{Symbol}, continuous::Vector{Symbol}}
     clips::Vector{Tuple{String,Any,String}}
     nan_color::Union{Nothing,String}
+    ink::Vector{Int}
+end
+
+# A palette entry `:ink` is the page's text colour, as `visual(; color=:ink)` is
+# (snag `give-one-categor-f6fa34be`). A scale range cannot name the `aov-ink`
+# style, so the entry is written as the style's colour, `#333` (what `vsave` and
+# a bare export draw), and its position is recorded in `_aov.inkPalette` together
+# with the whole range. The runtime's `_hostInk` swaps that entry for the host
+# ink in every colour scale whose range is the recorded one, so the category's
+# marks and its legend symbol follow light/dark switches. LOCKSTEP: `_hostInk`
+# (vendor/aov-runtime.js) and `_apply_ink_paint!`.
+_palette_color_vl(c) = c === :ink ? _AOV_INK_COLOR : _color_to_css(c)
+# The continuous colour keys take one colour each; `:ink` there has no recorded
+# place the runtime could swap, so it is refused instead of reaching Vega-Lite as
+# the colour name "ink", which draws nothing.
+function _scale_color_vl(key::Symbol, c)
+    c === :ink && throw(ArgumentError("AlgebraOfVega: `$key=:ink` is not supported on a " *
+        "`Color` scale: `:ink` follows the page's text colour as a `palette` entry " *
+        "(`scales(Color=(; categories, palette=[:ink, …]))`) or a fixed `visual(; color=:ink)`. " *
+        "Give `$key` a literal colour."))
+    _color_to_css(c)
 end
 
 """Translate the props of a categorical/continuous `scales(Color=(; palette, categories, colormap, …))`
@@ -1450,7 +1518,8 @@ into a `_ColorScaleVL`.
   domain is the VALUES (relabel targets are dropped — VL relabels via `legend.labelExpr`,
   out of scope here).
 - `palette` → `scale.range` when it is an explicit colour vector, or `scale.scheme` when it
-  is a named Vega scheme (`Symbol`/`String`, e.g. `:tableau10`).
+  is a named Vega scheme (`Symbol`/`String`, e.g. `:tableau10`). An entry `:ink` is the
+  page's text colour (`_palette_color_vl`).
 - `colormap` → `scale.scheme` (the continuous-colour spelling of a named scheme).
 - `colorrange` → `scale.domain` (the continuous-colour value range, e.g. `(0.0, 1.0)`) plus
   `scale.clamp`: AoG paints values outside it in `lowclip`/`highclip`, which default to the
@@ -1469,12 +1538,14 @@ function _color_scale_props_to_vl(props)
         cats = props[:categories]
         categorical["domain"] = [c isa Pair ? first(c) : c for c in cats]
     end
+    ink = Int[]
     if haskey(props, :palette)
         pal = props[:palette]
         if pal isa Symbol || pal isa AbstractString
             categorical["scheme"] = string(pal)
         else
-            categorical["range"] = [_color_to_css(c) for c in pal]
+            categorical["range"] = Any[_palette_color_vl(c) for c in pal]
+            ink = Int[i - 1 for (i, c) in enumerate(pal) if c === :ink]
         end
     end
     continuous = Dict{String,Any}()
@@ -1484,18 +1555,18 @@ function _color_scale_props_to_vl(props)
         lo, hi = props[:colorrange]
         continuous["domain"] = [lo, hi]
         continuous["clamp"] = true
-        haskey(props, :lowclip) && push!(clips, ("<", lo, _color_to_css(props[:lowclip])))
-        haskey(props, :highclip) && push!(clips, (">", hi, _color_to_css(props[:highclip])))
+        haskey(props, :lowclip) && push!(clips, ("<", lo, _scale_color_vl(:lowclip, props[:lowclip])))
+        haskey(props, :highclip) && push!(clips, (">", hi, _scale_color_vl(:highclip, props[:highclip])))
     end
     if haskey(props, :scale)
         scale_type = _aog_scale_fn_to_vl(props[:scale])
         isnothing(scale_type) || merge!(continuous, scale_type)
     end
-    nan_color = haskey(props, :nan_color) ? _color_to_css(props[:nan_color]) : nothing
+    nan_color = haskey(props, :nan_color) ? _scale_color_vl(:nan_color, props[:nan_color]) : nothing
     authored(kind) = Symbol[k for k in _COLOR_SCALE_KEYS[kind] if haskey(props, k)]
     _ColorScaleVL((; categorical, continuous),
                   (; categorical=authored(:categorical), continuous=authored(:continuous)),
-                  clips, nan_color)
+                  clips, nan_color, ink)
 end
 
 """Extract the `_ColorScaleVL` from a `scales(Color=...)` object (`nothing` if none)."""
@@ -1601,6 +1672,8 @@ function _merge_color_scale!(spec::Dict, c::_ColorScaleVL)
         end
     end
     all(isempty, fields) && return
+    isempty(c.ink) || isempty(fields.categorical) ||
+        _record_ink_palette!(spec, c.scale.categorical["range"], c.ink)
     for (kind, other) in ((:categorical, :continuous), (:continuous, :categorical))
         authored = c.keys[kind]
         (isempty(authored) || !isempty(fields[kind])) && continue
@@ -1623,6 +1696,17 @@ function _merge_color_scale!(spec::Dict, c::_ColorScaleVL)
             invalid[channel] = Dict{String,Any}("value" => c.nan_color)
         end
     end
+    return
+end
+
+"""Record a palette's `:ink` entries (`_palette_color_vl`) on the view: `_aov.inkPalette` is
+the range as written into the colour encodings and the 0-based positions of its ink
+entries, and the `aov-ink` style gets its default colour, which the runtime's host theme
+replaces (`_hostInk`, vendor/aov-runtime.js)."""
+function _record_ink_palette!(spec::Dict, range::AbstractVector, ink::AbstractVector{<:Integer})
+    get!(Dict{String,Any}, spec, "_aov")["inkPalette"] =
+        Dict{String,Any}("range" => copy(range), "ink" => collect(Int, ink))
+    _ink_style_default!(spec, _AOV_INK, "color")
     return
 end
 

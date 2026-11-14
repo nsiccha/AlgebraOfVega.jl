@@ -44,4 +44,6 @@ Axis options also include `zero`, `nice`, `domain`, and `clamp`. AoV's quantitat
 
 The browser runtime follows the page's foreground color for axes and text. An authored categorical palette keeps its colors when the theme changes. Use `color=:ink` for reference rules that should follow the foreground, instead of a fixed black mark that could disappear on a dark page.
 
+A palette entry can be `:ink` too: `palette=[:ink, "#e03131"]` draws the first category in the foreground color, its legend entry included, while the other entries keep their colors. Use it for a reference series that belongs in the color legend.
+
 The [measurement comparison](../examples/measurements.md) uses a fixed category order and a theme-aware reference rule in one figure.

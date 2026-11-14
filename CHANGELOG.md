@@ -15,6 +15,21 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
+## 0.2.38
+
+- A categorical colour palette takes `:ink` as an entry:
+  `scales(Color=(; categories=["reference", "other"], palette=[:ink, "#e03131"]))`
+  draws the `reference` category in the page's text colour, as
+  `visual(; color=:ink)` draws a fixed mark, while the other entries stay
+  fixed. Its marks and its legend symbol follow light/dark switches, in every
+  layer, both drawings of a ribbon and the channel picker. `vsave` and a bare
+  `to_vegalite` export draw it in `#333`, `sdraw` in the Makie theme's text
+  colour. Before, the entry reached Vega-Lite as the colour name `"ink"`,
+  which no renderer draws as the page's ink.
+- `lowclip=:ink`, `highclip=:ink` and `nan_color=:ink` on a `Color` scale are
+  an `ArgumentError` naming the palette and fixed-mark forms. They reached
+  Vega-Lite as the colour name `"ink"` before.
+
 ## 0.2.37
 
 - New map term `geobox(boxes; key, projection)`: each table row draws the
