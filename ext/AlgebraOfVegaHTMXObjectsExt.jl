@@ -53,11 +53,18 @@ The downloads below share one "⬇ Export ▾" button in the caption row, which
 opens a menu of them, so they leave the caption's title its room. A figure with
 a single download shows it as a plain button, and `download_menu=false` shows
 each as its own button. The downloads, in order:
-- "⬇ CSV" download (when `data_download=true`): one CSV per dataset that draws
-  values, named by source (`_s1`, `_s2`, … in layer order, or `layer_labels`)
-  when there are several. A text layer, an uncoloured region or outline and
-  geometry looked up by key draw none, so they get no file of their own, unless
-  the figure draws nothing else.
+- "⬇ CSV" download (when `data_download=true`): the rows of each dataset that
+  draws values. A text layer, an uncoloured region or outline and geometry
+  looked up by key draw none, so they get no file of their own, unless the
+  figure draws nothing else. When the plot draws several such datasets, the
+  menu (or the caption row, with `download_menu=false`) has one
+  "⬇ CSV · <name>" entry per dataset in its place, named by source (`_s1`,
+  `_s2`, … in layer order, or `layer_labels`), and each entry downloads that
+  dataset's file, `<filename_base>__s1.csv` (or `<filename_base>_<label>.csv`).
+  One click starts one download because browsers limit the downloads a page
+  starts at once: Chromium drops every download after the tenth within a
+  second, and desktop Chrome asks the reader before a second download from one
+  click.
 - "⬇ PNG" / "⬇ SVG" image download per format in `images` (default `(:png, :svg)`).
   Pass `images=()` or `images=nothing` to disable, or e.g. `images=(:png,)` for one.
 - "⬇ HTML" standalone-page download (when `html_download=true`): the whole
@@ -87,8 +94,8 @@ who don't want that should not set the VL title.
 - `share_url=nothing`: when given, append a "Share" clipboard button for this URL
 - `filename_base`: base for downloaded filenames (defaults to `plot_id`)
 - `layer_labels::Union{Nothing,Dict}=nothing`: map from source (`_s1`, `_s2`, … in
-  layer order, a merged dataset's raw `__src` value) → human label, used both in
-  download filenames and preview headings
+  layer order, a merged dataset's raw `__src` value) → human label, used in
+  download filenames, the CSV entries' names and preview headings
 - `extra_actions`: iterable of additional action nodes for the caption row,
   beside the menu
 - `texts::PlotTexts=plot_texts()`: the words of the caption's "More" toggle,
@@ -206,17 +213,21 @@ function with_plot_caption(plot_node, caption::CaptionSpec;
     h.figure(; fig_attrs..., _runtime_texts_attrs(texts)...)(body...)
 end
 
-# A figure's downloads in row order, each its button's words and its action.
+# A figure's downloads in row order, each its button's words, its action and the
+# attributes the runtime reads. The CSV button's mark it for the runtime, which
+# turns it into one entry per dataset when the plot draws several
+# (`AoV._syncCsvEntries`), so that a click starts one download.
 function _downloads(plot_id, fname, labels_js, texts; data_download, images, html_download)
-    downloads = Tuple{String,String}[]
+    downloads = Tuple{String,String,NamedTuple}[]
     data_download && push!(downloads,
-        (texts.csv, "AoV.downloadPlotData('$(plot_id)', '$(fname)', $(labels_js))"))
+        (texts.csv, "AoV.downloadPlotData('$(plot_id)', '$(fname)', $(labels_js))",
+         (; data_aov_csv=plot_id, data_aov_csv_base=fname, data_aov_labels=labels_js)))
     for fmt in something(images, ())
         fmt_str = lowercase(String(fmt))
         push!(downloads, (_plot_text(texts, :image; format=uppercase(fmt_str)),
-            "AoV.downloadPlotImage('$(plot_id)', '$(fmt_str)', '$(fname)')"))
+            "AoV.downloadPlotImage('$(plot_id)', '$(fmt_str)', '$(fname)')", (;)))
     end
-    html_download && push!(downloads, (texts.html, "AoV.downloadPlotHtml('$(plot_id)', '$(fname)')"))
+    html_download && push!(downloads, (texts.html, "AoV.downloadPlotHtml('$(plot_id)', '$(fname)')", (;)))
     downloads
 end
 
@@ -226,10 +237,10 @@ end
 # elsewhere, Escape, a chosen format) and no scroll box or sticky pane clips it.
 function _download_actions(downloads, plot_id, texts, download_menu)
     (download_menu && length(downloads) > 1) || return [h.button(label;
-        type="button", class="outline caption-action", onclick) for (label, onclick) in downloads]
+        type="button", class="outline caption-action", onclick, attrs...) for (label, onclick, attrs) in downloads]
     menu_id = plot_id * "-download-menu"
-    rows = [h.button(label; type="button", popovertarget=menu_id, popovertargetaction="hide", onclick)
-            for (label, onclick) in downloads]
+    rows = [h.button(label; type="button", popovertarget=menu_id, popovertargetaction="hide", onclick, attrs...)
+            for (label, onclick, attrs) in downloads]
     [html_only(h.button(texts.download, " ", h.span("▾"; aria_hidden="true");
          type="button", class="outline caption-action", popovertarget=menu_id)),
      html_only(h.div(rows...; id=menu_id, class="aov-download-menu", popover="auto",

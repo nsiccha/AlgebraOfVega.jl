@@ -26,6 +26,10 @@ end
         @test occursin(call, page)
     end
     @test count_of("popovertargetaction=\"hide\"", page) == 4
+    # Only the CSV row carries what the runtime reads to give a figure with
+    # several datasets one CSV entry each (one download per click).
+    @test count_of("data-aov-csv=", page) == 1 && occursin("data-aov-csv=\"menu-a\"", page)
+    @test occursin("data-aov-csv-base=\"menu-a\"", page)
 
     # The node form and to_html carry it too.
     node = html(with_plot_caption(vdraw(spec; id="menu-n"), "Errors"; plot_id="menu-n"))
@@ -35,6 +39,7 @@ end
     # download_menu=false: a button each, as before, and no menu.
     plain = html(with_plot_caption(spec, "Errors"; plot_id="menu-a", download_menu=false))
     @test count_of(ROW_BUTTON, plain) == 4
+    @test count_of("data-aov-csv=\"menu-a\"", plain) == 1
     @test !occursin("popover", plain) && !occursin("⬇ Export", plain)
     @test occursin("⬇ PNG", plain) && occursin("⬇ HTML", plain)
 
