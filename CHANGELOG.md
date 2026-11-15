@@ -15,6 +15,22 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
+## 0.2.42
+
+- A data change that makes a plot's axis labels a few pixels wider or
+  narrower now resizes the mounted view instead of embedding the plot again.
+  `replace_data`, `remove_data`, `append_data` and `update_data` keep the
+  view, its canvas, its zoom and hover state, as documented. The plot's width
+  is corrected through its width signal (`width`, or a facet's
+  `child_width`), so the drawing still fits its column.
+- Before, a correction of more than 2 px re-embedded the plot. With the larger
+  axis labels of 0.2.40, removing one group of a pinned-colour Band + Lines
+  plot did that (y labels `-1 … 4` became `2.0 … 4.5`). The same happened
+  already before 0.2.40 to plots whose labels changed more, for example
+  removing a scenario from a faceted ribbon.
+- A wrap count, and a horizontal concatenation, are still corrected by a new
+  embed.
+
 ## 0.2.41
 
 - A report built from a page's markdown draws each captioned figure itself.
