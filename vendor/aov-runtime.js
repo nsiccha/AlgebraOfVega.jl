@@ -3793,8 +3793,8 @@ window.AoV = window.AoV || {
     //   the interval's width;
     // - a line or a single point as its value, to four significant digits;
     // - a cloud of points at one x (single runs) is left out.
-    // Series are named by their colour field's value, or by the layer's y
-    // title. In a faceted figure the readout follows the panel under the
+    // Series are named by their colour field's value, by the layer's
+    // `visual(...; label=…)` (`_aov_label`), or by its y title. In a faceted figure the readout follows the panel under the
     // pointer. The box stands in for the mark tooltip while it shows. When
     // the figure's link key is its x field, the readout's x is announced to
     // the link group, and another member's announcement of one x (a table
@@ -3834,7 +3834,8 @@ window.AoV = window.AoV || {
             var tip = [].concat(enc.tooltip || []).filter(function(t) { return t && t.field === y.field; })[0];
             var name = prefix + (layered ? 'layer_' + i + '_marks' : 'marks');
             plan.units[name] = {mark: mark, x: xf, y: y.field, y2: enc.y2 && enc.y2.field, color: color,
-                title: y.title || (tip && tip.title) || y.field, index: plan.order.length};
+                title: y.title || (tip && tip.title) || y.field, label: typeof u._aov_label === 'string' ? u._aov_label : null,
+                index: plan.order.length};
             plan.order.push(name);
         }, this);
         if (!plan.order.length || !(paths || dodge || aov.readout === true)) return null;
@@ -3947,7 +3948,8 @@ window.AoV = window.AoV || {
         var series = {}, list = [];
         at.forEach(function(c) {
             var u = c.unit, d = c.datum;
-            var name = u.color ? d[u.color] : (plan.series && d[plan.series] !== undefined ? d[plan.series] : u.title);
+            var name = u.color ? d[u.color] : u.label !== null ? u.label :
+                (plan.series && d[plan.series] !== undefined ? d[plan.series] : u.title);
             name = String(name);
             var s = series[name];
             if (!s) { s = series[name] = {name: name, coloured: name !== String(u.title), first: u.index, colour: null, units: {}}; list.push(s); }

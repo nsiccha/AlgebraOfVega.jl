@@ -15,6 +15,28 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
+## 0.2.44
+
+- **`visual(...; label="Observed")`** gives a layer without a colour mapping a
+  legend entry, as in AlgebraOfGraphics. The entry is drawn in the layer's own
+  style: a stroke with the line's or rule's colour, dash and width, the point's
+  own symbol and colour, a square at a band's or span's colour and opacity. The
+  entries form an untitled legend after the mapped scales' legends, in layer
+  order. Layers that share a label share one entry, drawn like their line (else
+  their point).
+  - `color=:ink` entries follow the page's light or dark ink.
+  - In a faceted figure the labels share one legend, drawn like the first
+    label's mark, each entry with its own dash or opacity, and it comes in layer
+    order. Separate legends would repeat in every panel.
+  - The readout names a labelled layer's series by its label (`Observed: 118.6`)
+    where it used the y title.
+  - A text layer gets no entry. A label whose entry would use a channel that a
+    mapping already uses (`linestyle` or `alpha` mapped to a column) gets none,
+    with a warning.
+  - Before, AoV ignored `label` with a warning ("no Vega-Lite mark
+    counterpart"). `sdraw` already passed it to AlgebraOfGraphics, which draws
+    its own legend.
+
 ## 0.2.43
 
 - **Interval and ribbon tooltips** (`pointinterval`, `gradient_interval`,
