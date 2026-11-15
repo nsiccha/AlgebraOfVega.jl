@@ -1,10 +1,11 @@
 name = "AlgebraOfVega"
 uuid = "a2420894-485a-4f42-a4fc-c4323ec6fb2b"
 authors = ["Nikolas Siccha <nikolassiccha@gmail.com>"]
-version = "0.2.40"
+version = "0.2.41"
 
 [deps]
 AlgebraOfGraphics = "cbdf2221-f076-402e-a563-3d30da359d67"
+Base64 = "2a0f44e3-6c83-55bd-87e4-b1978d98bd5f"
 Dates = "ade2ca70-3891-5945-98fb-dc099432e06a"
 Downloads = "f43a241f-c20a-4ad4-852c-f6b1247861c6"
 DynamicObjects = "23d02862-63fe-4c6e-8fdb-1d52cbbd39d5"
@@ -23,12 +24,11 @@ AlgebraOfVegaHTMXObjectsExt = "HTMXObjects"
 [compat]
 TestItemRunner = "1"
 HTMX = "1"
-HTMXObjects = "0.1.1"
+HTMXObjects = "0.1.121"
 JSON = "1"
 julia = "1"
 
 [extras]
-Base64 = "2a0f44e3-6c83-55bd-87e4-b1978d98bd5f"
 FillArrays = "1a297f60-69ca-5386-bcde-b61e274b549b"
 HTMXObjects = "b12ef442-5798-4353-80f3-9562b03a0cb6"
 SHA = "ea8e919c-243c-51af-8825-aaa63cd721ce"
@@ -41,4 +41,4 @@ url = "https://github.com/nsiccha/HTMXObjects.jl"
 rev = "devibe"
 
 [targets]
-test = ["Test", "TestItemRunner", "FillArrays", "SHA", "Base64", "Sockets"]
+test = ["Test", "TestItemRunner", "FillArrays", "SHA", "Sockets"]

@@ -439,7 +439,11 @@ end
 function _auto_remap_parts(plot_id, spec; texts::PlotTexts=_EN_PLOT_TEXTS, kwargs...)
     (; resolved, new_spec, vl) = _auto_remap_lowering(spec; kwargs...)
     controls = isempty(resolved.dims) ? "" : mapping_controls(plot_id, resolved; spec=new_spec, texts)
-    plot = to_node(vl; id=plot_id)
+    # A report draws what `vsave(spec, path; auto_remap)` writes: the picker's
+    # starting figure, without the browser's interactivity.
+    remap = (; kwargs...)
+    plot = _to_node(vl, _FigureSource(() -> _with_rows_inline(() -> to_vegalite(spec; interactive=false, auto_remap=remap)));
+        id=plot_id)
     (controls, plot, vl)
 end
 

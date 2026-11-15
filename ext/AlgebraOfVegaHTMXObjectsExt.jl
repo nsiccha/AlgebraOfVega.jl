@@ -12,7 +12,8 @@ import AlgebraOfVega: with_plot_caption, draws_summary_table, _sanitize_id,
                       _summary_meta, _auto_remap_parts, to_node, to_html,
                       VegaSpec, caption_share_button, _vl_json,
                       PlotTexts, _EN_PLOT_TEXTS, _plot_text, _runtime_texts_attrs,
-                      _static_img, _MarkdownView, cell_charts, CellColumn,
+                      _static_img, _MarkdownView, _ReportImage, _figure_sources,
+                      cell_charts, CellColumn,
                       _cell_column, _wire_spec, _vl_safe, _inline_script
 
 # HTMX 1.0 escapes attribute values itself (`&`, `"`, `'`, `<`, `>`), and the
@@ -88,17 +89,19 @@ who don't want that should not set the VL title.
   [`plot_texts`](@ref)). The caption's own title, summary and long text are
   `caption`'s. A non-English "More" needs HTMXObjects' `caption_texts`
   (HTMXObjects `d344dfd` or later).
-- `static_image=nothing`: the figure's image for a report built from the
-  page's markdown view, such as an accessible (PDF/UA) PDF. With it, the
-  markdown view shows the caption and `<img src=static_image alt=…>` in place
-  of the plot, so the report gets the figure with its alt text. The browser
-  (HTML) view is unchanged. AoV does not write the image: render it first
-  (`sdraw_file`, or any other renderer). It is the `src` as given, so it must
-  resolve where the markdown is rendered: a path relative to the report, an
-  absolute path, a URL or a `data:` URI.
+- `static_image=nothing`: the figure's image in a report built from the page's
+  markdown, such as HTMXObjects' accessible (PDF/UA) `pdf_report`. By default
+  (`nothing`) a report's markdown shows the caption and the figure itself, as
+  `<img src="data:image/svg+xml;base64,…" alt=…>`: the SVG that
+  `vsave(spec, "x.svg")` writes, rendered by the vl-convert tool while the
+  report is written. An ordinary markdown read (`?plain`) keeps the plot's
+  `PlotSummary` and renders nothing. A path, URL or `data:` URI shows that
+  image instead, in every markdown view; it is the `src` as given, so it must
+  resolve where the markdown is rendered. `false` keeps the `PlotSummary` in
+  a report too. The browser (HTML) view is the same in every case.
 - `alt=nothing`: the image's alt text, a description of what the figure shows.
-  Defaults to the caption's title and short summary, joined by `" — "`. Needs
-  `static_image`.
+  Defaults to the caption's title and short summary, joined by `" — "`. A
+  report of a figure whose caption has no title needs it.
 """
 function with_plot_caption(plot_node, caption::CaptionSpec;
                             plot_id::AbstractString,
@@ -113,7 +116,7 @@ function with_plot_caption(plot_node, caption::CaptionSpec;
                             extra_actions=(),
                             summary_table=nothing,
                             texts::PlotTexts=_EN_PLOT_TEXTS,
-                            static_image::Union{Nothing,AbstractString}=nothing,
+                            static_image::Union{Nothing,Bool,AbstractString}=nothing,
                             alt::Union{Nothing,AbstractString}=nothing)
     plot_id = _sanitize_id(plot_id)
     fname = something(filename_base, plot_id)
@@ -220,20 +223,54 @@ _caption_texts_kw(texts::PlotTexts) = texts.more == _EN_PLOT_TEXTS.more ? (;) :
 _figure_children(plot_node) = (plot_node,)
 _figure_children(plot_node::Tuple) = plot_node
 
-# With a static image, the plot is HTML-only and the markdown view shows the
-# image with its alt text instead (an accessible PDF report is built from it).
-_report_children(plot_node, caption, ::Nothing, ::Nothing) = _figure_children(plot_node)
-_report_children(plot_node, caption, ::Nothing, alt) = throw(ArgumentError(
-    "with_plot_caption: `alt` is the alt text of `static_image`; pass the figure's static image too"))
-_report_children(plot_node, caption, static_image, alt) =
+# What the figure shows in each view (snag `plot-markdown-st-242cdfc9`, design
+# decision `0wwdtwg`, option 1):
+# - by default the plot in the browser and its `PlotSummary` in an ordinary
+#   markdown read, while a report's markdown (HTMXObjects' `pdf_report`) shows
+#   the figure itself as an SVG image with alt text, rendered as `vsave` renders
+#   it when the report is written;
+# - with a static image, the plot in the browser and the image in every
+#   markdown view;
+# - with `static_image=false`, the plot and its `PlotSummary` everywhere.
+function _report_children(plot_node, caption, ::Nothing, alt)
+    children = _figure_children(plot_node)
+    sources = _figure_sources(children)
+    if isempty(sources)
+        isnothing(alt) || throw(ArgumentError(
+            "with_plot_caption: `alt` describes the image of the figure in a report, and this " *
+            "node holds no AlgebraOfVega plot to draw one from; pass the figure's `static_image`"))
+        return children
+    end
+    alt = _report_alt(caption, alt)
+    images = [_ReportImage(s, alt) for s in sources]
+    report = length(images) == 1 ? only(images) : h.div(images...)
+    (report_view(first(children), report), (report_view(c, nothing) for c in children[2:end])...)
+end
+_report_children(plot_node, caption, static_image::AbstractString, alt) =
     (map(html_only, _figure_children(plot_node))...,
      _MarkdownView(_static_img(static_image, _figure_alt(caption, alt))))
+function _report_children(plot_node, caption, static_image::Bool, alt)
+    static_image && throw(ArgumentError(
+        "with_plot_caption: `static_image` is an image's path, URL or data: URI, or `false` to keep " *
+        "the summary table in a report; leave it out to show the figure itself"))
+    isnothing(alt) || throw(ArgumentError(
+        "with_plot_caption: `alt` is the alt text of the figure's image, and `static_image=false` shows none"))
+    _figure_children(plot_node)
+end
 
 # A report figure is never decorative, so its alt text must say something.
-_figure_alt(caption, ::Nothing) = _figure_alt(caption,
-    isempty(caption.short) ? caption.title : caption.title * " — " * caption.short)
+_figure_alt(caption, ::Nothing) = _figure_alt(caption, _caption_alt(caption))
 _figure_alt(caption, alt::AbstractString) = isempty(strip(alt)) ? throw(ArgumentError(
     "with_plot_caption: the static image's alt text is empty; pass `alt` describing what the figure shows")) : alt
+_caption_alt(caption) = isempty(caption.short) ? caption.title : caption.title * " — " * caption.short
+
+# The alt text of the figure's own image in a report. A caption without a title
+# leaves it `nothing`, which fails when a report draws the figure, naming `alt`,
+# so a page that never becomes a report is not refused for it.
+_report_alt(caption, ::Nothing) = let a = _caption_alt(caption)
+    isempty(strip(a)) ? nothing : a
+end
+_report_alt(caption, alt::AbstractString) = _figure_alt(caption, alt)
 
 # Convenience: also accept a NamedTuple/kwargs form so callers don't need to
 # import CaptionSpec just to label one plot.
@@ -268,9 +305,10 @@ band, typically 95%), `:inner` (narrowest), or a `Float64` like `0.8` (closest
 prob match — auto path only). `summary_sigfigs` rounds cells to N significant
 figures (default 2).
 
-`static_image` (with optional `alt`) puts the figure's image into the
-markdown view in place of the plot, as in the `plot_node` method; the channel
-picker is then left out of the markdown view too.
+`static_image` and `alt` work as in the `plot_node` method; a report draws a
+picker figure as `vsave(spec, path; auto_remap)` writes it. The channel picker
+is left out of a report's markdown, and of every markdown view when
+`static_image` names an image.
 
 Remaining `kwargs` are forwarded to the `plot_node` method.
 """
@@ -281,7 +319,7 @@ function with_plot_caption(spec::VegaSpec, caption::CaptionSpec;
                             summary_ci=:outer,
                             summary_sigfigs::Int=2,
                             texts::PlotTexts=_EN_PLOT_TEXTS,
-                            static_image::Union{Nothing,AbstractString}=nothing,
+                            static_image::Union{Nothing,Bool,AbstractString}=nothing,
                             kwargs...)
     plot_id_s = _sanitize_id(plot_id)
 
@@ -323,10 +361,12 @@ function with_plot_caption(spec::VegaSpec, caption::CaptionSpec;
         h.div(; data_aov_fragment=plot_id_s)(_report_controls(controls, static_image), figure)
 end
 
-# The picker's labels and options are noise in a report built from the
-# markdown view of a figure that has a static image.
-_report_controls(controls, ::Nothing) = controls
-_report_controls(controls, _) = html_only(controls)
+# The picker's labels and options are noise in a report: left out of every
+# markdown view of a figure with a static image, and of a report's markdown
+# when the report draws the figure itself.
+_report_controls(controls, ::Nothing) = report_view(controls, nothing)
+_report_controls(controls, ::AbstractString) = html_only(controls)
+_report_controls(controls, ::Bool) = controls
 
 with_plot_caption(spec::VegaSpec; title, short="", long=nothing, kwargs...) =
     with_plot_caption(spec, CaptionSpec(; title, short, long); kwargs...)

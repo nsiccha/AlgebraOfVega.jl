@@ -15,6 +15,28 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
+## 0.2.41
+
+- A report built from a page's markdown draws each captioned figure itself.
+  In HTMXObjects' `pdf_report(value, …)`, `dispatch(…; report=true)` and
+  `to_markdown_string(x; report=true)`, `with_plot_caption` shows the caption
+  and `<img src="data:image/svg+xml;base64,…" alt=…>`: the SVG that
+  `vsave(spec, "x.svg")` writes (with the picker's `auto_remap` for a picker
+  figure), rendered by the vl-convert tool while the report is written. Its
+  alt text is the caption's title and short summary, or `alt`. The channel
+  picker and the `PlotSummary` table are left out of the report. Before, a
+  report showed the `PlotSummary` table unless the caller rendered each figure
+  with `vsave` and passed it as `static_image`.
+- Ordinary markdown reads (`?plain`, `?markdown`, `to_markdown_string(x)`) and
+  the browser are unchanged, and render no image.
+- `static_image=false` keeps the `PlotSummary` table in a report; a path, URL
+  or `data:` URI is shown as before. `alt` no longer needs `static_image`.
+  `static_image=true`, and `alt` with `static_image=false` or with a node
+  that holds no AlgebraOfVega plot, are an `ArgumentError`. A report of a
+  figure whose caption has no title is an `ArgumentError` naming `alt`.
+- Needs HTMXObjects 0.1.121 (`report_view`, `page_report`), now the
+  `[compat]` floor. `Base64` is a dependency.
+
 ## 0.2.40
 
 - AoV's own look defaults, so a figure gets a quieter page look with no
