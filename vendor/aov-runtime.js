@@ -1024,6 +1024,7 @@ window.AoV = window.AoV || {
         self._watchSettles();
         self._watchTheme();
         self._watchLinks();
+        self._watchBound();
         // Live state (rows added via updateData/appendData, onSignal listeners) belongs
         // to the plot element: a new element with this ID (e.g. after an HTMX swap)
         // starts fresh, a new spec for the same element keeps the listeners.
@@ -3736,6 +3737,25 @@ window.AoV = window.AoV || {
     _joinLinkState: function(id) {
         var link = this._link(id), st = link && this._linkState[link.group];
         if (st && st.keys.length && st.source !== this._els[id]) this._showLinkKeys(id, link, st.keys);
+    },
+    // --- Rows a page computes in the browser ---
+    // An HTMXObjects `semantic_app` page that computes a property in the
+    // browser raises `htmxo:bound-columns` on each element showing rows of it
+    // (`bound(p; columns)`), with the new columns. `to_node` marks a plot drawn
+    // from such rows on its `.aov-plot-area`, the element that holds the plot
+    // and its embed script (so a static export reads the embedded rows as
+    // bound): `data-aov-bound-for` names the plot, the marker its dataset. The
+    // columns replace that dataset, as `updateData` does.
+    _watchBound: function() {
+        if (this._boundListener) return;
+        var self = this;
+        this._boundListener = function(e) {
+            var area = e.target, id = area && area.getAttribute && area.getAttribute('data-aov-bound-for');
+            if (!id) return;
+            var marker = JSON.parse(area.getAttribute('data-htmxo-bound-columns') || '{}'), d = e.detail || {};
+            self.updateData(id, {n: d.n, columns: d.columns}, marker.dataset);
+        };
+        document.addEventListener('htmxo:bound-columns', this._boundListener);
     },
     _watchLinks: function() {
         if (this._linkListener) return;

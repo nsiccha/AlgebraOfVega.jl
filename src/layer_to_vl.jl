@@ -723,9 +723,16 @@ end
 # every layer draws the same address, that address is the facet's data and the
 # layers inherit it (returned here); when the layers draw an address and
 # anything else, the figure is refused. `nothing`: no layer reads an address.
+#
+# Rows a page computes in the browser (`bound(p; columns)`, `bound_columns.jl`)
+# are likewise not merged when every layer draws them: the merged rows would
+# carry a `__src` the browser's columns lack. The shared dataset is the
+# facet's data, as an address is.
 _url_data(d) = d isa AbstractDict && haskey(d, "url") && !haskey(d, "values")
+_bound_data(d) = d isa AbstractDict && !isnothing(_bound_record(get(d, "values", nothing)))
 function _facet_address(shared_data, layer_specs)
     datasets = Any[get(ls, "data", shared_data) for ls in layer_specs]
+    _bound_data(shared_data) && all(d -> d === shared_data, datasets) && return shared_data
     any(_url_data, datasets) || return nothing
     first_url = datasets[findfirst(_url_data, datasets)]
     all(d -> _url_data(d) && d == first_url, datasets) && return first_url

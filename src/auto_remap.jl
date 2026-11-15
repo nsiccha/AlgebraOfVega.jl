@@ -294,7 +294,7 @@ _visual_static_channels(_) = Set{Symbol}()
 # split the layer cannot group by only multiplies its rows. Returns
 # `(new_layer, keep_color_field)` where `keep_color_field` is `nothing`
 # unless the layer has a preserved, non-remappable color field.
-function _rebuild_layer(layer, new_df, resolved, dim_fields::Set{String})
+function _rebuild_layer(layer, new_df, resolved, dim_fields::Set{String}; source=new_df)
     # Detect layer-fixed color: `color=` on a field outside `dim_fields`.
     # Such layers keep their original color encoding and skip resolved.color_kw.
     keep_color_field = nothing
@@ -355,7 +355,7 @@ function _rebuild_layer(layer, new_df, resolved, dim_fields::Set{String})
     # Compose a fresh layer using AoG operators (so .data, .positional, .named
     # are constructed in the AoG-native shapes), then swap in the patched
     # transformation.
-    composed = AlgebraOfGraphics.data(new_df) *
+    composed = AlgebraOfGraphics.data(source) *
         AlgebraOfGraphics.mapping(layer.positional...; new_named...)
     new_layer = AlgebraOfGraphics.Layer(new_t, composed.data, composed.positional, composed.named)
     (new_layer, keep_color_field)
@@ -439,7 +439,7 @@ end
 function _auto_remap_parts(plot_id, spec; texts::PlotTexts=_EN_PLOT_TEXTS, kwargs...)
     (; resolved, new_spec, vl) = _auto_remap_lowering(spec; kwargs...)
     controls = isempty(resolved.dims) ? "" : mapping_controls(plot_id, resolved; spec=new_spec, texts)
-    plot = to_node(vl; id=plot_id)
+    plot = _plot_node(vl, _bound_tables(spec); id=plot_id)
     (controls, plot, vl)
 end
 
@@ -544,7 +544,13 @@ function _auto_remap_lowering(spec; dims, fixed=Dict(), pinned::Symbol=:row,
     bcasted = [_broadcast_missing_fields(df, facet_bcast, field_uniques) for df in dfs]
     new_dfs = [_with_combos(df, resolved) for df in bcasted]
 
-    rebuilt = [_rebuild_layer(layer, new_df, resolved, dim_fields) for (layer, new_df) in zip(layers, new_dfs)]
+    # A table the page computes in the browser (`bound(p; columns)`) that the
+    # picker left as it was is drawn as itself, so `to_node` marks the plot;
+    # rows given combined or broadcast columns are the picker's, not the
+    # browser's, and such a figure is refused at render (`_bound_dataset`).
+    rebuilt = [_rebuild_layer(layer, new_df, resolved, dim_fields;
+                   source=new_df === df && !isnothing(_bound_binding(raw)) ? raw : new_df)
+               for (layer, raw, df, new_df) in zip(layers, raw_dfs, dfs, new_dfs)]
     new_layers = [r[1] for r in rebuilt]
     keep_color_fields = Set{String}(r[2] for r in rebuilt if !isnothing(r[2]))
     new_drawable = reduce(+, new_layers)

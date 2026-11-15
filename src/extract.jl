@@ -149,6 +149,7 @@ function data_to_vl(table)
         Dict{String,Any}(string(k) => _vl_safe(v) for (k, v) in pairs(nt))
         for nt in rows
     ]
+    _note_bound_rows!(vals, table)
     Dict{String,Any}("values" => vals)
 end
 
