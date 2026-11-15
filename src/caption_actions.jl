@@ -95,10 +95,14 @@ function caption_share_button(url::AbstractString; texts::PlotTexts=_EN_PLOT_TEX
     clean = clean_share_url(url)
     lab = _js_squote(label)
     copied = _js_squote(texts.copied)
+    # An inline `onclick` looks names up on the element, its form and the
+    # document before the window, so a bare `URL` is the string `document.URL`
+    # and `new URL(...)` threw "URL is not a constructor" (snag
+    # `caption-share-ur-6256f7c2`). Hence `window.URL`.
     h.button(label;
         type="button", class="outline caption-action",
         data_url=clean,
-        onclick="var b=this;var full=new URL(b.dataset.url,window.location.href).href;" *
+        onclick="var b=this;var full=new window.URL(b.dataset.url,window.location.href).href;" *
                 "navigator.clipboard.writeText(full).then(function(){b.textContent='$(copied)';" *
                 "setTimeout(function(){b.textContent='$(lab)'},1500);});")
 end
