@@ -44,7 +44,7 @@ _ci_str(s) = s
                       layer_labels=nothing,
                       extra_actions=(),
                       texts=plot_texts(),
-                      static_image=nothing, alt=nothing)
+                      static_image=nothing, alt=nothing, id=nothing)
 
 Wrap `plot_node` (the result of `to_node(spec; id=plot_id)` or
 `auto_remap_node(plot_id, spec; ...)`) in a `<figure>` with a caption header.
@@ -111,6 +111,12 @@ who don't want that should not set the VL title.
   Defaults to the caption's title and short summary, joined by `" — "` when
   both are set, or whichever of them is set. A report of a figure whose caption
   has neither needs it.
+- `id=nothing`: the `<figure>`'s id, as in HTMXObjects' `with_caption`. In a
+  `numbered` document the caption reads "Figure 3: …" and `ref(id)` cites the
+  figure by that number, on the page, in the Markdown and in a `pdf_report`
+  PDF. An id starting with `fig-` (`id="fig-posterior"`) is also the figure's
+  label for Quarto. `plot_id` stays the id of the plot inside the figure, so
+  the two must differ.
 """
 function with_plot_caption(plot_node, caption::CaptionSpec;
                             plot_id::AbstractString,
@@ -126,8 +132,15 @@ function with_plot_caption(plot_node, caption::CaptionSpec;
                             summary_table=nothing,
                             texts::PlotTexts=_EN_PLOT_TEXTS,
                             static_image::Union{Nothing,Bool,AbstractString}=nothing,
-                            alt::Union{Nothing,AbstractString}=nothing)
+                            alt::Union{Nothing,AbstractString}=nothing,
+                            id::Union{Nothing,AbstractString}=nothing)
     plot_id = _sanitize_id(plot_id)
+    # The figure encloses the plot, so a figure with the plot's id is the
+    # element `document.getElementById(plot_id)` finds, and the downloads and
+    # the data preview would read the figure instead of the plot.
+    id == plot_id && throw(ArgumentError(
+        "with_plot_caption: `id` is the figure's id, which `ref` cites, and `plot_id` is the id of " *
+        "the plot inside it; give the figure another id, such as id=\"fig-$(plot_id)\""))
     fname = something(filename_base, plot_id)
     labels_js = isnothing(layer_labels) ? "{}" : _vl_json(Dict(string(k) => string(v) for (k, v) in layer_labels))
 
@@ -140,7 +153,7 @@ function with_plot_caption(plot_node, caption::CaptionSpec;
         push!(actions, caption_share_button(share_url; texts))
     end
 
-    body = Any[render_caption(caption; actions=tuple(actions...), _caption_texts_kw(texts)...),
+    body = Any[render_caption(caption; actions=tuple(actions...), id, _caption_texts_kw(texts)...),
                _report_children(plot_node, caption, static_image, alt)...]
 
     has_pretty = !isnothing(summary_table)
@@ -187,8 +200,10 @@ function with_plot_caption(plot_node, caption::CaptionSpec;
         end
     end
     # The figure carries non-English `texts` for the runtime, which writes the
-    # preview contents and the HTML download's `lang` and title.
-    h.figure(; class="captioned", _runtime_texts_attrs(texts)...)(body...)
+    # preview contents and the HTML download's `lang` and title. Without `id`
+    # the figure has no id attribute, as before.
+    fig_attrs = isnothing(id) ? (; class="captioned") : (; class="captioned", id)
+    h.figure(; fig_attrs..., _runtime_texts_attrs(texts)...)(body...)
 end
 
 # A figure's downloads in row order, each its button's words and its action.
@@ -320,6 +335,9 @@ builds the plot internally, and can:
 band, typically 95%), `:inner` (narrowest), or a `Float64` like `0.8` (closest
 prob match — auto path only). `summary_sigfigs` rounds cells to N significant
 figures (default 2).
+
+`id` gives the `<figure>` the id `ref` cites in a `numbered` document, as in
+the `plot_node` method; with `auto_remap` the picker stays outside that figure.
 
 `static_image` and `alt` work as in the `plot_node` method; a report draws a
 picker figure as `vsave(spec, path; auto_remap)` writes it. The channel picker

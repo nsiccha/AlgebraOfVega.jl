@@ -15,6 +15,22 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
+## 0.2.51
+
+- **A captioned plot can be cited by its number: `with_plot_caption(…; id)`.**
+  Both forms (spec and pre-rendered node) and `to_html(spec, caption; …)` take
+  `id`, the `<figure>`'s id, as HTMXObjects' `with_caption` does. In a
+  `numbered(…)` document the caption reads "Figure 1: …" and `ref(id)` reads as
+  a link "Figure 1" to the figure, on the page, in the Markdown and in a
+  `pdf_report` PDF:
+  `numbered(h.p("See ", ref("fig-posterior"), "."), with_plot_caption(spec, "Posterior"; plot_id="posterior", id="fig-posterior"))`.
+  Before, the caption was numbered but carried no id, so `ref` threw
+  `ArgumentError: ref: nothing numbered in this document has the id …`.
+  `plot_id` stays the id of the plot inside the figure; an `id` equal to it is
+  an `ArgumentError`. Without `id` the output is unchanged.
+- `[compat]` states HTMXObjects' floor, `0.1.129`, the first version with
+  `numbered`, `ref` and `render_caption(…; id)`.
+
 ## 0.2.50
 
 - **A plot follows every `bound(p; columns)` table it draws.** A figure may now
