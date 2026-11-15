@@ -493,6 +493,64 @@ function _apply_tick_cap!(spec::Dict)
     end
     spec
 end
+# A tooltip's date-time keeps its time of day. Vega-Lite writes a temporal
+# tooltip with `config.timeFormat` (default `%b %d, %Y`), which drops it, so an
+# hourly series read `Mar 15, 2026` at every point. A temporal tooltip field whose
+# rows hold a time other than midnight gets that format plus ` %H:%M` (` %H:%M:%S`
+# with seconds); a date-only field and an authored `format` are left alone.
+_apply_tooltip_time!(spec) = spec
+function _apply_tooltip_time!(spec::Dict)
+    cfg = get(spec, "config", nothing)
+    base = cfg isa Dict && get(cfg, "timeFormat", nothing) isa AbstractString ? cfg["timeFormat"] : "%b %d, %Y"
+    _each_unit_rows(spec) do unit, rows
+        enc = get(unit, "encoding", nothing)
+        tt = enc isa Dict ? get(enc, "tooltip", nothing) : nothing
+        (tt isa AbstractVector && rows isa AbstractVector) || return
+        for e in tt
+            e isa Dict && get(e, "type", nothing) == "temporal" && !haskey(e, "format") || continue
+            f = get(e, "field", nothing)
+            f isa AbstractString || continue
+            res = _time_resolution(rows, f)
+            res === :minutes && (e["format"] = base * " %H:%M")
+            res === :seconds && (e["format"] = base * " %H:%M:%S")
+        end
+    end
+    spec
+end
+# :seconds, :minutes or :date: the finest time of day the rows' `f` values hold.
+function _time_resolution(rows, f)
+    res = :date
+    for r in rows
+        v = r isa AbstractDict ? get(r, f, nothing) : nothing
+        h, m, s = if v isa Dates.DateTime
+            Dates.hour(v), Dates.minute(v), Dates.second(v) + Dates.millisecond(v)
+        elseif v isa AbstractString && (i = findfirst('T', v); !isnothing(i))
+            p = split(v[nextind(v, i):end], r"[:.]")
+            n(k) = length(p) >= k ? something(tryparse(Int, first(p[k], 2)), 0) : 0
+            n(1), n(2), n(3) + (length(p) >= 4 ? something(tryparse(Int, p[4]), 0) : 0)
+        else
+            continue
+        end
+        s > 0 && return :seconds
+        (h > 0 || m > 0) && (res = :minutes)
+    end
+    res
+end
+# Each unit (a node with a `mark`) of a spec tree with the rows it reads: its own
+# inline `data.values`, else the nearest ancestor's (`nothing` for rows read
+# from an address).
+_each_unit_rows(f, node, rows=nothing) = nothing
+function _each_unit_rows(f, node::Dict, rows=nothing)
+    data = get(node, "data", nothing)
+    data isa Dict && (rows = get(data, "values", nothing) isa AbstractVector ? data["values"] : nothing)
+    haskey(node, "mark") && f(node, rows)
+    for key in ("layer", "hconcat", "vconcat", "concat")
+        subs = get(node, key, nothing)
+        subs isa AbstractVector && foreach(s -> _each_unit_rows(f, s, rows), subs)
+    end
+    _each_unit_rows(f, get(node, "spec", nothing), rows)
+    nothing
+end
 _is_log_scale(s::Dict) = get(s, "type", nothing) == "log"
 _is_log_scale(_) = false
 _field_of(d::Dict) = get(d, "field", nothing)
@@ -2344,8 +2402,9 @@ _finish_vegalite!(spec, v) = _record_summary!(
     _each_ribbon_view!(_apply_axis_defaults!, _finish_ribbon_views!(_each_ribbon_view!(_apply_finish_defaults!, spec))), v)
 # Log tick values and tick counts, again once a ribbon's interval drawing is
 # built (it gets x encodings of its own); both passes keep what is set.
-_apply_axis_defaults!(spec) = _apply_tick_cap!(_apply_log_ticks!(spec))
-_apply_finish_defaults!(spec) = _apply_ink_paint!(_fit_gradient_labels!(_one_colour_bar!(_heatmap_seams!(_apply_tick_cap!(_apply_log_ticks!(_apply_log_bar_base!(_apply_no_zero_default!(_apply_wrap_default!(spec)))))))))
+_apply_axis_defaults!(spec) = _apply_tooltip_time!(_apply_tick_cap!(_apply_log_ticks!(spec)))
+_apply_finish_defaults!(spec) = _apply_tooltip_time!(_apply_finish_defaults_inner!(spec))
+_apply_finish_defaults_inner!(spec) = _apply_ink_paint!(_fit_gradient_labels!(_one_colour_bar!(_heatmap_seams!(_apply_tick_cap!(_apply_log_ticks!(_apply_log_bar_base!(_apply_no_zero_default!(_apply_wrap_default!(spec)))))))))
 
 # Half a legend label's width. Vega expressions cannot measure text, so it counts
 # characters at 0.54 em each: about Arial's digits (0.556 em), and wide for `.`, `,`

@@ -15,6 +15,28 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
+## 0.2.43
+
+- **Interval and ribbon tooltips** (`pointinterval`, `gradient_interval`,
+  `dotinterval`, `lineribbon`, `ribbon`, their `bands=` forms and a ribbon's
+  interval drawing) show the estimate with its widest interval as one row:
+  `Level (cm): median (95% interval)` reads `139.2 (134.8–144.4)`.
+  - All three numbers are rounded at the second significant digit of the
+    interval's width, as HTMXObjects' `IntervalEstimate` cells and the readout
+    round them, in the plot's number locale: `locale_config(:de)` gives
+    `139,2 (134,8–144,4)`.
+  - A bound below zero is set off by a spaced dash: `−0.2 (−0.9 – 0.4)`.
+  - With `bands=` the title names the columns: `Level (cm): q50 (q025–q975)`.
+  - The row's field is `__aov_estimate`, a `calculate` on each layer that shows
+    the tooltip, so it follows the rows after `update_data`.
+  - Before, these tooltips listed `median`, `q025` and `q975` (or `95% lo` and
+    `95% hi`) in separate rows, unrounded: `125.057600736`.
+- **A temporal tooltip keeps its time of day** when the rows hold one. The
+  field is written with `config.timeFormat` (Vega-Lite's default is
+  `%b %d, %Y`) plus ` %H:%M`, or ` %H:%M:%S` with seconds. A date-only field
+  and an authored `format` are unchanged. Before, an hourly series read
+  `Mar 15, 2026` at every point.
+
 ## 0.2.42
 
 - A data change that makes a plot's axis labels a few pixels wider or
