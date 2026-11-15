@@ -426,13 +426,17 @@ function _wrap_with_facet!(spec, facet)
 end
 
 """Add tooltip encoding to each sublayer in `layers`, built from the given fields."""
-function _add_analysis_tooltips!(layers::Vector{Dict{String,Any}}, tooltip_fields::Vector{Dict{String,Any}})
+# `estimate = (point, lo, hi)` also gives each layer that takes the tooltip the
+# calculated `median (lo–hi)` text its estimate row shows (`_push_estimate!`).
+function _add_analysis_tooltips!(layers::Vector{Dict{String,Any}}, tooltip_fields::Vector{Dict{String,Any}};
+        estimate=nothing)
     isempty(tooltip_fields) && return
     for sl in layers
         enc = get(sl, "encoding", nothing)
         isnothing(enc) && continue
         haskey(enc, "tooltip") && continue
         enc["tooltip"] = copy(tooltip_fields)
+        isnothing(estimate) || _push_estimate!(sl, estimate...)
     end
 end
 

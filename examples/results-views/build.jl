@@ -149,20 +149,20 @@ forest() = (
     data(IR) * mapping(:q50 => "Change (%/yr)"; y=:site => "Site", color=:what => "", row=:region => sorter(REGIONS) => "") *
         pointinterval(bands=BANDS) +
     data(IR) * mapping(:truth => "True value", :site => "Site"; row=:region => sorter(REGIONS) => "") *
-        visual(Scatter; color=:ink, shape="M0,-1L0,1", strokeWidth=2, filled=false, markersize=14)
+        visual(Scatter; color=:ink, shape="M0,-1L0,1", strokeWidth=2, filled=false, markersize=14, label="True value")
 ) * LOOK * config(height=110, facet=(; linkyaxes=:none), link=(; group="sites", key=:site))
 
 # 2. The forecast figure and its precipitation panel.
 const TIME_X = config(axis=(; limits=((FR.start, FR.stop), nothing)))
 forecast() = (
     data([(; from=FR.issue, to=FR.stop)]) * mapping(:from, :to) * visual(VSpan; color=:ink, alpha=0.06) +
-    data([(; t=FR.issue)]) * mapping(:t) * visual(VLines; color=:ink, linestyle=:dash) +
+    data([(; t=FR.issue)]) * mapping(:t) * visual(VLines; color=:ink, linestyle=:dash, label="Issue time") +
     data([(; t=FR.issue, y=maximum(r.q975 for r in FR.fc), text="Forecast issued")]) * mapping(:t, :y; text=:text) *
         visual(Makie.Text; align=(:left, :bottom), offset=(4, 0), fontsize=11, color=:ink) +
     data(FR.fc) * mapping(:t => "Time (UTC)", :q50 => "Water level (cm)"; color=:scenario => "Forecast") *
         lineribbon(bands=BANDS) +
     data(FR.obs) * mapping(:t => "Time (UTC)", :level => "Water level (cm)") *
-        (visual(Lines; color=:ink, linewidth=1) + visual(Scatter; color=:ink, markersize=5))
+        (visual(Lines; color=:ink, linewidth=1, label="Observed") + visual(Scatter; color=:ink, markersize=5, label="Observed"))
 ) * LOOK * TIME_X * config(height=300, link=(; group="hours", key=:t))
 
 precipitation() = (
@@ -174,7 +174,7 @@ precipitation() = (
 const NOISE = sorter(["Low noise", "Medium noise", "High noise"]) => ""
 comparison() = (
     data(CR.reference) * mapping(:n => "Sample size", :bound => "Estimation error (RMSE)"; col=:noise => NOISE) *
-        visual(Lines; color=:ink, linestyle=:dash, linewidth=1.5) +
+        visual(Lines; color=:ink, linestyle=:dash, linewidth=1.5, label="Theoretical bound") +
     data(CR.runs) * mapping(:n => "Sample size", :rmse => "Estimation error (RMSE)"; color=:method => "Method", col=:noise => NOISE) *
         visual(Scatter; markersize=4, alpha=0.35) +
     data(CR.summary) * mapping(:n => "Sample size", :q50 => "Estimation error (RMSE)"; color=:method => "Method", col=:noise => NOISE) *

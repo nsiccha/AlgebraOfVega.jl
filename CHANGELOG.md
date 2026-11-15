@@ -15,7 +15,7 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
-## 0.2.42
+## 0.2.47
 
 - A captioned figure's default alt text leaves out a blank caption tier with
   its `" — "`: a caption of a summary alone, `CaptionSpec(; title="", short=text)`,
@@ -24,6 +24,102 @@ failing at run time with a `MethodError`.
   report of a summary-only figure was written with alt text that starts with a
   dash. Only a caption with neither a title nor a summary needs `alt`; a report
   of that figure is an `ArgumentError` naming `alt`, as before.
+
+## 0.2.46
+
+- **A `cell_charts` column shows its shared x axis in the header.** When the
+  cells share a continuous x (a value or a time, as in a column of intervals
+  per row), the browser draws that axis once, at the bottom of the column's
+  header cell. It uses the cells' own scale (the shared domain after nice and
+  zero) and starts where their plot area starts, so a value's tick sits where
+  the cells draw it. It has about one label per 60 px, flush at both ends, in
+  the plot's look and host theme. The figure's own axis `values` or `format`
+  are kept.
+  - It is drawn on a canvas, so the header's text, which the table's sorting and
+    CSV export read, is unchanged; the header keeps room for it in its bottom
+    padding, below the sort caret.
+  - It is realigned when the totals, the fonts or the column width change, and
+    redrawn on a theme switch.
+  - A categorical x, or an x the figure unlinks (`config(facet=(; linkyaxes=…))`),
+    has no single axis and gets none. `cell_charts(…; axis=false)` leaves it out.
+  - Before, the cells compared rows on one scale but showed no values.
+
+## 0.2.45
+
+- A layer drawn from HTMXObjects' `bound(p; columns)`, inside an `@htmx` struct
+  whose property `p` a `semantic_app` page computes in the browser
+  (`@browser`), follows the browser: `to_node`, `vdraw` and `with_plot_caption`
+  mark the plot, and after each input change the page replaces the plot's rows
+  with the columns the browser computed, with no request. So `export_site`
+  exports a page whose AoV plots show browser-computed data, and the exported
+  page keeps following its inputs offline. This works for plain marks, the
+  analyses Vega-Lite computes, layers that draw the bound table beside other
+  rows, panels of one table (`col=`, `row=`, `layout=`) and the channel picker
+  when it leaves the rows as they are. A figure whose rows AoV computes from the
+  table in Julia (an interval or ribbon summary of raw draws, a faceted or
+  ridgeline `density()`, a faceted figure whose layers draw different tables,
+  the picker's combined columns) raises an `ArgumentError` naming
+  `update_spec`. Needs HTMXObjects 0.1.125.
+
+## 0.2.44
+
+- **`visual(...; label="Observed")`** gives a layer without a colour mapping a
+  legend entry, as in AlgebraOfGraphics. The entry is drawn in the layer's own
+  style: a stroke with the line's or rule's colour, dash and width, the point's
+  own symbol and colour, a square at a band's or span's colour and opacity. The
+  entries form an untitled legend after the mapped scales' legends, in layer
+  order. Layers that share a label share one entry, drawn like their line (else
+  their point).
+  - `color=:ink` entries follow the page's light or dark ink.
+  - In a faceted figure the labels share one legend, drawn like the first
+    label's mark, each entry with its own dash or opacity, and it comes in layer
+    order. Separate legends would repeat in every panel.
+  - The readout names a labelled layer's series by its label (`Observed: 118.6`)
+    where it used the y title.
+  - A text layer gets no entry. A label whose entry would use a channel that a
+    mapping already uses (`linestyle` or `alpha` mapped to a column) gets none,
+    with a warning.
+  - Before, AoV ignored `label` with a warning ("no Vega-Lite mark
+    counterpart"). `sdraw` already passed it to AlgebraOfGraphics, which draws
+    its own legend.
+
+## 0.2.43
+
+- **Interval and ribbon tooltips** (`pointinterval`, `gradient_interval`,
+  `dotinterval`, `lineribbon`, `ribbon`, their `bands=` forms and a ribbon's
+  interval drawing) show the estimate with its widest interval as one row:
+  `Level (cm): median (95% interval)` reads `139.2 (134.8–144.4)`.
+  - All three numbers are rounded at the second significant digit of the
+    interval's width, as HTMXObjects' `IntervalEstimate` cells and the readout
+    round them, in the plot's number locale: `locale_config(:de)` gives
+    `139,2 (134,8–144,4)`.
+  - A bound below zero is set off by a spaced dash: `−0.2 (−0.9 – 0.4)`.
+  - With `bands=` the title names the columns: `Level (cm): q50 (q025–q975)`.
+  - The row's field is `__aov_estimate`, a `calculate` on each layer that shows
+    the tooltip, so it follows the rows after `update_data`.
+  - Before, these tooltips listed `median`, `q025` and `q975` (or `95% lo` and
+    `95% hi`) in separate rows, unrounded: `125.057600736`.
+- **A temporal tooltip keeps its time of day** when the rows hold one. The
+  field is written with `config.timeFormat` (Vega-Lite's default is
+  `%b %d, %Y`) plus ` %H:%M`, or ` %H:%M:%S` with seconds. A date-only field
+  and an authored `format` are unchanged. Before, an hourly series read
+  `Mar 15, 2026` at every point.
+
+## 0.2.42
+
+- A data change that makes a plot's axis labels a few pixels wider or
+  narrower now resizes the mounted view instead of embedding the plot again.
+  `replace_data`, `remove_data`, `append_data` and `update_data` keep the
+  view, its canvas, its zoom and hover state, as documented. The plot's width
+  is corrected through its width signal (`width`, or a facet's
+  `child_width`), so the drawing still fits its column.
+- Before, a correction of more than 2 px re-embedded the plot. With the larger
+  axis labels of 0.2.40, removing one group of a pinned-colour Band + Lines
+  plot did that (y labels `-1 … 4` became `2.0 … 4.5`). The same happened
+  already before 0.2.40 to plots whose labels changed more, for example
+  removing a scenario from a faceted ribbon.
+- A wrap count, and a horizontal concatenation, are still corrected by a new
+  embed.
 
 ## 0.2.41
 

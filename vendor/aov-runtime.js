@@ -381,15 +381,41 @@ window.AoV = window.AoV || {
     // it was sized for (an empty first paint has no axis labels). Vega calls
     // a view's resize listeners when it resizes the canvas, which after the
     // embed only a relayout does, and the overshoot is corrected as a first
-    // paint's is, once for each data change that brings it.
+    // paint's is, once for each data change that brings it. A correction
+    // of the plot's width is applied to the mounted view (its width
+    // signal), so a data change keeps the view, its canvas and its zoom:
+    // a keyed removal whose axis labels come out a few pixels wider no
+    // longer rebuilds the plot. Only a wrap count, or a composition whose
+    // width has no single signal, re-embeds. The resize that in-place
+    // correction causes is checked as a corrected regime's, so the width
+    // can only keep shrinking towards the readable minimum, never swing.
     _refitOnRelayout: function(id, view, reembed) {
         var self = this;
         if (!(self._computedWidths || {})[id]) return;
+        var applying = false;
         view.addResizeListener(function() {
             if (self.views[id] !== view) return;
-            if (self._correctedRegime) delete self._correctedRegime[id];
-            self._fitCorrection(id, reembed);
+            if (!applying && self._correctedRegime) delete self._correctedRegime[id];
+            self._fitCorrection(id, function(budget) {
+                var sig = self._widthSignal(id, view);
+                if (!sig) return reembed(budget);
+                self._computedWidths[id].width = self._corrections[id].width;
+                applying = true;
+                view.signal(sig, self._corrections[id].width);
+                view.resize().runAsync().then(function() { applying = false; }, function() { applying = false; });
+            });
         });
+    },
+
+    // The view signal holding the width a fit correction sets, when the
+    // correction is a width (not a wrap count) and one signal holds it: a
+    // single or layered plot's `width`, a facet's `child_width`.
+    _widthSignal: function(id, view) {
+        var info = (this._computedWidths || {})[id], corr = (this._corrections || {})[id];
+        if (!info || !corr || corr.width === undefined || corr.regime !== info.regime) return null;
+        var sig = {top: 'width', facet: 'child_width', inner: 'child_width', encfacet: 'child_width'}[info.kind];
+        if (!sig) return null;
+        try { return typeof view.signal(sig) === 'number' ? sig : null; } catch (e) { return null; }
     },
 
     // ggplot-style "broadcast across all facet panels" pass.
@@ -1024,6 +1050,7 @@ window.AoV = window.AoV || {
         self._watchSettles();
         self._watchTheme();
         self._watchLinks();
+        self._watchBound();
         // Live state (rows added via updateData/appendData, onSignal listeners) belongs
         // to the plot element: a new element with this ID (e.g. after an HTMX swap)
         // starts fresh, a new spec for the same element keeps the listeners.
@@ -3071,6 +3098,7 @@ window.AoV = window.AoV || {
         groups.forEach(function(totals, i) {
             if (widths[i] > 0) totals.forEach(function(t) { t.style.minWidth = Math.ceil(widths[i]) + 'px'; });
         });
+        this._cellAlignAxes();
     },
     _takeCell: function(el) {
         if (!this._cellPending.delete(el)) return;
@@ -3170,8 +3198,133 @@ window.AoV = window.AoV || {
         col.inline.forEach(function(ds) { view.data(ds.name, (ds.byKey.get(tok) || []).concat(ds.shared)); });
         view.signal(self._FRAME_PARAM, key);
         self._cellViews.set(el, {view: view, colId: colId, theme: built.theme});
-        return view.runAsync().then(function() { return view; })
+        return view.runAsync().then(function() { self._cellAxis(colId, el, view, built.theme); return view; })
             .catch(function(err) { console.error('AoV: a cell of column "' + colId + '" cannot be drawn:', err); });
+    },
+    // The column's value axis in its header cell (`cell_charts(…; axis=true)`):
+    // the x axis every cell shares, drawn once at the bottom of the column's
+    // header and aligned with the cells' plot area (_cellAlign), so the
+    // in-row charts can be read off. Its scale is the one a drawn cell uses
+    // (the frame plan's shared domain after nice/zero), so the ticks sit
+    // where the cells draw those values. Only a continuous x the cells share
+    // gets one: a categorical x, or one the figure unlinks (`own`), has no
+    // single axis. Drawn on a canvas, so the header's text, which the
+    // table's CSV export and sorting read, stays its own; the header keeps
+    // room for it in its bottom padding, below the sort caret.
+    _CELL_AXIS_TYPES: {linear: 1, log: 1, pow: 1, sqrt: 1, symlog: 1, time: 1, utc: 1},
+    _cellAxes: null,
+    _cellAxis: function(colId, el, view, themeKey) {
+        var self = this, col = self._cellCols[colId];
+        if (!col || !el.isConnected) return;
+        var cells = (col.spec._aov && col.spec._aov.cells) || {};
+        if (cells.axis === false || (cells.own || []).indexOf('x') !== -1) return;
+        var td = el.closest ? el.closest('td') : null, th = self._cellHeader(td);
+        if (!th) return;
+        var sc;
+        try { sc = view.scale('x'); } catch (err) { return; }
+        if (!sc || !self._CELL_AXIS_TYPES[sc.type]) return;
+        var domain = sc.domain().map(function(d) { return +d; });
+        var key = JSON.stringify([colId, sc.type, domain, themeKey]);
+        self._cellAxes = self._cellAxes || new Map();
+        var cur = self._cellAxes.get(th);
+        if (cur && cur.key === key && cur.holder.isConnected) { cur.cell = el; return; }
+        if (cur) { cur.view.finalize(); cur.holder.remove(); }
+        var spec = col.spec, enc = self._cellXEncoding(spec);
+        if (!enc) return;
+        var theme = self._themeOn(spec) ? self.hostThemeConfig(el) : null;
+        var cfg = JSON.parse(JSON.stringify(spec.config || {}));
+        cfg.axis = Object.assign({}, cfg.axis || {}, {disable: false});
+        var own = enc.axis && typeof enc.axis === 'object' ? enc.axis : {};
+        var axis = Object.assign({}, own, {orient: 'top', title: null, grid: false, labelFlush: true, domain: true, ticks: true});
+        // A header line of labels: about one per 60 px, unless the figure sets its own.
+        if (own.values === undefined && own.tickCount === undefined) axis.tickCount = Math.max(2, Math.round(spec.width / 60));
+        var vl = {width: spec.width, height: 0, padding: 0, autosize: {type: 'pad'}, data: {values: []},
+            mark: {type: 'point', opacity: 0}, config: cfg, encoding: {x: {field: enc.field, type: enc.type, axis: axis,
+                scale: {type: sc.type, domain: domain, nice: false, zero: false}}}};
+        if (theme) self._hostInk(vl, theme);
+        var holder = document.createElement('span');
+        holder.className = 'aov-cell-axis';
+        holder.setAttribute('aria-hidden', 'true');
+        holder.style.cssText = 'position:absolute;bottom:0;left:0;pointer-events:none;line-height:0';
+        if (getComputedStyle(th).position === 'static') th.style.position = 'relative';
+        if (th.dataset.aovAxisPad === undefined) th.dataset.aovAxisPad = parseFloat(getComputedStyle(th).paddingBottom) || 0;
+        if (self._cellRO) self._cellRO.observe(th);
+        th.appendChild(holder);
+        var axisView;
+        try {
+            var vg = vegaLite.compile(vl, theme ? {config: theme} : {}).spec;
+            axisView = new vega.View(vega.parse(vg), {renderer: 'canvas', container: holder});
+        } catch (err) { holder.remove(); console.error('AoV: the header axis of cell column "' + colId + '" cannot be drawn:', err); return; }
+        var rec = {key: key, holder: holder, view: axisView, cell: el, colId: colId};
+        self._cellAxes.set(th, rec);
+        axisView.runAsync().then(function() { self._cellAlignSoon(); })
+            .catch(function(err) { console.error('AoV: the header axis of cell column "' + colId + '" cannot be drawn:', err); });
+    },
+    // The x encoding a cell column's figure draws (the first unit with a
+    // continuous x): its field, type and authored axis (format, values).
+    _cellXEncoding: function(spec) {
+        var found = null;
+        (function walk(u, top) {
+            if (found || !u || typeof u !== 'object') return;
+            var enc = Object.assign({}, top || {}, u.encoding || {});
+            if (u.mark && enc.x && enc.x.field && (enc.x.type === 'quantitative' || enc.x.type === 'temporal')) { found = enc.x; return; }
+            (u.layer || []).forEach(function(l) { walk(l, enc); });
+        })(spec, null);
+        return found;
+    },
+    // The header cell above table cell `td`: the lowest header cell that
+    // covers td's column alone (column and row spans counted).
+    _cellHeader: function(td) {
+        var table = td && td.closest('table');
+        if (!table || !table.tHead) return null;
+        var tr = td.parentElement, col = 0;
+        for (var i = 0; i < tr.cells.length && tr.cells[i] !== td; i++) col += tr.cells[i].colSpan || 1;
+        var taken = [], found = null;
+        Array.prototype.forEach.call(table.tHead.rows, function(row, r) {
+            var c = 0;
+            Array.prototype.forEach.call(row.cells, function(cell) {
+                while (taken[r] && taken[r][c]) c++;
+                var span = cell.colSpan || 1, rows = cell.rowSpan || 1;
+                for (var rr = r; rr < r + rows; rr++) {
+                    taken[rr] = taken[rr] || [];
+                    for (var cc = c; cc < c + span; cc++) taken[rr][cc] = true;
+                }
+                if (span === 1 && col === c) found = cell;
+                c += span;
+            });
+        });
+        return found;
+    },
+    // Each header axis at its cells' plot area: left where a cell of its
+    // column starts in that table, its height kept free in the header's
+    // bottom padding. Run with the totals' alignment, which moves the cells.
+    _cellAlignAxes: function() {
+        var self = this;
+        if (!self._cellAxes) return;
+        var place = [];
+        self._cellAxes.forEach(function(rec, th) {
+            if (!th.isConnected || !rec.holder.isConnected) {
+                rec.view.finalize(); self._cellAxes.delete(th);
+                if (self._cellRO) self._cellRO.unobserve(th);
+                return;
+            }
+            var cell = rec.cell;
+            if (!cell || !cell.isConnected || cell.closest('table') !== th.closest('table')) {
+                cell = th.closest('table').querySelector('span.aov-cell[data-aov-cells="' + rec.colId + '"]');
+                rec.cell = cell;
+            }
+            if (cell) place.push([rec, th, cell]);
+        });
+        // Read every position, then write: one layout for all axes.
+        var at = place.map(function(p) {
+            var cr = p[2].getBoundingClientRect(), hr = p[1].getBoundingClientRect();
+            return {left: cr.left - hr.left - p[1].clientLeft, height: p[0].holder.offsetHeight, visible: cr.width > 0};
+        });
+        place.forEach(function(p, i) {
+            if (!at[i].visible) return;
+            p[0].holder.style.left = Math.round(at[i].left) + 'px';
+            p[1].style.paddingBottom = (+p[1].dataset.aovAxisPad + at[i].height + 2) + 'px';
+        });
     },
     // Redraw the cells of every column whose host theme changed (refreshTheme).
     _refreshCellThemes: function() {
@@ -3737,6 +3890,25 @@ window.AoV = window.AoV || {
         var link = this._link(id), st = link && this._linkState[link.group];
         if (st && st.keys.length && st.source !== this._els[id]) this._showLinkKeys(id, link, st.keys);
     },
+    // --- Rows a page computes in the browser ---
+    // An HTMXObjects `semantic_app` page that computes a property in the
+    // browser raises `htmxo:bound-columns` on each element showing rows of it
+    // (`bound(p; columns)`), with the new columns. `to_node` marks a plot drawn
+    // from such rows on its `.aov-plot-area`, the element that holds the plot
+    // and its embed script (so a static export reads the embedded rows as
+    // bound): `data-aov-bound-for` names the plot, the marker its dataset. The
+    // columns replace that dataset, as `updateData` does.
+    _watchBound: function() {
+        if (this._boundListener) return;
+        var self = this;
+        this._boundListener = function(e) {
+            var area = e.target, id = area && area.getAttribute && area.getAttribute('data-aov-bound-for');
+            if (!id) return;
+            var marker = JSON.parse(area.getAttribute('data-htmxo-bound-columns') || '{}'), d = e.detail || {};
+            self.updateData(id, {n: d.n, columns: d.columns}, marker.dataset);
+        };
+        document.addEventListener('htmxo:bound-columns', this._boundListener);
+    },
     _watchLinks: function() {
         if (this._linkListener) return;
         var self = this;
@@ -3767,8 +3939,8 @@ window.AoV = window.AoV || {
     //   the interval's width;
     // - a line or a single point as its value, to four significant digits;
     // - a cloud of points at one x (single runs) is left out.
-    // Series are named by their colour field's value, or by the layer's y
-    // title. In a faceted figure the readout follows the panel under the
+    // Series are named by their colour field's value, by the layer's
+    // `visual(...; label=…)` (`_aov_label`), or by its y title. In a faceted figure the readout follows the panel under the
     // pointer. The box stands in for the mark tooltip while it shows. When
     // the figure's link key is its x field, the readout's x is announced to
     // the link group, and another member's announcement of one x (a table
@@ -3808,7 +3980,8 @@ window.AoV = window.AoV || {
             var tip = [].concat(enc.tooltip || []).filter(function(t) { return t && t.field === y.field; })[0];
             var name = prefix + (layered ? 'layer_' + i + '_marks' : 'marks');
             plan.units[name] = {mark: mark, x: xf, y: y.field, y2: enc.y2 && enc.y2.field, color: color,
-                title: y.title || (tip && tip.title) || y.field, index: plan.order.length};
+                title: y.title || (tip && tip.title) || y.field, label: typeof u._aov_label === 'string' ? u._aov_label : null,
+                index: plan.order.length};
             plan.order.push(name);
         }, this);
         if (!plan.order.length || !(paths || dodge || aov.readout === true)) return null;
@@ -3921,7 +4094,8 @@ window.AoV = window.AoV || {
         var series = {}, list = [];
         at.forEach(function(c) {
             var u = c.unit, d = c.datum;
-            var name = u.color ? d[u.color] : (plan.series && d[plan.series] !== undefined ? d[plan.series] : u.title);
+            var name = u.color ? d[u.color] : u.label !== null ? u.label :
+                (plan.series && d[plan.series] !== undefined ? d[plan.series] : u.title);
             name = String(name);
             var s = series[name];
             if (!s) { s = series[name] = {name: name, coloured: name !== String(u.title), first: u.index, colour: null, units: {}}; list.push(s); }

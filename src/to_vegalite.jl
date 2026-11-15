@@ -48,6 +48,7 @@ function _base_vegalite(layer::AlgebraOfGraphics.Layer, layer_encodings::Abstrac
     _apply_layer_encodings!([[spec]], layer_encodings)
     _apply_layer_transforms!([[spec]], layer_transforms)
     _apply_layer_passive!([[spec]], [layer])
+    _apply_layer_labels!([[spec]], [layer])
     _apply_no_truncate_default!(spec)
     _apply_type_default!(spec)
     _apply_ink_default!(spec)
@@ -492,6 +493,179 @@ function _apply_tick_cap!(spec::Dict)
         g isa Dict && !haskey(g, "tickCount") && (g["tickCount"] = cap)
     end
     spec
+end
+# A tooltip's date-time keeps its time of day. Vega-Lite writes a temporal
+# tooltip with `config.timeFormat` (default `%b %d, %Y`), which drops it, so an
+# hourly series read `Mar 15, 2026` at every point. A temporal tooltip field whose
+# rows hold a time other than midnight gets that format plus ` %H:%M` (` %H:%M:%S`
+# with seconds); a date-only field and an authored `format` are left alone.
+_apply_tooltip_time!(spec) = spec
+function _apply_tooltip_time!(spec::Dict)
+    cfg = get(spec, "config", nothing)
+    base = cfg isa Dict && get(cfg, "timeFormat", nothing) isa AbstractString ? cfg["timeFormat"] : "%b %d, %Y"
+    _each_unit_rows(spec) do unit, rows
+        enc = get(unit, "encoding", nothing)
+        tt = enc isa Dict ? get(enc, "tooltip", nothing) : nothing
+        (tt isa AbstractVector && rows isa AbstractVector) || return
+        for e in tt
+            e isa Dict && get(e, "type", nothing) == "temporal" && !haskey(e, "format") || continue
+            f = get(e, "field", nothing)
+            f isa AbstractString || continue
+            res = _time_resolution(rows, f)
+            res === :minutes && (e["format"] = base * " %H:%M")
+            res === :seconds && (e["format"] = base * " %H:%M:%S")
+        end
+    end
+    spec
+end
+# :seconds, :minutes or :date: the finest time of day the rows' `f` values hold.
+function _time_resolution(rows, f)
+    res = :date
+    for r in rows
+        v = r isa AbstractDict ? get(r, f, nothing) : nothing
+        h, m, s = if v isa Dates.DateTime
+            Dates.hour(v), Dates.minute(v), Dates.second(v) + Dates.millisecond(v)
+        elseif v isa AbstractString && (i = findfirst('T', v); !isnothing(i))
+            p = split(v[nextind(v, i):end], r"[:.]")
+            n(k) = length(p) >= k ? something(tryparse(Int, first(p[k], 2)), 0) : 0
+            n(1), n(2), n(3) + (length(p) >= 4 ? something(tryparse(Int, p[4]), 0) : 0)
+        else
+            continue
+        end
+        s > 0 && return :seconds
+        (h > 0 || m > 0) && (res = :minutes)
+    end
+    res
+end
+# Each unit (a node with a `mark`) of a spec tree with the rows it reads: its own
+# inline `data.values`, else the nearest ancestor's (`nothing` for rows read
+# from an address).
+_each_unit_rows(f, node, rows=nothing) = nothing
+function _each_unit_rows(f, node::Dict, rows=nothing)
+    data = get(node, "data", nothing)
+    data isa Dict && (rows = get(data, "values", nothing) isa AbstractVector ? data["values"] : nothing)
+    haskey(node, "mark") && f(node, rows)
+    for key in ("layer", "hconcat", "vconcat", "concat")
+        subs = get(node, key, nothing)
+        subs isa AbstractVector && foreach(s -> _each_unit_rows(f, s, rows), subs)
+    end
+    _each_unit_rows(f, get(node, "spec", nothing), rows)
+    nothing
+end
+# `visual(...; label="Observed")`: as in AoG, each labelled layer gets a legend
+# entry drawn in its own style, in an untitled legend after the mapped scales'
+# legends, and layers sharing a label share one entry. Vega-Lite draws a legend's
+# symbols from the mark of the layer that owns the legend, so the entry rides on
+# one unit of the label's layers (`_label_rank`): a `datum` encoding of a channel
+# whose scale gives back the mark's own value, so the drawing is unchanged. A
+# filled mark (area, rect, bar) carries it on `opacity`, a square at the mark's
+# opacity; any other on `strokeDash`, a stroke for a line or rule (its dash and
+# width), the mark's own symbol for a point. Each label gets a legend of its own,
+# the channel resolved independently on the layers above it, which also places
+# these legends after the mapped scales' ones. In a faceted figure that would
+# repeat the legend in every panel, so there the labels of a channel share one
+# legend, its symbols drawn like the first label's mark (Vega-Lite drops a
+# legend's per-entry `encode`), each with its own dash or opacity. A text layer has no entry. A channel a
+# mapping already uses (a `linestyle` or alpha mapping) is left to it, with a
+# warning. The units are tagged by `_apply_layer_labels!`; the runtime's readout
+# names their series by the tag.
+_apply_label_legends!(spec) = spec
+function _apply_label_legends!(spec::Dict)
+    labelled = Tuple{Dict,String,Vector{Dict},Bool}[]
+    _collect_labelled!(labelled, spec, nothing, Dict[], false)
+    isempty(labelled) && return spec
+    used = Set{String}()
+    _each_unit_rows(spec) do u, _
+        enc = get(u, "encoding", nothing)
+        enc isa Dict || return
+        for ch in ("strokeDash", "opacity")
+            e = get(enc, ch, nothing)
+            e isa Dict && (haskey(e, "field") || haskey(e, "scale") && !haskey(u, "_aov_label")) && push!(used, ch)
+        end
+    end
+    carriers = Dict{String,Tuple{Int,Dict,Vector{Dict},Bool}}()
+    order = String[]
+    for (u, label, above, faceted) in labelled
+        rank = _label_rank(_mark_type(get(u, "mark", nothing)))
+        isnothing(rank) && continue
+        label in order || push!(order, label)
+        cur = get(carriers, label, nothing)
+        (isnothing(cur) || rank < cur[1]) && (carriers[label] = (rank, u, above, faceted))
+    end
+    for ch in ("strokeDash", "opacity"), faceted in (false, true)
+        group = [l for l in order if (carriers[l][1] == 2) == (ch == "opacity") && carriers[l][4] == faceted]
+        isempty(group) && continue
+        if ch in used
+            @warn "AlgebraOfVega: `visual(...; label=…)` gives $(join(repr.(group), ", ")) no legend entry: a mapping already uses the `$ch` channel the entry would use." _id=(:aov_label_channel, ch) maxlog=1
+            continue
+        end
+        marks = [get(carriers[l][2], "mark", nothing) for l in group]
+        for (i, l) in enumerate(group)
+            u = carriers[l][2]
+            # Faceted: one shared legend (domain every label), drawn like the first mark.
+            enc = faceted ? _label_encoding(l, ch, marks[1], group, marks) : _label_encoding(l, ch, marks[i], [l], marks[i:i])
+            get!(u, "encoding", Dict{String,Any}())[ch] = enc
+            faceted && continue
+            for node in carriers[l][3]
+                resolve = get!(node, "resolve", Dict{String,Any}())
+                get!(resolve, "scale", Dict{String,Any}())[ch] = "independent"
+                get!(resolve, "legend", Dict{String,Any}())[ch] = "independent"
+            end
+        end
+    end
+    spec
+end
+# Which unit of a label's layers carries its entry: a line or rule, else a
+# point, else a filled mark.
+_label_rank(t) = t in ("line", "rule", "trail") ? 0 : t in ("point", "circle", "square", "tick") ? 1 :
+    t in ("area", "rect", "bar", "arc") ? 2 : nothing
+_mark_dict(mark) = mark isa AbstractDict ? mark : Dict{String,Any}()
+# The `datum` encoding of `label` on channel `ch`: a scale over `labels` giving
+# each its mark's own value, and a legend whose symbols look like `mark`.
+function _label_encoding(label, ch, mark, labels, marks)
+    m = _mark_dict(mark)
+    t = _mark_type(mark)
+    legend = Dict{String,Any}("title" => nothing)
+    if ch == "opacity"
+        legend["symbolType"] = "square"
+        op(x) = (o = get(_mark_dict(x), "opacity", 1); o isa Real ? o : 1)
+        return Dict{String,Any}("datum" => label, "type" => "ordinal", "legend" => legend,
+            "scale" => Dict{String,Any}("type" => "ordinal", "domain" => labels, "range" => op.(marks)))
+    end
+    if t in ("line", "rule", "trail")
+        legend["symbolType"] = "stroke"
+        sw = get(m, "strokeWidth", nothing)
+        sw isa Real && (legend["symbolStrokeWidth"] = sw)
+        # A stroke symbol is √size px long: long enough for its dash to show
+        # (`:dash` is 21 px; Vega-Lite's 10 px showed one dash).
+        d = get(m, "strokeDash", nothing)
+        if d isa AbstractVector && all(x -> x isa Real, d) && sum(d) > 0
+            legend["symbolSize"] = min(900, round(Int, max(10, 1.75 * sum(d))^2))
+        end
+    else
+        sz = get(m, "size", nothing)
+        sz isa Real && (legend["symbolSize"] = sz)
+    end
+    dash(x) = (d = get(_mark_dict(x), "strokeDash", nothing); d isa AbstractVector ? d : [1, 0])
+    Dict{String,Any}("datum" => label, "type" => "nominal", "legend" => legend,
+        "scale" => Dict{String,Any}("domain" => labels, "range" => dash.(marks)))
+end
+# Each unit with a label (its own `_aov_label`, or a labelled layer group's), the
+# layer nodes above it up to the nearest concatenation, and whether it is inside a
+# facet's (or repeat's) inner spec.
+_collect_labelled!(out, node, label, above, faceted) = nothing
+function _collect_labelled!(out, node::Dict, label, above, faceted)
+    own = get(node, "_aov_label", nothing)
+    own isa AbstractString && (label = own)
+    haskey(node, "mark") && !isnothing(label) && push!(out, (node, label, copy(above), faceted))
+    sub = get(node, "layer", nothing)
+    sub isa AbstractVector && foreach(s -> _collect_labelled!(out, s, label, vcat(above, [node]), faceted), sub)
+    for key in ("hconcat", "vconcat", "concat")
+        subs = get(node, key, nothing)
+        subs isa AbstractVector && foreach(s -> _collect_labelled!(out, s, label, Dict[], faceted), subs)
+    end
+    _collect_labelled!(out, get(node, "spec", nothing), label, above, true)
+    nothing
 end
 _is_log_scale(s::Dict) = get(s, "type", nothing) == "log"
 _is_log_scale(_) = false
@@ -2344,8 +2518,9 @@ _finish_vegalite!(spec, v) = _record_summary!(
     _each_ribbon_view!(_apply_axis_defaults!, _finish_ribbon_views!(_each_ribbon_view!(_apply_finish_defaults!, spec))), v)
 # Log tick values and tick counts, again once a ribbon's interval drawing is
 # built (it gets x encodings of its own); both passes keep what is set.
-_apply_axis_defaults!(spec) = _apply_tick_cap!(_apply_log_ticks!(spec))
-_apply_finish_defaults!(spec) = _apply_ink_paint!(_fit_gradient_labels!(_one_colour_bar!(_heatmap_seams!(_apply_tick_cap!(_apply_log_ticks!(_apply_log_bar_base!(_apply_no_zero_default!(_apply_wrap_default!(spec)))))))))
+_apply_axis_defaults!(spec) = _apply_label_legends!(_apply_tooltip_time!(_apply_tick_cap!(_apply_log_ticks!(spec))))
+_apply_finish_defaults!(spec) = _apply_tooltip_time!(_apply_finish_defaults_inner!(spec))
+_apply_finish_defaults_inner!(spec) = _apply_ink_paint!(_fit_gradient_labels!(_one_colour_bar!(_heatmap_seams!(_apply_tick_cap!(_apply_log_ticks!(_apply_log_bar_base!(_apply_no_zero_default!(_apply_wrap_default!(spec)))))))))
 
 # Half a legend label's width. Vega expressions cannot measure text, so it counts
 # characters at 0.54 em each: about Arial's digits (0.556 em), and wide for `.`, `,`

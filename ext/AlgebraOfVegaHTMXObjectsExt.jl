@@ -14,12 +14,20 @@ import AlgebraOfVega: with_plot_caption, draws_summary_table, _sanitize_id,
                       PlotTexts, _EN_PLOT_TEXTS, _plot_text, _runtime_texts_attrs,
                       _static_img, _MarkdownView, _ReportImage, _figure_sources,
                       cell_charts, CellColumn,
-                      _cell_column, _wire_spec, _vl_safe, _inline_script
+                      _cell_column, _wire_spec, _vl_safe, _inline_script,
+                      _bound_binding, _bound_attrs
 
 # HTMX 1.0 escapes attribute values itself (`&`, `"`, `'`, `<`, `>`), and the
 # HTML parser decodes them back before JS/`dataset` ever sees them — so JSON
 # payloads are passed through VERBATIM here. Escaping them again would emit
 # `&amp;quot;` and break `JSON.parse` on the other side.
+
+# A layer drawn from `bound(p; columns)`: the rows a `semantic_app` page
+# computes in the browser (src/bound_columns.jl). The plot's area is the
+# element that shows them.
+_bound_binding(b::HTMXObjects.BoundColumns) = b
+_bound_attrs(b::HTMXObjects.BoundColumns, dataset::AbstractString) =
+    HTMXObjects.bound_columns_attrs(b; dataset)
 
 _as_nt_or_nothing(nt::NamedTuple) = nt
 _as_nt_or_nothing(_) = nothing
@@ -576,8 +584,8 @@ Base.haskey(c::CellCharts, key) = haskey(c.column.rows, key)
 Base.length(c::CellCharts) = length(c.column.keys)
 
 function cell_charts(spec, scales=nothing; texts::TableTexts=table_texts(), sigdigits::Integer=3,
-                     id=nothing, total=nothing, label=nothing, text=nothing)
-    CellCharts(_cell_column(spec, scales; id), texts, sigdigits, total, label, text, false)
+                     id=nothing, total=nothing, label=nothing, text=nothing, axis::Bool=true)
+    CellCharts(_cell_column(spec, scales; id, axis), texts, sigdigits, total, label, text, false)
 end
 
 # A total as the sort value and the CSV field: the exact number, an integral
