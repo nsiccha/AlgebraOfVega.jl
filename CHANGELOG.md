@@ -15,6 +15,24 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
+## 0.2.48
+
+- **A plot follows every `bound(p; columns)` table it draws.** A figure may now
+  draw several tables a `semantic_app` page computes in the browser, such as a
+  property's curves and its outputs of another length, here a one-element
+  vector `mark` drawn as a rule:
+  `data(bound(p; columns = (:water, :share))) * mapping(:water, :share) * visual(Lines) +
+  data(bound(p; columns = (:mark,))) * mapping(:mark) * visual(VLines)`. Each
+  place a bound table's rows are drawn is a dataset of its own (`source_0` for
+  the plot's top-level rows, then `aov_bound`, `aov_bound_2`, …), and the page
+  replaces each with the browser's columns. The plot area carries the first
+  binding, as before, and an empty `<span hidden data-aov-bound-for=…>` inside
+  it carries each further one. Before, a second bound table was an
+  `ArgumentError` ("a plot follows one table the browser computes"). A figure
+  with one bound table, and a plot of ordinary tables, emits the same markup as
+  before. A figure whose rows AoV computes from a bound table in Julia is
+  refused as before.
+
 ## 0.2.47
 
 - A captioned figure's default alt text leaves out a blank caption tier with

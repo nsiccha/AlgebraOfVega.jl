@@ -18,11 +18,11 @@ using TestItemRunner
       for (let i = 0; i < n; i++) {
         x[i] = grid[i]; y[i] = a * grid[i] + b; g[i] = i % 2 === 0 ? "p" : "q"; k[i] = i < 2 ? "lo" : "hi";
       }
-      return { x, y, g, k };
+      return { x, y, g, k, z: y.map(v => v + 1), mid: [(y[0] + y[n - 1]) / 2] };
     }
     export const INPUTS = [{ name: "grid", type: "Vector{Float64}" }, { name: "a", type: "Float64" },
       { name: "b", type: "Float64" }];
-    export const OUTPUTS = [{ name: "x" }, { name: "y" }, { name: "g" }, { name: "k" }];
+    export const OUTPUTS = [{ name: "x" }, { name: "y" }, { name: "g" }, { name: "k" }, { name: "z" }, { name: "mid" }];
     """
 
     # Observations drawn beside the line, written into the plot as usual.
@@ -39,10 +39,14 @@ using TestItemRunner
         @options(mark) = [:line, :point]
         grid = [0.0, 1.0, 2.0, 3.0]
         line = (; x = grid, y = a .* grid .+ b, g = [isodd(i) ? "p" : "q" for i in eachindex(grid)],
-                k = [i <= 2 ? "lo" : "hi" for i in eachindex(grid)])
+                k = [i <= 2 ? "lo" : "hi" for i in eachindex(grid)], z = a .* grid .+ (b + 1),
+                mid = [b + a * (grid[1] + grid[end]) / 2])
         @browser(line) = browser_module(; source = LINE_JS, entry = :line)
-        # The table as the plots below draw it, for the server-side checks.
+        # The table as the plots below draw it, for the server-side checks:
+        # also its wide columns and its one-row `mid`, drawn in one plot.
         rows = bound(line; columns = (:x, :y, :g, :k))
+        wide = bound(line; columns = (:x, :y, :z))
+        rule = bound(line; columns = (:mid,))
         __page__(content) = HTMXObjects.htmx(content; title = "Bound plots", assets = "assets/vendor",
             runtime = :linked, extra_head = vega_head(; source = :inline))
         @get index() = h.main(semantic_app(__self__; presentation = :tabs, select = e -> e.name != :index))
@@ -60,7 +64,14 @@ using TestItemRunner
             # The channel picker, through the captioned figure.
             with_plot_caption(data(bound(line; columns = (:x, :y, :g))) * mapping(:x, :y; color = :g) *
                 visual(Lines) * config(height = 120), "Picker";
-                plot_id = "bound-picker", auto_remap = (; dims = ["g" => "Group"])))
+                plot_id = "bound-picker", auto_remap = (; dims = ["g" => "Group"])),
+            # Two tables of one property: the line's columns, labelled series
+            # of its wide columns, and a rule at its one-row `mid`.
+            with_plot_caption((data(bound(line; columns = (:x, :y, :z))) * (
+                    mapping(:x, :y) * visual(Lines; color = :ink, linestyle = :dash, label = "Line") +
+                    mapping(:x, :z) * visual(Lines; color = "#0072B2", label = "Above")) +
+                data(bound(line; columns = (:mid,))) * mapping(:mid) * visual(HLines; color = :ink, label = "Middle")) *
+                config(height = 120), "Rule"; plot_id = "bound-rule"))
     end
 
     bound_html(x) = sprint(show, MIME"text/html"(), x)
@@ -154,9 +165,39 @@ end
         scales(Color = (; palette = ["#1b9e77", "#d95f02"])); id = "u-scales"))).marker["dataset"] == "source_0"
     @test occursin("update_spec", refused(() -> vdraw(data(rows) * mapping(:x, :y; color = :g) * lineribbon(),
         scales(Color = (; palette = ["#1b9e77", "#d95f02"])); id = "u-r")))
-    # Two bound tables: a plot follows one.
-    @test occursin("follows one table", refused(() -> to_node(
-        data(rows) * mapping(:x, :y) * visual(Lines) + data(other) * mapping(:x, :y) * visual(Scatter); id = "u-two")))
+    # Two bound tables (wide columns and a one-row table of one property),
+    # beside other rows: each place a bound table's rows are drawn gets its
+    # own dataset, the area carries the first binding and an empty marker
+    # inside it each further one. Here the wide columns are written into
+    # each of their two layers.
+    wide, rule = obj.wide, obj.rule
+    two = bound_html(to_node(data(OBS) * mapping(:x, :y) * visual(Scatter) +
+        data(wide) * (mapping(:x, :y) * visual(Lines; linestyle = :dash, label = "Line") +
+                      mapping(:x, :z) * visual(Lines; label = "Above")) +
+        data(rule) * mapping(:mid) * visual(HLines; label = "Middle"); id = "u-two"))
+    m = bound_marker(two)
+    @test !isnothing(m) && m.plot == "u-two" && m.marker["dataset"] == "aov_bound" && m.marker["columns"] == ["x", "y", "z"]
+    extra = [(; plot = x[1], marker = AlgebraOfVega.JSON.parse(replace(x[2], "&quot;" => "\"")))
+             for x in eachmatch(r"<span hidden=\"\" data-aov-bound-for=\"([^\"]+)\" data-htmxo-bound-columns=\"([^\"]+)\"></span>", two)]
+    @test [(e.plot, e.marker["dataset"], e.marker["columns"]) for e in extra] ==
+          [("u-two", "aov_bound_2", ["x", "y", "z"]), ("u-two", "aov_bound_3", ["mid"])]
+    @test all(n -> occursin("\"name\":\"$n\"", two), ("aov_bound", "aov_bound_2", "aov_bound_3"))
+    # The markers are inside the area, after the embed script.
+    @test occursin(r"<div id=\"u-two\" class=\"u-w-full\"></div><script>AoV\.embed\('u-two'.*</script><span hidden=\"\" data-aov-bound-for=\"u-two\""s, two)
+    # The labelled layers' legend entries leave the rows as they are.
+    @test occursin("\"datum\":\"Middle\"", two) && occursin("\"datum\":\"Above\"", two)
+    # One table drawn by two layers beside other rows is the plot's top-level
+    # rows: one binding, no marker inside.
+    twice = bound_html(to_node(data(rows) * mapping(:x, :y) * visual(Lines) + data(OBS) * mapping(:x, :y) * visual(Scatter) +
+        data(rows) * mapping(:x, :y) * visual(Scatter); id = "u-twice"))
+    @test bound_marker(twice).marker["dataset"] == "source_0" && !occursin("<span hidden", twice)
+    # The default id stays stable across inputs.
+    two_id(o) = match(r"data-aov-bound-for=\"([^\"]+)\"", bound_html(to_node(data(o.wide) * mapping(:x, :y) * visual(Lines) +
+        data(o.rule) * mapping(:mid) * visual(HLines))))[1]
+    @test two_id(obj) == two_id(BoundLines(; a = 3.0))
+    # A second table whose rows AoV computes is refused all the same.
+    @test occursin("update_spec", refused(() -> to_node(
+        data(rows) * mapping(:x, :y) * visual(Lines) + data(other) * mapping(:x, :y) * lineribbon(); id = "u-two-r")))
 
     # Away from a page, the rows are rows: a refresh and an export draw them.
     @test occursin("AoV.updateSpec('u-plain'", bound_html(update_spec("u-plain", data(rows) * mapping(:x, :y) * lineribbon())))

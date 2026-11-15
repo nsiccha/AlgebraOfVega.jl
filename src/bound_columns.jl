@@ -48,8 +48,10 @@ end
 
 # The dataset name a bound table's rows get when they are not the plot's
 # top-level data (the top-level data is Vega-Lite's `source_0`, which the
-# runtime's ribbon, picker and data operations default to).
+# runtime's ribbon, picker and data operations default to). A plot drawing
+# several bound tables names the second such dataset `aov_bound_2`, and so on.
 const _BOUND_DATASET = "aov_bound"
+_bound_dataset_name(k) = k == 1 ? _BOUND_DATASET : string(_BOUND_DATASET, "_", k)
 
 # The bound tables a spec's layers draw (none for an already-lowered dict).
 function _bound_tables(spec)
@@ -106,31 +108,34 @@ const _BOUND_LOWERED = "AoV computes the rows this figure draws from them in Jul
     "`lineribbon(bands=…)`."
 
 """
-Where the lowered `vl` draws the rows of a bound table: `nothing` for a figure
-that draws none, else `(; vl, binding, dataset, key)`. `vl` is the spec to
-embed (a layer's bound rows get a dataset name of their own), `dataset` the
-Vega dataset holding the rows, and `key` the spec's JSON without them (a stable
-default plot id). `sources` are the bound tables of the figure's layers; one
-whose rows AoV changed in lowering is refused.
+Where the lowered `vl` draws the rows of bound tables: `nothing` for a figure
+that draws none, else `(; vl, bindings, key)`. `vl` is the spec to embed (a
+layer's bound rows get a dataset name of their own), `bindings` one
+`(; binding, dataset)` per place the rows are drawn, in spec order, `dataset`
+the Vega dataset holding them, and `key` the spec's JSON without the rows (a
+stable default plot id). `sources` are the bound tables of the figure's layers;
+a figure whose bound rows AoV changed in lowering, or computed other rows from,
+is refused.
 """
 function _bound_dataset(vl::AbstractDict, sources)
     found = Any[]
     _find_bound_data!(found, vl, Any[])
-    intact = filter(_bound_rows_intact, found)
-    if isempty(intact)
-        isempty(sources) && isempty(found) && return nothing
+    isempty(sources) && isempty(found) && return nothing
+    # Every bound table drawn as given, each where the browser's columns can
+    # replace it: rows AoV changed, or a table it drew only through rows it
+    # computed, cannot follow.
+    all(_bound_rows_intact, found) && all(b -> any(r -> r.binding === b, found), sources) && !isempty(found) ||
         throw(ArgumentError("This figure draws `bound(…; columns)` rows, which the page computes in the browser, but " *
             _BOUND_LOWERED))
+    # The top-level rows (`source_0`) first: the plot area carries them.
+    sort!(found; by=rec -> rec.path != Any["data"])
+    out, bindings, named = vl, Any[], 0
+    for rec in found
+        top = rec.path == Any["data"]
+        dataset = top ? "source_0" : _bound_dataset_name(named += 1)
+        top || (out = _path_replace(d -> _data_with(d, "name", dataset), out, rec.path))
+        push!(bindings, (; rec.binding, dataset))
     end
-    length(intact) == 1 && length(found) == 1 && all(b -> b === only(intact).binding, sources) ||
-        throw(ArgumentError("This figure draws `bound(…; columns)` rows in $(max(length(found), length(sources))) " *
-            "places, and a plot follows one table the browser computes. Give its layers one table, as in " *
-            "`data(bound(p; columns)) * (visual(Lines) + visual(Scatter))`; for layers that draw it beside other " *
-            "rows, a layer whose rows " * _BOUND_LOWERED))
-    rec = only(intact)
-    top = rec.path == Any["data"]
-    dataset = top ? "source_0" : _BOUND_DATASET
-    out = top ? vl : _path_replace(d -> _data_with(d, "name", dataset), vl, rec.path)
-    key = _vl_json(_wire_spec(_path_replace(d -> _data_with(d, "values", Any[]), out, rec.path)))
-    (; vl=out, rec.binding, dataset, key)
+    key = foldl((s, rec) -> _path_replace(d -> _data_with(d, "values", Any[]), s, rec.path), found; init=out)
+    (; vl=out, bindings, key=_vl_json(_wire_spec(key)))
 end

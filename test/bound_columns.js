@@ -11,7 +11,8 @@ window.addEventListener('load', async function () {
     const errors = [];
     const consoleError = console.error;
     console.error = function () { errors.push(Array.from(arguments).map(String).join(' ')); return consoleError.apply(console, arguments); };
-    const PLOTS = {'bound-plain': 'source_0', 'bound-obs': 'aov_bound', 'bound-facet': 'source_0', 'bound-picker': 'source_0'};
+    const PLOTS = {'bound-plain': 'source_0', 'bound-obs': 'aov_bound', 'bound-facet': 'source_0', 'bound-picker': 'source_0',
+        'bound-rule': 'source_0'};
     const ys = (a, b) => [0, 1, 2, 3].map(x => a * x + b).join(',');
 
     async function until(test, label) {
@@ -41,6 +42,10 @@ window.addEventListener('load', async function () {
     const requests = () => performance.getEntriesByType('resource').length;
     // A plot that does not follow ends the run, so the report is written
     // within the page's time budget.
+    // The rule plot draws two tables of `line`: its wide columns (`source_0`)
+    // and the one-row `mid` (`aov_bound`), each followed.
+    const zOf = () => { const r = rows('bound-rule'); return r ? r.map(d => d.z).join(',') : null; };
+    const midOf = () => { const r = rows('bound-rule', 'aov_bound'); return r && r.length === 1 ? r[0].mid : null; };
     async function allFollow(a, b, stage) {
         const want = ys(a, b);
         for (const id of Object.keys(PLOTS)) {
@@ -48,7 +53,21 @@ window.addEventListener('load', async function () {
             check(ok, stage + ': ' + id + ' follows the inputs (y = ' + yOf(id) + ')');
             if (!ok) throw new Error(stage + ': stopped at ' + id);
         }
+        const z = ys(a, b + 1), mid = b + 1.5 * a;
+        const ok = await until(() => zOf() === z && midOf() === mid, stage + ': bound-rule shows z = ' + z + ', mid = ' + mid);
+        check(ok, stage + ': bound-rule follows both tables (z = ' + zOf() + ', mid = ' + midOf() + ')');
+        if (!ok) throw new Error(stage + ': stopped at bound-rule');
     }
+    // The texts of a plot's legend entries.
+    const legendLabels = id => {
+        const out = [];
+        (function walk(node) {
+            if (!node) return;
+            if (node.marktype && node.role === 'legend-label') (node.items || []).forEach(i => out.push(i.text));
+            (node.items || []).forEach(walk);
+        })(AoV.views[id] && AoV.views[id].scenegraph().root);
+        return out;
+    };
 
     try {
         if (!await until(() => Object.keys(PLOTS).every(drawn), 'the plots draw')) throw new Error('the plots did not draw');
@@ -61,6 +80,15 @@ window.addEventListener('load', async function () {
             check(!!marker && marker.dataset === PLOTS[id] && marker.path[0] === 'line',
                 id + ': the marker names its dataset (' + JSON.stringify(marker) + ')');
         }
+        // The rule plot's second table rides an empty marker inside its area.
+        const ruleMarker = document.querySelector('span[hidden][data-aov-bound-for="bound-rule"]');
+        const ruleSpec = ruleMarker && JSON.parse(ruleMarker.getAttribute('data-htmxo-bound-columns'));
+        check(!!ruleSpec && ruleSpec.dataset === 'aov_bound' && ruleSpec.columns.join(',') === 'mid' &&
+            !!ruleMarker.closest('[data-aov-bound-for="bound-rule"].aov-plot-area'),
+            'bound-rule: the marker of its one-row table (' + JSON.stringify(ruleSpec) + ')');
+        // Its labelled layers each have a legend entry.
+        check(['Line', 'Above', 'Middle'].every(t => legendLabels('bound-rule').includes(t)),
+            'bound-rule: a legend entry per labelled layer (' + legendLabels('bound-rule').join(', ') + ')');
         // The observations beside the bound line stay as they are throughout.
         const obs = () => yOf('bound-obs', 'source_0');
         check(obs() === '1,4,6', 'the observations are drawn (' + obs() + ')');
@@ -74,6 +102,9 @@ window.addEventListener('load', async function () {
         check(obs() === '1,4,6', 'the observations stay (' + obs() + ')');
         // New rows go into the views in place.
         check(AoV.views['bound-plain'] === views['bound-plain'], 'the plain plot keeps its view');
+        check(AoV.views['bound-rule'] === views['bound-rule'], 'the rule plot keeps its view');
+        check(['Line', 'Above', 'Middle'].every(t => legendLabels('bound-rule').includes(t)),
+            'bound-rule: its legend stays (' + legendLabels('bound-rule').join(', ') + ')');
 
         // The picker moves the group from colour to the panels: the browser's
         // rows stay.
