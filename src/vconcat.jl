@@ -83,6 +83,20 @@ function to_vegalite(s::VConcat; interactive::Bool=true, auto_remap::Union{Nothi
         w isa Real && push!(widths, w)
         panel = Dict{String,Any}(key => v for (key, v) in kid
             if !(key in ("\$schema", "config", "_aov", "_aovSummary", "datasets", "autosize", "padding", "width", "background")))
+        # A value parameter (no `select`, such as the reference labels' rows)
+        # exists only at the top of a Vega-Lite spec: the stack holds it once.
+        ps = get(panel, "params", nothing)
+        if ps isa AbstractVector
+            values = [p for p in ps if p isa AbstractDict && !haskey(p, "select")]
+            if !isempty(values)
+                top_params = get!(top, "params", Any[])
+                for p in values
+                    any(q -> get(q, "name", nothing) == get(p, "name", nothing), top_params) || push!(top_params, p)
+                end
+                rest = [p for p in ps if !(p isa AbstractDict && !haskey(p, "select"))]
+                isempty(rest) ? delete!(panel, "params") : (panel["params"] = rest)
+            end
+        end
         k < length(kids) && _vconcat_hide_x_labels!(panel)
         push!(top["vconcat"], panel)
     end

@@ -365,8 +365,20 @@ function _convert_single_layer(l::AlgebraOfGraphics.Layer)
     isnothing(area) || error(
         "sdraw does not support $(_map_term(area)) — a map has no Makie analogue in AlgebraOfVega; use vdraw for this plot type, or vsave(spec, path) for a PDF/SVG/PNG file of it")
     a = _get_analysis(l)
-    isnothing(a) && return _fix_visual_attrs(l)
+    isnothing(a) && return _fix_visual_attrs(_without_ref_text(l))
     _aog_from_analysis(a, l)
+end
+
+# A reference line's or period's `text` mapping names it in the browser
+# (src/ref_labels.jl); Makie's `vlines`/`vspan`/`hlines`/`hspan` have no text,
+# so the static figure leaves the labels out.
+function _without_ref_text(l::AlgebraOfGraphics.Layer)
+    vis = extract_visual(l)
+    (isnothing(vis) || !(vis.plottype <: Union{VLines,VSpan,HLines,HSpan}) || !haskey(l.named, :text)) && return l
+    @warn "sdraw: Makie draws no labels on $(Makie.plotsym(vis.plottype)); the `text` mapping of this reference layer is left out (vdraw and vsave label it)." maxlog=1
+    named = [k => v for (k, v) in pairs(l.named) if k !== :text]
+    m = AlgebraOfGraphics.mapping(l.positional...; named...)
+    AlgebraOfGraphics.Layer(l.transformation, l.data, m.positional, m.named)
 end
 
 function _to_aog_drawable(layers::AlgebraOfGraphics.Layers)
