@@ -15,7 +15,7 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
-## 0.2.40
+## 0.2.42
 
 - A layer drawn from HTMXObjects' `bound(p; columns)`, inside an `@htmx` struct
   whose property `p` a `semantic_app` page computes in the browser
@@ -30,7 +30,59 @@ failing at run time with a `MethodError`.
   table in Julia (an interval or ribbon summary of raw draws, a faceted or
   ridgeline `density()`, a faceted figure whose layers draw different tables,
   the picker's combined columns) raises an `ArgumentError` naming
-  `update_spec`. Needs HTMXObjects HTMXO_FLOOR.
+  `update_spec`. Needs HTMXObjects 0.1.125.
+
+## 0.2.41
+
+- A report built from a page's markdown draws each captioned figure itself.
+  In HTMXObjects' `pdf_report(value, …)`, `dispatch(…; report=true)` and
+  `to_markdown_string(x; report=true)`, `with_plot_caption` shows the caption
+  and `<img src="data:image/svg+xml;base64,…" alt=…>`: the SVG that
+  `vsave(spec, "x.svg")` writes (with the picker's `auto_remap` for a picker
+  figure), rendered by the vl-convert tool while the report is written. Its
+  alt text is the caption's title and short summary, or `alt`. The channel
+  picker and the `PlotSummary` table are left out of the report. Before, a
+  report showed the `PlotSummary` table unless the caller rendered each figure
+  with `vsave` and passed it as `static_image`.
+- Ordinary markdown reads (`?plain`, `?markdown`, `to_markdown_string(x)`) and
+  the browser are unchanged, and render no image.
+- `static_image=false` keeps the `PlotSummary` table in a report; a path, URL
+  or `data:` URI is shown as before. `alt` no longer needs `static_image`.
+  `static_image=true`, and `alt` with `static_image=false` or with a node
+  that holds no AlgebraOfVega plot, are an `ArgumentError`. A report of a
+  figure whose caption has no title is an `ArgumentError` naming `alt`.
+- Needs HTMXObjects 0.1.121 (`report_view`, `page_report`), now the
+  `[compat]` floor. `Base64` is a dependency.
+
+## 0.2.40
+
+- AoV's own look defaults, so a figure gets a quieter page look with no
+  `config(config=…)`. Every figure looks a little different; each key below
+  can be set back through `config(config=…)`.
+  - **Type.** Axis labels are 11 px and axis titles 12 px in normal weight;
+    legend and facet labels and titles are 12 px; a plot title is 14 px.
+    Vega-Lite drew 10–11 px throughout, with bold axis titles. Neighbouring
+    axis labels keep 4 px apart (`labelSeparation`).
+  - **`config(font_scale=…)`** scales these sizes, so `font_scale=2` gives
+    22 px axis labels, where it gave 20 px before.
+  - **Tick counts.** An axis asks for 7 ticks on x and 5 on y. Vega-Lite asked
+    for one per 40 px, so a plot 1,400 px wide got 35 ticks and grid lines.
+    Vega rounds the count to a nice step: 0–100 gets 6 ticks. This holds for
+    an authored size and, in the browser, for a plot sized to its container.
+    An authored tick count is kept, and a binned axis keeps Vega-Lite's ticks
+    at its bin edges.
+  - **Log axes.** A log axis is labelled at 1, 2 and 5 times each power of ten
+    when the plotted rows span at most two decades, and at the powers of ten
+    beyond that. Vega-Lite labelled every multiple (`25 30 40 50 60 70 80 90100`)
+    and drew a grid line at each.
+    - The rows the figure carries, including a band's upper bound and both
+      drawings of a ribbon, decide between the two; the axis carries the whole
+      sequence and Vega draws the values inside its domain, so zooming,
+      streamed rows and a data-only `update_spec` keep the same ticks.
+    - An authored axis `values` or `tickCount` is kept.
+    - Rows read from an address keep Vega-Lite's ticks.
+    - When the channel picker moves the axis to another field, the values are
+      dropped with it.
 
 ## 0.2.39
 

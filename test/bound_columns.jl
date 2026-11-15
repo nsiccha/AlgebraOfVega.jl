@@ -149,6 +149,11 @@ end
         @test occursin("update_spec", message)
         isempty(message) && @info "not refused: $what"
     end
+    # With the scales given apart (`vdraw(spec, scales)`), as with them in the spec.
+    @test bound_marker(bound_html(vdraw(data(rows) * mapping(:x, :y; color = :g) * visual(Lines),
+        scales(Color = (; palette = ["#1b9e77", "#d95f02"])); id = "u-scales"))).marker["dataset"] == "source_0"
+    @test occursin("update_spec", refused(() -> vdraw(data(rows) * mapping(:x, :y; color = :g) * lineribbon(),
+        scales(Color = (; palette = ["#1b9e77", "#d95f02"])); id = "u-r")))
     # Two bound tables: a plot follows one.
     @test occursin("follows one table", refused(() -> to_node(
         data(rows) * mapping(:x, :y) * visual(Lines) + data(other) * mapping(:x, :y) * visual(Scatter); id = "u-two")))

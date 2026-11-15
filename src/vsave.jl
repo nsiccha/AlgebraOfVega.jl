@@ -73,6 +73,16 @@ function _vl_convert()
     found
 end
 
+# The figure as the SVG text `vsave(spec, "figure.svg")` writes, for a
+# captioned figure's image in a report (`_ReportImage`, to_node.jl).
+function _vsave_svg(vl)
+    mktempdir() do dir
+        out = joinpath(dir, "figure.svg")
+        _vsave_render(vl, out, _vsave_command(out))
+        read(out, String)
+    end
+end
+
 function _vsave_render(vl, path::AbstractString, cmd::Cmd)
     mktempdir() do dir
         input = joinpath(dir, "figure.vl.json")

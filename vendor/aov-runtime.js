@@ -1101,7 +1101,7 @@ window.AoV = window.AoV || {
             // Superseded by a newer embed of this id, or disposed: a resize or
             // fit re-embed scheduled earlier must not resurrect the old spec.
             if (self._embedTok[id] !== tok) return Promise.resolve();
-            var s = self._withHighlight(id, self._applyResponsiveWidth(id, JSON.parse(JSON.stringify(cur.spec)), budget));
+            var s = self._capTicks(id, self._withHighlight(id, self._applyResponsiveWidth(id, JSON.parse(JSON.stringify(cur.spec)), budget)));
             // Host theme, read now: a theme change re-runs this embed.
             var embedOpts = self._withFrame(id, self._themedOpts(id, s, opts), plan);
             var fonts = self._fontsPending((s.config && s.config.font) || (embedOpts.config && embedOpts.config.font));
@@ -4904,6 +4904,38 @@ window.AoV = window.AoV || {
             if (Object.keys(enc.scale).length === 0) delete enc.scale;
         }
         if (Array.isArray(enc.sort)) delete enc.sort;
+        // Tick values belong to the field too (a log axis's 1-2-5 values,
+        // `_apply_log_ticks!`, are read from its rows).
+        if (enc.axis && typeof enc.axis === 'object') delete enc.axis.values;
+    },
+
+    // Vega-Lite asks for one axis tick per 40 px (ceil(size / 40)), so a plot
+    // 1,400 px wide gets 35 ticks and grid lines. Ask for 7 on x and 5 on y
+    // (Vega rounds to a nice step: 0–100 gets 6),
+    // from the panel size this embed draws at, unless the spec sets a tick
+    // count (`config.axis`, `config.axisX`/`axisY`). A binned axis keeps
+    // Vega-Lite's ticks at its bin edges. The lowering caps an authored size
+    // the same way (`_apply_tick_cap!`, src/to_vegalite.jl).
+    _TICK_CAP: {x: 7, y: 5},
+    _capTicks: function(id, s) {
+        if (!s || typeof s !== 'object' || s.hconcat || s.vconcat || s.concat) return s;
+        var self = this, inner = s.spec || s, el = self._els[id] || self._plotElement(id);
+        var size = {x: inner.width, y: inner.height};
+        if (size.x === 'container') size.x = el ? el.clientWidth : null;
+        var binned = {x: false, y: false};
+        (Array.isArray(inner.layer) ? inner.layer : [inner]).forEach(function(u) {
+            var enc = Object.assign({}, inner.encoding || {}, (u && u.encoding) || {});
+            ['x', 'y'].forEach(function(ch) { if (enc[ch] && enc[ch].bin) binned[ch] = true; });
+        });
+        var cfg = s.config = s.config || {};
+        if (cfg.axis && cfg.axis.tickCount !== undefined) return s;
+        [['x', 'axisX'], ['y', 'axisY']].forEach(function(p) {
+            var n = size[p[0]], cap = self._TICK_CAP[p[0]];
+            if (binned[p[0]] || typeof n !== 'number' || Math.ceil(n / 40) <= cap) return;
+            if (cfg[p[1]] && cfg[p[1]].tickCount !== undefined) return;
+            cfg[p[1]] = Object.assign({}, cfg[p[1]] || {}, {tickCount: cap});
+        });
+        return s;
     },
 
     // The `calculate` expression of a ribbon interval drawing's dodge on

@@ -3024,24 +3024,24 @@ the two forms (snag `per-column-y-sca-894ada18`).
     children = vl["hconcat"]
     @test length(children) == 2
     # every child — listed-scale or plain-linear — names its own column, in
-    # facet-header label styling (10px regular, matching VL header labels)
+    # facet-header label styling (AoV's 12 px regular header labels, _TYPE_DEFAULTS)
     seen = Set{String}()
     for ch in children
         @test haskey(ch, "title")
         title = ch["title"]
         @test title isa Dict
-        @test title["fontSize"] == 10
+        @test title["fontSize"] == 12
         @test title["fontWeight"] == "normal"
         push!(seen, title["text"])
         # the title names the same column the child's filter selects
         @test occursin(title["text"], ch["transform"][1]["filter"])
     end
     @test seen == Set(["Tumor size (mm)", "QTcF"])
-    # the column field title sits once on the concat (11px bold, matching VL
-    # facet header titles)
+    # the column field title sits once on the concat (AoV's 12 px header title,
+    # bold as VL facet header titles)
     @test vl["title"] isa Dict
     @test vl["title"]["text"] == "endpoint"
-    @test vl["title"]["fontSize"] == 11
+    @test vl["title"]["fontSize"] == 12
     @test vl["title"]["fontWeight"] == "bold"
 
     # an explicit figure title is never clobbered: the field title rides as subtitle
@@ -3121,8 +3121,9 @@ end
 
     # font_scale flows through: sizes consult config.header like real headers
     vl_fs = to_vegalite(spec * config(facet=(; linkyaxes=:none), font_scale=2) * ysc)
-    @test vl_fs["hconcat"][1]["title"]["fontSize"] == 20
-    @test vl_fs["title"]["fontSize"] == 22
+    # (AoV's default header sizes, 12 px labels and titles, scaled: _TYPE_DEFAULTS)
+    @test vl_fs["hconcat"][1]["title"]["fontSize"] == 24
+    @test vl_fs["title"]["fontSize"] == 24
 end
 
 """

@@ -131,7 +131,7 @@ end
     @test summed["config"]["axisX"]["labelAngle"] == 0
     # Merging leaves both terms as they were: each still lowers alone.
     @test to_vegalite(base * styled)["config"]["legend"] ==
-        Dict("orient" => "bottom", "titleLimit" => 0, "labelLimit" => 0)
+        Dict("orient" => "bottom", "titleLimit" => 0, "labelLimit" => 0, "labelFontSize" => 12, "titleFontSize" => 12)
     @test !haskey(to_vegalite(base * shared)["config"], "mark")
 end
 
