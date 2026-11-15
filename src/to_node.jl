@@ -518,7 +518,13 @@ function _to_node(spec, source::_FigureSource, bound_tables=_bound_tables(spec);
     json = _vl_json(_wire_spec(vl))
     id = _sanitize_id(something(id, "vega-" * string(abs(hash(isnothing(bound) ? json : bound.key)), base=16)))
     area = isnothing(bound) ? (; class="aov-plot-area") :
-        (; class="aov-plot-area", data_aov_bound_for=id, _bound_attrs(bound.binding, bound.dataset)...)
+        (; class="aov-plot-area", data_aov_bound_for=id, _bound_attrs(first(bound.bindings)...)...)
+    # A plot that draws several bound tables carries the first binding on its
+    # area and each further one on an empty marker inside it. The page raises
+    # its event on that marker, which names the plot too (the runtime's
+    # `_watchBound`), and the export reads the marker as part of the area.
+    markers = isnothing(bound) ? () : Tuple(h.span(; hidden="", data_aov_bound_for=id, _bound_attrs(b...)...)
+        for b in bound.bindings[2:end])
 
     # Queue embed for deferred execution (after layout is computed)
     embed_opts = "{actions: $actions}"
@@ -537,6 +543,7 @@ function _to_node(spec, source::_FigureSource, bound_tables=_bound_tables(spec);
     h.div(; area...)(
         h.div(; id=id, class="u-w-full"),
         _inline_script("AoV.embed('$id', $json, $embed_opts).then(function(){$signal_js});"),
+        markers...,
         # Markdown-only; emits zero bytes of HTML. Without it a `?plain` read of
         # a figure-only route is an empty body — see `PlotSummary`.
         # Writes nothing: what a captioned figure draws in a report.
