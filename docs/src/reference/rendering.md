@@ -13,7 +13,6 @@ sdraw
 sdraw!
 sdraw_file
 plot_size
-vconcat
 ```
 
 ## Browser assets
