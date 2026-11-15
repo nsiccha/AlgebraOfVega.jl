@@ -39,16 +39,19 @@ window.addEventListener('load', async function () {
     }
     const choose = (name, value) => document.querySelector('input[name="' + name + '"][value="' + value + '"]').click();
     const requests = () => performance.getEntriesByType('resource').length;
+    // A plot that does not follow ends the run, so the report is written
+    // within the page's time budget.
     async function allFollow(a, b, stage) {
         const want = ys(a, b);
         for (const id of Object.keys(PLOTS)) {
-            const ok = await until(() => drawn(id) && yOf(id) === want, stage + ': ' + id + ' shows y = ' + want + ' (' + yOf(id) + ')');
-            check(ok, stage + ': ' + id + ' follows the inputs');
+            const ok = await until(() => drawn(id) && yOf(id) === want, stage + ': ' + id + ' shows y = ' + want);
+            check(ok, stage + ': ' + id + ' follows the inputs (y = ' + yOf(id) + ')');
+            if (!ok) throw new Error(stage + ': stopped at ' + id);
         }
     }
 
     try {
-        await until(() => Object.keys(PLOTS).every(drawn), 'the plots draw');
+        if (!await until(() => Object.keys(PLOTS).every(drawn), 'the plots draw')) throw new Error('the plots did not draw');
         // The server's rows, marked as bound on each plot's area.
         await allFollow(2, 1, 'first render');
         for (const id of Object.keys(PLOTS)) {

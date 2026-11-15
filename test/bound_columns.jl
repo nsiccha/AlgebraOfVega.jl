@@ -106,6 +106,13 @@ end
         @test !occursin("__src", html)
     end
 
+    # The bound rows first, other rows after them, in a captioned figure (aov-use §11h).
+    level = bound_html(with_plot_caption(
+        (data(rows) * mapping(:x, :y) * visual(Lines) + data(OBS) * mapping(:x, :y) * visual(Scatter)) *
+        config(height = 120), "Level"; plot_id = "u-level"))
+    m = bound_marker(level)
+    @test !isnothing(m) && m.plot == "u-level" && m.marker["dataset"] == "source_0"
+
     # The picker, when it leaves the rows as they are.
     picker = bound_html(with_plot_caption(data(rows) * mapping(:x, :y; color = :g) * visual(Lines) * config(height = 100),
         "Picker"; plot_id = "u-picker", auto_remap = (; dims = ["g" => "Group"])))
