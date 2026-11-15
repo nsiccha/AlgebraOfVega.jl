@@ -422,9 +422,12 @@ end
 # A log axis is labelled at 1, 2 and 5 times each power of ten when its data
 # span at most two decades, else at the powers of ten. Vega labels every
 # multiple (25, 30, 40, … 90, 100 on 25–400) and draws a grid line at each.
-# The values come from the rows the plot carries, over every encoding that
+# The span comes from the rows the plot carries, over every encoding that
 # shares the scale (its y2/x2 field too); an authored axis `values` or
-# `tickCount`, or rows read from an address, keep Vega's ticks.
+# `tickCount`, or rows read from an address, keep Vega's ticks. The values are
+# the whole sequence from 1e-15 to 1e15 (Vega draws those inside the scale's
+# domain), so zooming, streamed rows and a data-only `update_spec` keep them:
+# only a span that crosses two decades changes the spec.
 _apply_log_ticks!(spec) = spec
 function _apply_log_ticks!(spec::Dict)
     # A ribbon's interval drawing places its marks at a computed, dodged x
@@ -494,12 +497,9 @@ _is_log_scale(s::Dict) = get(s, "type", nothing) == "log"
 _is_log_scale(_) = false
 _field_of(d::Dict) = get(d, "field", nothing)
 _field_of(_) = nothing
-function _log_tick_values(lo, hi)
-    a, b = floor(Int, log10(lo)), ceil(Int, log10(hi))
-    b == a && (b = a + 1)
-    factors = b - a <= 2 ? (1, 2, 5) : (1,)
-    Float64[parse(Float64, string(f, "e", e)) for e in a:b for f in factors if !(e == b && f > 1)]
-end
+const _LOG_TICKS_125 = Float64[parse(Float64, string(f, "e", e)) for e in -15:15 for f in (1, 2, 5)]
+const _LOG_TICKS_10 = Float64[parse(Float64, string("1e", e)) for e in -15:15]
+_log_tick_values(lo, hi) = log10(hi) - log10(lo) <= 2 ? _LOG_TICKS_125 : _LOG_TICKS_10
 
 # The `ch` encodings of a spec tree with their unit and the rows that unit
 # reads (its own inline `data.values`, else the nearest ancestor's; `nothing`

@@ -134,7 +134,8 @@ end
                 "fits-control" => legend_map(-1560000, -440000; legend=compact_unfitted, gl...),
                 # The width estimate errs wide (0.54 em for `.`, `,` and spaces too),
                 # so a label that fits by less than that error moves a few px in.
-                "near" => legend_map(-1502000, -500000; legend=labelled, gl...),
+                # Calibrated to 10 px labels (Vega-Lite's size; AoV's default is 12 px).
+                "near" => legend_map(-1502000, -500000; legend=labelled, labelFontSize=10, gl...),
                 "exact" => legend_map(-3.35, -3.15; gl...),
                 "exact-control" => legend_map(-3.35, -3.15; legend=unfitted, gl...),
                 "vertical" => legend_map(-3.3502, -3.15; direction="vertical", gradientDirection="vertical"),

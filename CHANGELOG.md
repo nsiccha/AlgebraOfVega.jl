@@ -36,8 +36,10 @@ failing at run time with a `MethodError`.
     when the plotted rows span at most two decades, and at the powers of ten
     beyond that. Vega-Lite labelled every multiple (`25 30 40 50 60 70 80 90100`)
     and drew a grid line at each.
-    - The values come from the rows the figure carries, including a band's
-      upper bound and both drawings of a ribbon.
+    - The rows the figure carries, including a band's upper bound and both
+      drawings of a ribbon, decide between the two; the axis carries the whole
+      sequence and Vega draws the values inside its domain, so zooming,
+      streamed rows and a data-only `update_spec` keep the same ticks.
     - An authored axis `values` or `tickCount` is kept.
     - Rows read from an address keep Vega-Lite's ticks.
     - When the channel picker moves the axis to another field, the values are

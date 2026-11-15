@@ -25,25 +25,30 @@ using TestItemRunner
     # Log axes: 1-2-5 within two decades, decades beyond; linear axes untouched.
     logged = to_vegalite(plot * config(scales=scales(X=(; scale=log10), Y=(; scale=log10))))
     enc = logged["encoding"]
-    @test enc["x"]["axis"]["values"] == [10.0, 20, 50, 100, 200, 500, 1000]
-    @test enc["y"]["axis"]["values"] == [0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1.0]
+    # The whole 1-2-5 sequence (Vega draws the values inside the domain), so a
+    # data-only refresh leaves the spec alone.
+    in_range(v, lo, hi) = filter(t -> lo <= t <= hi, v)
+    @test in_range(enc["x"]["axis"]["values"], 10, 1000) == [10.0, 20, 50, 100, 200, 500, 1000]
+    @test in_range(enc["y"]["axis"]["values"], 0.01, 1) == [0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1.0]
+    @test enc["x"]["axis"]["values"] == to_vegalite(data((; x=2 .* rows.x, y=rows.y)) * mapping(:x, :y) * visual(Lines) *
+        config(scales=scales(X=(; scale=log10))))["encoding"]["x"]["axis"]["values"]
     @test !haskey(get(to_vegalite(plot)["encoding"]["x"], "axis", Dict()), "values")
     wide = data((; x=[1.0, 10, 100, 1000, 1e5], y=[1.0, 2, 3, 4, 5])) * mapping(:x, :y) * visual(Scatter) *
         config(scales=scales(X=(; scale=log10)))
-    @test to_vegalite(wide)["encoding"]["x"]["axis"]["values"] == [1.0, 10, 100, 1000, 1e4, 1e5]
+    @test in_range(to_vegalite(wide)["encoding"]["x"]["axis"]["values"], 1, 1e5) == [1.0, 10, 100, 1000, 1e4, 1e5]
     # A band's y2 field counts towards the extent; layers sharing the scale agree.
     bands = (; x=[1.0, 2, 3], m=[1.0, 2, 3], lo=[0.5, 1, 1.5], hi=[2.0, 40, 60])
     layered = (data(bands) * mapping(:x, :m) * lineribbon(bands=[:lo => :hi]) +
         data(bands) * mapping(:x, :m) * visual(Scatter)) * config(scales=scales(Y=(; scale=log10)))
     ys = [l["encoding"]["y"]["axis"]["values"] for l in to_vegalite(layered)["layer"] if haskey(l["encoding"], "y")]
-    @test !isempty(ys) && all(==(first(ys)), ys) && last(first(ys)) == 100.0 && first(first(ys)) == 0.1
+    @test !isempty(ys) && all(==(first(ys)), ys) && in_range(first(ys), 0.1, 100) == [0.1, 1, 10, 100]
     # Both drawings of a ribbon over a log x (the interval drawing is built later).
     rib = data((; n=repeat([25.0, 50, 100], 2), g=repeat(["a", "b"], inner=3), m=[1.0, 2, 3, 1.5, 2.5, 3.5])) *
         mapping(:n, :m; color=:g) * lineribbon(bands=[:m => :m]) * config(scales=scales(X=(; scale=log10)))
     rvl = to_vegalite(rib)
     for drawing in (rvl, rvl["_aov"]["ribbonView"]["alt"])
         xs = [l["encoding"]["x"] for l in drawing["layer"] if haskey(get(l, "encoding", Dict()), "x")]
-        @test !isempty(xs) && all(x -> get(get(x, "axis", Dict()), "values", nothing) == [10.0, 20, 50, 100], xs)
+        @test !isempty(xs) && all(x -> in_range(get(get(x, "axis", Dict()), "values", Float64[]), 10, 100) == [10.0, 20, 50, 100], xs)
     end
     # Authored tick values or counts stay.
     mine = plot * config(scales=scales(X=(; scale=log10)), encoding=Dict("x" => Dict("axis" => Dict("values" => [25, 400]))))
