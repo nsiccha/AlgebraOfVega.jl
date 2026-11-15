@@ -130,6 +130,11 @@
         await view.runAsync();
         check(AoV.views[id] === view, 'pinned remove: same mounted view');
         check(view.container().querySelector('canvas') === canvas, 'pinned remove: same canvas element');
+        // The y labels came out wider: the view's width is corrected in place (the
+        // view's next run), so the drawing still fits the column it was sized for.
+        for (let i = 0; i < 50 && canvas.clientWidth > AoV._computedWidths[id].budget + 2; i++) await pause();
+        check(AoV.views[id] === view && canvas.clientWidth <= AoV._computedWidths[id].budget + 2,
+            'pinned remove: refitted in place ' + canvas.clientWidth + ' / ' + AoV._computedWidths[id].budget);
         check(view.data('source_0').length === 5 && rowsOf(view, 'A').length === 0,
             'pinned remove: only A deleted');
         check(view.scale('color')('B') === pinnedB, 'pinned remove: B colour stable');
