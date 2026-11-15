@@ -1197,6 +1197,7 @@ window.AoV = window.AoV || {
                 if (self._embedTok[id] === tok) self._fitCorrection(id, function(budget) { doEmbed(budget); });
                 self._refitOnRelayout(id, view, function(budget) { doEmbed(budget); });
                 self._watchScrollFrame(id);
+                self._syncCsvEntries(id);
                 return result;
             }).catch(function(err) { settle(); self._console.error.call(console, '[' + id + ']', err); });
         };
@@ -2314,6 +2315,7 @@ window.AoV = window.AoV || {
         var self = this;
         self._refLabelsSoon(id);
         self.whenReady(id, function() {
+            self._syncCsvEntries(id);
             var sel = '[data-aov-plot-id="' + id + '"]';
             document.querySelectorAll('.aov-data-raw-body' + sel + ', .aov-data-pretty-body' + sel)
                 .forEach(function(body) {
@@ -4558,6 +4560,8 @@ window.AoV = window.AoV || {
     _downloadMenuToggle: function(menu, event) {
         if (menu._aovMenuDone) menu._aovMenuDone();
         if (event.newState !== 'open') return;
+        var csv = menu.querySelector('[data-aov-csv]');
+        if (csv) this._syncCsvEntries(csv.getAttribute('data-aov-csv'));
         var button = menu.previousElementSibling;
         var place = function() {
             if (!menu.isConnected) { menu._aovMenuDone(); return; }
@@ -4585,13 +4589,67 @@ window.AoV = window.AoV || {
         };
     },
 
-    // Public: download the plot's data as CSV, one file per group (`_plotGroups`).
+    // A captioned figure's ⬇ CSV starts one download per click. When its plot
+    // draws several datasets (`_plotGroups`), the menu, or the caption row with
+    // `download_menu=false`, holds one "⬇ CSV · <name>" entry per dataset, each
+    // giving that dataset's file. One click starting a download per dataset lost
+    // files: Chromium drops every download a page starts after the tenth within
+    // a second (Blink's kBurstDownloadLimit), and desktop Chrome asks before a
+    // second download from one click (snag intermittent-csv-4399311c). The
+    // server marks the CSV button `data-aov-csv` (the plot id), with
+    // `data-aov-csv-base` and `data-aov-labels`; the entries are rebuilt after
+    // each embed and data change and when the menu opens, so a script that
+    // clicks them in a closed menu finds them too. An entry carries its
+    // dataset's name in `data-aov-csv-part`, and its words without the name in
+    // `data-aov-csv-text`, so a saved page rebuilds them the same way.
+    _syncCsvEntries: function(id) {
+        var esc = window.CSS && CSS.escape ? CSS.escape(id) : String(id).replace(/["\\]/g, '\\$&');
+        var buttons = document.querySelectorAll('button[data-aov-csv="' + esc + '"]');
+        if (!buttons.length || !this.views[id]) return;
+        var groups = this._plotGroups(id);
+        if (!groups) return;
+        var parts = groups.length > 1 ? groups.map(function(g) { return g.label; }) : [null];
+        var have = [].map.call(buttons, function(b) {
+            return b.hasAttribute('data-aov-csv-part') ? b.getAttribute('data-aov-csv-part') : null;
+        });
+        if (JSON.stringify(have) === JSON.stringify(parts)) return;
+        var model = buttons[0];
+        var word = model.hasAttribute('data-aov-csv-text') ? model.getAttribute('data-aov-csv-text') : model.textContent;
+        var base = model.getAttribute('data-aov-csv-base') || id, labels = {};
+        try { labels = JSON.parse(model.getAttribute('data-aov-labels') || '{}'); } catch (e) { /* none */ }
+        var args = [id, base, labels].map(function(a) { return JSON.stringify(a); }).join(', ');
+        parts.forEach(function(part) {
+            var b = model.cloneNode(false);
+            b.setAttribute('data-aov-csv-text', word);
+            if (part === null) {
+                b.removeAttribute('data-aov-csv-part');
+                b.textContent = word;
+                b.setAttribute('onclick', 'AoV.downloadPlotData(' + args + ')');
+            } else {
+                b.setAttribute('data-aov-csv-part', part);
+                b.textContent = word + ' · ' + (labels[part] || part);
+                b.setAttribute('onclick', 'AoV.downloadPlotData(' + args + ', ' + JSON.stringify(part) + ')');
+            }
+            model.parentNode.insertBefore(b, model);
+        });
+        [].forEach.call(buttons, function(b) { b.remove(); });
+    },
+
+    // Public: download the plot's data as CSV (`_plotGroups`). With `part`, the
+    // name of one of its datasets (`_s1`, `_s2`, … or a merged dataset's source,
+    // as a CSV entry carries it), that dataset's file only; without it, one file
+    // per dataset, as before.
     // labels: optional {srcValue: humanLabel} override map.
-    downloadPlotData: function(id, filenameBase, labels) {
+    downloadPlotData: function(id, filenameBase, labels, part) {
         filenameBase = filenameBase || id;
         labels = labels || {};
         var groups = this._plotGroups(id);
         if (!groups) { console.warn('AoV.downloadPlotData: no data for', id); return; }
+        if (part !== undefined && part !== null) {
+            var one = groups.filter(function(g) { return g.label === part; })[0];
+            if (!one) { console.warn('AoV.downloadPlotData: no dataset', part, 'in', id); return; }
+            groups = [one];
+        }
         var self = this;
         groups.forEach(function(g) {
             var label = g.label === null ? '' : '_' + (labels[g.label] || g.label).replace(/[^A-Za-z0-9_-]+/g, '_');
