@@ -3121,8 +3121,9 @@ end
 
     # font_scale flows through: sizes consult config.header like real headers
     vl_fs = to_vegalite(spec * config(facet=(; linkyaxes=:none), font_scale=2) * ysc)
-    @test vl_fs["hconcat"][1]["title"]["fontSize"] == 20
-    @test vl_fs["title"]["fontSize"] == 22
+    # (AoV's default header sizes, 12 px labels and titles, scaled: _TYPE_DEFAULTS)
+    @test vl_fs["hconcat"][1]["title"]["fontSize"] == 24
+    @test vl_fs["title"]["fontSize"] == 24
 end
 
 """

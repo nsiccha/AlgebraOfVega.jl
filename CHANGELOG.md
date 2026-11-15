@@ -15,6 +15,34 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
+## 0.2.40
+
+- AoV's own look defaults, so a figure gets a quieter page look with no
+  `config(config=…)`. Every figure looks a little different; each key below
+  can be set back through `config(config=…)`.
+  - **Type.** Axis labels are 11 px and axis titles 12 px in normal weight;
+    legend and facet labels and titles are 12 px; a plot title is 14 px.
+    Vega-Lite drew 10–11 px throughout, with bold axis titles. Neighbouring
+    axis labels keep 4 px apart (`labelSeparation`).
+  - **`config(font_scale=…)`** scales these sizes, so `font_scale=2` gives
+    22 px axis labels, where it gave 20 px before.
+  - **Tick counts.** An axis asks for 7 ticks on x and 5 on y. Vega-Lite asked
+    for one per 40 px, so a plot 1,400 px wide got 35 ticks and grid lines.
+    Vega rounds the count to a nice step: 0–100 gets 6 ticks. This holds for
+    an authored size and, in the browser, for a plot sized to its container.
+    An authored tick count is kept, and a binned axis keeps Vega-Lite's ticks
+    at its bin edges.
+  - **Log axes.** A log axis is labelled at 1, 2 and 5 times each power of ten
+    when the plotted rows span at most two decades, and at the powers of ten
+    beyond that. Vega-Lite labelled every multiple (`25 30 40 50 60 70 80 90100`)
+    and drew a grid line at each.
+    - The values come from the rows the figure carries, including a band's
+      upper bound and both drawings of a ribbon.
+    - An authored axis `values` or `tickCount` is kept.
+    - Rows read from an address keep Vega-Lite's ticks.
+    - When the channel picker moves the axis to another field, the values are
+      dropped with it.
+
 ## 0.2.39
 
 - A figure with a line or area layer on a continuous x (a time series, a

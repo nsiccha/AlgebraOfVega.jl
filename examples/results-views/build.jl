@@ -122,13 +122,11 @@ const CR = comparison_rows()
 # Figures
 # ---------------------------------------------------------------------------
 const LEGEND_TOP = config(config=Dict("legend" => Dict("orient" => "top", "title" => nothing)))
-# Fewer ticks than Vega-Lite's one per 40 px, and a y axis of fixed minimum width,
-# so figures stacked on one page put their plot areas at the same x.
-const AXES = config(config=Dict("axisX" => Dict("tickCount" => 7), "axisY" => Dict("tickCount" => 5, "minExtent" => 44)))
-# Type sizes nearer the page's: Vega-Lite's defaults are 10-11 px throughout.
-const TYPE = config(config=Dict(
-    "axis" => Dict("labelFontSize" => 11, "titleFontSize" => 12, "titleFontWeight" => "normal"),
-    "legend" => Dict("labelFontSize" => 12, "symbolSize" => 120),
+# A y axis of fixed minimum width, so figures stacked on one page put their plot
+# areas at the same x; facet titles bold at the left. Tick counts, type sizes and
+# log-axis labels are AoV's defaults.
+const AXES = config(config=Dict("axisY" => Dict("minExtent" => 44)))
+const TYPE = config(config=Dict("legend" => Dict("symbolSize" => 120),
     "header" => Dict("labelFontSize" => 13, "labelFontWeight" => "bold", "labelAnchor" => "start")))
 const LOOK = LEGEND_TOP * AXES * TYPE
 # A single series coloured by a constant column: it takes the page's first
@@ -182,8 +180,6 @@ comparison() = (
     data(CR.summary) * mapping(:n => "Sample size", :q50 => "Estimation error (RMSE)"; color=:method => "Method", col=:noise => NOISE) *
         lineribbon(bands=BANDS)
 ) * LOOK * config(height=240, scales=scales(X=(; scale=log10), Y=(; scale=log10)),
-                  encoding=Dict("x" => Dict("axis" => Dict("values" => [25, 50, 100, 200, 400])),
-                                "y" => Dict("axis" => Dict("values" => [0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1]))),
                   link=(; group="cells", key=:cell))
 
 # ---------------------------------------------------------------------------

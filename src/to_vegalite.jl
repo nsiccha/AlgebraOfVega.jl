@@ -49,6 +49,7 @@ function _base_vegalite(layer::AlgebraOfGraphics.Layer, layer_encodings::Abstrac
     _apply_layer_transforms!([[spec]], layer_transforms)
     _apply_layer_passive!([[spec]], [layer])
     _apply_no_truncate_default!(spec)
+    _apply_type_default!(spec)
     _apply_ink_default!(spec)
     _densify_facet_sort!(spec)
     spec
@@ -58,6 +59,7 @@ function _base_vegalite(layers::AlgebraOfGraphics.Layers, layer_encodings::Abstr
         layer_transforms::AbstractVector=Any[])
     spec = layers_to_vl(layers; layer_encodings, layer_transforms)
     _apply_no_truncate_default!(spec)
+    _apply_type_default!(spec)
     _apply_ink_default!(spec)
     _densify_facet_sort!(spec)
     spec
@@ -389,6 +391,146 @@ function _apply_no_truncate_default!(spec::Dict)
         haskey(guide, "labelLimit") || (guide["labelLimit"] = 0)
     end
     return spec
+end
+
+# AoV default type: sizes nearer the page's text than Vega-Lite's 10–11 px,
+# normal-weight axis titles (the axes recede behind the data), and a 4 px
+# separation that keeps neighbouring axis labels from touching (`90100` on a
+# log axis). Set on the top-level `config` before an authored
+# `config(config=…)` merges, so every key stays overridable;
+# `config(font_scale=…)` scales these sizes.
+const _TYPE_DEFAULTS = (
+    "axis" => ("labelFontSize" => 11, "titleFontSize" => 12, "titleFontWeight" => "normal", "labelSeparation" => 4),
+    "legend" => ("labelFontSize" => 12, "titleFontSize" => 12),
+    "header" => ("labelFontSize" => 12, "titleFontSize" => 12),
+    "title" => ("fontSize" => 14,))
+_type_default(guide, key) = last(only(p for p in last(only(g for g in _TYPE_DEFAULTS if first(g) == guide)) if first(p) == key))
+_apply_type_default!(_) = nothing
+function _apply_type_default!(spec::Dict)
+    cfg = get!(spec, "config", Dict{String,Any}())
+    cfg isa Dict || return spec
+    for (g, props) in _TYPE_DEFAULTS
+        guide = get!(cfg, g, Dict{String,Any}())
+        guide isa Dict || continue
+        for (k, v) in props
+            haskey(guide, k) || (guide[k] = v)
+        end
+    end
+    spec
+end
+
+# A log axis is labelled at 1, 2 and 5 times each power of ten when its data
+# span at most two decades, else at the powers of ten. Vega labels every
+# multiple (25, 30, 40, … 90, 100 on 25–400) and draws a grid line at each.
+# The values come from the rows the plot carries, over every encoding that
+# shares the scale (its y2/x2 field too); an authored axis `values` or
+# `tickCount`, or rows read from an address, keep Vega's ticks.
+_apply_log_ticks!(spec) = spec
+function _apply_log_ticks!(spec::Dict)
+    # A ribbon's interval drawing places its marks at a computed, dodged x
+    # (`_aov.dodgeX.as`); its rows hold the x it was computed from.
+    aov = get(spec, "_aov", nothing)
+    dodge = aov isa Dict ? get(aov, "dodgeX", nothing) : nothing
+    source(f) = dodge isa Dict && f == get(dodge, "as", nothing) ? get(dodge, "field", f) : f
+    for ch in ("x", "y"), group in _shared_scale_units(spec, ch)
+        any(((enc, _, _),) -> _is_log_scale(get(enc, "scale", nothing)), group) || continue
+        any(((enc, _, _),) -> (a = get(enc, "axis", nothing); a isa Dict && (haskey(a, "values") || haskey(a, "tickCount"))), group) && continue
+        any(((_, _, rows),) -> isnothing(rows), group) && continue
+        lo, hi = Inf, -Inf
+        for (enc, unit, rows) in group
+            fields = [source(f) for f in (get(enc, "field", nothing), _field_of(get(get(unit, "encoding", Dict()), ch * "2", nothing))) if f isa AbstractString]
+            for r in rows, f in fields
+                v = r isa AbstractDict ? get(r, f, nothing) : nothing
+                v isa Real && isfinite(v) && v > 0 || continue
+                lo = min(lo, v); hi = max(hi, v)
+            end
+        end
+        isfinite(lo) || continue
+        values = _log_tick_values(lo, hi)
+        for (enc, _, _) in group
+            haskey(enc, "field") || continue
+            get(enc, "axis", Dict()) === nothing && continue
+            axis = get!(enc, "axis", Dict{String,Any}())
+            axis isa Dict && (axis["values"] = copy(values))
+        end
+    end
+    spec
+end
+# Vega-Lite asks for one axis tick per 40 px (ceil(size / 40)), so a plot
+# 1,400 px wide gets 35 ticks and grid lines. Ask for 7 on x and 5 on y for an
+# authored size (Vega rounds to a nice step: 0–100 gets 6), unless the spec sets a tick count (`config.axis`,
+# `config.axisX`/`axisY`, set by `config(config=…)`). A binned axis keeps
+# Vega-Lite's ticks at its bin edges. The runtime caps a container-sized plot
+# the same way, from the size it draws at (`_capTicks`, vendor/aov-runtime.js).
+const _TICK_CAP = (x=7, y=5)
+_apply_tick_cap!(spec) = spec
+function _apply_tick_cap!(spec::Dict)
+    any(k -> haskey(spec, k), ("hconcat", "vconcat", "concat")) && return spec
+    inner = get(spec, "spec", spec)
+    inner isa Dict || return spec
+    cfg = get!(spec, "config", Dict{String,Any}())
+    cfg isa Dict || return spec
+    ax = get(cfg, "axis", nothing)
+    ax isa Dict && haskey(ax, "tickCount") && return spec
+    layers = get(inner, "layer", nothing)
+    units = layers isa AbstractVector ? layers : Any[inner]
+    top = get(inner, "encoding", nothing)
+    for (ch, key, size) in (("x", "axisX", get(inner, "width", nothing)), ("y", "axisY", get(inner, "height", nothing)))
+        size isa Real || continue
+        cap = getfield(_TICK_CAP, Symbol(ch))
+        ceil(Int, size / 40) <= cap && continue
+        binned = any(units) do u
+            enc = u isa Dict ? get(u, "encoding", nothing) : nothing
+            c = enc isa Dict && haskey(enc, ch) ? enc[ch] : (top isa Dict ? get(top, ch, nothing) : nothing)
+            c isa Dict && get(c, "bin", nothing) ∉ (nothing, false)
+        end
+        binned && continue
+        g = get!(cfg, key, Dict{String,Any}())
+        g isa Dict && !haskey(g, "tickCount") && (g["tickCount"] = cap)
+    end
+    spec
+end
+_is_log_scale(s::Dict) = get(s, "type", nothing) == "log"
+_is_log_scale(_) = false
+_field_of(d::Dict) = get(d, "field", nothing)
+_field_of(_) = nothing
+function _log_tick_values(lo, hi)
+    a, b = floor(Int, log10(lo)), ceil(Int, log10(hi))
+    b == a && (b = a + 1)
+    factors = b - a <= 2 ? (1, 2, 5) : (1,)
+    Float64[parse(Float64, string(f, "e", e)) for e in a:b for f in factors if !(e == b && f > 1)]
+end
+
+# The `ch` encodings of a spec tree with their unit and the rows that unit
+# reads (its own inline `data.values`, else the nearest ancestor's; `nothing`
+# for rows read from an address), grouped by the scale they share, as
+# `_shared_scale_groups` groups them.
+_shared_scale_units(spec, ch) = _collect_scale_units!(Vector{Any}[Any[]], 1, spec, ch, nothing)
+_collect_scale_units!(groups, g, _, ch, rows) = groups
+function _collect_scale_units!(groups, g, node::Dict, ch, rows)
+    data = get(node, "data", nothing)
+    if data isa Dict
+        rows = haskey(data, "values") && data["values"] isa AbstractVector ? data["values"] : nothing
+    end
+    enc = get(node, "encoding", nothing)
+    c = enc isa Dict ? get(enc, ch, nothing) : nothing
+    c isa Dict && get(c, "type", nothing) == "quantitative" && push!(groups[g], (c, node, rows))
+    resolve = get(node, "resolve", nothing)
+    scale_resolve = resolve isa Dict ? get(resolve, "scale", nothing) : nothing
+    mode = scale_resolve isa Dict ? get(scale_resolve, ch, nothing) : nothing
+    layers = get(node, "layer", nothing)
+    layers isa AbstractVector && for sub in layers
+        _collect_scale_units!(groups, mode == "independent" ? (push!(groups, Any[]); length(groups)) : g, sub, ch, rows)
+    end
+    _collect_scale_units!(groups, g, get(node, "spec", nothing), ch, rows)
+    for key in ("hconcat", "vconcat", "concat")
+        views = get(node, key, nothing)
+        views isa AbstractVector || continue
+        for sub in views
+            _collect_scale_units!(groups, mode == "shared" ? g : (push!(groups, Any[]); length(groups)), sub, ch, rows)
+        end
+    end
+    groups
 end
 
 # Facet-densifier pad reuse: `_densify_facet_sort!` pads via the shared
@@ -2077,20 +2219,20 @@ function _lower_vegaspec(v::VegaSpec; interactive::Bool=true)
                 axes = _independent_axes(val)
                 _merge_facet_resolve!(spec, Dict{String,Any}(ax => "independent" for ax in axes))
             elseif sk == "font_scale"
-                # Scale all default VL font sizes by val
+                # Scale AoV's default type sizes (_TYPE_DEFAULTS) by val
                 fs = Float64(val)
                 cfg = get!(spec, "config", Dict{String,Any}())
                 ax = get!(cfg, "axis", Dict{String,Any}())
-                ax["labelFontSize"] = round(Int, 10 * fs)
-                ax["titleFontSize"] = round(Int, 11 * fs)
+                ax["labelFontSize"] = round(Int, _type_default("axis", "labelFontSize") * fs)
+                ax["titleFontSize"] = round(Int, _type_default("axis", "titleFontSize") * fs)
                 lg = get!(cfg, "legend", Dict{String,Any}())
-                lg["labelFontSize"] = round(Int, 10 * fs)
-                lg["titleFontSize"] = round(Int, 11 * fs)
+                lg["labelFontSize"] = round(Int, _type_default("legend", "labelFontSize") * fs)
+                lg["titleFontSize"] = round(Int, _type_default("legend", "titleFontSize") * fs)
                 hd = get!(cfg, "header", Dict{String,Any}())
-                hd["labelFontSize"] = round(Int, 10 * fs)
-                hd["titleFontSize"] = round(Int, 11 * fs)
+                hd["labelFontSize"] = round(Int, _type_default("header", "labelFontSize") * fs)
+                hd["titleFontSize"] = round(Int, _type_default("header", "titleFontSize") * fs)
                 tt = get!(cfg, "title", Dict{String,Any}())
-                tt["fontSize"] = round(Int, 13 * fs)
+                tt["fontSize"] = round(Int, _type_default("title", "fontSize") * fs)
             elseif sk == "max_width"
                 # Store max width in _aov for JS to cap responsive sizing
                 aov = get!(spec, "_aov", Dict{String,Any}())
@@ -2198,9 +2340,12 @@ end
 # default follows every authored count (`config(columns=…)`, a positional
 # `scales(Layout=…)`), so it only fills a count nobody set.
 _finish_vegalite!(spec, ::Dict) = spec
-_finish_vegalite!(spec, v) =
-    _record_summary!(_finish_ribbon_views!(_each_ribbon_view!(_apply_finish_defaults!, spec)), v)
-_apply_finish_defaults!(spec) = _apply_ink_paint!(_fit_gradient_labels!(_one_colour_bar!(_heatmap_seams!(_apply_log_bar_base!(_apply_no_zero_default!(_apply_wrap_default!(spec)))))))
+_finish_vegalite!(spec, v) = _record_summary!(
+    _each_ribbon_view!(_apply_axis_defaults!, _finish_ribbon_views!(_each_ribbon_view!(_apply_finish_defaults!, spec))), v)
+# Log tick values and tick counts, again once a ribbon's interval drawing is
+# built (it gets x encodings of its own); both passes keep what is set.
+_apply_axis_defaults!(spec) = _apply_tick_cap!(_apply_log_ticks!(spec))
+_apply_finish_defaults!(spec) = _apply_ink_paint!(_fit_gradient_labels!(_one_colour_bar!(_heatmap_seams!(_apply_tick_cap!(_apply_log_ticks!(_apply_log_bar_base!(_apply_no_zero_default!(_apply_wrap_default!(spec)))))))))
 
 # Half a legend label's width. Vega expressions cannot measure text, so it counts
 # characters at 0.54 em each: about Arial's digits (0.556 em), and wide for `.`, `,`
