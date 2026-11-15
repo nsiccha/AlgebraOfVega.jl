@@ -3097,6 +3097,7 @@ window.AoV = window.AoV || {
         groups.forEach(function(totals, i) {
             if (widths[i] > 0) totals.forEach(function(t) { t.style.minWidth = Math.ceil(widths[i]) + 'px'; });
         });
+        this._cellAlignAxes();
     },
     _takeCell: function(el) {
         if (!this._cellPending.delete(el)) return;
@@ -3196,8 +3197,133 @@ window.AoV = window.AoV || {
         col.inline.forEach(function(ds) { view.data(ds.name, (ds.byKey.get(tok) || []).concat(ds.shared)); });
         view.signal(self._FRAME_PARAM, key);
         self._cellViews.set(el, {view: view, colId: colId, theme: built.theme});
-        return view.runAsync().then(function() { return view; })
+        return view.runAsync().then(function() { self._cellAxis(colId, el, view, built.theme); return view; })
             .catch(function(err) { console.error('AoV: a cell of column "' + colId + '" cannot be drawn:', err); });
+    },
+    // The column's value axis in its header cell (`cell_charts(…; axis=true)`):
+    // the x axis every cell shares, drawn once at the bottom of the column's
+    // header and aligned with the cells' plot area (_cellAlign), so the
+    // in-row charts can be read off. Its scale is the one a drawn cell uses
+    // (the frame plan's shared domain after nice/zero), so the ticks sit
+    // where the cells draw those values. Only a continuous x the cells share
+    // gets one: a categorical x, or one the figure unlinks (`own`), has no
+    // single axis. Drawn on a canvas, so the header's text, which the
+    // table's CSV export and sorting read, stays its own; the header keeps
+    // room for it in its bottom padding, below the sort caret.
+    _CELL_AXIS_TYPES: {linear: 1, log: 1, pow: 1, sqrt: 1, symlog: 1, time: 1, utc: 1},
+    _cellAxes: null,
+    _cellAxis: function(colId, el, view, themeKey) {
+        var self = this, col = self._cellCols[colId];
+        if (!col || !el.isConnected) return;
+        var cells = (col.spec._aov && col.spec._aov.cells) || {};
+        if (cells.axis === false || (cells.own || []).indexOf('x') !== -1) return;
+        var td = el.closest ? el.closest('td') : null, th = self._cellHeader(td);
+        if (!th) return;
+        var sc;
+        try { sc = view.scale('x'); } catch (err) { return; }
+        if (!sc || !self._CELL_AXIS_TYPES[sc.type]) return;
+        var domain = sc.domain().map(function(d) { return +d; });
+        var key = JSON.stringify([colId, sc.type, domain, themeKey]);
+        self._cellAxes = self._cellAxes || new Map();
+        var cur = self._cellAxes.get(th);
+        if (cur && cur.key === key && cur.holder.isConnected) { cur.cell = el; return; }
+        if (cur) { cur.view.finalize(); cur.holder.remove(); }
+        var spec = col.spec, enc = self._cellXEncoding(spec);
+        if (!enc) return;
+        var theme = self._themeOn(spec) ? self.hostThemeConfig(el) : null;
+        var cfg = JSON.parse(JSON.stringify(spec.config || {}));
+        cfg.axis = Object.assign({}, cfg.axis || {}, {disable: false});
+        var own = enc.axis && typeof enc.axis === 'object' ? enc.axis : {};
+        var axis = Object.assign({}, own, {orient: 'top', title: null, grid: false, labelFlush: true, domain: true, ticks: true});
+        // A header line of labels: about one per 60 px, unless the figure sets its own.
+        if (own.values === undefined && own.tickCount === undefined) axis.tickCount = Math.max(2, Math.round(spec.width / 60));
+        var vl = {width: spec.width, height: 0, padding: 0, autosize: {type: 'pad'}, data: {values: []},
+            mark: {type: 'point', opacity: 0}, config: cfg, encoding: {x: {field: enc.field, type: enc.type, axis: axis,
+                scale: {type: sc.type, domain: domain, nice: false, zero: false}}}};
+        if (theme) self._hostInk(vl, theme);
+        var holder = document.createElement('span');
+        holder.className = 'aov-cell-axis';
+        holder.setAttribute('aria-hidden', 'true');
+        holder.style.cssText = 'position:absolute;bottom:0;left:0;pointer-events:none;line-height:0';
+        if (getComputedStyle(th).position === 'static') th.style.position = 'relative';
+        if (th.dataset.aovAxisPad === undefined) th.dataset.aovAxisPad = parseFloat(getComputedStyle(th).paddingBottom) || 0;
+        if (self._cellRO) self._cellRO.observe(th);
+        th.appendChild(holder);
+        var axisView;
+        try {
+            var vg = vegaLite.compile(vl, theme ? {config: theme} : {}).spec;
+            axisView = new vega.View(vega.parse(vg), {renderer: 'canvas', container: holder});
+        } catch (err) { holder.remove(); console.error('AoV: the header axis of cell column "' + colId + '" cannot be drawn:', err); return; }
+        var rec = {key: key, holder: holder, view: axisView, cell: el, colId: colId};
+        self._cellAxes.set(th, rec);
+        axisView.runAsync().then(function() { self._cellAlignSoon(); })
+            .catch(function(err) { console.error('AoV: the header axis of cell column "' + colId + '" cannot be drawn:', err); });
+    },
+    // The x encoding a cell column's figure draws (the first unit with a
+    // continuous x): its field, type and authored axis (format, values).
+    _cellXEncoding: function(spec) {
+        var found = null;
+        (function walk(u, top) {
+            if (found || !u || typeof u !== 'object') return;
+            var enc = Object.assign({}, top || {}, u.encoding || {});
+            if (u.mark && enc.x && enc.x.field && (enc.x.type === 'quantitative' || enc.x.type === 'temporal')) { found = enc.x; return; }
+            (u.layer || []).forEach(function(l) { walk(l, enc); });
+        })(spec, null);
+        return found;
+    },
+    // The header cell above table cell `td`: the lowest header cell that
+    // covers td's column alone (column and row spans counted).
+    _cellHeader: function(td) {
+        var table = td && td.closest('table');
+        if (!table || !table.tHead) return null;
+        var tr = td.parentElement, col = 0;
+        for (var i = 0; i < tr.cells.length && tr.cells[i] !== td; i++) col += tr.cells[i].colSpan || 1;
+        var taken = [], found = null;
+        Array.prototype.forEach.call(table.tHead.rows, function(row, r) {
+            var c = 0;
+            Array.prototype.forEach.call(row.cells, function(cell) {
+                while (taken[r] && taken[r][c]) c++;
+                var span = cell.colSpan || 1, rows = cell.rowSpan || 1;
+                for (var rr = r; rr < r + rows; rr++) {
+                    taken[rr] = taken[rr] || [];
+                    for (var cc = c; cc < c + span; cc++) taken[rr][cc] = true;
+                }
+                if (span === 1 && col === c) found = cell;
+                c += span;
+            });
+        });
+        return found;
+    },
+    // Each header axis at its cells' plot area: left where a cell of its
+    // column starts in that table, its height kept free in the header's
+    // bottom padding. Run with the totals' alignment, which moves the cells.
+    _cellAlignAxes: function() {
+        var self = this;
+        if (!self._cellAxes) return;
+        var place = [];
+        self._cellAxes.forEach(function(rec, th) {
+            if (!th.isConnected || !rec.holder.isConnected) {
+                rec.view.finalize(); self._cellAxes.delete(th);
+                if (self._cellRO) self._cellRO.unobserve(th);
+                return;
+            }
+            var cell = rec.cell;
+            if (!cell || !cell.isConnected || cell.closest('table') !== th.closest('table')) {
+                cell = th.closest('table').querySelector('span.aov-cell[data-aov-cells="' + rec.colId + '"]');
+                rec.cell = cell;
+            }
+            if (cell) place.push([rec, th, cell]);
+        });
+        // Read every position, then write: one layout for all axes.
+        var at = place.map(function(p) {
+            var cr = p[2].getBoundingClientRect(), hr = p[1].getBoundingClientRect();
+            return {left: cr.left - hr.left - p[1].clientLeft, height: p[0].holder.offsetHeight, visible: cr.width > 0};
+        });
+        place.forEach(function(p, i) {
+            if (!at[i].visible) return;
+            p[0].holder.style.left = Math.round(at[i].left) + 'px';
+            p[1].style.paddingBottom = (+p[1].dataset.aovAxisPad + at[i].height + 2) + 'px';
+        });
     },
     // Redraw the cells of every column whose host theme changed (refreshTheme).
     _refreshCellThemes: function() {

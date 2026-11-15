@@ -15,6 +15,25 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
+## 0.2.45
+
+- **A `cell_charts` column shows its shared x axis in the header.** When the
+  cells share a continuous x (a value or a time, as in a column of intervals
+  per row), the browser draws that axis once, at the bottom of the column's
+  header cell. It uses the cells' own scale (the shared domain after nice and
+  zero) and starts where their plot area starts, so a value's tick sits where
+  the cells draw it. It has about one label per 60 px, flush at both ends, in
+  the plot's look and host theme. The figure's own axis `values` or `format`
+  are kept.
+  - It is drawn on a canvas, so the header's text, which the table's sorting and
+    CSV export read, is unchanged; the header keeps room for it in its bottom
+    padding, below the sort caret.
+  - It is realigned when the totals, the fonts or the column width change, and
+    redrawn on a theme switch.
+  - A categorical x, or an x the figure unlinks (`config(facet=(; linkyaxes=…))`),
+    has no single axis and gets none. `cell_charts(…; axis=false)` leaves it out.
+  - Before, the cells compared rows on one scale but showed no values.
+
 ## 0.2.44
 
 - **`visual(...; label="Observed")`** gives a layer without a colour mapping a

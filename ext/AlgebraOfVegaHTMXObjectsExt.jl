@@ -568,8 +568,8 @@ Base.haskey(c::CellCharts, key) = haskey(c.column.rows, key)
 Base.length(c::CellCharts) = length(c.column.keys)
 
 function cell_charts(spec, scales=nothing; texts::TableTexts=table_texts(), sigdigits::Integer=3,
-                     id=nothing, total=nothing, label=nothing, text=nothing)
-    CellCharts(_cell_column(spec, scales; id), texts, sigdigits, total, label, text, false)
+                     id=nothing, total=nothing, label=nothing, text=nothing, axis::Bool=true)
+    CellCharts(_cell_column(spec, scales; id, axis), texts, sigdigits, total, label, text, false)
 end
 
 # A total as the sort value and the CSV field: the exact number, an integral
