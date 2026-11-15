@@ -26,6 +26,12 @@ The [composition guide](../guides/composition.md) demonstrates the algebra. The 
 
 These are re-exported Makie plot types used as arguments to `visual`; browser rendering does not require a Makie backend. See [coordinates](../guides/composition.md#Coordinates) for positional-mapping exceptions.
 
+## Stacked panels
+
+```@docs
+vconcat
+```
+
 ## Configuration
 
 ```@docs
