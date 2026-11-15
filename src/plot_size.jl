@@ -178,6 +178,16 @@ function plot_size(spec::AbstractDict)
         height = maximum(s.height for s in sizes) + (haskey(top, "title") ? _SIZE_TITLE_OVERHEAD : 0.0)
         return (; width = Float64(width), height = Float64(height))
     end
+    # A `vconcat` stack: panels one above the other, one width.
+    stacked = get(top, "vconcat", nothing)
+    if stacked isa AbstractVector && !isempty(stacked)
+        sizes = [plot_size(c) for c in stacked if c isa AbstractDict]
+        isempty(sizes) && return (width = _VL_CONTINUOUS_LEN, height = _VL_CONTINUOUS_LEN)
+        sp = _as_number(get(top, "spacing", nothing))
+        sp = isnothing(sp) ? _size_cfg(top, ("config", "concat", "spacing"), _VL_FACET_SPACING) : Float64(sp)
+        height = sum(s.height for s in sizes) + (length(sizes) - 1) * sp + (haskey(top, "title") ? _SIZE_TITLE_OVERHEAD : 0.0)
+        return (; width = Float64(maximum(s.width for s in sizes)), height = Float64(height))
+    end
     rows    = _size_collect_rows(top)
     step    = _size_cfg(top, ("config", "view", "step"), _VL_DISCRETE_STEP)
     spacing = _size_cfg(top, ("config", "facet", "spacing"), _VL_FACET_SPACING)

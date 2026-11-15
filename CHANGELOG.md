@@ -15,6 +15,33 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
+## 0.2.48
+
+- **`vconcat(a, b, …)` stacks figures on one shared x as one plot**, such as a
+  water level chart over the hourly precipitation. Each panel is an ordinary
+  figure with its own `config(height=…)`, scales and legends.
+  - The panels share the x scale and are laid out by their plot areas, so the
+    plot areas line up to the pixel whatever the y axes' label widths. The x
+    axis is labelled once, under the bottom panel. `spacing=` sets the gap
+    (default 8 px).
+  - In the browser the stack spans its container like any AoV plot.
+  - One readout runs across the panels. Its rule goes through all of them, and
+    one box lists every panel's series at the x under the pointer, from
+    whichever panel the pointer is over. A link-group announcement (a table row)
+    shows it too.
+  - A zoom on a quantitative x zooms every panel.
+  - It works in `vdraw`, `to_node`, `with_plot_caption`, `vsave`, `plot_size`
+    and `to_vegalite`.
+  - Refused with an `ArgumentError`: one panel, a faceted panel (or a frame
+    animation, or a cell column), panels with different link groups, the
+    channel picker, and `sdraw`. For Makie output, use `sdraw!` and
+    `Makie.linkxaxes!`.
+  - A ribbon panel draws the drawing it starts in, without the Ribbons |
+    Intervals switch.
+  - Before, the two figures could not line up: in the comparison preview their
+    plot areas were 1,427 and 1,384 px wide, so 18:00 sat 40 px apart.
+- The runtime's tick cap (`_capTicks`) also applies to a stack's panels.
+
 ## 0.2.47
 
 - A captioned figure's default alt text leaves out a blank caption tier with

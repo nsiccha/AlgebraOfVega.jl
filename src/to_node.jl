@@ -563,6 +563,10 @@ function _embed_spec(spec; width=nothing, height=nothing, fit_width=true)
         # Per-column-Y concat (`to_vegalite` already stored its column count):
         # the runtime sizes every child from the container.
         vl["_aov"] = _aov_hint_with(vl, "fitWidth" => true)
+    elseif fit && haskey(vl, "vconcat") && haskey(something(_as_dict(get(vl, "_aov", nothing)), Dict()), "panels")
+        # A `vconcat` stack: the runtime sizes every panel from the container.
+        all(p -> !(p isa AbstractDict && haskey(p, "width")), vl["vconcat"]) &&
+            (vl["_aov"] = _aov_hint_with(vl, "fitWidth" => true))
     elseif fit && !haskey(vl, "hconcat") && !haskey(vl, "vconcat")
         is_faceted = _is_faceted(vl)
         is_layered = haskey(vl, "layer") || is_faceted || haskey(vl, "concat")

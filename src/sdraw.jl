@@ -421,6 +421,7 @@ Requires a Makie backend (e.g. CairoMakie) to be loaded. Returns the result of
 `AlgebraOfGraphics.draw!`.
 """
 function sdraw!(position, spec)
+    _sdraw_check(spec)
     authored, cfg = _extract_drawable(spec)
     drawable = _convert_drawable(authored)
     kw = _draw_kwargs(cfg; faceted=_is_faceted(drawable),
@@ -438,6 +439,7 @@ Render an AoG spec to a file via AlgebraOfGraphics.draw → Makie.save.
 Returns the path. Extra `kwargs` are passed to `Makie.save`.
 """
 function sdraw_file(spec, path::AbstractString; kwargs...)
+    _sdraw_check(spec)
     authored, cfg = _extract_drawable(spec)
     drawable = _convert_drawable(authored)
     kw = _draw_kwargs(cfg; faceted=_is_faceted(drawable),
