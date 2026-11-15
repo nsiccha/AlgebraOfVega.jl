@@ -15,6 +15,30 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
+## 0.2.51
+
+- **Reference lines and periods name themselves through AoG's `text` mapping**
+  on their own layer: `mapping(:t; text=:name) * visual(VLines)`, and likewise
+  `VSpan` (`mapping(:from, :to; text=:name)`), `HLines` and `HSpan`.
+  - The label of a vertical reference stands just above the plot area at its
+    line (a span's start), left-aligned.
+  - Labels close together go into rows, so they never overprint: the browser
+    measures the drawn labels and gives each the first row where it clears the
+    label before it, again after a resize, a data change or a zoom.
+  - A label whose line is out of view (past the x limits, or zoomed away) is
+    hidden.
+  - A horizontal reference is labelled at the plot's right end, just above its
+    line.
+  - The labels take the line's colour (`color=:ink` follows the page's light or
+    dark ink) and let the pointer through to the marks beneath.
+  - Before, the `text` channel of a rule or rect drew nothing, and a
+    hand-placed `Makie.Text` layer at a data height overprinted its neighbours.
+  - `sdraw` leaves the labels out with a warning, since Makie's `vlines` and
+    `vspan` take no text. `vsave` draws them in their first rows.
+- `vconcat`: a value parameter of a panel (one without `select`) moves to the
+  stack's top, where Vega-Lite defines it; before, a labelled reference in a
+  panel failed with "Unrecognized signal name".
+
 ## 0.2.50
 
 - **A plot follows every `bound(p; columns)` table it draws.** A figure may now

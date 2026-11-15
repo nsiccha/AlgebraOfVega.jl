@@ -155,10 +155,14 @@ forest() = (
 # 2. The forecast figure and its precipitation panel.
 const TIME_X = config(axis=(; limits=((FR.start, FR.stop), nothing)))
 forecast() = (
-    data([(; from=FR.issue, to=FR.stop)]) * mapping(:from, :to) * visual(VSpan; color=:ink, alpha=0.06) +
-    data([(; t=FR.issue)]) * mapping(:t) * visual(VLines; color=:ink, linestyle=:dash, label="Issue time") +
-    data([(; t=FR.issue, y=maximum(r.q975 for r in FR.fc), text="Forecast issued")]) * mapping(:t, :y; text=:text) *
-        visual(Makie.Text; align=(:left, :bottom), offset=(4, 0), fontsize=11, color=:ink) +
+    # Reference lines and the forecast period name themselves (`text=`): the labels
+    # stand above the plot, in rows where they would overprint.
+    data([(; from=FR.issue, to=FR.stop, name="Forecast period")]) * mapping(:from, :to; text=:name) *
+        visual(VSpan; color=:ink, alpha=0.06) +
+    data([(; t=FR.issue, name="Forecast issued")]) * mapping(:t; text=:name) *
+        visual(VLines; color=:ink, linestyle=:dash, label="Issue time") +
+    data([(; level=160.0, name="Warning level")]) * mapping(:level; text=:name) *
+        visual(HLines; color="#c0392b", linestyle=:dot) +
     data(FR.fc) * mapping(:t => "Time (UTC)", :q50 => "Water level (cm)"; color=:scenario => "Forecast") *
         lineribbon(bands=BANDS) +
     data(FR.obs) * mapping(:t => "Time (UTC)", :level => "Water level (cm)") *
