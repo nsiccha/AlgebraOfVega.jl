@@ -10,7 +10,7 @@ import Tables
 import Statistics
 import AlgebraOfVega: with_plot_caption, draws_summary_table, _sanitize_id,
                       _summary_meta, _auto_remap_parts, to_node, to_html,
-                      VegaSpec, caption_share_button, _vl_json,
+                      VegaSpec, VConcat, caption_share_button, _vl_json,
                       PlotTexts, _EN_PLOT_TEXTS, _plot_text, _runtime_texts_attrs,
                       _static_img, _MarkdownView, _ReportImage, _figure_sources,
                       cell_charts, CellColumn,
@@ -328,7 +328,7 @@ is left out of a report's markdown, and of every markdown view when
 
 Remaining `kwargs` are forwarded to the `plot_node` method.
 """
-function with_plot_caption(spec::VegaSpec, caption::CaptionSpec;
+function with_plot_caption(spec::Union{VegaSpec,VConcat}, caption::CaptionSpec;
                             plot_id::AbstractString,
                             auto_remap=nothing,
                             summary_table=:auto,
@@ -384,10 +384,10 @@ _report_controls(controls, ::Nothing) = report_view(controls, nothing)
 _report_controls(controls, ::AbstractString) = html_only(controls)
 _report_controls(controls, ::Bool) = controls
 
-with_plot_caption(spec::VegaSpec; title, short="", long=nothing, kwargs...) =
+with_plot_caption(spec::Union{VegaSpec,VConcat}; title, short="", long=nothing, kwargs...) =
     with_plot_caption(spec, CaptionSpec(; title, short, long); kwargs...)
 
-with_plot_caption(spec::VegaSpec, caption::AbstractString; kwargs...) =
+with_plot_caption(spec::Union{VegaSpec,VConcat}, caption::AbstractString; kwargs...) =
     with_plot_caption(spec, CaptionSpec(; title=caption); kwargs...)
 
 # Head extras a captioned fragment needs beyond `vega_head()`: caption-row

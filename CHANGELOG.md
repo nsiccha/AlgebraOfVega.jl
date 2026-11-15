@@ -15,7 +15,7 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
-## 0.2.48
+## 0.2.50
 
 - **A plot follows every `bound(p; columns)` table it draws.** A figure may now
   draw several tables a `semantic_app` page computes in the browser, such as a
@@ -32,6 +32,45 @@ failing at run time with a `MethodError`.
   with one bound table, and a plot of ordinary tables, emits the same markup as
   before. A figure whose rows AoV computes from a bound table in Julia is
   refused as before.
+
+## 0.2.49
+
+- **`vconcat(a, b, …)` stacks figures on one shared x as one plot**, such as a
+  water level chart over the hourly precipitation. Each panel is an ordinary
+  figure with its own `config(height=…)`, scales and legends.
+  - The panels share the x scale and are laid out by their plot areas, so the
+    plot areas line up to the pixel whatever the y axes' label widths. The x
+    axis is labelled once, under the bottom panel. `spacing=` sets the gap
+    (default 8 px).
+  - In the browser the stack spans its container like any AoV plot.
+  - One readout runs across the panels. Its rule goes through all of them, and
+    one box lists every panel's series at the x under the pointer, from
+    whichever panel the pointer is over. A link-group announcement (a table row)
+    shows it too.
+  - A zoom on a quantitative x zooms every panel.
+  - It works in `vdraw`, `to_node`, `with_plot_caption`, `vsave`, `plot_size`
+    and `to_vegalite`.
+  - Refused with an `ArgumentError`: one panel, a faceted panel (or a frame
+    animation, or a cell column), panels with different link groups, the
+    channel picker, and `sdraw`. For Makie output, use `sdraw!` and
+    `Makie.linkxaxes!`.
+  - A ribbon panel draws the drawing it starts in, without the Ribbons |
+    Intervals switch.
+  - Before, the two figures could not line up: in the comparison preview their
+    plot areas were 1,427 and 1,384 px wide, so 18:00 sat 40 px apart.
+- The runtime's tick cap (`_capTicks`) also applies to a stack's panels.
+
+## 0.2.48
+
+- `caption_share_button`, and so the Share button of
+  `with_plot_caption(...; share_url=...)`, copies its link. Since the button
+  was added (0.2.0) its inline click handler wrote `new URL(...)`,
+  and in an inline handler a bare `URL` is the page's `document.URL`, a string,
+  so every click threw `URL is not a constructor` and copied nothing. It now writes
+  `new window.URL(...)` and copies the URL resolved against the page's current
+  address: an empty URL copies that address with its query, so a page whose
+  inputs keep their state in the query shares that state. `with_caption_share`
+  and `summary_share_button` were not affected.
 
 ## 0.2.47
 
