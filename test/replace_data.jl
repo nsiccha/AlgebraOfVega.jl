@@ -69,7 +69,9 @@ data change that brings a new group re-embeds once with that group's layers.
     @test all(l -> l["transform"][end]["filter"] == "datum[\"scenario\"] === \"$(l["_lr_group"])\"", groups)
     ev = to_vegalite(ribbon(typed_empty))
     @test length(ev["layer"]) == 2 && all(l -> get(l, "_lr_proto", false), ev["layer"])
-    @test all(l -> l["encoding"]["color"]["field"] == "scenario" && !haskey(l, "transform"), ev["layer"])
+    # Unfiltered: their one transform is the tooltip's estimate text (test/tooltip_estimates.jl).
+    @test all(l -> l["encoding"]["color"]["field"] == "scenario" &&
+        all(t -> get(t, "as", nothing) == "__aov_estimate", get(l, "transform", Any[])), ev["layer"])
     @test !any(l -> haskey(l, "_lr_group") || haskey(l, "_lr_proto"),
         to_vegalite(data(rows("A")) * mapping(:x, :y) * lineribbon(bands=[:lower => :upper]))["layer"])
 

@@ -97,7 +97,8 @@ end
         for u in us
             t = tips(u)
             @test ("dose", "Dose") in t && ("arm", "Arm") in t
-            @test t[1] == ("__point__", "MCFB (%) (estimate)") || name == "dotinterval"
+            # The estimate and its widest interval as one row (`__aov_estimate`, test/tooltip_estimates.jl).
+            @test last(t) == ("__aov_estimate", "MCFB (%): median (95% interval)") || name == "dotinterval"
         end
     end
     vertical = to_vegalite(data(draws) * mapping(:dose => "Dose", :value => "MCFB (%)"; color=:arm => "Arm") *

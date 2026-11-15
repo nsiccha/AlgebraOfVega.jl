@@ -54,7 +54,7 @@ end
     # The posterior keeps AoV's automatic interval tooltip on all four of its
     # units — it never sees the observed marks' fields.
     for u in us[1:4]
-        @test tooltip_fields(u) == ["median", "group", "q025", "q975"]
+        @test tooltip_fields(u) == ["group", "__aov_estimate"]   # test/tooltip_estimates.jl
     end
     # The observed marks show exactly their own tooltip.
     @test tooltip_fields(us[5]) == ["group", "n_obs", "label"]
@@ -205,7 +205,7 @@ end
     us = units(vl)
     @test tooltip_fields(us[end]) == ["group", "n_obs", "label"]
     @test all(u -> "n_obs" ∉ tooltip_fields(u), us[1:end-1])
-    @test all(u -> "q025" in tooltip_fields(u), us[1:end-1])
+    @test all(u -> "__aov_estimate" in tooltip_fields(u), us[1:end-1])
 
     # update_spec re-lowers through the same path.
     html = repr(MIME"text/html"(), update_spec("fig", spec; auto_remap=remap))

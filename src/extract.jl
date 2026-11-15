@@ -416,6 +416,9 @@ function visual_attrs_to_mark_props(vis::AlgebraOfGraphics.Visual)
         elseif k === :inspectable && v isa Bool
             # Not a mark property: the layer's lowering styles every mark it
             # draws (`_apply_layer_passive!`).
+        elseif k === :label
+            # Not a mark property: the layer's legend entry and readout name
+            # (`_apply_layer_labels!`, `_apply_label_legends!`).
         elseif !ismissing(errorbar_props)
             isnothing(errorbar_props) ? push!(ignored, k) : merge!(p, errorbar_props)
         elseif k === :opacity || k === :alpha
@@ -511,8 +514,9 @@ end
 function _analysis_fixed_color(layer::AlgebraOfGraphics.Layer, analysis::AbstractString)
     vis = extract_visual(layer)
     isnothing(vis) && return nothing
-    # `inspectable` applies to every mark of the layer (`_apply_layer_passive!`).
-    ignored = [k for k in keys(vis.attributes) if k !== :color && k !== :inspectable]
+    # `inspectable` applies to every mark of the layer (`_apply_layer_passive!`), and
+    # `label` names it (`_apply_layer_labels!`).
+    ignored = [k for k in keys(vis.attributes) if k !== :color && k !== :inspectable && k !== :label]
     isempty(ignored) || @warn "AlgebraOfVega: $analysis applies only a fixed `color` from `visual(...)`; ignoring $(join(("`$k`" for k in ignored), ", "))." maxlog=1
     haskey(vis.attributes, :color) ? vis.attributes[:color] : nothing
 end
