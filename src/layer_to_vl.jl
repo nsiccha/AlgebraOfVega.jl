@@ -502,6 +502,23 @@ function _apply_layer_passive!(units::AbstractVector, layers::AbstractVector)
         _layer_passive(layer) && foreach(_mark_passive!, us)
     end
 end
+# `visual(...; label="Observed")`, AoG's name for a layer without a colour
+# mapping: its legend entry and the readout's name for its series. Each unit the
+# layer draws is tagged `_aov_label`; `_apply_label_legends!` (src/to_vegalite.jl)
+# gives the entry, and the runtime's readout reads the tag.
+_layer_label(layer) = (vis = extract_visual(layer);
+    isnothing(vis) ? nothing : _label_text(get(vis.attributes, :label, nothing)))
+_label_text(::Nothing) = nothing
+_label_text(s::AbstractString) = isempty(s) ? nothing : String(s)
+_label_text(x) = _label_text(string(x))
+function _apply_layer_labels!(units::AbstractVector, layers::AbstractVector)
+    for (us, layer) in zip(units, layers)
+        label = _layer_label(layer)
+        isnothing(label) && continue
+        foreach(u -> u isa AbstractDict && (u["_aov_label"] = label), us)
+    end
+end
+
 _mark_passive!(x) = nothing
 _mark_passive!(v::AbstractVector) = foreach(_mark_passive!, v)
 function _mark_passive!(d::AbstractDict)
@@ -610,6 +627,7 @@ function layers_to_vl(layers::AlgebraOfGraphics.Layers; layer_encodings::Abstrac
     map_figure && _share_map_projection!(layers.layers, units)
     _apply_layer_transforms!(units, layer_transforms)
     _apply_layer_passive!(units, layers.layers)
+    _apply_layer_labels!(units, layers.layers)
 
     # Also collect facet from regular layer encodings (col=/row= → column/row channels,
     # layout= → the single-field `facet` wrap channel). VL compiles a `facet` channel
@@ -893,6 +911,7 @@ function _faceted_layers_to_vl(layers, facet_field, shared_table, shared_data;
     _apply_layer_encodings!(units, layer_encodings)
     _apply_layer_transforms!(units, layer_transforms)
     _apply_layer_passive!(units, layers.layers)
+    _apply_layer_labels!(units, layers.layers)
 
     spec = Dict{String,Any}(
         "\$schema" => VL_SCHEMA,
