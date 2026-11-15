@@ -417,6 +417,63 @@ end
 Base.show(::IO, ::MIME"text/html", ::_MarkdownView) = nothing
 Base.show(io::IO, m::MIME"text/markdown", v::_MarkdownView) = show(io, m, v.node)
 
+# --- A captioned figure's own image in a report ------------------------------
+#
+# A report built from a page's markdown (HTMXObjects' `pdf_report`) shows each
+# captioned figure as an image of the figure, with no file for the app to write
+# (snag `plot-markdown-st-242cdfc9`, design decision
+# `AlgebraOfVega:snag.plot-markdown-st-242cdfc9/decisions/2026-11-15T09-54-40-583-0wwdtwg`,
+# option 1). Every plot node carries a `_FigureSource`: how to lower its figure
+# as `vsave` does. It writes nothing in either view, so the page and its
+# ordinary markdown are unchanged. `with_plot_caption` finds it and puts a
+# `_ReportImage` into the markdown HTMXObjects writes for a report only, so
+# vl-convert runs while a report is written and never for a page read.
+
+struct _FigureSource
+    lower::Function   # () -> the Vega-Lite Dict `vsave` renders
+end
+
+Base.show(::IO, ::MIME"text/html", ::_FigureSource) = nothing
+Base.show(::IO, ::MIME"text/markdown", ::_FigureSource) = nothing
+
+# The non-interactive figure `vsave` writes, with `to_node`'s size overrides.
+_report_lowering(spec, width, height) =
+    _FigureSource(() -> _report_size!(_with_rows_inline(() -> to_vegalite(spec; interactive=false)), width, height))
+# An already-lowered Dict is drawn as given.
+_report_lowering(spec::Dict, width, height) =
+    _FigureSource(() -> _report_size!(copy(spec), width, height))
+
+function _report_size!(vl::Dict, width, height)
+    isnothing(width) || (vl["width"] = width)
+    isnothing(height) || (vl["height"] = height)
+    vl
+end
+
+# Every figure source in a plot node, in document order.
+_figure_sources(x) = _figure_sources!(_FigureSource[], x)
+_figure_sources!(out, s::_FigureSource) = push!(out, s)
+_figure_sources!(out, n::HTMX.Node) = _figure_sources!(out, HTMX.children(n))
+_figure_sources!(out, xs::Union{Tuple,AbstractVector}) = (foreach(x -> _figure_sources!(out, x), xs); out)
+_figure_sources!(out, _) = out
+
+# The figure as an SVG image with alt text, rendered when the report's markdown
+# is written. `alt` is `nothing` when the caption has no words to describe it.
+struct _ReportImage
+    source::_FigureSource
+    alt::Union{Nothing,String}
+end
+
+Base.show(::IO, ::MIME"text/html", ::_ReportImage) = nothing
+function Base.show(io::IO, m::MIME"text/markdown", r::_ReportImage)
+    isnothing(r.alt) && throw(ArgumentError(
+        "with_plot_caption: a report shows this figure as an image, which needs alt text, " *
+        "and its caption has no title; pass `alt` describing what the figure shows, " *
+        "or `static_image=false` to keep its summary table"))
+    show(io, m, _static_img(_svg_data_uri(_vsave_svg(r.source.lower())), r.alt))
+end
+
+_svg_data_uri(svg::AbstractString) = "data:image/svg+xml;base64," * base64encode(svg)
+
 # Look up a key in a per-signal entry. NamedTuple uses Symbol keys, Dict uses String.
 _sig_get(sig::NamedTuple, key::Symbol) = getproperty(sig, key)
 _sig_get(sig, key::Symbol) = sig[string(key)]
@@ -431,7 +488,11 @@ Return an embeddable plot node. `id` gives the plot a stable browser identity;
 `signals` wires browser signal changes to host callbacks. `fit_width` enables
 fitting to the available container width. Include `vega_head()` in the host.
 """
-function to_node(spec; id=nothing, width=nothing, height=nothing, actions=false, signals=nothing, fit_width=true)
+to_node(spec; id=nothing, width=nothing, height=nothing, actions=false, signals=nothing, fit_width=true) =
+    _to_node(spec, _report_lowering(spec, width, height); id, width, height, actions, signals, fit_width)
+
+# `to_node` with the figure a report draws for it (`_FigureSource`).
+function _to_node(spec, source::_FigureSource; id=nothing, width=nothing, height=nothing, actions=false, signals=nothing, fit_width=true)
     vl = _embed_spec(spec; width, height, fit_width)
     json = _vl_json(_wire_spec(vl))
     id = _sanitize_id(something(id, "vega-" * string(abs(hash(json)), base=16)))
@@ -455,6 +516,8 @@ function to_node(spec; id=nothing, width=nothing, height=nothing, actions=false,
         _inline_script("AoV.embed('$id', $json, $embed_opts).then(function(){$signal_js});"),
         # Markdown-only; emits zero bytes of HTML. Without it a `?plain` read of
         # a figure-only route is an empty body — see `PlotSummary`.
+        # Writes nothing: what a captioned figure draws in a report.
+        source,
         PlotSummary(plot_summary_md(vl; id=id)),
     )
 end

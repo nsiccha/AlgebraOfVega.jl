@@ -15,6 +15,7 @@ using JSON, Tables, Statistics
 using Dates: TimeType
 import Dates
 using SHA: sha256
+using Base64: base64encode
 import Downloads
 using HTMX
 # `Raw` marks complete, trusted JS/CSS bytes. HTMX 1.0 escapes ordinary string
