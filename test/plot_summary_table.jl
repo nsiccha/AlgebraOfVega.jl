@@ -44,6 +44,10 @@ using TestItemRunner
             "lineribbon" => data(preds) * mapping(:x, :y; group=:draw, color=:group) * lineribbon(),
             "ribbon" => data(preds) * mapping(:x, :y; group=:draw, color=:group) * ribbon(),
             "interval-bands" => data(summary) * mapping(:m; y=:g) * pointinterval(bands=[:lo95 => :hi95, :lo50 => :hi50]),
+            # A `bands=` figure that states its widths and point, and a raw one of means.
+            "interval-bands-stated" => data(summary) * mapping(:m; y=:g) *
+                pointinterval(bands=[:lo95 => :hi95, :lo50 => :hi50], probs=[0.95, 0.5], point=:mean),
+            "pointinterval-mean" => interval(pointinterval(point=:mean)),
             "lineribbon-bands" => data(ribbon_rows) * mapping(:x, :m) * lineribbon(bands=[:lo => :hi]),
             "ribbon-bands" => data(ribbon_rows) * mapping(:x, :m) * ribbon(bands=[:lo => :hi]),
             # A layer without a summary first: its rows are source_0.
@@ -112,15 +116,52 @@ end
     bands = data(summary) * mapping(:m; y=:g) * pointinterval(bands=[:lo95 => :hi95, :lo50 => :hi50])
     for vl in (to_vegalite(bands), roundtrip(to_vegalite(bands)))
         local t = only(plot_summary_table(vl))
-        @test t.caption == "Median [lo95/hi95]"
+        @test t.caption == "Median [lo95–hi95 credible interval]"
         @test cols(t) == ["g", "dose", "m"]
         @test t.table.g == ["a", "b", "c"]
         @test t.table.dose == [5, 10, 20]
         @test eltype(t.table.dose) <: Integer
         @test t.table.m == ["5 [4, 6]", "8 [7, 9]", "2 [1, 3]"]
         @test only(plot_summary_table(vl; ci=:inner)).table.m[1] == "5 [4.5, 5.5]"
-        @test only(plot_summary_table(vl; ci=:inner)).caption == "Median [lo50/hi50]"
+        @test only(plot_summary_table(vl; ci=:inner)).caption == "Median [lo50–hi50 credible interval]"
     end
+
+    # What a `bands=` figure states, `probs=` and `point=`, names the caption's
+    # width and point through `texts.interval`, as for raw draws; no number
+    # changes. Unstated, the width is the bound columns and the point the median
+    # (snag `captioned-preagg-d2b65ca0`: an `interval` override and the German set
+    # never reached a `bands=` caption, and a mean read "Median").
+    stated = data(summary) * mapping(:m; y=:g) *
+        pointinterval(bands=[:lo95 => :hi95, :lo50 => :hi50], probs=[0.95, 0.5], point=:mean)
+    for vl in (to_vegalite(stated), roundtrip(to_vegalite(stated)))
+        local t = only(plot_summary_table(vl))
+        @test t.caption == "Mean [95% credible interval]"
+        @test t.table.m == ["5 [4, 6]", "8 [7, 9]", "2 [1, 3]"]
+        @test only(plot_summary_table(vl; ci=0.5)).caption == "Mean [50% credible interval]"
+        @test only(plot_summary_table(vl; ci=0.5)).table.m[1] == "5 [4.5, 5.5]"
+        @test only(plot_summary_table(vl; texts=plot_texts(:de))).caption == "Mittelwert [95%-Kredibilitätsintervall]"
+        @test only(plot_summary_table(vl; texts=plot_texts(:en; interval="Simulation mean [{width} interval]"))).caption ==
+            "Simulation mean [95% interval]"
+    end
+    @test only(plot_summary_table(bands; texts=plot_texts(:de; interval="Simulationsmittelwert [{width}-Intervall]"))).caption ==
+        "Simulationsmittelwert [lo95–hi95-Intervall]"
+    @test only(plot_summary_table(data(ribbon_rows) * mapping(:x, :m) *
+        lineribbon(bands=[:lo => :hi], probs=[0.9], point=:mean))).caption == "Mean [90% credible interval]"
+    @test only(plot_summary_table(data(ribbon_rows) * mapping(:x, :m) * ribbon(bands=[:lo => :hi]))).caption ==
+        "Median [lo–hi credible interval]"
+    # A raw-draws summary of means says so.
+    @test only(plot_summary_table(interval(pointinterval(point=:mean)))).caption == "Mean [95% credible interval]"
+    @test only(plot_summary_table(interval(dotinterval(point=:mean)); texts=plot_texts(:de))).caption ==
+        "Mittelwert [95%-Kredibilitätsintervall]"
+    # A statement that cannot hold is refused.
+    @test_throws ArgumentError pointinterval(bands=[:lo95 => :hi95, :lo50 => :hi50], probs=[0.95])
+    @test_throws ArgumentError pointinterval(bands=[:lo95 => :hi95, :lo50 => :hi50], probs=[0.5, 0.95])
+    @test_throws ArgumentError pointinterval(bands=[:lo => :hi], probs=[95])
+    @test_throws ArgumentError pointinterval(bands=[:lo => :hi], point=:mode)
+    @test_throws ArgumentError pointinterval(point=:mode)
+    @test_throws ArgumentError gradient_interval(point=:mode)
+    @test_throws ArgumentError lineribbon(point=:mean)
+    @test_throws ArgumentError ribbon(point=:mean)
     for a in (lineribbon(bands=[:lo => :hi]), ribbon(bands=[:lo => :hi]))
         local t = only(plot_summary_table(data(ribbon_rows) * mapping(:x, :m) * a))
         @test cols(t) == ["x", "m"]

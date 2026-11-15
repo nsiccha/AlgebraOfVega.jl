@@ -9,17 +9,21 @@
 # row, in Chrome.
 
 # What the lowered rows alone cannot say: the value column's name (a raw-draws
-# summary replaces it by `__point__`/`__median__`) and which columns hold a
-# pre-aggregated figure's estimate and bands. `nothing` for a figure without an
-# automatic summary. Recorded as `_aovSummary`, not under `_aov`: the runtime
+# summary replaces it by `__point__`/`__median__`), which statistic the point is
+# (`"point" => "mean"`; absent for the median), and which columns hold a
+# pre-aggregated figure's estimate and bands, each `[lo, hi, width]` plus its
+# central mass when the figure states it (`probs=`). `nothing` for a figure
+# without an automatic summary. Recorded as `_aovSummary`, not under `_aov`: the runtime
 # sizes a plot that carries `_aov` differently from one that does not.
 function _summary_meta(spec)
     args = _auto_summary_args(spec)
     isnothing(args) && return nothing
     meta = Dict{String,Any}("value_label" => string(args.value))
+    args.point === :mean && (meta["point"] = "mean")
     if args.kind === :precomputed_ribbon
         meta["point_col"] = args.point_col
-        meta["bands"] = Any[Any[lo, hi, label] for (lo, hi, label) in args.bands]
+        meta["bands"] = Any[isnothing(p) ? Any[lo, hi, width] : Any[lo, hi, width, p]
+                            for (lo, hi, width, p) in args.bands]
     end
     meta
 end
@@ -141,18 +145,19 @@ function _summary_rows(rows, meta, ci, sigfigs, texts)
     values = String[string(_summary_format(cell(r, point_col), sigfigs), " [",
                            _summary_format(cell(r, pick.lo), sigfigs), ", ",
                            _summary_format(cell(r, pick.hi), sigfigs), "]") for r in sorted]
-    point = texts.median
-    caption = isnothing(pick.prob) ? string(point, " [", pick.label, "]") :
-        replace(texts.interval, "{point}" => point, "{width}" => pick.label)
+    point = get(meta, "point", "median") == "mean" ? texts.mean : texts.median
+    caption = replace(texts.interval, "{point}" => point, "{width}" => pick.label)
     (; caption, table=NamedTuple{names}((columns..., values)))
 end
 
-# The bands, inner to outer: as given (outermost first, `bands=`), or read off
-# the `lo_<prob>_`/`hi_<prob>_` columns of a raw-draws summary.
+# The bands, inner to outer: as given (outermost first, `bands=`, with a stated
+# central mass as a fourth entry), or read off the `lo_<prob>_`/`hi_<prob>_`
+# columns of a raw-draws summary.
 function _summary_bands(first_row, explicit)
     T = NamedTuple{(:lo, :hi, :label, :prob),Tuple{String,String,String,Union{Nothing,Float64}}}
     if explicit isa AbstractVector && !isempty(explicit)
-        return T[(; lo=String(b[1]), hi=String(b[2]), label=String(b[3]), prob=nothing) for b in Iterators.reverse(explicit)]
+        return T[(; lo=String(b[1]), hi=String(b[2]), label=String(b[3]),
+                  prob=length(b) >= 4 && b[4] isa Real ? Float64(b[4]) : nothing) for b in Iterators.reverse(explicit)]
     end
     bands = T[]
     for c in keys(first_row)

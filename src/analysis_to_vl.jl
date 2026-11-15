@@ -310,8 +310,9 @@ function analysis_to_vl(a::PrecomputedIntervalAnalysis, layer::AlgebraOfGraphics
     widest_hi = string(last(a.bands[1]))
     tt = Dict{String,Any}[]
     _interval_group_tooltips!(tt, group_field, color_field, group_label, color_label)
-    # The columns name the estimate and its bounds: `Change (%/yr): q50 (q025–q975)`.
-    push!(tt, _estimate_tooltip("$value_label: $value_field ($(widest_lo)–$(widest_hi))"))
+    # The columns name the estimate and its bounds, `Change (%/yr): q50 (q025–q975)`,
+    # unless the figure states them: `Change (%/yr): mean (95% interval)`.
+    push!(tt, _estimate_tooltip(_bands_estimate_title(value_label, value_field, widest_lo, widest_hi, a.probs, a.point)))
     _add_analysis_tooltips!(layers, tt; estimate=(value_field, widest_lo, widest_hi))
 
     spec = Dict{String,Any}("data" => Dict{String,Any}("values" => summary), "layer" => layers)
@@ -376,14 +377,22 @@ end
 # otherwise.
 _ribbon_x_type(col) = vl_type(col) == "temporal" ? "temporal" : "quantitative"
 
+# A `bands=` figure's estimate row title: the point and the widest band by
+# their columns, `Level (cm): q50 (q025–q975)`, or as the figure states them
+# (`point=`, `probs=`), `Level (cm): mean (95% interval)`.
+_bands_estimate_title(value, point_col, widest_lo, widest_hi, probs, point) =
+    string(value, ": ", isnothing(point) ? point_col : string(point), " (",
+           isnothing(probs) ? string(widest_lo, "–", widest_hi) : string(round(Int, first(probs) * 100), "% interval"), ")")
+
 # x, colour, then the median with the widest band as one row: titled
-# `Level (cm): median (95% interval)` for computed bands, and by the columns,
-# `Level (cm): q50 (q025–q975)`, for `bands=`.
+# `Level (cm): median (95% interval)` for computed bands, and for `bands=` by
+# the columns, `Level (cm): q50 (q025–q975)`, or as the figure states them.
 function _ribbon_tooltips(x_field, x_label, median_col, color_field, band_cols, band_labels; x_type::String,
-        color_label=nothing, y_label=nothing)
+        color_label=nothing, y_label=nothing, stated=nothing)
     widest_lo, widest_hi = band_cols[1]
     value = something(y_label, median_col)
-    title = isnothing(band_labels) ? "$value: $median_col ($(widest_lo)–$(widest_hi))" :
+    title = !isnothing(stated) ? _bands_estimate_title(value, median_col, widest_lo, widest_hi, stated.probs, stated.point) :
+        isnothing(band_labels) ? "$value: $median_col ($(widest_lo)–$(widest_hi))" :
         "$value: median ($(band_labels[1]) interval)"
     tt = Dict{String,Any}[_tooltip_entry(x_field, x_type, x_label)]
     !isnothing(color_field) && push!(tt, _tooltip_entry(color_field, "nominal", color_label))
@@ -476,6 +485,7 @@ function _ribbon_to_vl(
     detail_fields::Vector{String}=String[],
     facet=nothing, show_line::Bool=true, is_sublayer::Bool=false,
     band_labels::Union{Vector{String},Nothing}=nothing,
+    stated=nothing,
     single_x_glyph::Bool=true, facet_fields::Vector{String}=String[],
     fixed_color=nothing
 )
@@ -590,7 +600,7 @@ function _ribbon_to_vl(
     end
 
     _add_analysis_tooltips!(layers, _ribbon_tooltips(x_field, x_label, median_col, color_field, band_cols, band_labels;
-        x_type, color_label, y_label); estimate=(median_col, band_cols[1]...))
+        x_type, color_label, y_label, stated); estimate=(median_col, band_cols[1]...))
 
     spec = Dict{String,Any}("data" => summary_data, "layer" => layers)
     if !isnothing(color_field)
@@ -673,6 +683,7 @@ function analysis_to_vl(a::PrecomputedRibbonAnalysis, layer::AlgebraOfGraphics.L
         x_type=_ribbon_x_type(Tables.getcolumn(table, Symbol(x_field))),
         color_field, color_label, color_sort, detail_fields=detail_strs,
         facet, show_line=a.show_line, is_sublayer,
+        stated=(; a.probs, a.point),
         single_x_glyph=a.single_x_glyph, facet_fields,
         fixed_color=_analysis_fixed_color(layer, _ribbon_name(a)))
 end

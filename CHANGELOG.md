@@ -15,6 +15,34 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
+## 0.2.54
+
+- **A pre-aggregated interval figure states its widths and point:
+  `probs=` and `point=` beside `bands=`.**
+  `pointinterval(bands=[:q025 => :q975, :q25 => :q75], probs=[0.95, 0.5], point=:mean)`
+  states that the bands hold the central 95 % and 50 % and that the centre
+  column holds the mean; `lineribbon(bands=…)` and `ribbon(bands=…)` take the
+  same two keywords. A captioned plot's summary caption then reads as for raw
+  draws, "Mean [95% credible interval]" (German "Mittelwert
+  [95%-Kredibilitätsintervall]"), `summary_ci=0.5` picks the 50 % band, and the
+  tooltip reads "Change: mean (95% interval)". `probs` takes one probability
+  per band, in the bands' order (widest first); a different count, a value
+  outside (0, 1) or one that does not shrink is an `ArgumentError`. No number
+  or row changes. Before, `bands=` ignored both keywords without a word.
+- **A `bands=` summary caption uses the `interval` text.** It is
+  `texts.interval` in every case, so `plot_texts(:de)` and an `interval=`
+  override reach it. Without `probs=`, `{width}` is the widest band's columns:
+  "Median [q025–q975 credible interval]", where 0.2.53 wrote
+  "Median [q025/q975]" in every language.
+- **A summary of means says "Mean".** `pointinterval`, `gradient_interval` and
+  `dotinterval` with `point=:mean`, and a `bands=` figure with `point=:mean`,
+  caption their summary with the new `PlotTexts` word `mean` ("Mean",
+  German "Mittelwert"). Before, every summary caption said "Median".
+- **An unknown `point` is refused.** `point` is `:median` or `:mean` on every
+  form; before, the raw forms drew the median for any other value. A raw
+  `lineribbon` or `ribbon` always draws the median, so `point=` there without
+  `bands=` is an `ArgumentError`.
+
 ## 0.2.53
 
 - **One ⬇ CSV click starts one download.** A captioned plot that draws
