@@ -60,7 +60,7 @@ window.AoV = window.AoV || {
         '_embedOpts', '_observers', '_computedWidths', '_corrections', '_correctedRegime',
         '_cur', '_pickers', '_mappings', '_themeKeys', '_reembeds', '_frames',
         '_highlights', '_hovers', '_touches', '_unmeasured', '_ribbonViews', '_scrollFrames',
-        '_mapZooms', '_mapPinches', '_readouts'],
+        '_mapZooms', '_mapPinches', '_readouts', '_refPending'],
 
     // Whether the runtime sizes this spec to its container: Julia's
     // `_embed_spec` marks a responsive layered/faceted/per-column spec with
@@ -1182,6 +1182,7 @@ window.AoV = window.AoV || {
                 self._attachHover(id, view);
                 self._attachTouch(id, view);
                 self._attachReadout(id);
+                self._refLabelsWatch(id, view);
                 self._mapZoom(id, view, result.vgSpec);
                 self._frameSync(id, view);
                 // Run anything queued before the view was ready (e.g. appendData)
@@ -1761,6 +1762,7 @@ window.AoV = window.AoV || {
         self._finalizeView(id);
         if (self._observers && self._observers[id]) self._observers[id].disconnect();
         if (self._scrollFrames[id]) self._scrollFrames[id].disconnect();
+        if (self._refPending[id]) clearTimeout(self._refPending[id]);
         self._perPlotState.forEach(function(k) { if (self[k]) delete self[k][id]; });
         self._releaseDrawing(id, el);
     },
@@ -2310,6 +2312,7 @@ window.AoV = window.AoV || {
     // the rest stale so they render fresh when opened.
     _dataChanged: function(id) {
         var self = this;
+        self._refLabelsSoon(id);
         self.whenReady(id, function() {
             var sel = '[data-aov-plot-id="' + id + '"]';
             document.querySelectorAll('.aov-data-raw-body' + sel + ', .aov-data-pretty-body' + sel)
@@ -3933,6 +3936,76 @@ window.AoV = window.AoV || {
             });
         };
         document.addEventListener('htmxo:link', this._linkListener);
+    },
+
+    // --- Labels of reference lines and periods (src/ref_labels.jl) ---
+    // `mapping(:t; text=:name) * visual(VLines)` (and VSpan) labels stand
+    // just above the plot area, at their line; labels close together go into
+    // rows so they never overprint, as AP4 stacks them. After every draw that
+    // can move them (the embed, a resize, a data change, a zoom), each
+    // panel's labels are measured as drawn and, from left to right, each
+    // takes the first row where it clears the label before it; a label whose
+    // line is out of view (zoomed away) is hidden (row -1). The rows reach
+    // the labels through the `aov_ref_rows` parameter; they are set only
+    // when they change, so the redraw that follows settles.
+    _REF_ROWS: 'aov_ref_rows',
+    _REF_GAP: 6,
+    _refPending: {},
+    _refLabelsWatch: function(id, view) {
+        var self = this;
+        try { view.signal(self._REF_ROWS); } catch (err) { return; }
+        view.addResizeListener(function() { if (self.views[id] === view) self._refLabelsSoon(id); });
+        // A zoom moves the lines: AoV's zoom parameter `grid` drives one
+        // signal per zoomed field (`grid_<field>`), so follow all of them.
+        var names = ['width', 'height'];
+        try {
+            Object.keys(view.getState({signals: vega.truthy, data: vega.falsy}).signals || {}).forEach(function(n) {
+                if (/^grid(_|$)/.test(n)) names.push(n);
+            });
+        } catch (err) { /* no state: size changes only */ }
+        names.forEach(function(name) {
+            try { view.addSignalListener(name, function() { if (self.views[id] === view) self._refLabelsSoon(id); }); }
+            catch (err) { /* no such signal: nothing to follow */ }
+        });
+        self._refLabelsSoon(id);
+    },
+    _refLabelsSoon: function(id) {
+        var self = this;
+        if (self._refPending[id]) return;
+        self._refPending[id] = setTimeout(function() { delete self._refPending[id]; self._layoutRefLabels(id); }, 0);
+    },
+    _layoutRefLabels: function(id) {
+        var self = this, view = self.views[id];
+        if (!view) return;
+        var current;
+        try { current = view.signal(self._REF_ROWS); } catch (err) { return; }
+        var panels = new Map();
+        (function walk(item) {
+            if (item.mark && item.mark.marktype === 'text' && item.datum && item.datum.__aov_ref_key !== undefined) {
+                var g = item.mark.group;
+                if (!panels.has(g)) panels.set(g, []);
+                panels.get(g).push(item);
+            }
+            (item.items || []).forEach(walk);
+        })(view.scenegraph().root);
+        if (!panels.size) return;
+        var rows = {};
+        panels.forEach(function(items, g) {
+            var width = g && typeof g.width === 'number' ? g.width : view.width();
+            var ends = [];
+            items.slice().sort(function(a, b) { return a.x - b.x; }).forEach(function(it) {
+                var key = it.datum.__aov_ref_key, b = it.bounds;
+                // In view: its line inside the plot (one at the right edge has no room).
+                if (!(it.x >= -0.5 && it.x < width - 0.5)) { if (!(key in rows)) rows[key] = -1; return; }
+                var r = 0;
+                while (r < ends.length && b.x1 < ends[r] + self._REF_GAP) r++;
+                ends[r] = b.x2;
+                rows[key] = Math.max(rows[key] === undefined ? -1 : rows[key], r);
+            });
+        });
+        if (JSON.stringify(rows) === JSON.stringify(current || {})) return;
+        view.signal(self._REF_ROWS, rows);
+        view.resize().runAsync().catch(function(err) { self._console.error.call(console, '[' + id + ']', err); });
     },
 
     // --- Readout: every series' value at the pointer's x ---
