@@ -15,6 +15,16 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
+## 0.2.47
+
+- A captioned figure's default alt text leaves out a blank caption tier with
+  its `" — "`: a caption of a summary alone, `CaptionSpec(; title="", short=text)`,
+  gives the alt text `text`, and a title with a blank (whitespace-only) summary
+  gives the title. Before, they gave `" — text"` and `"title —   "`, so a
+  report of a summary-only figure was written with alt text that starts with a
+  dash. Only a caption with neither a title nor a summary needs `alt`; a report
+  of that figure is an `ArgumentError` naming `alt`, as before.
+
 ## 0.2.46
 
 - **A `cell_charts` column shows its shared x axis in the header.** When the
