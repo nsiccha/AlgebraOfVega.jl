@@ -43,6 +43,16 @@ against that writer's output rather than pinning its spelling.
     # Without a short summary the alt text is the title.
     @test occursin(img_md("f.png", "Radon nach Kreis"),
         md(with_plot_caption(spec, "Radon nach Kreis"; plot_id="radon", static_image="f.png")))
+    # A blank tier (whitespace only) is left out with its " — ", so the alt text
+    # never starts or ends with a dash: a summary alone is the alt text (snag
+    # `aov-caption-alt-9b2b65c1`, design decision `0no56j1`, option 1).
+    alt_of(c) = md(with_plot_caption(spec, c; plot_id="radon", static_image="f.png"))
+    @test occursin(img_md("f.png", "Median je Kreis, 2025"),
+        alt_of(CaptionSpec(; title="", short="Median je Kreis, 2025")))
+    @test occursin(img_md("f.png", "Median je Kreis, 2025"),
+        alt_of(CaptionSpec(; title="  ", short="Median je Kreis, 2025")))
+    @test occursin(img_md("f.png", "Radon nach Kreis"),
+        alt_of(CaptionSpec(; title="Radon nach Kreis", short="  ")))
     # A data: URI is used as given.
     uri = "data:image/png;base64,iVBORw0KGgo="
     @test occursin(img_md(uri, "Radon nach Kreis — Median je Kreis, 2025"),
@@ -71,6 +81,8 @@ against that writer's output rather than pinning its spelling.
     # is the alt text of the image a report draws itself (next item).
     @test_throws ArgumentError with_plot_caption(spec, cap; plot_id="radon", static_image="f.png", alt=" ")
     @test_throws ArgumentError with_plot_caption(spec, CaptionSpec(; title=""); plot_id="radon", static_image="f.png")
+    @test_throws ArgumentError with_plot_caption(spec, CaptionSpec(; title=" ", short=" "); plot_id="radon",
+        static_image="f.png")
 end
 
 """
@@ -135,16 +147,19 @@ rendered an image with `vsave` and passed it as `static_image`.
 
     # refused: `static_image=true` names no image; `alt` with
     # `static_image=false`, or for a node AoV cannot draw, describes an image
-    # that no view shows (dev §1). A caption with no title gives the drawn
-    # figure no alt text, which a PDF/UA report needs: refused when the report
-    # is written, so a page that never becomes one still renders.
+    # that no view shows (dev §1). A caption with neither a title nor a summary
+    # (blank: empty or whitespace only) gives the drawn figure no alt text,
+    # which a PDF/UA report needs: refused when the report is written, so a page
+    # that never becomes one still renders.
     @test_throws ArgumentError with_plot_caption(spec, cap; plot_id="radon", static_image=true)
     @test_throws ArgumentError with_plot_caption(spec, cap; plot_id="radon", static_image=false, alt="Karte")
     @test_throws ArgumentError with_plot_caption(other, cap; plot_id="other", alt="Karte")
-    untitled = with_plot_caption(spec, CaptionSpec(; title=""); plot_id="radon")
-    @test occursin("**Vega-Lite figure**", md(untitled))
-    err = try report_md(untitled); nothing catch e; e end
-    @test err isa ArgumentError && occursin("`alt`", sprint(showerror, err))
+    for blank in (CaptionSpec(; title=""), CaptionSpec(; title=" ", short=" "))
+        untitled = with_plot_caption(spec, blank; plot_id="radon")
+        @test occursin("**Vega-Lite figure**", md(untitled))
+        err = try report_md(untitled); nothing catch e; e end
+        @test err isa ArgumentError && occursin("`alt`", sprint(showerror, err))
+    end
 end
 
 """
@@ -182,9 +197,13 @@ Needs the vl-convert tool.
     # An explicit alt text, with no image of the caller's.
     described = "Streudiagramm: Y gegen X, zwei Gruppen."
     @test occursin(img_md(uri, described), report_md(with_plot_caption(spec, cap; plot_id="radon", alt=described)))
-    # ...which a caption with no title needs.
+    # ...which a caption with neither a title nor a summary needs.
     @test occursin(img_md(uri, described),
         report_md(with_plot_caption(spec, CaptionSpec(; title=""); plot_id="radon", alt=described)))
+    # A caption of a summary alone gives that summary, with no leading dash
+    # (snag `aov-caption-alt-9b2b65c1`, design decision `0no56j1`, option 1).
+    m = report_md(with_plot_caption(spec, CaptionSpec(; title="", short="Median je Kreis, 2025"); plot_id="radon"))
+    @test occursin(img_md(uri, "Median je Kreis, 2025"), m) && !occursin("alt=\" —", m)
 
     # A picker figure draws what it first shows, as `vsave(...; auto_remap)`
     # writes it, and leaves its controls out.

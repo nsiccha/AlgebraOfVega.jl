@@ -100,8 +100,9 @@ who don't want that should not set the VL title.
   resolve where the markdown is rendered. `false` keeps the `PlotSummary` in
   a report too. The browser (HTML) view is the same in every case.
 - `alt=nothing`: the image's alt text, a description of what the figure shows.
-  Defaults to the caption's title and short summary, joined by `" — "`. A
-  report of a figure whose caption has no title needs it.
+  Defaults to the caption's title and short summary, joined by `" — "` when
+  both are set, or whichever of them is set. A report of a figure whose caption
+  has neither needs it.
 """
 function with_plot_caption(plot_node, caption::CaptionSpec;
                             plot_id::AbstractString,
@@ -262,11 +263,18 @@ end
 _figure_alt(caption, ::Nothing) = _figure_alt(caption, _caption_alt(caption))
 _figure_alt(caption, alt::AbstractString) = isempty(strip(alt)) ? throw(ArgumentError(
     "with_plot_caption: the static image's alt text is empty; pass `alt` describing what the figure shows")) : alt
-_caption_alt(caption) = isempty(caption.short) ? caption.title : caption.title * " — " * caption.short
+# The caption's text: its title and short summary, joined by " — " when both say
+# something. A blank one (whitespace only) is left out with its " — ", so a
+# caption of a summary alone gives that summary, never a leading or trailing
+# dash (snag `aov-caption-alt-9b2b65c1`, design decision `0no56j1`, option 1),
+# as HTMXObjects' `render_caption` shows it.
+_caption_alt(caption) = join(filter(!_caption_blank, [caption.title, caption.short]), " — ")
+_caption_blank(s::AbstractString) = all(isspace, s)
 
-# The alt text of the figure's own image in a report. A caption without a title
-# leaves it `nothing`, which fails when a report draws the figure, naming `alt`,
-# so a page that never becomes a report is not refused for it.
+# The alt text of the figure's own image in a report. A caption with neither a
+# title nor a summary leaves it `nothing`, which fails when a report draws the
+# figure, naming `alt`, so a page that never becomes a report is not refused
+# for it.
 _report_alt(caption, ::Nothing) = let a = _caption_alt(caption)
     isempty(strip(a)) ? nothing : a
 end
