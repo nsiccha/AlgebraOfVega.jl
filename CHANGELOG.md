@@ -15,7 +15,7 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
-## 0.2.48
+## 0.2.49
 
 - **`vconcat(a, b, …)` stacks figures on one shared x as one plot**, such as a
   water level chart over the hourly precipitation. Each panel is an ordinary
@@ -41,6 +41,18 @@ failing at run time with a `MethodError`.
   - Before, the two figures could not line up: in the comparison preview their
     plot areas were 1,427 and 1,384 px wide, so 18:00 sat 40 px apart.
 - The runtime's tick cap (`_capTicks`) also applies to a stack's panels.
+
+## 0.2.48
+
+- `caption_share_button`, and so the Share button of
+  `with_plot_caption(...; share_url=...)`, copies its link. Since the button
+  was added (0.2.0) its inline click handler wrote `new URL(...)`,
+  and in an inline handler a bare `URL` is the page's `document.URL`, a string,
+  so every click threw `URL is not a constructor` and copied nothing. It now writes
+  `new window.URL(...)` and copies the URL resolved against the page's current
+  address: an empty URL copies that address with its query, so a page whose
+  inputs keep their state in the query shares that state. `with_caption_share`
+  and `summary_share_button` were not affected.
 
 ## 0.2.47
 
