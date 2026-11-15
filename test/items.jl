@@ -2389,7 +2389,8 @@ clipboard copy, and the no-toggle `🔗` summary button.
     btn = html(caption_share_button("/r?force=1"))
     @test occursin("Share", btn)
     @test occursin("data-url=\"/r\"", btn)
-    @test occursin("new URL(", btn)
+    # In an inline handler a bare `URL` is `document.URL`, a string.
+    @test occursin("new window.URL(", btn) && !occursin("new URL(", btn)
     @test occursin("window.location.href", btn)
     @test occursin("Copied!", btn)
 
