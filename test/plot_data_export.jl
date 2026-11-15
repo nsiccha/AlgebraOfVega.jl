@@ -3,6 +3,7 @@ using TestItemRunner
 # Which rows a figure's ⬇ CSV button and "Show data" pane give: one group per
 # dataset that draws values, for a figure with or without facets. Before, a figure
 # without facets gave only its first layer's rows and omitted later layers.
+# Several datasets get a CSV entry each, and each click starts one download.
 @testitem "a figure's CSV and data preview in the browser" tags=[:caption, :browser] begin
     using AlgebraOfVega, AlgebraOfGraphics, HTMXObjects, JSON
     Text = AlgebraOfVega.Makie.Text
@@ -52,6 +53,10 @@ using TestItemRunner
             mapping(:x, :y; group=:draw, row=:r, col=:c) * lineribbon() *
             config(scales=scales(Y=(; scale=Dict("c1" => log10))))
 
+        # Twelve layers, each with its own table: more than the ten downloads
+        # Chromium lets a page start within a second.
+        many = reduce(+, [data((; x=[1.0, 2.0], y=[k, k + 1.0])) * mapping(:x, :y) * visual(Lines) for k in 1:12])
+
         card(id, spec; kw...) = with_plot_caption(spec * config(width=300, height=200), id; plot_id=id, kw...)
         mktempdir(prefix="kb-aov-plot-data-export-") do dir
             cards = h.div(
@@ -62,7 +67,10 @@ using TestItemRunner
                 card("x-labelled", two_layers; layer_labels=Dict("_s2" => "Modell")),
                 card("x-one", one_layer),
                 card("x-facet", faceted),
-                card("x-sparse", sparse))
+                card("x-sparse", sparse),
+                card("x-many", many),
+                card("x-plain", two_layers; download_menu=false),
+                card("x-change", two_layers))
             style = sprint(show, MIME"text/html"(), HTMXObjects.caption_style())
             page = to_html(cards; title="Export", source=:inline, head_extra=style)
             driver = read(joinpath(@__DIR__, "plot_data_export.js"), String)
@@ -78,7 +86,7 @@ using TestItemRunner
             if !isnothing(result)
                 report = JSON.parse(replace(result[1], "&quot;" => "\"", "&lt;" => "<",
                     "&gt;" => ">", "&amp;" => "&"))
-                @test report["checks"] >= 35
+                @test report["checks"] >= 69
                 @test isempty(report["failures"])
                 @info "plot data export browser checks" checks=report["checks"]
                 isempty(report["failures"]) || println(JSON.json(report["failures"]))

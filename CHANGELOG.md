@@ -15,6 +15,30 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
+## 0.2.53
+
+- **One ⬇ CSV click starts one download.** A captioned plot that draws
+  several datasets (a curve and a separate reference value, observations and a
+  model line, a map's value points) now lists one "⬇ CSV · <name>" entry per
+  dataset in its Export menu, or in its caption row with
+  `download_menu=false`, in place of the single "⬇ CSV". Each entry downloads
+  that dataset's file under the same name and with the same rows as before
+  (`<plot>__s1.csv`, or `<plot>_<label>.csv` through `layer_labels`), and the
+  entry is named the way the "Show data" pane heads that table. A plot that
+  draws one dataset keeps its single "⬇ CSV". Before, one click started one
+  download per dataset: Chromium drops every download a page starts after the
+  tenth within a second, so a figure with more than ten datasets lost every
+  file after the tenth with no warning, and desktop Chrome asks the reader
+  before a second download from one click. The entries are rebuilt after
+  every embed and data change and when the menu opens, so a script that
+  clicks them in a closed menu finds them. `AoV.downloadPlotData(id, base,
+  labels, part)` takes the optional dataset name `part` (`"_s1"`, …) and then
+  downloads that dataset only; without it, it still downloads every dataset.
+  **For browser tests:** a test that clicks `name=/CSV/` on such a figure now
+  matches one entry per dataset, so name the entry, for example
+  `CSV · _s1`. A test that starts more than ten downloads within a second
+  still loses downloads in Chromium, whatever AoV does.
+
 ## 0.2.52
 
 - **A captioned plot can be cited by its number: `with_plot_caption(…; id)`.**
