@@ -15,6 +15,23 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
+## 0.2.45
+
+- A layer drawn from HTMXObjects' `bound(p; columns)`, inside an `@htmx` struct
+  whose property `p` a `semantic_app` page computes in the browser
+  (`@browser`), follows the browser: `to_node`, `vdraw` and `with_plot_caption`
+  mark the plot, and after each input change the page replaces the plot's rows
+  with the columns the browser computed, with no request. So `export_site`
+  exports a page whose AoV plots show browser-computed data, and the exported
+  page keeps following its inputs offline. This works for plain marks, the
+  analyses Vega-Lite computes, layers that draw the bound table beside other
+  rows, panels of one table (`col=`, `row=`, `layout=`) and the channel picker
+  when it leaves the rows as they are. A figure whose rows AoV computes from the
+  table in Julia (an interval or ribbon summary of raw draws, a faceted or
+  ridgeline `density()`, a faceted figure whose layers draw different tables,
+  the picker's combined columns) raises an `ArgumentError` naming
+  `update_spec`. Needs HTMXObjects 0.1.125.
+
 ## 0.2.44
 
 - **`visual(...; label="Observed")`** gives a layer without a colour mapping a

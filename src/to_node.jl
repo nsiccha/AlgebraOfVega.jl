@@ -101,6 +101,7 @@ function _broadcast_cross_source_layers!(vl::Dict)
     isnothing(data_obj) && return vl
     vals = _as_vec(data_obj["values"])
     isnothing(vals) && return vl
+    given = vals
 
     for field in fields
         # Collect unique values from rows that already have this field
@@ -117,6 +118,9 @@ function _broadcast_cross_source_layers!(vl::Dict)
         end
         vals = new_vals
     end
+    # Every row already had every facet field: the rows stay the ones given,
+    # the very vector, which is how `to_node` recognizes a bound table's rows.
+    length(vals) == length(given) && all(i -> vals[i] === given[i], eachindex(vals, given)) && return vl
     # `vl` is `_embed_spec`'s shallow copy, so its nested `data`/`spec` dicts may
     # still be the caller's: replace them with written copies, never write in place.
     data_obj = copy(data_obj)
@@ -487,15 +491,34 @@ Return an embeddable plot node. `id` gives the plot a stable browser identity;
 `width` and `height` override dimensions; `actions` controls export actions.
 `signals` wires browser signal changes to host callbacks. `fit_width` enables
 fitting to the available container width. Include `vega_head()` in the host.
+
+A layer drawn from HTMXObjects' `bound(p; columns)` (a property an `@htmx`
+`semantic_app` page computes in the browser) marks the node, so the page
+redraws the plot from the columns the browser computes, with no request, and a
+static export accepts it. A figure whose rows AoV computes from such a table in
+Julia (an interval or ribbon summary, a faceted `density()`, a faceted figure
+whose layers draw different tables, the channel picker's combined columns) is
+refused with an `ArgumentError`: refresh it with [`update_spec`](@ref).
 """
 to_node(spec; id=nothing, width=nothing, height=nothing, actions=false, signals=nothing, fit_width=true) =
-    _to_node(spec, _report_lowering(spec, width, height); id, width, height, actions, signals, fit_width)
+    _to_node(spec, _report_lowering(spec, width, height), _bound_tables(spec);
+        id, width, height, actions, signals, fit_width)
 
-# `to_node` with the figure a report draws for it (`_FigureSource`).
-function _to_node(spec, source::_FigureSource; id=nothing, width=nothing, height=nothing, actions=false, signals=nothing, fit_width=true)
+# `to_node` with the figure a report draws for it (`_FigureSource`), for a spec
+# whose layers draw the bound tables `bound_tables` (the picker lowers its
+# figure first and passes the lowered dict with them).
+function _to_node(spec, source::_FigureSource, bound_tables=_bound_tables(spec); id=nothing, width=nothing,
+        height=nothing, actions=false, signals=nothing, fit_width=true)
     vl = _embed_spec(spec; width, height, fit_width)
+    # Rows a page computes in the browser (`bound_columns.jl`): the area that
+    # holds the plot and its embed script carries the binding, so a static
+    # export reads everything in it, the embedded rows included, as bound.
+    bound = _bound_dataset(vl, bound_tables)
+    isnothing(bound) || (vl = bound.vl)
     json = _vl_json(_wire_spec(vl))
-    id = _sanitize_id(something(id, "vega-" * string(abs(hash(json)), base=16)))
+    id = _sanitize_id(something(id, "vega-" * string(abs(hash(isnothing(bound) ? json : bound.key)), base=16)))
+    area = isnothing(bound) ? (; class="aov-plot-area") :
+        (; class="aov-plot-area", data_aov_bound_for=id, _bound_attrs(bound.binding, bound.dataset)...)
 
     # Queue embed for deferred execution (after layout is computed)
     embed_opts = "{actions: $actions}"
@@ -511,7 +534,7 @@ function _to_node(spec, source::_FigureSource; id=nothing, width=nothing, height
         end
     end
 
-    h.div(; class="aov-plot-area")(
+    h.div(; area...)(
         h.div(; id=id, class="u-w-full"),
         _inline_script("AoV.embed('$id', $json, $embed_opts).then(function(){$signal_js});"),
         # Markdown-only; emits zero bytes of HTML. Without it a `?plain` read of
