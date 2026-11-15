@@ -117,7 +117,7 @@ function _ribbon_intervals_spec(v, src)
 end
 
 _interval_view_analysis(a::LineRibbonAnalysis) = PointIntervalAnalysis(a.probs, :median, a.detail_fields, :vertical)
-_interval_view_analysis(a::PrecomputedRibbonAnalysis) = PrecomputedIntervalAnalysis(a.bands, a.detail_fields, :vertical)
+_interval_view_analysis(a::PrecomputedRibbonAnalysis) = PrecomputedIntervalAnalysis(a.bands, a.detail_fields, :vertical, a.probs, a.point)
 
 # `_lower_vegaspec(v)` with, for a figure that has a ribbon interval view, the
 # interval lowering pending in `_aov.ribbonView` (see the top of this file).

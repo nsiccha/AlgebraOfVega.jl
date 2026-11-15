@@ -52,19 +52,57 @@ struct LineRibbonAnalysis <: TidybayesAnalysis
     intervals::RibbonIntervals
 end
 
+# A `bands=` figure states what its columns hold, or leaves it unstated
+# (`nothing`): `probs`, the central mass of each band in the bands' order
+# (widest first), and `point`, the statistic its centre column holds. They name
+# the summary caption's width and point and the tooltip's; no number depends on them.
 struct PrecomputedRibbonAnalysis <: TidybayesAnalysis
     bands::Vector{Pair{Symbol,Symbol}}
     show_line::Bool
     detail_fields::Vector{Symbol}
     single_x_glyph::Bool
     intervals::RibbonIntervals
+    probs::Union{Nothing,Vector{Float64}}
+    point::Union{Nothing,Symbol}
 end
 
 struct PrecomputedIntervalAnalysis <: TidybayesAnalysis
     bands::Vector{Pair{Symbol,Symbol}}
     detail_fields::Vector{Symbol}
     orientation::Symbol
+    probs::Union{Nothing,Vector{Float64}}
+    point::Union{Nothing,Symbol}
 end
+
+# The point statistics a summary can show: what `point=` computes on raw draws,
+# and what it names on a `bands=` figure.
+const _POINT_STATISTICS = (:median, :mean)
+
+function _point_statistic(point, name)
+    p = Symbol(point)
+    p in _POINT_STATISTICS || throw(ArgumentError(string(name, "(point=", repr(point),
+        "): the point is :median or :mean")))
+    p
+end
+_bands_point(::Nothing, name) = nothing
+_bands_point(point, name) = _point_statistic(point, name)
+
+# `probs=` beside `bands=`: one central mass per band, widest first.
+_bands_probs(::Nothing, bands, name) = nothing
+function _bands_probs(probs, bands, name)
+    p = Float64[Float64(x) for x in probs]
+    length(p) == length(bands) || throw(ArgumentError(string(name, "(bands=…, probs=…): give one probability ",
+        "per band, in the bands' order: ", length(bands), " bands, ", length(p), " probabilities")))
+    all(x -> 0 < x < 1, p) || throw(ArgumentError(string(name, "(bands=…, probs=", p, "): each probability ",
+        "is a band's central mass, between 0 and 1")))
+    all(i -> p[i] > p[i+1], 1:length(p)-1) || throw(ArgumentError(string(name, "(bands=…, probs=", p, "): ",
+        "the bands go widest first, so each probability must be smaller than the one before")))
+    p
+end
+
+# The width a summary caption names for a central mass: `95%`. The runtime
+# writes a raw-draws summary's widths the same way (`Math.round`).
+_width_label(p::Real) = string(floor(Int, p * 100 + 0.5), "%")
 
 struct DotIntervalAnalysis <: TidybayesAnalysis
     probs::Vector{Float64}
@@ -76,11 +114,16 @@ end
 
 """
     pointinterval(; probs=[0.95, 0.8, 0.5], point=:median, orientation=:horizontal)
-    pointinterval(; bands=[:q025 => :q975, :q25 => :q75], orientation=:horizontal)
+    pointinterval(; bands=[:q025 => :q975, :q25 => :q75], probs=nothing, point=nothing, orientation=:horizontal)
 
 Draw nested empirical intervals and a central point. With `probs`, summarize
-raw values using quantiles in Julia. With `bands`, read precomputed lower/upper
-column pairs, widest first; the first positional mapping is the center column.
+raw values using quantiles in Julia, and `point` (`:median` or `:mean`) picks
+the central point. With `bands`, read precomputed lower/upper column pairs,
+widest first; the first positional mapping is the center column. Beside
+`bands`, `probs` states each band's central mass (`[0.95, 0.5]`, one per band,
+in the same order) and `point` what the center column holds, so the summary
+caption and tooltip read "Mean [95% credible interval]" as for raw draws.
+Unstated, the caption names the bound columns and the median.
 
 The default horizontal orientation maps values to x and categories through
 `y`. Vertical orientation requires positional mappings `(category, value)`.
@@ -92,13 +135,15 @@ follows the page foreground. Other visual attributes are not applied.
 Intervals describe the supplied distribution. They are credible intervals only
 when that distribution consists of appropriate posterior draws.
 """
-function pointinterval(; probs=[0.95, 0.8, 0.5], point=:median, bands=nothing,
+function pointinterval(; probs=nothing, point=nothing, bands=nothing,
                         detail=Symbol[], orientation::Symbol=:horizontal)
     if !isnothing(bands)
         parsed = Pair{Symbol,Symbol}[Symbol(first(b)) => Symbol(last(b)) for b in bands]
-        return Layer(transformation=PrecomputedIntervalAnalysis(parsed, Symbol.(detail), orientation))
+        return Layer(transformation=PrecomputedIntervalAnalysis(parsed, Symbol.(detail), orientation,
+            _bands_probs(probs, parsed, "pointinterval"), _bands_point(point, "pointinterval")))
     end
-    Layer(transformation=PointIntervalAnalysis(Float64.(probs), point, Symbol.(detail), orientation))
+    Layer(transformation=PointIntervalAnalysis(Float64.(something(probs, [0.95, 0.8, 0.5])),
+        _point_statistic(something(point, :median), "pointinterval"), Symbol.(detail), orientation))
 end
 
 """
@@ -109,16 +154,19 @@ plus a central point. Orientation, grouping, color, and dodge mappings follow
 `pointinterval`. Supply raw values; `probs` specifies central interval masses.
 """
 gradient_interval(; probs=[0.95, 0.8, 0.5], point=:median, detail=Symbol[], orientation::Symbol=:horizontal) =
-    Layer(transformation=GradientIntervalAnalysis(Float64.(probs), point, Symbol.(detail), orientation))
+    Layer(transformation=GradientIntervalAnalysis(Float64.(probs), _point_statistic(point, "gradient_interval"),
+        Symbol.(detail), orientation))
 
 """
     lineribbon(; probs=[0.95, 0.8, 0.5])
-    lineribbon(; bands=[:q025 => :q975, :q25 => :q75])
+    lineribbon(; bands=[:q025 => :q975, :q25 => :q75], probs=nothing, point=nothing)
 
 Summarize y at each x with a median line and nested quantile ribbons.
 Use raw values with `probs` and a `group` mapping for draw identity, or
 precomputed lower/upper column pairs with `bands`. The two positional mappings
-are x and the value or median. `detail` preserves grouping columns. A color mapping identifies
+are x and the value or median. Beside `bands`, `probs` and `point` (`:median`
+or `:mean`) state what the columns hold, as for `pointinterval(bands=…)`; a
+lineribbon of raw draws always draws the median and takes no `point`. `detail` preserves grouping columns. A color mapping identifies
 separate series; fixed `visual(; color=...)` colors a series without grouping.
 
 At a single x position, `single_x_glyph=true` uses an interval glyph.
@@ -126,33 +174,34 @@ Over at most 12 numeric x values (a dose ladder), coloured or not, the figure
 can also be drawn as point-intervals, and the `intervals` option picks the
 drawing it starts in. Use `ribbon_view` to inspect that choice before rendering.
 """
-function lineribbon(; probs=[0.95, 0.8, 0.5], bands=nothing, detail=Symbol[], single_x_glyph=true,
+function lineribbon(; probs=nothing, bands=nothing, point=nothing, detail=Symbol[], single_x_glyph=true,
                     intervals=:auto)
+    _ribbon_layer("lineribbon", true; probs, bands, point, detail, single_x_glyph, intervals)
+end
+
+function _ribbon_layer(name, show_line; probs, bands, point, detail, single_x_glyph, intervals)
     iv = _ribbon_intervals(intervals)
     if !isnothing(bands)
         parsed = Pair{Symbol,Symbol}[Symbol(first(b)) => Symbol(last(b)) for b in bands]
-        return Layer(transformation=PrecomputedRibbonAnalysis(parsed, true, Symbol.(detail), single_x_glyph, iv))
+        return Layer(transformation=PrecomputedRibbonAnalysis(parsed, show_line, Symbol.(detail), single_x_glyph, iv,
+            _bands_probs(probs, parsed, name), _bands_point(point, name)))
     end
-    Layer(transformation=LineRibbonAnalysis(Float64.(probs), true, Symbol.(detail), single_x_glyph, iv))
+    isnothing(point) || throw(ArgumentError(string(name, "(point=", repr(point), "): `point` states what a ",
+        "`bands=` ribbon's centre column holds; a ", name, " of raw draws always draws the median")))
+    Layer(transformation=LineRibbonAnalysis(Float64.(something(probs, [0.95, 0.8, 0.5])), show_line,
+        Symbol.(detail), single_x_glyph, iv))
 end
 
 """
     ribbon(; probs=[0.95, 0.8, 0.5])
-    ribbon(; bands=[:q025 => :q975, :q25 => :q75])
+    ribbon(; bands=[:q025 => :q975, :q25 => :q75], probs=nothing, point=nothing)
 
 Draw nested quantile bands without the median line. Inputs, grouping, and
 precomputed `bands` follow `lineribbon`. `single_x_glyph` controls the display
 when a series has only one x coordinate.
 """
-function ribbon(; probs=[0.95, 0.8, 0.5], bands=nothing, detail=Symbol[], single_x_glyph=true,
-                intervals=:auto)
-    iv = _ribbon_intervals(intervals)
-    if !isnothing(bands)
-        parsed = Pair{Symbol,Symbol}[Symbol(first(b)) => Symbol(last(b)) for b in bands]
-        return Layer(transformation=PrecomputedRibbonAnalysis(parsed, false, Symbol.(detail), single_x_glyph, iv))
-    end
-    Layer(transformation=LineRibbonAnalysis(Float64.(probs), false, Symbol.(detail), single_x_glyph, iv))
-end
+ribbon(; probs=nothing, bands=nothing, point=nothing, detail=Symbol[], single_x_glyph=true, intervals=:auto) =
+    _ribbon_layer("ribbon", false; probs, bands, point, detail, single_x_glyph, intervals)
 
 """
     dotinterval(; probs=[0.95, 0.5], n_dots=50, point=:median, orientation=:horizontal)
@@ -163,7 +212,8 @@ Orientation, grouping, and fixed colors follow `pointinterval`. The dots are
 a distribution summary, not individual source observations.
 """
 dotinterval(; probs=[0.95, 0.5], n_dots=50, point=:median, detail=Symbol[], orientation::Symbol=:horizontal) =
-    Layer(transformation=DotIntervalAnalysis(Float64.(probs), n_dots, point, Symbol.(detail), orientation))
+    Layer(transformation=DotIntervalAnalysis(Float64.(probs), n_dots, _point_statistic(point, "dotinterval"),
+        Symbol.(detail), orientation))
 
 # --- Geoshape / choropleth ---
 

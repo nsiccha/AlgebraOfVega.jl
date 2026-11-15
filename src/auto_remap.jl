@@ -63,7 +63,7 @@ function _auto_summary_args(spec)
                     push!(group_cols, Symbol(_field_name(v)))
                 end
             end
-            return (; kind=:pointinterval, table, value, outcome, group_cols)
+            return (; kind=:pointinterval, table, value, outcome, group_cols, point=a.point)
         end
         a = extract_transformation(layer, LineRibbonAnalysis)
         if !isnothing(a)
@@ -76,19 +76,15 @@ function _auto_summary_args(spec)
                 k === :group && continue
                 push!(group_cols, Symbol(_field_name(v)))
             end
-            return (; kind=:lineribbon, table, value, group_cols)
+            return (; kind=:lineribbon, table, value, group_cols, point=:median)
         end
         a = extract_transformation(layer, PrecomputedRibbonAnalysis)
         if !isnothing(a)
             length(layer.positional) < 2 && return nothing
             value = Symbol(_field_name(layer.positional[2]))
             point_col = string(value)
-            # bands as [(lo, hi, label)]: outermost first per AoV convention
-            bands = Tuple{String,String,String}[
-                (string(lo), string(hi), "$(string(lo))/$(string(hi))")
-                for (lo, hi) in a.bands
-            ]
-            return (; kind=:precomputed_ribbon, value, point_col, bands)
+            return (; kind=:precomputed_ribbon, value, point_col, bands=_summary_band_args(a),
+                    point=something(a.point, :median))
         end
         a = extract_transformation(layer, PrecomputedIntervalAnalysis)
         if !isnothing(a)
@@ -96,15 +92,22 @@ function _auto_summary_args(spec)
             length(layer.positional) >= point_idx || return nothing
             value = Symbol(_field_name(layer.positional[point_idx]))
             point_col = string(value)
-            bands = Tuple{String,String,String}[
-                (string(lo), string(hi), "$(string(lo))/$(string(hi))")
-                for (lo, hi) in a.bands
-            ]
-            return (; kind=:precomputed_ribbon, value, point_col, bands)
+            return (; kind=:precomputed_ribbon, value, point_col, bands=_summary_band_args(a),
+                    point=something(a.point, :median))
         end
     end
     return nothing
 end
+
+# A `bands=` figure's bands as `(lo, hi, width, prob)`, outermost first (the AoV
+# convention): the width the summary caption names is the stated central mass
+# (`95%`, `prob` its number), or else the bound columns (`q025–q975`, `prob`
+# `nothing`).
+_summary_band_args(a::Union{PrecomputedRibbonAnalysis,PrecomputedIntervalAnalysis}) =
+    Tuple{String,String,String,Union{Nothing,Float64}}[
+        (string(lo), string(hi), isnothing(a.probs) ? string(lo, "–", hi) : _width_label(a.probs[i]),
+         isnothing(a.probs) ? nothing : a.probs[i])
+        for (i, (lo, hi)) in enumerate(a.bands)]
 
 # Read default channel assignments from layers' existing `.named` mappings.
 # Returns a Dict("color"=>[...], "row"=>[...], "column"=>[...]).
@@ -261,8 +264,8 @@ end
 _with_detail(t::PointIntervalAnalysis, d) = PointIntervalAnalysis(t.probs, t.point, d, t.orientation)
 _with_detail(t::GradientIntervalAnalysis, d) = GradientIntervalAnalysis(t.probs, t.point, d, t.orientation)
 _with_detail(t::LineRibbonAnalysis, d) = LineRibbonAnalysis(t.probs, t.show_line, d, t.single_x_glyph, t.intervals)
-_with_detail(t::PrecomputedRibbonAnalysis, d) = PrecomputedRibbonAnalysis(t.bands, t.show_line, d, t.single_x_glyph, t.intervals)
-_with_detail(t::PrecomputedIntervalAnalysis, d) = PrecomputedIntervalAnalysis(t.bands, d, t.orientation)
+_with_detail(t::PrecomputedRibbonAnalysis, d) = PrecomputedRibbonAnalysis(t.bands, t.show_line, d, t.single_x_glyph, t.intervals, t.probs, t.point)
+_with_detail(t::PrecomputedIntervalAnalysis, d) = PrecomputedIntervalAnalysis(t.bands, d, t.orientation, t.probs, t.point)
 _with_detail(t::DotIntervalAnalysis, d) = DotIntervalAnalysis(t.probs, t.n_dots, t.point, d, t.orientation)
 
 _patch_detail(t::TidybayesAnalysis, new_detail) = _with_detail(t, Symbol.(new_detail))

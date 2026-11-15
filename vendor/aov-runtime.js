@@ -4839,7 +4839,7 @@ window.AoV = window.AoV || {
     // (`plot_texts`, src/plot_texts.jl); without that attribute they are
     // English. LOCKSTEP: `_TEXTS_EN` is the English set of
     // `_RUNTIME_TEXT_NAMES` in src/plot_texts.jl; test/plot_texts.jl pins them.
-    _TEXTS_EN: {"no_data": "(no data available)", "no_summary": "(no summary data available)", "median": "Median", "interval": "{point} [{width} credible interval]", "value": "value", "untitled": "AoV plot", "lang": "en", "play": "Play", "pause": "Pause", "ribbons": "Ribbons", "intervals": "Intervals", "ribbon_view": "Drawing", "overlap": "Bands overlap {score} of the y range", "overlap_auto": "Bands overlap {score} of the y range; intervals above {threshold}", "scrollable": "Scrollable plot", "scrollable_table": "Scrollable table", "reset_zoom": "Reset zoom"},
+    _TEXTS_EN: {"no_data": "(no data available)", "no_summary": "(no summary data available)", "median": "Median", "mean": "Mean", "interval": "{point} [{width} credible interval]", "value": "value", "untitled": "AoV plot", "lang": "en", "play": "Play", "pause": "Pause", "ribbons": "Ribbons", "intervals": "Intervals", "ribbon_view": "Drawing", "overlap": "Bands overlap {score} of the y range", "overlap_auto": "Bands overlap {score} of the y range; intervals above {threshold}", "scrollable": "Scrollable plot", "scrollable_table": "Scrollable table", "reset_zoom": "Reset zoom"},
     _texts: function(el) {
         var host = el && el.closest ? el.closest('[data-aov-texts]') : null;
         var texts = host ? JSON.parse(host.dataset.aovTexts) : {};
@@ -5017,13 +5017,15 @@ window.AoV = window.AoV || {
     //   1. Auto-detect: looks for __point__ or __median__ as the central col,
     //      and lo_<prob>_ / hi_<prob>_ pairs for the intervals (used by
     //      pointinterval/gradient/dot/lineribbon).
-    //   2. Explicit (opts.bands): caller passes [[loCol, hiCol, label], ...]
-    //      and opts.point_col (used by lineribbon(bands=...) precomputed).
+    //   2. Explicit (opts.bands): caller passes [[loCol, hiCol, width, prob?], ...]
+    //      and opts.point_col (the bands= forms). `width` is the stated central
+    //      mass (`95%`, `prob` its number) or the bound columns (`q025–q975`).
     //
     //   opts.ci: 'outer' (default, widest band) | 'inner' | Number (closest prob)
     //   opts.sigfigs: significant figures for numeric formatting (default 2)
     //   opts.value_label: header for the formatted value column (default 'value')
-    //   opts.point_label: 'Median' (default) | 'Mean' | custom — used in caption
+    //   opts.point: 'mean' when the point is the mean (default: the median)
+    //   opts.point_label: a caption word replacing the median/mean text
     renderPrettySummary: function(id, container, opts) {
         opts = opts || {};
         if (container.dataset.aovRendered === '1') return;
@@ -5094,7 +5096,9 @@ window.AoV = window.AoV || {
             // AoV passes explicit bands outermost-first (lineribbon convention);
             // internal representation is inner→outer to match the auto-detect path.
             bands = opts.bands.slice().reverse().map(function(b) {
-                return {lo: b[0], hi: b[1], label: b[2] || (b[0] + ' / ' + b[1])};
+                var band = {lo: b[0], hi: b[1], label: b[2] || (b[0] + '–' + b[1])};
+                if (typeof b[3] === 'number') band.prob = b[3];
+                return band;
             });
         } else {
             var probMap = {};
@@ -5138,7 +5142,7 @@ window.AoV = window.AoV || {
             return parseFloat(x.toPrecision(sigfigs)).toString();
         };
         var label = opts.value_label || text('value');
-        var pointLabel = opts.point_label || text('median');
+        var pointLabel = opts.point_label || text(opts.point === 'mean' ? 'mean' : 'median');
 
         var hidden = {};
         hidden[pointCol] = 1;
@@ -5189,9 +5193,7 @@ window.AoV = window.AoV || {
             return out;
         });
 
-        var caption = pick.prob !== undefined ?
-            text('interval', {point: pointLabel, width: pick.label}) :
-            pointLabel + ' [' + pick.label + ']';
+        var caption = text('interval', {point: pointLabel, width: pick.label});
         return {rows: built, cols: orderedCols, caption: caption};
     },
 

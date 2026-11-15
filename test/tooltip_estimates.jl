@@ -34,12 +34,22 @@ using TestItemRunner
     summ = (; site=["a", "b"], q50=[0.1, 1.0], q025=[-0.9, 0.4], q975=[0.4, 1.7], q25=[-0.3, 0.8], q75=[0.3, 1.2])
     pib = to_vegalite(data(summ) * mapping(:q50 => "Change"; y=:site) * pointinterval(bands=[:q025 => :q975, :q25 => :q75]))
     @test all(r -> last(r.titles) == "Change: q50 (q025–q975)" && r.calc == 1, estimate_rows(pib))
+    # What a `bands=` figure states (`probs=`, `point=`) names the point and width.
+    pis = to_vegalite(data(summ) * mapping(:q50 => "Change"; y=:site) *
+        pointinterval(bands=[:q025 => :q975, :q25 => :q75], probs=[0.95, 0.5], point=:mean))
+    @test all(r -> last(r.titles) == "Change: mean (95% interval)" && r.calc == 1, estimate_rows(pis))
+    pip = to_vegalite(data(summ) * mapping(:q50 => "Change"; y=:site) *
+        pointinterval(bands=[:q025 => :q975, :q25 => :q75], point=:median))
+    @test all(r -> last(r.titles) == "Change: median (q025–q975)", estimate_rows(pip))
 
     t = DateTime(2026, 3, 15) .+ Hour.(0:3)
     rib = (; t, q50=[10.0, 11, 12, 13], q025=[8.0, 9, 10, 11], q975=[12.0, 13, 14, 15])
     vrib = to_vegalite(data(rib) * mapping(:t => "Time", :q50 => "Level (cm)") * lineribbon(bands=[:q025 => :q975]))
     rr = estimate_rows(vrib)
     @test !isempty(rr) && all(r -> r.titles == ["Time", "Level (cm): q50 (q025–q975)"] && r.calc == 1, rr)
+    rs = estimate_rows(to_vegalite(data(rib) * mapping(:t => "Time", :q50 => "Level (cm)") *
+        lineribbon(bands=[:q025 => :q975], probs=[0.95], point=:mean)))
+    @test !isempty(rs) && all(r -> r.titles == ["Time", "Level (cm): mean (95% interval)"], rs)
     raw = (; x=repeat(1.0:4, inner=100), y=randn(400))
     @test all(r -> last(r.titles) == "y: median (95% interval)", estimate_rows(to_vegalite(data(raw) * mapping(:x, :y) * lineribbon())))
 

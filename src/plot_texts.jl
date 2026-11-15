@@ -12,8 +12,9 @@ pass it as `texts=` to `with_plot_caption`, `to_html`, [`auto_remap_node`](@ref)
 `summary_share_button`.
 
 A text in braces is a placeholder AoV fills in: `image` takes `{format}`
-(`PNG`, `SVG`); `interval` takes `{point}` (the `median` text) and `{width}`
-(`95%`); `overlap` takes `{score}` (`34%`), and `overlap_auto` takes `{score}`
+(`PNG`, `SVG`); `interval` takes `{point}` (the `median` or `mean` text) and
+`{width}` (`95%`, or a `bands=` figure's bound columns when it states no
+`probs=`); `overlap` takes `{score}` (`34%`), and `overlap_auto` takes `{score}`
 and `{threshold}` (`10%`).
 """
 struct PlotTexts
@@ -33,6 +34,7 @@ struct PlotTexts
     no_data::String         # raw preview of a plot without data
     no_summary::String      # summary preview without summary rows
     median::String          # the summary's point estimate
+    mean::String            # the same, for a figure whose point is the mean (`point=:mean`)
     interval::String        # the summary table's caption
     value::String           # header of the summary's value column when the value has no name
     color::String           # channel picker labels
@@ -77,6 +79,7 @@ const _PLOT_TEXT_LOCALES = (
         no_data = "(no data available)",
         no_summary = "(no summary data available)",
         median = "Median",
+        mean = "Mean",
         interval = "{point} [{width} credible interval]",
         value = "value",
         color = "Color",
@@ -116,6 +119,7 @@ const _PLOT_TEXT_LOCALES = (
         no_data = "(keine Daten verfügbar)",
         no_summary = "(keine Zusammenfassung verfügbar)",
         median = "Median",
+        mean = "Mittelwert",
         interval = "{point} [{width}-Kredibilitätsintervall]",
         value = "Wert",
         color = "Farbe",
@@ -179,7 +183,7 @@ _plot_text(texts::PlotTexts, name::Symbol; values...) =
 # The texts the browser runtime writes itself (preview contents, the frame
 # player, the ribbon switch, a scroll frame's name, a map's reset button, the HTML export). LOCKSTEP: `_TEXTS_EN` in `vendor/aov-runtime.js` holds their
 # English values; `test/plot_texts.jl` pins the two together.
-const _RUNTIME_TEXT_NAMES = (:no_data, :no_summary, :median, :interval, :value, :untitled, :lang, :play, :pause,
+const _RUNTIME_TEXT_NAMES = (:no_data, :no_summary, :median, :mean, :interval, :value, :untitled, :lang, :play, :pause,
     :ribbons, :intervals, :ribbon_view, :overlap, :overlap_auto, :scrollable, :scrollable_table, :reset_zoom)
 
 _runtime_texts_json(texts::PlotTexts) =
