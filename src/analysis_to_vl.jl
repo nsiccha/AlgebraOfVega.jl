@@ -167,6 +167,36 @@ function _interval_offset(rows, group_field, color_field, facet_fields,
     nothing, nothing
 end
 
+# An estimate and its interval as one tooltip row, `139.2 (134.8–144.4)`: all
+# three rounded at the second significant digit of the interval's width (the
+# rule of HTMXObjects' `IntervalEstimate` and of the readout), in the plot's
+# number locale (`locale_config`). A Vega-Lite `calculate` writes it on each
+# layer that shows the tooltip, so it follows the rows the plot holds after
+# `update_data`. A bound below zero is set off by a spaced dash, `−0.2 (−0.9 – 0.4)`.
+const _ESTIMATE_FIELD = "__aov_estimate"
+function _estimate_expr(point, lo, hi)
+    d(f) = "datum[" * _vl_json(string(f)) * "]"
+    w = "(" * d(hi) * " - " * d(lo) * ")"
+    digits = "(" * w * " > 0 ? max(0, min(10, 1 - floor(log(" * w * ") / LN10))) : 2)"
+    fmt(f) = "format(" * d(f) * ", ',.' + " * digits * " + 'f')"
+    sep = "(" * d(lo) * " < 0 || " * d(hi) * " < 0 ? ' – ' : '–')"
+    ok(f) = "isValid(" * d(f) * ")"
+    ok(point) * " && " * ok(lo) * " && " * ok(hi) * " ? " * fmt(point) * " + ' (' + " * fmt(lo) * " + " * sep *
+        " + " * fmt(hi) * " + ')' : " * ok(point) * " ? format(" * d(point) * ", '.4~r') : ''"
+end
+_estimate_tooltip(title) = Dict{String,Any}("field" => _ESTIMATE_FIELD, "type" => "nominal", "title" => title)
+# First among the layer's transforms: a coloured ribbon's group filter stays last
+# (the runtime finds it there, `_regroupRibbons`), and a facet merge's `__src`
+# filter goes in front.
+function _push_estimate!(layer::Dict, point, lo, hi)
+    t = get(layer, "transform", nothing)
+    calc = Dict{String,Any}("calculate" => _estimate_expr(point, lo, hi), "as" => _ESTIMATE_FIELD)
+    t isa AbstractVector ? pushfirst!(t, calc) : (layer["transform"] = Any[calc])
+    layer
+end
+_interval_estimate(point_field, probs) =
+    (point_field, _vl_prob_field("lo", maximum(probs)), _vl_prob_field("hi", maximum(probs)))
+
 # The group and colour rows of an interval tooltip, titled with their mapping labels.
 function _interval_group_tooltips!(tt, group_field, color_field, group_label, color_label)
     !isnothing(group_field) && push!(tt, _tooltip_entry(group_field, "nominal", group_label))
@@ -174,13 +204,14 @@ function _interval_group_tooltips!(tt, group_field, color_field, group_label, co
     tt
 end
 
+# The group and colour rows, then the estimate with its widest interval as one row
+# titled `Change (%/yr): median (95% interval)` (`_push_estimate!` writes the text).
 function _interval_tooltips(value_label, group_field, color_field, probs;
-                              point_field::String="__point__", group_label=nothing, color_label=nothing)
-    tt = Dict{String,Any}[Dict{String,Any}("field" => point_field, "type" => "quantitative", "title" => "$value_label (estimate)")]
+                              point_field::String="__point__", group_label=nothing, color_label=nothing,
+                              point::Symbol=:median)
+    tt = Dict{String,Any}[]
     _interval_group_tooltips!(tt, group_field, color_field, group_label, color_label)
-    widest = maximum(probs)
-    push!(tt, Dict{String,Any}("field" => _vl_prob_field("lo", widest), "type" => "quantitative", "title" => "$(round(Int, widest*100))% lo"))
-    push!(tt, Dict{String,Any}("field" => _vl_prob_field("hi", widest), "type" => "quantitative", "title" => "$(round(Int, widest*100))% hi"))
+    push!(tt, _estimate_tooltip("$value_label: $point ($(round(Int, maximum(probs)*100))% interval)"))
     tt
 end
 
@@ -223,7 +254,7 @@ function analysis_to_vl(a::PointIntervalAnalysis, layer::AlgebraOfGraphics.Layer
                                          marker_field, marker_label, marker_sort,
                                          size=80, color="white"))
     _add_analysis_tooltips!(layers, _interval_tooltips(value_label, group_field, color_field, a.probs;
-        group_label, color_label))
+        group_label, color_label, point=a.point); estimate=_interval_estimate("__point__", a.probs))
 
     spec = Dict{String,Any}("data" => Dict{String,Any}("values" => summary), "layer" => layers)
     if !is_sublayer
@@ -277,13 +308,11 @@ function analysis_to_vl(a::PrecomputedIntervalAnalysis, layer::AlgebraOfGraphics
 
     widest_lo = string(first(a.bands[1]))
     widest_hi = string(last(a.bands[1]))
-    tt = Dict{String,Any}[
-        Dict{String,Any}("field" => value_field, "type" => "quantitative", "title" => "$value_label (estimate)"),
-    ]
+    tt = Dict{String,Any}[]
     _interval_group_tooltips!(tt, group_field, color_field, group_label, color_label)
-    push!(tt, Dict{String,Any}("field" => widest_lo, "type" => "quantitative", "title" => widest_lo))
-    push!(tt, Dict{String,Any}("field" => widest_hi, "type" => "quantitative", "title" => widest_hi))
-    _add_analysis_tooltips!(layers, tt)
+    # The columns name the estimate and its bounds: `Change (%/yr): q50 (q025–q975)`.
+    push!(tt, _estimate_tooltip("$value_label: $value_field ($(widest_lo)–$(widest_hi))"))
+    _add_analysis_tooltips!(layers, tt; estimate=(value_field, widest_lo, widest_hi))
 
     spec = Dict{String,Any}("data" => Dict{String,Any}("values" => summary), "layer" => layers)
     if !is_sublayer
@@ -331,7 +360,7 @@ function analysis_to_vl(a::GradientIntervalAnalysis, layer::AlgebraOfGraphics.La
                                          marker_field, marker_label, marker_sort,
                                          size=50, color="white"))
     _add_analysis_tooltips!(layers, _interval_tooltips(value_label, group_field, color_field, a.probs;
-        group_label, color_label))
+        group_label, color_label, point=a.point); estimate=_interval_estimate("__point__", a.probs))
 
     spec = Dict{String,Any}("data" => Dict{String,Any}("values" => summary), "layer" => layers)
     if !is_sublayer
@@ -347,19 +376,18 @@ end
 # otherwise.
 _ribbon_x_type(col) = vl_type(col) == "temporal" ? "temporal" : "quantitative"
 
+# x, colour, then the median with the widest band as one row: titled
+# `Level (cm): median (95% interval)` for computed bands, and by the columns,
+# `Level (cm): q50 (q025–q975)`, for `bands=`.
 function _ribbon_tooltips(x_field, x_label, median_col, color_field, band_cols, band_labels; x_type::String,
-        color_label=nothing)
+        color_label=nothing, y_label=nothing)
     widest_lo, widest_hi = band_cols[1]
-    widest_label = isnothing(band_labels) ? "" : band_labels[1]
-    lo_title = widest_label == "" ? widest_lo : "$(widest_label) lo"
-    hi_title = widest_label == "" ? widest_hi : "$(widest_label) hi"
-    tt = Dict{String,Any}[
-        _tooltip_entry(x_field, x_type, x_label),
-        Dict{String,Any}("field" => median_col, "type" => "quantitative", "title" => "median"),
-    ]
+    value = something(y_label, median_col)
+    title = isnothing(band_labels) ? "$value: $median_col ($(widest_lo)–$(widest_hi))" :
+        "$value: median ($(band_labels[1]) interval)"
+    tt = Dict{String,Any}[_tooltip_entry(x_field, x_type, x_label)]
     !isnothing(color_field) && push!(tt, _tooltip_entry(color_field, "nominal", color_label))
-    push!(tt, Dict{String,Any}("field" => widest_lo, "type" => "quantitative", "title" => lo_title))
-    push!(tt, Dict{String,Any}("field" => widest_hi, "type" => "quantitative", "title" => hi_title))
+    push!(tt, _estimate_tooltip(title))
     tt
 end
 
@@ -562,7 +590,7 @@ function _ribbon_to_vl(
     end
 
     _add_analysis_tooltips!(layers, _ribbon_tooltips(x_field, x_label, median_col, color_field, band_cols, band_labels;
-        x_type, color_label))
+        x_type, color_label, y_label); estimate=(median_col, band_cols[1]...))
 
     spec = Dict{String,Any}("data" => summary_data, "layer" => layers)
     if !isnothing(color_field)
@@ -736,7 +764,7 @@ function analysis_to_vl(a::DotIntervalAnalysis, layer::AlgebraOfGraphics.Layer; 
                                                    marker_field, marker_label, marker_sort,
                                                    size=50, color="white"))
     _add_analysis_tooltips!(interval_layers, _interval_tooltips(value_label, group_field, color_field, a.probs;
-        group_label, color_label))
+        group_label, color_label, point=a.point); estimate=_interval_estimate("__point__", a.probs))
 
     push!(layers, Dict{String,Any}(
         "data" => Dict{String,Any}("values" => summary),
