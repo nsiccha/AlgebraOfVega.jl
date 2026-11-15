@@ -2113,6 +2113,9 @@ function _lower_vegaspec(v::VegaSpec; interactive::Bool=true)
             elseif sk == "link"
                 # Runtime metadata only (`_apply_link!`)
                 link_opts = val
+            elseif sk == "readout"
+                # Runtime metadata only: the readout's on/off (src/link.jl)
+                get!(spec, "_aov", Dict{String,Any}())["readout"] = val
             elseif sk == "config" && !isnothing(_as_dict(val))
                 # Deep-merge a user `config(config=…)` Dict into the base config
                 # rather than replacing it. The base config now carries the
