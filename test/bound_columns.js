@@ -39,7 +39,28 @@ window.addEventListener('load', async function () {
         c.dispatchEvent(new Event('change', {bubbles: true}));
     }
     const choose = (name, value) => document.querySelector('input[name="' + name + '"][value="' + value + '"]').click();
-    const requests = () => performance.getEntriesByType('resource').length;
+    // What the page asks the server once the inputs change: every request its
+    // own code makes (htmx's XHR, a fetch), recorded as it is made, and every
+    // network resource entry that started after `t0`. A resource entry is
+    // added asynchronously (after its body has arrived), so the entry count
+    // alone missed a request read just before the check (measured), and
+    // could count an asset the page started before the inputs changed whose
+    // entry landed late (the likely source of the 2 counted on GitHub's
+    // Ubuntu runners). `blob:` entries (the browser module) are no requests.
+    const pageRequests = [];
+    let watching = false;
+    const realFetch = window.fetch;
+    window.fetch = function (input) {
+        if (watching) pageRequests.push('fetch ' + String(input && input.url || input));
+        return realFetch.apply(this, arguments);
+    };
+    const realOpen = XMLHttpRequest.prototype.open;
+    XMLHttpRequest.prototype.open = function (method, url) {
+        if (watching) pageRequests.push('xhr ' + method + ' ' + url);
+        return realOpen.apply(this, arguments);
+    };
+    const requestsSince = t0 => pageRequests.concat(performance.getEntriesByType('resource')
+        .filter(e => /^https?:/.test(e.name) && e.startTime >= t0).map(e => 'resource ' + e.name));
     // A plot that does not follow ends the run, so the report is written
     // within the page's time budget.
     // The rule plot draws two tables of `line`: its wide columns (`source_0`)
@@ -93,7 +114,8 @@ window.addEventListener('load', async function () {
         const obs = () => yOf('bound-obs', 'source_0');
         check(obs() === '1,4,6', 'the observations are drawn (' + obs() + ')');
 
-        const before = requests();
+        const before = performance.now();
+        watching = true;
         const views = Object.fromEntries(Object.keys(PLOTS).map(id => [id, AoV.views[id]]));
         type('a', '3');
         await allFollow(3, 1, 'a = 3');
@@ -134,7 +156,9 @@ window.addEventListener('load', async function () {
         choose('mark', 'line');
         await allFollow(3, 2, 'line view again');
 
-        check(requests() === before, 'no request while the inputs changed (' + (requests() - before) + ')');
+        await pause(500);  // late resource entries land
+        const asked = requestsSince(before);
+        check(asked.length === 0, 'no request while the inputs changed (' + asked.join(', ') + ')');
         check(uncaught.length === 0, 'no uncaught error: ' + uncaught.join(' | '));
         check(!errors.some(e => /AoV\./.test(e)), 'no AoV console error: ' + errors.join(' | '));
     } catch (err) {
