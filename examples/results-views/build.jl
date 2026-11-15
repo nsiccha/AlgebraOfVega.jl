@@ -261,8 +261,8 @@ function build()
         h.section(; class="view")(
             h.h2("2. Forecast over time"),
             h.p(; class="lead")("Observed level, then a 12-hour forecast from the issue time under two scenarios (median, 50 % and 95 % bands); precipitation below."),
-            with_plot_caption(forecast(), CaptionSpec(; title="Water level", short="observed and forecast"); plot_id="forecast"),
-            with_plot_caption(precipitation(), CaptionSpec(; title="Precipitation", short="hourly"); plot_id="precip"),
+            with_plot_caption(vconcat(forecast(), precipitation()),
+                CaptionSpec(; title="Water level and precipitation", short="observed and forecast; hourly rain"); plot_id="forecast"),
             h.div(; class="bounded")(forecast_table())),
         h.section(; class="view")(
             h.h2("3. Faceted comparison"),
@@ -272,7 +272,7 @@ function build()
     ]
     html = repr(MIME"text/html"(), page(body))
     write(joinpath(OUT, "index.html"), html)
-    for (name, f) in (("forest", forest()), ("forecast", forecast()), ("precipitation", precipitation()), ("comparison", comparison()))
+    for (name, f) in (("forest", forest()), ("forecast", vconcat(forecast(), precipitation())), ("comparison", comparison()))
         try
             vsave(f, joinpath(OUT, "$name.svg"))
         catch e

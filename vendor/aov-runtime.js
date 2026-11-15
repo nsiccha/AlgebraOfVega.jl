@@ -211,7 +211,12 @@ window.AoV = window.AoV || {
         // Classify the shape. Only _aov-marked composite specs are JS-sized
         // (single views use VL-native width:"container").
         var kind = null, nCols = 0, computed = 0;
-        if (spec._aov && spec._aov.nFacetCols && spec.hconcat) {
+        if (spec._aov && spec.vconcat) {
+            // A `vconcat` stack (src/vconcat.jl): every panel spans the
+            // container, one width for all, so their plot areas line up.
+            kind = 'vconcat';
+            computed = Math.max(minCell, containerWidth - padding);
+        } else if (spec._aov && spec._aov.nFacetCols && spec.hconcat) {
             // hconcat of per-column facet views (per-column Y scales):
             // per-child width from container / nCols, written into every
             // child's inner spec.
@@ -250,6 +255,10 @@ window.AoV = window.AoV || {
             spec.hconcat.forEach(function(child) {
                 if (child && child.spec) child.spec = Object.assign({}, child.spec, {width: width});
             });
+        } else if (kind === 'vconcat') {
+            spec = Object.assign({}, spec, {vconcat: spec.vconcat.map(function(child) {
+                return Object.assign({}, child, {width: width});
+            })});
         } else if (kind === 'facet' || kind === 'inner') {
             spec.spec = Object.assign({}, spec.spec, {width: width});
         } else {
@@ -3955,13 +3964,14 @@ window.AoV = window.AoV || {
     // mark type, x field (a ribbon interval drawing's own x, not its dodged
     // one), y and y2 fields, colour field and y title. Null when the figure
     // gets no readout.
-    _readoutPlan: function(spec) {
+    _readoutPlan: function(spec, namePrefix) {
         var aov = (spec && spec._aov) || {};
-        if (!spec || aov.readout === false || spec.hconcat || spec.vconcat || spec.concat || spec.repeat) return null;
+        if (!spec || aov.readout === false || spec.hconcat || spec.concat || spec.repeat) return null;
+        if (spec.vconcat) return namePrefix === undefined ? this._readoutStackPlan(spec, aov) : null;
         var inner = spec.spec || spec, top = inner.encoding || {};
         var faceted = !!(spec.facet || spec.spec || top.column || top.row || top.facet);
         var layered = Array.isArray(inner.layer), units = layered ? inner.layer : [inner];
-        var prefix = faceted ? 'child_' : '', dodge = aov.dodgeX;
+        var prefix = (namePrefix || '') + (faceted ? 'child_' : ''), dodge = aov.dodgeX;
         var plan = {units: {}, order: [], x: null, xType: null, xTitle: null, faceted: faceted, series: null};
         var paths = false;
         units.forEach(function(u, i) {
@@ -3985,7 +3995,46 @@ window.AoV = window.AoV || {
             plan.order.push(name);
         }, this);
         if (!plan.order.length || !(paths || dodge || aov.readout === true)) return null;
+        plan.paths = paths;
         return plan;
+    },
+    // A `vconcat` stack (src/vconcat.jl) reads as one figure: every panel's
+    // units (Vega-Lite names a panel's marks `concat_<k>_…`), the panels as
+    // its scopes, one rule through all of them and one box listing every
+    // panel's series at the x under the pointer. A panel with
+    // `config(readout=false)` is left out (`_aov.panels`).
+    _readoutStackPlan: function(spec, aov) {
+        var self = this, panels = aov.panels || [], paths = false;
+        var plan = {units: {}, order: [], x: null, xType: null, xTitle: null, faceted: false, stacked: true, series: null};
+        spec.vconcat.forEach(function(child, k) {
+            if ((panels[k] || {}).readout === false) return;
+            var sub = self._readoutPlan(Object.assign({}, child, {_aov: {readout: true}}), 'concat_' + k + '_');
+            if (!sub) return;
+            if (plan.x === null) { plan.x = sub.x; plan.xType = sub.xType; plan.xTitle = sub.xTitle; }
+            if (plan.series === null) plan.series = sub.series;
+            paths = paths || sub.paths;
+            sub.order.forEach(function(name) {
+                plan.units[name] = Object.assign({}, sub.units[name], {index: plan.order.length});
+                plan.order.push(name);
+            });
+        });
+        if (!plan.order.length || !(paths || aov.readout === true)) return null;
+        return plan;
+    },
+    // The plot area a stack's readout spans: from its top panel's to its
+    // bottom panel's.
+    _readoutSpan: function(scopes) {
+        if (!scopes.length) return null;
+        var x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+        scopes.forEach(function(s) {
+            x0 = Math.min(x0, s.x); y0 = Math.min(y0, s.y);
+            x1 = Math.max(x1, s.x + s.width); y1 = Math.max(y1, s.y + s.height);
+        });
+        return {group: null, x: x0, y: y0, width: x1 - x0, height: y1 - y0};
+    },
+    _readoutAllItems: function(plan, scopes) {
+        var self = this;
+        return [].concat.apply([], scopes.map(function(s) { return self._readoutItems(plan, s); }));
     },
     _readoutState: function(id) {
         return this._readouts[id] || (this._readouts[id] = {plan: null, box: null, rule: null, key: null, tip: false});
@@ -4024,6 +4073,15 @@ window.AoV = window.AoV || {
     _readoutScopes: function(view, plan) {
         var root = view.scenegraph().root, frame = root && root.items && root.items[0];
         if (!frame) return [];
+        if (plan.stacked) {
+            var panels = [];
+            (frame.items || []).forEach(function(m) {
+                if (m.marktype === 'group' && /^concat_\d+_group$/.test(m.name || '')) (m.items || []).forEach(function(g) {
+                    panels.push({group: g, x: g.x || 0, y: g.y || 0, width: g.width || 0, height: g.height || 0});
+                });
+            });
+            return panels;
+        }
         if (!plan.faceted) return [{group: frame, x: 0, y: 0, width: view.width(), height: view.height()}];
         var out = [];
         (frame.items || []).forEach(function(m) {
@@ -4062,10 +4120,15 @@ window.AoV = window.AoV || {
         var f = this._readoutFrame(view);
         if (!f) return;
         var px = ev.clientX - f.left, py = ev.clientY - f.top;
-        var scope = this._readoutScopes(view, st.plan).filter(function(s) {
-            return px >= s.x && px <= s.x + s.width && py >= s.y && py <= s.y + s.height;
-        })[0];
-        var items = scope ? this._readoutItems(st.plan, scope) : [];
+        var inside = function(s) { return px >= s.x && px <= s.x + s.width && py >= s.y && py <= s.y + s.height; };
+        var scopes = this._readoutScopes(view, st.plan), scope, items;
+        if (st.plan.stacked) {
+            scope = this._readoutSpan(scopes);
+            items = scope && inside(scope) ? this._readoutAllItems(st.plan, scopes) : [];
+        } else {
+            scope = scopes.filter(inside)[0];
+            items = scope ? this._readoutItems(st.plan, scope) : [];
+        }
         if (!items.length) { this._readoutHide(id, true); return; }
         var best = items[0];
         items.forEach(function(c) { if (Math.abs(c.x - px) < Math.abs(best.x - px)) best = c; });
@@ -4080,6 +4143,12 @@ window.AoV = window.AoV || {
             var f = self._readoutFrame(view);
             if (!f) return;
             var scopes = self._readoutScopes(view, st.plan);
+            if (st.plan.stacked) {
+                var every = self._readoutAllItems(st.plan, scopes), span = self._readoutSpan(scopes);
+                var hit = every.filter(function(c) { return self._linkKeyText(link, c.value) === key; });
+                if (hit.length && span) self._readoutShow(id, view, f, span, hit, every, false); else self._readoutHide(id, false);
+                return;
+            }
             for (var i = 0; i < scopes.length; i++) {
                 var all = self._readoutItems(st.plan, scopes[i]);
                 var at = all.filter(function(c) { return self._linkKeyText(link, c.value) === key; });
@@ -5072,14 +5141,20 @@ window.AoV = window.AoV || {
     // the same way (`_apply_tick_cap!`, src/to_vegalite.jl).
     _TICK_CAP: {x: 7, y: 5},
     _capTicks: function(id, s) {
-        if (!s || typeof s !== 'object' || s.hconcat || s.vconcat || s.concat) return s;
-        var self = this, inner = s.spec || s, el = self._els[id] || self._plotElement(id);
-        var size = {x: inner.width, y: inner.height};
+        if (!s || typeof s !== 'object' || s.hconcat || s.concat) return s;
+        var self = this, el = self._els[id] || self._plotElement(id);
+        // A `vconcat` stack's panels share one width; its tallest panel decides y.
+        var views = s.vconcat ? s.vconcat.filter(function(c) { return c && typeof c === 'object'; }) : [s.spec || s];
+        if (!views.length) return s;
+        var size = {x: views[0].width, y: s.vconcat ? Math.max.apply(null, views.map(function(c) {
+            return typeof c.height === 'number' ? c.height : 0; })) : views[0].height};
         if (size.x === 'container') size.x = el ? el.clientWidth : null;
         var binned = {x: false, y: false};
-        (Array.isArray(inner.layer) ? inner.layer : [inner]).forEach(function(u) {
-            var enc = Object.assign({}, inner.encoding || {}, (u && u.encoding) || {});
-            ['x', 'y'].forEach(function(ch) { if (enc[ch] && enc[ch].bin) binned[ch] = true; });
+        views.forEach(function(inner) {
+            (Array.isArray(inner.layer) ? inner.layer : [inner]).forEach(function(u) {
+                var enc = Object.assign({}, inner.encoding || {}, (u && u.encoding) || {});
+                ['x', 'y'].forEach(function(ch) { if (enc[ch] && enc[ch].bin) binned[ch] = true; });
+            });
         });
         var cfg = s.config = s.config || {};
         if (cfg.axis && cfg.axis.tickCount !== undefined) return s;
