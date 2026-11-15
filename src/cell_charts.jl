@@ -190,14 +190,16 @@ end
 _cell_size(props, k::Symbol, default) = (v = get(props, k, nothing); v isa Real ? round(Int, v) : default)
 
 """
-    _cell_column(spec, scales=nothing; id=nothing) -> CellColumn
+    _cell_column(spec, scales=nothing; id=nothing, axis=true) -> CellColumn
 
 Lower a figure faceted by the table's row key (`layout=:key`) for
 `cell_charts`: the same figure without the facet, its axes, legend, frame and
 padding left out (an authored `config(config=…)` key wins), bars from zero, at
-`config(width=…, height=…)` or 120×24 px, stepping one frame per key.
+`config(width=…, height=…)` or 120×24 px, stepping one frame per key. `axis`
+(`_aov.cells.axis`) lets the runtime draw the shared continuous x axis once, in
+the column's header cell.
 """
-function _cell_column(spec, scales=nothing; id=nothing)
+function _cell_column(spec, scales=nothing; id=nothing, axis::Bool=true)
     v = spec isa VegaSpec ? spec : vlspec(spec)
     layers = _cell_layers(v.drawable)
     field = _cell_key_field(layers)
@@ -230,7 +232,7 @@ function _cell_column(spec, scales=nothing; id=nothing)
         config(frame=Symbol(field))
     vl = isnothing(scales) ? to_vegalite(figure; interactive=false) : to_vegalite(figure, scales; interactive=false)
     _cell_bars_from_zero!(vl, _cell_authored_zero(v.config))
-    get!(vl, "_aov", Dict{String,Any}())["cells"] = Dict{String,Any}("own" => own)
+    get!(vl, "_aov", Dict{String,Any}())["cells"] = Dict{String,Any}("own" => own, "axis" => axis)
     order, rows, parts, totals = _cell_parts(layers[main], field)
     cid = _sanitize_id(something(id, "aov-cells-" * string(hash(_vl_json(vl)), base=16)))
     CellColumn(cid, field, vl, width, height, order, rows, parts, totals)
@@ -238,7 +240,7 @@ end
 
 """
     cell_charts(spec[, scales]; texts=table_texts(), sigdigits=3, id=nothing,
-                total=nothing, label=nothing, text=nothing) -> CellCharts
+                total=nothing, label=nothing, text=nothing, axis=true) -> CellCharts
 
 Build a column of small charts from a specification faceted by the table's
 row key through `layout`. Index the result with `cells[key]` to obtain the
@@ -249,5 +251,10 @@ Requires `using HTMXObjects` and a host page with `vega_head()`.
 total is the sum of values, or the row count for a frequency plot. `total`,
 `label`, and `text` customize that calculation, its label, and its Markdown
 representation. Missing row keys produce an empty chart and a zero total.
+
+When the cells share a continuous x axis (a value or a time, not categories, and
+not unlinked with `config(facet=(; linkyaxes=…))`), the browser draws that axis
+once at the bottom of the column's header cell, on the cells' scale and aligned
+with their plot area, so the charts can be read off. `axis=false` leaves it out.
 """
 function cell_charts end
