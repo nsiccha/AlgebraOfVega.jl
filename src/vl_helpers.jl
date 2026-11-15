@@ -170,6 +170,7 @@ function config(; kwargs...)
     haskey(props, :transform) && (props[:transform] = _transform_list(props[:transform]))
     haskey(props, :frame) && (props[:frame] = _frame_options(props[:frame]))
     haskey(props, :link) && (props[:link] = _link_options(props[:link]))
+    haskey(props, :readout) && (props[:readout] = _readout_option(props[:readout]))
     Config(props)
 end
 

@@ -15,6 +15,30 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
+## 0.2.39
+
+- A figure with a line or area layer on a continuous x (a time series, a
+  ribbon, a curve over a sample size), and a ribbon's point-interval drawing,
+  get a readout in the browser: while the pointer is over a plot area, a rule
+  marks the nearest x that has data and one box lists every series there, a
+  series with an interval as its median with the widest interval,
+  `142 (138–148)`, rounded at the second significant digit of the interval's
+  width, and a line or a single point as its value. In a faceted figure it
+  follows the panel under the pointer, and the box stands in for the mark
+  tooltip while it shows. `config(readout=false)` turns it off;
+  `config(readout=true)` gives one to any figure with a continuous x (bars
+  over time, a scatter).
+- When a figure's `config(link=(; group, key))` key is its x field, the
+  readout announces the x it shows to the link group, so the table row of
+  that time lights, and another member's announcement of one x (a hovered
+  table row) shows the readout there instead of dimming every line and band.
+- A link group keyed by a `Date` or `DateTime` column now links. Vega holds
+  such a field as epoch milliseconds, so a plot announced `"1773568800000"`
+  where a table keys its rows by `string(t)`, `"2026-03-15T17:00:00"`: no
+  row lit from a mark, and a hovered row dimmed every mark of the plot. The
+  plot now announces and compares the key as Julia writes it
+  (`_aov.link.temporal`).
+
 ## 0.2.38
 
 - A categorical colour palette takes `:ink` as an entry:

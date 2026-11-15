@@ -44,7 +44,35 @@ function _apply_link!(spec::Dict, drawable, opts::LinkOptions)
     any(l -> !isnothing(_frame_table(l, opts.key)), _frame_layers(drawable)) || throw(ArgumentError(
         "config(link=(; group=$(repr(opts.group)), key=:$(opts.key))): no layer's table has a `$(opts.key)` column. " *
         "`key` names the column whose value identifies an item, the same value the other members of the group key their items by."))
-    get!(spec, "_aov", Dict{String,Any}())["link"] =
-        Dict{String,Any}("group" => opts.group, "key" => opts.key)
+    link = Dict{String,Any}("group" => opts.group, "key" => opts.key)
+    kind = _link_temporal(drawable, opts.key)
+    isnothing(kind) || (link["temporal"] = kind)
+    get!(spec, "_aov", Dict{String,Any}())["link"] = link
     spec
 end
+
+# Whether the key column holds dates ("date") or date-times ("datetime"):
+# Vega holds such a field as epoch milliseconds, so the runtime writes it back
+# as Julia writes the value (`string(x)`, what a table keys its rows by)
+# before comparing it with another member's key. `nothing` for other keys.
+function _link_temporal(drawable, key::String)
+    for l in _frame_layers(drawable)
+        t = _frame_table(l, key)
+        isnothing(t) && continue
+        T = Base.nonmissingtype(eltype(Tables.getcolumn(t, Symbol(key))))
+        T <: Dates.Date && return "date"
+        T <: TimeType && return "datetime"
+    end
+    nothing
+end
+
+# --- Readout: config(readout=…) ---
+#
+# A figure with a line or area layer on a continuous x gets a readout in the
+# browser: a rule at the nearest x under the pointer and one box listing
+# every series' value there (`_readoutPlan` and friends in
+# vendor/aov-runtime.js). `readout=false` turns it off, `readout=true` gives
+# one to any figure with a continuous x. The lowering is `_aov.readout`.
+_readout_option(b::Bool) = b
+_readout_option(x) = throw(ArgumentError(
+    "config(readout=…) is `true` (a readout for any figure with a continuous x) or `false` (none); got $(repr(x))."))

@@ -60,7 +60,7 @@ window.AoV = window.AoV || {
         '_embedOpts', '_observers', '_computedWidths', '_corrections', '_correctedRegime',
         '_cur', '_pickers', '_mappings', '_themeKeys', '_reembeds', '_frames',
         '_highlights', '_hovers', '_touches', '_unmeasured', '_ribbonViews', '_scrollFrames',
-        '_mapZooms', '_mapPinches'],
+        '_mapZooms', '_mapPinches', '_readouts'],
 
     // Whether the runtime sizes this spec to its container: Julia's
     // `_embed_spec` marks a responsive layered/faceted/per-column spec with
@@ -1145,6 +1145,7 @@ window.AoV = window.AoV || {
                 self._attachClick(id, view);
                 self._attachHover(id, view);
                 self._attachTouch(id, view);
+                self._attachReadout(id);
                 self._mapZoom(id, view, result.vgSpec);
                 self._frameSync(id, view);
                 // Run anything queued before the view was ready (e.g. appendData)
@@ -3302,7 +3303,8 @@ window.AoV = window.AoV || {
         // Each event carries its own copy of the row, as aov:click does.
         h = this._hovers[id] = {row: row, leaving: false, key: null};
         this._dispatch(id, 'aov:hover', {id: id, datum: Object.assign({}, row), event: event});
-        h.key = this._announce(id, row);
+        // A readout along the link key announces the x it shows itself.
+        h.key = this._readoutOwnsLink(id) ? null : this._announce(id, row);
     },
     _hoverLeave: function(id, event) {
         var self = this, h = self._hovers[id];
@@ -3677,9 +3679,27 @@ window.AoV = window.AoV || {
         var link = this._link(id);
         if (!link || !datum || !Object.prototype.hasOwnProperty.call(datum, link.key) ||
             datum[link.key] === null || datum[link.key] === undefined) return null;
-        var key = String(datum[link.key]);
+        var key = this._linkKeyText(link, datum[link.key]);
         this._announceKey(id, key);
         return key;
+    },
+    // A key value as the group compares it: the text Julia writes the value
+    // as, which is what a table keys its rows by (`string(x)`). Vega holds a
+    // date or date-time field as epoch milliseconds, so a temporal key
+    // (`link.temporal`, set from the key column's type) is written back:
+    // a DateTime as its wall-clock time, `2026-03-15T17:00:00`, the way Vega
+    // parsed it (local time), and a Date as `2026-03-15`, which Vega parses
+    // as UTC midnight. Every other value is its String().
+    _linkKeyText: function(link, v) {
+        var kind = link && link.temporal;
+        if (v instanceof Date) v = +v;
+        if (!kind || typeof v !== 'number' || !isFinite(v)) return String(v);
+        var d = new Date(v), p = function(n, w) { return String(n).padStart(w || 2, '0'); };
+        if (kind === 'date') return d.getUTCFullYear() + '-' + p(d.getUTCMonth() + 1) + '-' + p(d.getUTCDate());
+        var s = d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + 'T' +
+            p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
+        // Julia writes milliseconds without trailing zeros: `…T17:00:00.5`.
+        return d.getMilliseconds() ? s + '.' + p(d.getMilliseconds(), 3).replace(/0+$/, '') : s;
     },
     _announceKey: function(id, key) {
         var link = this._link(id);
@@ -3696,10 +3716,22 @@ window.AoV = window.AoV || {
     // The latest announcement per group, {keys, source}.
     _linkState: {},
     _showLinkKeys: function(id, link, keys) {
+        // A figure whose readout runs along the key (a time series keyed by
+        // its time) shows the announced x with its readout: dimming would
+        // grey out every line and band, whose one mark spans all x values.
+        if (this._readoutOwnsLink(id)) {
+            this.clearHighlight(id);
+            if (keys.length === 1) this._readoutAtKey(id, keys[0]); else this._readoutHide(id, false);
+            if (keys.length < 2) return;
+        }
         if (!keys.length) { this.clearHighlight(id); return; }
-        var m = {};
-        m[link.key] = keys;
-        this.highlight(id, m);
+        var self = this, wanted = new Set(keys);
+        // As `AoV.highlight(id, {key: keys})`, comparing the key as the group
+        // writes it (_linkKeyText): a row without the key field stays bright.
+        this.highlight(id, function(d) {
+            if (!d || !Object.prototype.hasOwnProperty.call(d, link.key)) return true;
+            return wanted.has(self._linkKeyText(link, d[link.key]));
+        });
     },
     _joinLinkState: function(id) {
         var link = this._link(id), st = link && this._linkState[link.group];
@@ -3720,6 +3752,314 @@ window.AoV = window.AoV || {
             });
         };
         document.addEventListener('htmxo:link', this._linkListener);
+    },
+
+    // --- Readout: every series' value at the pointer's x ---
+    // A figure with a line or area layer on a continuous x (a time series, a
+    // ribbon, a curve over a sample size), and a ribbon's point-interval
+    // drawing, get a readout; `config(readout=false)` turns it off and
+    // `config(readout=true)` gives one to any figure with a continuous x.
+    // While the pointer is over a plot area, a rule marks the nearest x that
+    // has data and one box lists every series there:
+    // - a series with an interval (a ribbon's or band's widest, the rules of
+    //   its interval drawing) as its median with that interval,
+    //   `142 (138–148)`, all three rounded at the second significant digit of
+    //   the interval's width;
+    // - a line or a single point as its value, to four significant digits;
+    // - a cloud of points at one x (single runs) is left out.
+    // Series are named by their colour field's value, or by the layer's y
+    // title. In a faceted figure the readout follows the panel under the
+    // pointer. The box stands in for the mark tooltip while it shows. When
+    // the figure's link key is its x field, the readout's x is announced to
+    // the link group, and another member's announcement of one x (a table
+    // row) shows the rule and box there (_showLinkKeys).
+    // The plan is read from the spec as embedded, the values from the
+    // scenegraph, so picker remaps, data updates and drawings switches are
+    // read as drawn. Listeners on the element look the view up by id (R3).
+    _readouts: {},
+    _READOUT_PATHS: {line: 1, area: 1, trail: 1},
+    _READOUT_MARKS: {line: 1, area: 1, trail: 1, point: 1, circle: 1, square: 1, tick: 1, bar: 1, rule: 1},
+    // The units a readout reads, by the scenegraph name of their marks:
+    // mark type, x field (a ribbon interval drawing's own x, not its dodged
+    // one), y and y2 fields, colour field and y title. Null when the figure
+    // gets no readout.
+    _readoutPlan: function(spec) {
+        var aov = (spec && spec._aov) || {};
+        if (!spec || aov.readout === false || spec.hconcat || spec.vconcat || spec.concat || spec.repeat) return null;
+        var inner = spec.spec || spec, top = inner.encoding || {};
+        var faceted = !!(spec.facet || spec.spec || top.column || top.row || top.facet);
+        var layered = Array.isArray(inner.layer), units = layered ? inner.layer : [inner];
+        var prefix = faceted ? 'child_' : '', dodge = aov.dodgeX;
+        var plan = {units: {}, order: [], x: null, xType: null, xTitle: null, faceted: faceted, series: null};
+        var paths = false;
+        units.forEach(function(u, i) {
+            if (!u || u.layer) return;
+            var enc = layered ? Object.assign({}, top, u.encoding || {}) : (u.encoding || {});
+            var mark = typeof u.mark === 'string' ? u.mark : (u.mark && u.mark.type);
+            var x = enc.x, y = enc.y;
+            if (!this._READOUT_MARKS[mark] || !x || !x.field || !y || !y.field) return;
+            if (x.type !== 'quantitative' && x.type !== 'temporal') return;
+            var xf = dodge && x.field === dodge.as ? dodge.field : x.field;
+            if (plan.x === null) { plan.x = xf; plan.xType = x.type; plan.xTitle = x.title || xf; }
+            if (xf !== plan.x) return;
+            if (this._READOUT_PATHS[mark]) paths = true;
+            var color = enc.color && enc.color.field;
+            if (color && plan.series === null) plan.series = color;
+            var tip = [].concat(enc.tooltip || []).filter(function(t) { return t && t.field === y.field; })[0];
+            var name = prefix + (layered ? 'layer_' + i + '_marks' : 'marks');
+            plan.units[name] = {mark: mark, x: xf, y: y.field, y2: enc.y2 && enc.y2.field, color: color,
+                title: y.title || (tip && tip.title) || y.field, index: plan.order.length};
+            plan.order.push(name);
+        }, this);
+        if (!plan.order.length || !(paths || dodge || aov.readout === true)) return null;
+        return plan;
+    },
+    _readoutState: function(id) {
+        return this._readouts[id] || (this._readouts[id] = {plan: null, box: null, rule: null, key: null, tip: false});
+    },
+    _readoutOwnsLink: function(id) {
+        var st = this._readouts[id], link = this._link(id);
+        return !!(st && st.plan && link && link.key === st.plan.x);
+    },
+    // Called on every embed: the plan for the spec just drawn, and (once per
+    // element) the pointer listeners.
+    _attachReadout: function(id) {
+        var self = this, el = self._els[id], st = self._readoutState(id);
+        var cur = self._cur[id];
+        st.plan = self._readoutPlan(cur && cur.spec);
+        st.box = st.rule = null;     // vega-embed emptied the element
+        if (!el || el._aovReadout) return;
+        el._aovReadout = true;
+        el.addEventListener('pointermove', function(ev) {
+            if (self._els[id] !== el || ev.pointerType === 'touch') return;
+            self._readoutPointer(id, ev);
+        });
+        el.addEventListener('pointerleave', function(ev) {
+            if (self._els[id] === el && ev.pointerType !== 'touch') self._readoutHide(id, true);
+        });
+    },
+    // Where the view's plot coordinates start, in client coordinates: its
+    // drawing's corner plus the view origin and padding, as Vega maps the
+    // pointer (see test/mark_click.js).
+    _readoutFrame: function(view) {
+        var c = view.container(), d = c && (c.querySelector('canvas') || c.querySelector('svg'));
+        if (!d) return null;
+        var r = d.getBoundingClientRect(), o = view.origin(), p = view.padding();
+        return {left: r.left + o[0] + (p.left || 0), top: r.top + o[1] + (p.top || 0)};
+    },
+    // The plot areas a readout can show in: each facet cell, or the one view.
+    _readoutScopes: function(view, plan) {
+        var root = view.scenegraph().root, frame = root && root.items && root.items[0];
+        if (!frame) return [];
+        if (!plan.faceted) return [{group: frame, x: 0, y: 0, width: view.width(), height: view.height()}];
+        var out = [];
+        (frame.items || []).forEach(function(m) {
+            if (m.marktype === 'group' && m.name === 'cell') (m.items || []).forEach(function(g) {
+                out.push({group: g, x: g.x || 0, y: g.y || 0, width: g.width || 0, height: g.height || 0});
+            });
+        });
+        return out;
+    },
+    // Every drawn item of the plan's units in a scope, with its x in view
+    // coordinates and its row's x value (a number: Vega holds dates as
+    // epoch milliseconds).
+    _readoutItems: function(plan, scope) {
+        var out = [];
+        (function walk(group, dx) {
+            (group.items || []).forEach(function(m) {
+                if (m.marktype === 'group') {
+                    if (m.role === 'scope') (m.items || []).forEach(function(g) { walk(g, dx + (g.x || 0)); });
+                    return;
+                }
+                var u = m.role === 'mark' && plan.units[m.name];
+                if (!u) return;
+                (m.items || []).forEach(function(it) {
+                    var d = it.datum, v = d && d[u.x];
+                    if (v instanceof Date) v = +v;
+                    if (typeof v !== 'number' || !isFinite(v) || typeof it.x !== 'number') return;
+                    out.push({unit: u, item: it, datum: d, x: dx + it.x, value: v});
+                });
+            });
+        })(scope.group, scope.x);
+        return out;
+    },
+    _readoutPointer: function(id, ev) {
+        var st = this._readouts[id], view = this.views[id];
+        if (!st || !st.plan || !view) return;
+        var f = this._readoutFrame(view);
+        if (!f) return;
+        var px = ev.clientX - f.left, py = ev.clientY - f.top;
+        var scope = this._readoutScopes(view, st.plan).filter(function(s) {
+            return px >= s.x && px <= s.x + s.width && py >= s.y && py <= s.y + s.height;
+        })[0];
+        var items = scope ? this._readoutItems(st.plan, scope) : [];
+        if (!items.length) { this._readoutHide(id, true); return; }
+        var best = items[0];
+        items.forEach(function(c) { if (Math.abs(c.x - px) < Math.abs(best.x - px)) best = c; });
+        this._readoutShow(id, view, f, scope, items.filter(function(c) { return c.value === best.value; }), items, true);
+    },
+    // Show the x a link-group member announced: the first panel that has it.
+    _readoutAtKey: function(id, key) {
+        var self = this;
+        self.whenReady(id, function(view) {
+            var st = self._readouts[id], link = self._link(id);
+            if (!st || !st.plan || !link) return;
+            var f = self._readoutFrame(view);
+            if (!f) return;
+            var scopes = self._readoutScopes(view, st.plan);
+            for (var i = 0; i < scopes.length; i++) {
+                var all = self._readoutItems(st.plan, scopes[i]);
+                var at = all.filter(function(c) { return self._linkKeyText(link, c.value) === key; });
+                if (at.length) { self._readoutShow(id, view, f, scopes[i], at, all, false); return; }
+            }
+            self._readoutHide(id, false);
+        });
+    },
+    // One entry per series at the shown x, in the colour scale's order (the
+    // legend's), then the uncoloured layers in layer order.
+    _readoutEntries: function(view, plan, at) {
+        var series = {}, list = [];
+        at.forEach(function(c) {
+            var u = c.unit, d = c.datum;
+            var name = u.color ? d[u.color] : (plan.series && d[plan.series] !== undefined ? d[plan.series] : u.title);
+            name = String(name);
+            var s = series[name];
+            if (!s) { s = series[name] = {name: name, coloured: name !== String(u.title), first: u.index, colour: null, units: {}}; list.push(s); }
+            s.first = Math.min(s.first, u.index);
+            (s.units[u.index] = s.units[u.index] || []).push(c);
+            // The series' colour: a line's or rule's stroke, an area's or
+            // bar's fill, else a point's (never the white of a median dot).
+            var it = c.item, rank = {line: 0, trail: 0, rule: 0, area: 1, bar: 1}[u.mark];
+            var col = rank === 0 ? it.stroke : rank === 1 ? it.fill :
+                (it.fill && !/^(#fff(fff)?|white)$/i.test(it.fill) ? it.fill : it.stroke);
+            if (rank === undefined) rank = 2;
+            if (col && (s.rank === undefined || rank < s.rank)) { s.colour = col; s.rank = rank; }
+        });
+        list.forEach(function(s) {
+            s.median = null; s.lo = null; s.hi = null; s.single = [];
+            Object.keys(s.units).forEach(function(k) {
+                var cs = s.units[k], u = cs[0].unit;
+                cs.forEach(function(c) {
+                    var a = +c.datum[u.y], b = u.y2 ? +c.datum[u.y2] : NaN;
+                    if (isFinite(a) && isFinite(b)) {
+                        var lo = Math.min(a, b), hi = Math.max(a, b);
+                        if (s.lo === null || hi - lo > s.hi - s.lo) { s.lo = lo; s.hi = hi; }
+                    }
+                });
+                // A line's value is its median; one point of a layer is a
+                // value, a cloud of them (single runs) is not read out.
+                if (u.y2) return;
+                if (this._READOUT_PATHS[u.mark]) s.median = +cs[0].datum[u.y];
+                else if (cs.length === 1) s.single.push(+cs[0].datum[u.y]);
+            }, this);
+            if (s.median === null && s.single.length) s.median = s.single[0];
+        }, this);
+        var domain = [];
+        try { domain = view.scale('color').domain().map(String); } catch (e) { domain = []; }
+        return list.filter(function(s) { return s.median !== null || s.lo !== null; }).sort(function(a, b) {
+            var ia = domain.indexOf(a.name), ib = domain.indexOf(b.name);
+            if ((ia < 0) !== (ib < 0)) return ia < 0 ? 1 : -1;
+            return ia !== ib ? ia - ib : a.first - b.first;
+        });
+    },
+    // A value and its interval at the precision the interval supports: the
+    // second significant digit of its width; a lone value to four
+    // significant digits. In the plot's locale (`locale_config`).
+    _readoutText: function(view, s) {
+        var loc = view.locale ? view.locale() : null;
+        var fmt = function(spec) { return loc && loc.format ? loc.format(spec) : function(v) { return String(v); }; };
+        if (s.lo === null) return fmt('.4~r')(s.median);
+        var w = s.hi - s.lo, digits = w > 0 ? Math.min(10, Math.max(0, 1 - Math.floor(Math.log10(w)))) : 2;
+        var f = fmt(',.' + digits + 'f'), sep = s.lo < 0 || s.hi < 0 ? ' – ' : '–';
+        var range = f(s.lo) + sep + f(s.hi);
+        return s.median === null ? range : f(s.median) + ' (' + range + ')';
+    },
+    // The shown x: a date as `2026-03-15` when every x of the panel is a
+    // date (Vega reads a Julia Date as UTC midnight), else a time as
+    // `2026-03-15 17:00` in the local time Vega read it in; a number with
+    // the x axis title.
+    _readoutHeading: function(view, plan, v, dateOnly) {
+        var loc = view.locale ? view.locale() : null;
+        if (loc && !loc.format) loc = null;
+        if (plan.xType === 'temporal') {
+            var d = new Date(v);
+            if (dateOnly) return loc ? loc.utcFormat('%Y-%m-%d')(d) : d.toISOString().slice(0, 10);
+            var spec = d.getSeconds() ? '%Y-%m-%d %H:%M:%S' : '%Y-%m-%d %H:%M';
+            return loc ? loc.timeFormat(spec)(d) : d.toString();
+        }
+        return plan.xTitle + ': ' + (loc ? loc.format('.4~r')(v) : String(v));
+    },
+    _readoutShow: function(id, view, f, scope, at, all, fromPointer) {
+        var self = this, st = self._readouts[id], el = self._els[id];
+        if (!st || !el || !at.length) return;
+        var entries = self._readoutEntries(view, st.plan, at);
+        if (!entries.length) { self._readoutHide(id, fromPointer); return; }
+        self._positionedBox(el);
+        var look = self._surfaceLook(el), er = el.getBoundingClientRect();
+        if (!st.rule || !st.rule.isConnected) {
+            st.rule = document.createElement('div');
+            st.rule.className = 'aov-readout-rule';
+            st.box = document.createElement('div');
+            st.box.className = 'aov-readout';
+            st.box.setAttribute('role', 'status');
+            el.appendChild(st.rule);
+            el.appendChild(st.box);
+        }
+        // The rule at the shown x: the drawn x of a series' mark (a ribbon's
+        // interval drawing dodges its series around it, so their middle).
+        var xs = at.map(function(c) { return c.x; });
+        var x = (Math.min.apply(null, xs) + Math.max.apply(null, xs)) / 2;
+        var left = f.left - er.left + x, top = f.top - er.top + scope.y;
+        var rs = st.rule.style;
+        rs.cssText = 'position:absolute;pointer-events:none;z-index:2;width:0;border-left:1px solid ' + look.key +
+            ';opacity:0.6;left:' + left + 'px;top:' + top + 'px;height:' + scope.height + 'px';
+        var box = st.box;
+        box.textContent = '';
+        var head = document.createElement('div');
+        head.style.fontWeight = '600';
+        var link = self._link(id), DAY = 86400000;
+        var dateOnly = link && link.key === st.plan.x && link.temporal ? link.temporal === 'date' :
+            all.every(function(c) { return c.value % DAY === 0; });
+        head.textContent = self._readoutHeading(view, st.plan, at[0].value, dateOnly);
+        box.appendChild(head);
+        entries.forEach(function(s) {
+            var row = document.createElement('div');
+            row.style.whiteSpace = 'nowrap';
+            var sw = document.createElement('span');
+            sw.style.cssText = 'display:inline-block;width:0.6em;height:0.6em;border-radius:50%;margin-right:0.4em;' +
+                'vertical-align:baseline;background:' + (s.colour || look.key);
+            row.appendChild(sw);
+            row.appendChild(document.createTextNode(s.name + ': ' + self._readoutText(view, s)));
+            box.appendChild(row);
+        });
+        var bs = box.style;
+        bs.cssText = 'position:absolute;pointer-events:none;z-index:3;padding:0.3em 0.55em;border-radius:4px;' +
+            'font-size:12px;line-height:1.45;font-variant-numeric:tabular-nums;box-shadow:0 1px 3px rgba(0,0,0,0.15);' +
+            'background:' + look.surface + ';color:' + look.color + ';border:1px solid ' + look.border + ';' +
+            'top:' + (top + 4) + 'px;left:' + (left + 10) + 'px';
+        // Keep the box inside the plot element: to the left of the rule
+        // when it would run past the right edge.
+        if (left + 10 + box.offsetWidth > el.clientWidth) bs.left = Math.max(0, left - 10 - box.offsetWidth) + 'px';
+        var tip = document.getElementById('vg-tooltip-element');
+        if (fromPointer && tip) { tip.style.visibility = 'hidden'; st.tip = true; }
+        if (fromPointer && self._readoutOwnsLink(id)) {
+            var key = self._linkKeyText(self._link(id), at[0].value);
+            if (key !== st.key) { st.key = key; self._announceKey(id, key); }
+        }
+    },
+    // Hide the rule and box; `fromPointer` when the pointer left, which also
+    // ends the readout's link announcement and gives the tooltip back.
+    _readoutHide: function(id, fromPointer) {
+        var st = this._readouts[id];
+        if (!st) return;
+        if (st.rule) st.rule.style.display = 'none';
+        if (st.box) st.box.style.display = 'none';
+        if (fromPointer && st.tip) {
+            var tip = document.getElementById('vg-tooltip-element');
+            if (tip) tip.style.visibility = '';
+            st.tip = false;
+        }
+        if (fromPointer && st.key !== null) { st.key = null; this._announceKey(id, null); }
     },
 
     // --- Plot data download / inline preview ---
@@ -4972,7 +5312,7 @@ window.AoV = window.AoV || {
                     spec.width = 'container';
                     spec.autosize = {type: 'fit', contains: 'padding'};
                     var kept = {};
-                    ['frame', 'link'].forEach(function(k) { if (spec._aov[k]) kept[k] = spec._aov[k]; });
+                    ['frame', 'link', 'readout'].forEach(function(k) { if (spec._aov[k] !== undefined) kept[k] = spec._aov[k]; });
                     delete spec._aov;
                     if (Object.keys(kept).length) spec._aov = kept;
                 }
