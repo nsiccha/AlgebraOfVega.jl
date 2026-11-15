@@ -96,7 +96,9 @@ they were checked with real input over CDP (decision on `0bjkegs`).
     else
         mktempdir(prefix="kb-aov-caption-menu-") do dir
             copy_vendorfiles(dir; packages=(:pico,), runtime=false)
-            pico = only(filter(f -> occursin("pico", f) && endswith(f, ".css"),
+            # Pico's default build: HTMXObjects 0.1.44 and later also copy its
+            # colour builds (`pico.<colour>.min.css`) beside it.
+            pico = only(filter(f -> basename(f) == "pico.min.css",
                 [relpath(joinpath(r, f), dir) for (r, _, fs) in walkdir(dir) for f in fs]))
             caption = HTMXObjects.CaptionSpec(; title="Gemessene Werte",
                 short="Je Messstelle der letzte archivierte Wert. Grau: kein Wert in dieser Ebene.")
