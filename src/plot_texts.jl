@@ -6,7 +6,7 @@ caption row's download menu and buttons and its Share button, the "Show data" pr
 summary table, the channel picker's labels, a frame player's play/pause button
 (`config(frame=…)`), a coloured ribbon's "Ribbons | Intervals" switch
 (`lineribbon(...; intervals=…)`), the accessible name of a plot or data table
-that scrolls in its frame, a zoomed map's reset button, and standalone HTML exports. Build one with [`plot_texts`](@ref) and
+that scrolls in its frame, the pager of a data table longer than 1,000 rows, a zoomed map's reset button, and standalone HTML exports. Build one with [`plot_texts`](@ref) and
 pass it as `texts=` to `with_plot_caption`, `to_html`, [`auto_remap_node`](@ref),
 [`mapping_controls`](@ref), `caption_share_button`, `with_caption_share` or
 `summary_share_button`.
@@ -15,7 +15,9 @@ A text in braces is a placeholder AoV fills in: `image` takes `{format}`
 (`PNG`, `SVG`); `interval` takes `{point}` (the `median` or `mean` text) and
 `{width}` (`95%`, or a `bands=` figure's bound columns when it states no
 `probs=`); `overlap` takes `{score}` (`34%`), and `overlap_auto` takes `{score}`
-and `{threshold}` (`10%`).
+and `{threshold}` (`10%`). A long data table's pager: `table_rows` takes `{from}`,
+`{to}` and `{total}`, `table_page` takes `{page}`, `table_sorts_all` takes
+`{total}`, and `table_csv` takes `{csv}` (the figure's CSV button's words).
 """
 struct PlotTexts
     more::String            # the caption's toggle that opens its long text
@@ -53,13 +55,21 @@ struct PlotTexts
     overlap_auto::String    # the same, when `intervals=:auto` picked the start
     scrollable::String      # accessible name of a plot that scrolls in its frame; its title follows after ": "
     scrollable_table::String # the same for a data table that scrolls in its frame
+    table_rows::String      # a long data table's pager: the rows the page shows, `{from}`–`{to}` of `{total}`
+    table_pages::String     # the pager's accessible name
+    previous_page::String   # the pager's button to the page before (its arrow is drawn apart)
+    next_page::String       # the pager's button to the page after
+    table_page::String      # accessible name of a page's button, `{page}` its number
+    table_sorts_all::String # the line under a long table: a heading sorts all `{total}` rows
+    table_csv::String       # the same line's addition when the figure has a CSV download, `{csv}` its button's words
     reset_zoom::String      # the button over a zoomed or moved map that brings back its fitted view
     untitled::String        # title of a standalone HTML page without a caption title
     lang::String            # `lang` of a standalone HTML page
 end
 
 const _PLOT_TEXT_PLACEHOLDERS = (image = (:format,), interval = (:point, :width),
-    overlap = (:score,), overlap_auto = (:score, :threshold))
+    overlap = (:score,), overlap_auto = (:score, :threshold), table_rows = (:from, :to, :total),
+    table_page = (:page,), table_sorts_all = (:total,), table_csv = (:csv,))
 
 const _PLOT_TEXT_LOCALES = (
     en = (
@@ -98,6 +108,13 @@ const _PLOT_TEXT_LOCALES = (
         overlap_auto = "Bands overlap {score} of the y range; intervals above {threshold}",
         scrollable = "Scrollable plot",
         scrollable_table = "Scrollable table",
+        table_rows = "Rows {from}–{to} of {total}",
+        table_pages = "Table pages",
+        previous_page = "Previous",
+        next_page = "Next",
+        table_page = "Page {page}",
+        table_sorts_all = "A click on a column heading sorts all {total} rows.",
+        table_csv = "{csv} holds every row.",
         reset_zoom = "Reset zoom",
         untitled = "AoV plot",
         lang = "en",
@@ -138,6 +155,13 @@ const _PLOT_TEXT_LOCALES = (
         overlap_auto = "Die Bänder überlappen sich auf {score} des y-Bereichs; Intervalle ab {threshold}",
         scrollable = "Scrollbare Grafik",
         scrollable_table = "Scrollbare Tabelle",
+        table_rows = "Zeilen {from}–{to} von {total}",
+        table_pages = "Tabellenseiten",
+        previous_page = "Zurück",
+        next_page = "Weiter",
+        table_page = "Seite {page}",
+        table_sorts_all = "Ein Klick auf eine Spaltenüberschrift sortiert alle {total} Zeilen.",
+        table_csv = "{csv} enthält jede Zeile.",
         reset_zoom = "Zoom zurücksetzen",
         untitled = "AoV-Grafik",
         lang = "de",
@@ -180,11 +204,12 @@ const _EN_PLOT_TEXTS = plot_texts(:en)
 _plot_text(texts::PlotTexts, name::Symbol; values...) =
     replace(getfield(texts, name), r"\{([A-Za-z_]+)\}" => m -> string(values[Symbol(m[2:end-1])]))
 
-# The texts the browser runtime writes itself (preview contents, the frame
-# player, the ribbon switch, a scroll frame's name, a map's reset button, the HTML export). LOCKSTEP: `_TEXTS_EN` in `vendor/aov-runtime.js` holds their
+# The texts the browser runtime writes itself (preview contents, a long table's
+# pager, the frame player, the ribbon switch, a scroll frame's name, a map's reset button, the HTML export). LOCKSTEP: `_TEXTS_EN` in `vendor/aov-runtime.js` holds their
 # English values; `test/plot_texts.jl` pins the two together.
 const _RUNTIME_TEXT_NAMES = (:no_data, :no_summary, :median, :mean, :interval, :value, :untitled, :lang, :play, :pause,
-    :ribbons, :intervals, :ribbon_view, :overlap, :overlap_auto, :scrollable, :scrollable_table, :reset_zoom)
+    :ribbons, :intervals, :ribbon_view, :overlap, :overlap_auto, :scrollable, :scrollable_table, :reset_zoom,
+    :table_rows, :table_pages, :previous_page, :next_page, :table_page, :table_sorts_all, :table_csv)
 
 _runtime_texts_json(texts::PlotTexts) =
     _vl_json(NamedTuple{_RUNTIME_TEXT_NAMES}(getfield.(Ref(texts), _RUNTIME_TEXT_NAMES)))
