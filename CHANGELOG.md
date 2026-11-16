@@ -15,6 +15,22 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
+## 0.2.55
+
+- **The central point of an interval can be sized: `visual(; markersize=…)`.**
+  `pointinterval(…) * visual(; markersize=2)` (raw draws or `bands=`) and
+  `gradient_interval() * visual(; markersize=2)` draw the median or mean point
+  2 px in size, as `visual(Scatter; markersize=2)` draws a dot (Vega area
+  `markersize²/2`), on `vdraw` and in `vsave` files. Its white fill and dark
+  ring stay; the ring thins with a point smaller than the default, so a small
+  point still reads white over its interval. Use it where the intervals are only
+  a few pixels long and the default point (8.9 px across) would cover them.
+  It combines with a fixed `color`. A `markersize` that is not one positive
+  number is an `ArgumentError`. Without `markersize` the output is unchanged.
+  `dotinterval()` still reports a `markersize` as not applied, since it could
+  mean its quantile dots. Before 0.2.55, `markersize` was dropped with the
+  warning "applies only a fixed `color`" (snag `pointinterval-na-6aea7e31`).
+
 ## 0.2.54
 
 - **A pre-aggregated interval figure states its widths and point:
