@@ -15,7 +15,7 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
-## 0.2.57
+## 0.2.59
 
 - **Bars on a numeric or time axis are as wide as Makie draws them.**
   `visual(BarPlot)` over a continuous x drew every bar 5 px wide on `vdraw`,
@@ -41,6 +41,56 @@ failing at run time with a `MethodError`.
   axis log a warning and are not applied. The channel picker's axis remap
   (`auto_remap_node(...; axes=true)`) is off for a figure with such bars, as for
   interval analyses and maps (snag `draw-hourly-amou-2b963e4e`).
+
+## 0.2.58
+
+- **A layer drawn with `visual(...; inspectable=false)` is left out of the
+  readout**, as Makie's DataInspector skips such a plot. So a `Band` from 0 to a
+  line's value is a wash under the line, and the line reads as a line:
+  `data(rows) * (mapping(:hour, :base, :added) * visual(Band; alpha=0.35,
+  inspectable=false) + mapping(:hour, :added) * visual(Lines))`, with `base`
+  0 in every row, reads `Added dose rate: 0.4096` at the pointer's hour.
+  - **Before**, the readout read the wash as the line's interval when the two
+    shared a name, `0.41 (0.00–0.41)` (the value also rounded at the
+    interval's width instead of four significant digits), or as a series of
+    its own, `nSv/h: 0.0–2.6`, beside the line, whatever `inspectable` said.
+  - **Also changes:** a ribbon or line drawn with `inspectable=false` (so that
+    hover reaches the observations under it) leaves the readout too, and a
+    figure whose only line or area is passive no longer gets a readout by
+    default; `config(readout=true)` still gives one to its other layers.
+  - **Unchanged:** an inspectable `Band` under a line of the same name is that
+    line's interval, as before (snag `draw-a-line-with-66afe965`).
+
+## 0.2.57
+
+- **A figure's height is its plot area's, with one mark layer as with several,
+  and a long y title no longer empties a low figure.**
+  - **The defect.** `mapping(:hour => "Hour", :fall => "Precipitation (mm per hour)") *
+    visual(BarPlot) * config(height=130)` drew no bars and no y ticks, only the
+    x axis and a cut title.
+    - A figure with one mark layer and no facets was sized by Vega-Lite's
+      `autosize: "fit"`, where the height is the whole figure's.
+    - Its rotated y title, centred on the plot area and longer than it, stuck
+      out above and below, and Vega took that from the plot area.
+    - Each layout pass (every `update_data`, `append_data`, `replace_data`,
+      `remove_data`, `update_spec`, rows computed in the browser with
+      `data(bound(…))`, and container resizes) measured it again around the
+      smaller plot area: 73, then 36, then 0 px. A title such as
+      "Exposure (ng/mL·h)" did the same at `height=80`.
+  - **The change.** Such a figure now fits only its width to the container
+    (`autosize: "fit-x"`). `config(height=…)` is the plot area's height, as it
+    already was for layered, faceted and `vconcat` figures, in `vsave` files and
+    in `plot_size`, and the canvas grows to hold the axes and titles.
+  - **What looks different.** Every figure with one mark layer drawn by `vdraw`,
+    `to_node` or `with_plot_caption` is taller than before by its axes, about
+    50 px. A 130 px figure is now a 130 px plot area on a 179–187 px canvas, and
+    an unsized scatter's canvas grows from 200 to 249 px. To keep a figure's
+    old size, lower its `height` by about 50 px.
+  - **Other effects.** Adding a layer no longer changes the plot area's height.
+    A data change no longer leaves such a figure a few pixels shorter than a
+    fresh render of the same rows. Figures with an authored width
+    (`config(width=…)`, `fit_width=false`) keep Vega-Lite's own sizing, as before
+    (snag `draw-a-low-figur-e0c74bcc`).
 
 ## 0.2.56
 

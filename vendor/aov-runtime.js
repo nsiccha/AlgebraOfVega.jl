@@ -376,7 +376,7 @@ window.AoV = window.AoV || {
     },
 
     // Run a view whose data changed, laying it out again. Vega sizes the
-    // view (autosize padding, and the plot width of an autosize "fit" view)
+    // view (autosize padding, and the plot width of an autosize "fit-x" view)
     // only when it is embedded or resized: its `autosize.resize` is false,
     // so a plain run keeps the layout of the rows it was embedded with. A
     // plot that starts empty has no axis labels then, and its axis titles
@@ -2395,16 +2395,18 @@ window.AoV = window.AoV || {
     // aov:hover, touch and link groups. Vega-Lite has no mark property for
     // Vega's `interactive`, so the server styles the layer's marks
     // `aov-passive` and each compiled spec gets `interactive: false` on them
-    // here (`_withLiveRows`, the cell charts). LOCKSTEP: `_AOV_PASSIVE`
+    // here (`_withLiveRows`, the cell charts). The readout leaves such a
+    // layer out too (`_readoutPlan`). LOCKSTEP: `_AOV_PASSIVE`
     // (src/to_vegalite.jl) and the bare
     // `to_html(spec)` embed's `_PASSIVE_PATCH_JS` (src/to_html.jl).
+    _isPassiveStyle: function(style) {
+        return style === 'aov-passive' || (Array.isArray(style) && style.indexOf('aov-passive') !== -1);
+    },
     _passiveMarks: function(vg) {
+        var self = this;
         (function walk(marks) {
             (marks || []).forEach(function(m) {
-                var style = m.style;
-                if (style === 'aov-passive' || (Array.isArray(style) && style.indexOf('aov-passive') !== -1)) {
-                    m.interactive = false;
-                }
+                if (self._isPassiveStyle(m.style)) m.interactive = false;
                 walk(m.marks);
             });
         })(vg && vg.marks);
@@ -4023,6 +4025,11 @@ window.AoV = window.AoV || {
     //   the interval's width;
     // - a line or a single point as its value, to four significant digits;
     // - a cloud of points at one x (single runs) is left out.
+    // A layer drawn with `visual(...; inspectable=false)` (marks styled
+    // `aov-passive`) is left out, as Makie's DataInspector skips such a
+    // plot: a `Band` from 0 to a line's value is a wash under that line, not
+    // its interval, and a figure whose only line is passive gets no readout
+    // unless `config(readout=true)`.
     // Series are named by their colour field's value, by the layer's
     // `visual(...; label=…)` (`_aov_label`), or by its y title. In a faceted figure the readout follows the panel under the
     // pointer. The box stands in for the mark tooltip while it shows. When
@@ -4055,6 +4062,7 @@ window.AoV = window.AoV || {
             var mark = typeof u.mark === 'string' ? u.mark : (u.mark && u.mark.type);
             var x = enc.x, y = enc.y;
             if (!this._READOUT_MARKS[mark] || !x || !x.field || !y || !y.field) return;
+            if (u.mark && this._isPassiveStyle(u.mark.style)) return;
             if (x.type !== 'quantitative' && x.type !== 'temporal') return;
             // Bars on a continuous x are placed by edges AoV computes
             // (`_bar_edges!`, src/layer_to_vl.jl): their x is their own column.
@@ -5773,9 +5781,11 @@ window.AoV = window.AoV || {
             facetResolve(false);
             if (!spec.layer) {
                 if (spec._aov && spec._aov.fitWidth) {
-                    // Single-view: use VL native responsive width
+                    // Single-view: use VL native responsive width. Only the
+                    // width is fitted ("fit-x"), as `_embed_spec` does: the
+                    // authored height stays the plot area's.
                     spec.width = 'container';
-                    spec.autosize = {type: 'fit', contains: 'padding'};
+                    spec.autosize = {type: 'fit-x', contains: 'padding'};
                     var kept = {};
                     ['frame', 'link', 'readout'].forEach(function(k) { if (spec._aov[k] !== undefined) kept[k] = spec._aov[k]; });
                     delete spec._aov;

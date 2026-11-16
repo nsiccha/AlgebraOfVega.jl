@@ -32,9 +32,12 @@
             check(panels.length === cells, id + ': wrong facet count ' + panels.length);
             check(panels.every(i => i.height === 140), id + ': cell height changed');
         } else {
-            // Native autosize:"fit" includes the axes in the authored height;
-            // the data rectangle can be smaller than that outer budget.
+            // The authored height is the plot area's, for a single view
+            // (autosize "fit-x") as for a layered one, also after a remap
+            // round trip through a facet. Under "fit" it was the whole
+            // figure's (snag draw-a-low-figur-e0c74bcc).
             check(AoV._results[id].spec.height === 140, id + ': authored flat height lost');
+            check(view.height() === 140, id + ': plot area ' + view.height() + ' px, not the authored 140');
             // Every plot here unlinks its facet axes. Without a facet that
             // must not split the layers onto their own scales (`layer_0_y`,
             // `layer_1_y`, …, each with its own axis): one y scale
