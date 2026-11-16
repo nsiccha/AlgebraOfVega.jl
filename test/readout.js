@@ -178,6 +178,38 @@
         check(same(box('ro-series') && box('ro-series')[0], '2026-03-15 01:00'),
             'after a re-embed: ' + JSON.stringify(box('ro-series')));
         leave('ro-series');
+
+        // --- a wash: `visual(Band; inspectable=false)` from 0 to the line ---
+        // The band is left out of the readout, so the line reads as a line,
+        // to four significant digits, not as `0.41 (0.00–0.41)`.
+        const readAt = async (id, x) => {
+            const v = await ready(id);
+            const it = items(v, mark('line', 'hour', x))[0];
+            if (!it) return 'no line item at hour ' + x;
+            pointerAt(id, it.x + 3, it.y);
+            await settle();
+            const got = box(id);
+            leave(id);
+            await settle();
+            return got;
+        };
+        let got2 = await readAt('ro-wash', 11);
+        check(same(got2, ['Hour: 11', 'Added dose rate: 0.4096']), 'wash under a line: ' + JSON.stringify(got2));
+        got2 = await readAt('ro-wash-label', 11);
+        check(same(got2, ['Hour: 11', 'Added dose rate: 0.4096']), 'unlabelled wash, labelled line: ' + JSON.stringify(got2));
+        // An inspectable Band under a line of the same name is that line's interval.
+        got2 = await readAt('ro-band', 11);
+        check(same(got2, ['Hour: 11', 'Added dose rate: 0.41 (0.00–0.41)']), 'inspectable band: ' + JSON.stringify(got2));
+        // The wash as a stacked panel under bars: one box, the bars' value and the line's.
+        got2 = await readAt('ro-wash-stack', 11);
+        check(same(got2, ['Hour: 11', 'Rain (mm/h): 0', 'Added dose rate: 0.4096']), 'stacked wash: ' + JSON.stringify(got2));
+        // A figure whose only line is passive gets no readout.
+        await ready('ro-passive');
+        check(!(AoV._readouts['ro-passive'] && AoV._readouts['ro-passive'].plan), 'a passive line got a readout');
+        const pl = items(AoV.views['ro-passive'], mark('line', 'hour', 11))[0];
+        if (pl) { pointerAt('ro-passive', pl.x, pl.y); await settle(); }
+        check(!!pl && box('ro-passive') === null, 'passive line: ' + JSON.stringify(pl ? box('ro-passive') : 'no item'));
+        if (pl) leave('ro-passive');
     } catch (e) {
         failures.push(String(e && e.stack || e));
     }

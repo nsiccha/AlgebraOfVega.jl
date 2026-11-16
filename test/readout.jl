@@ -7,6 +7,10 @@ using TestItemRunner
 # field, the readout announces and shows x values instead of dimming lines.
 # A link key of dates is compared as Julia writes it (`_aov.link.temporal`):
 # before, a plot announced Vega's epoch milliseconds and no table row matched.
+# A layer drawn with `visual(...; inspectable=false)` is left out of the
+# readout: a `Band` from 0 to a line's value is a wash under the line, and the
+# line reads as a line. Before 0.2.58 the wash was read as the line's interval,
+# `0.41 (0.00–0.41)`, or as a series of its own (snag `draw-a-line-with-66afe965`).
 @testitem "config(readout=…) and temporal link keys lower to _aov metadata" tags=[:interactivity] begin
     using AlgebraOfVega, AlgebraOfGraphics, Dates
     rows = (; x=[1.0, 2.0, 3.0], y=[1.0, 4.0, 9.0])
@@ -42,6 +46,20 @@ end
         data(observed) * mapping(:t => "Time", :level => "Level (cm)") *
             (visual(Lines; color=:ink) + visual(Scatter; color=:ink))) * size * extra
     facet_rows = (; x=repeat([1.0, 2, 3, 4], 2), v=[1.0, 2, 3, 4, 10, 20, 30, 40], g=repeat(["p", "q"], inner=4))
+    # A line with a light wash down to zero under it, as Makie draws
+    # `band(x, 0, y)` plus `lines(x, y)`; 0.4096 at hour 11.
+    hours = (; hour=collect(0.0:23), base=zeros(24), added=[h < 6 ? 0.0 : 40.0 * 0.4^(h - 6) for h in 0:23],
+        mm=[6 <= h <= 7 ? 1.5 : 0.0 for h in 0:23])
+    wash(title; passive=true) = mapping(:hour => "Hour", :base => title, :added => title) *
+        visual(Band; color="#CC79A7", alpha=0.35, inspectable=!passive)
+    washed = data(hours) * (wash("Added dose rate") +
+        mapping(:hour => "Hour", :added => "Added dose rate") * visual(Lines; color="#CC79A7"))
+    banded = data(hours) * (wash("Added dose rate"; passive=false) +
+        mapping(:hour => "Hour", :added => "Added dose rate") * visual(Lines; color="#CC79A7"))
+    labelled = data(hours) * (wash("nSv/h") +
+        mapping(:hour => "Hour", :added => "nSv/h") * visual(Lines; color="#CC79A7", label="Added dose rate"))
+    rain = data(hours) * mapping(:hour => "Hour", :mm => "Rain (mm/h)") * visual(BarPlot) *
+        config(height=60, readout=true)
 
     chrome = something(Sys.which("google-chrome"), Sys.which("chromium"), "")
     if isempty(chrome)
@@ -55,7 +73,13 @@ end
                 vdraw(data((; t, mm=[0.0, 0.5, 1.5, 0.25])) * mapping(:t => "Time", :mm => "Rain (mm/h)") *
                     visual(BarPlot) * size * config(readout=true); id="ro-bars"),
                 vdraw(data((; d=Date(2026, 3, 1) .+ Day.(0:2), v=[1.0, 2.0, 3.0])) * mapping(:d, :v) *
-                    visual(Scatter) * size * config(link=(; group="days", key=:d)); id="ro-dates")]
+                    visual(Scatter) * size * config(link=(; group="days", key=:d)); id="ro-dates"),
+                vdraw(washed * size; id="ro-wash"),
+                vdraw(labelled * size; id="ro-wash-label"),
+                vdraw(banded * size; id="ro-band"),
+                vdraw(vconcat(rain, washed * config(height=120)); id="ro-wash-stack"),
+                vdraw(data(hours) * mapping(:hour, :added) * visual(Lines; inspectable=false) * size;
+                    id="ro-passive")]
             head = join(html(n) for n in vega_head(; source=:inline))
             driver = read(joinpath(@__DIR__, "readout.js"), String)
             write(joinpath(dir, "page.html"), "<!doctype html><meta charset='utf-8'>" * head *
@@ -69,7 +93,7 @@ end
             if !isnothing(result)
                 report = JSON.parse(replace(result[1], "&quot;" => "\"", "&lt;" => "<",
                     "&gt;" => ">", "&amp;" => "&"))
-                @test report["checks"] >= 24
+                @test report["checks"] >= 30
                 @test isempty(report["failures"])
                 @info "readout browser checks" checks=report["checks"]
                 isempty(report["failures"]) || println(JSON.json(report["failures"]))
