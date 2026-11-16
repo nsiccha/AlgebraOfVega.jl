@@ -5261,8 +5261,34 @@ window.AoV = window.AoV || {
         }
         if (Array.isArray(enc.sort)) delete enc.sort;
         // Tick values belong to the field too (a log axis's 1-2-5 values,
-        // `_apply_log_ticks!`, are read from its rows).
-        if (enc.axis && typeof enc.axis === 'object') delete enc.axis.values;
+        // `_apply_log_ticks!`, are read from its rows), and with them the
+        // count the lowering states for a listed set (`_apply_listed_ticks!`).
+        if (enc.axis && typeof enc.axis === 'object') {
+            if (Array.isArray(enc.axis.values) && enc.axis.tickCount === enc.axis.values.length) delete enc.axis.tickCount;
+            delete enc.axis.values;
+        }
+    },
+
+    // An axis that lists its tick `values` draws each of them. Vega halves
+    // a listed set until it fits the axis's tick count (twelve monthly
+    // values under a count of 7 leave six), and a count reaches an axis from
+    // `config`: the cap below or an authored `config.axisX`. So a listing
+    // axis states the count of its own values, which Vega takes before any
+    // `config` count; a `tickCount` written beside the values stays. The
+    // lowering states it for its own specs (`_apply_listed_ticks!`,
+    // src/to_vegalite.jl); this covers a spec that was not lowered there.
+    _listedTicks: function(node) {
+        if (!node || typeof node !== 'object') return node;
+        var self = this, enc = node.encoding;
+        if (enc && typeof enc === 'object') ['x', 'y'].forEach(function(ch) {
+            var ax = enc[ch] && enc[ch].axis;
+            if (ax && typeof ax === 'object' && Array.isArray(ax.values) && ax.values.length && ax.tickCount === undefined) ax.tickCount = ax.values.length;
+        });
+        ['layer', 'hconcat', 'vconcat', 'concat'].forEach(function(key) {
+            if (Array.isArray(node[key])) node[key].forEach(function(sub) { self._listedTicks(sub); });
+        });
+        self._listedTicks(node.spec);
+        return node;
     },
 
     // Vega-Lite asks for one axis tick per 40 px (ceil(size / 40)), so a plot
@@ -5270,11 +5296,14 @@ window.AoV = window.AoV || {
     // (Vega rounds to a nice step: 0–100 gets 6),
     // from the panel size this embed draws at, unless the spec sets a tick
     // count (`config.axis`, `config.axisX`/`axisY`). A binned axis keeps
-    // Vega-Lite's ticks at its bin edges. The lowering caps an authored size
-    // the same way (`_apply_tick_cap!`, src/to_vegalite.jl).
+    // Vega-Lite's ticks at its bin edges, and an axis that lists its tick
+    // values keeps each of them (`_listedTicks`). The lowering caps an
+    // authored size the same way (`_apply_tick_cap!`, src/to_vegalite.jl).
     _TICK_CAP: {x: 7, y: 5},
     _capTicks: function(id, s) {
-        if (!s || typeof s !== 'object' || s.hconcat || s.concat) return s;
+        if (!s || typeof s !== 'object') return s;
+        this._listedTicks(s);
+        if (s.hconcat || s.concat) return s;
         var self = this, el = self._els[id] || self._plotElement(id);
         // A `vconcat` stack's panels share one width; its tallest panel decides y.
         var views = s.vconcat ? s.vconcat.filter(function(c) { return c && typeof c === 'object'; }) : [s.spec || s];

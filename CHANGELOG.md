@@ -15,6 +15,23 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
+## 0.2.56
+
+- **An axis that lists its tick values draws each of them.**
+  `config(encoding=(; x=(; axis=(; values=[11, 42, 70, 101]))))` draws a tick,
+  a grid line and a label at every listed value. Vega halves a listed set until
+  it fits the axis's tick count, and AoV's default count (7 on x, 5 on y, since
+  0.2.40) reached such an axis: twelve monthly values drew six, every second
+  one, with no warning. AoV now states the number of listed values as that
+  axis's `tickCount`, so a count set in `config` (AoV's default, or an authored
+  `config.axisX`/`axisY`/`axis`) no longer thins them. The values AoV lists on
+  a log axis are covered too: a log y axis taller than 200 px drew
+  `0.01 0.05 0.2 1` and now draws `0.01 0.02 0.05 0.1 0.2 0.5 1`. A `tickCount`
+  written beside the values on the same axis is kept and thins them as before,
+  and an axis that lists no values is unchanged. A `tickCount` that was
+  repeated beside `values` only to keep them all can be deleted
+  (snag `draw-a-line-figu-9ca9fcd0`).
+
 ## 0.2.55
 
 - **The central point of an interval can be sized: `visual(; markersize=…)`.**
