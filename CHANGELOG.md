@@ -15,6 +15,21 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
+## 0.2.60
+
+- **`with_plot_caption(…; kind=nothing)` leaves a figure unnumbered** in an
+  HTMXObjects `numbered(…)` document, as `with_caption(…; kind=nothing)` does:
+  its caption reads its plain title, and the next figure is still "Figure 1".
+  It keeps everything else `with_plot_caption` gives it: the report's image of
+  the plot, its alt text and the downloads. Both forms and
+  `to_html(spec, caption; …)` take `kind`, as they take `id`; `kind=:table`
+  counts the caption as "Table N:". The default, `kind=:figure`, is unchanged,
+  and outside a `numbered` document `kind` changes nothing. Before,
+  `with_plot_caption` took no `kind`, so `kind=nothing` threw a `MethodError`
+  (snag `give-one-with-pl-086d49f0`). Needs no newer HTMXObjects: every
+  HTMXObjects that `[compat] HTMXObjects = "0.1.129"` admits takes
+  `render_caption(…; kind)`.
+
 ## 0.2.59
 
 - **Bars on a numeric or time axis are as wide as Makie draws them.**
