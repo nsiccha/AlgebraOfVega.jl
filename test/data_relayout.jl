@@ -7,7 +7,7 @@ Snag `drew-a-scatter-f-1c34853b`: a scatter drawn from a typed-empty table and
 filled by `append_data` (aov-use §11b) lost both axis titles once its first
 rows arrived, and the y labels were cut off on the left. Vega sizes a view
 (the autosize padding around the plot, and the plot width of an autosize
-`fit` view) only when it is embedded or resized: `autosize.resize` is false,
+`fit-x` view) only when it is embedded or resized: `autosize.resize` is false,
 so a plain run after a data change kept the layout of the empty first paint,
 which has no axis labels. The labels and titles the rows brought were drawn
 outside the canvas. The same held for `update_spec`'s in-place data swap and
@@ -36,7 +36,7 @@ corrected once more when that relayout widens it past its column.
         # The report: an authored width, filled one row at a time.
         ("explicit", t -> sweep(t) * visual(Scatter) * config(width=480, height=280, title="Dose–response"),
             typed_empty, full, appends("explicit")),
-        # A single view sized by Vega-Lite to its container (autosize fit).
+        # A single view sized by Vega-Lite to its container (autosize fit-x).
         ("container", t -> sweep(t) * visual(Scatter) * config(height=200), typed_empty, full, appends("container")),
         # A layered plot the runtime sizes to its container.
         ("layered", t -> sweep(t) * (visual(Scatter) + visual(Lines)) * config(height=200),

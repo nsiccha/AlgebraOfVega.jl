@@ -71,7 +71,7 @@
         // The container-sized layered plot is corrected at most once per row.
         check(AOV_EMBEDS.layered <= 1 + fixture.cases.find(c => c.id === 'layered').steps.length,
             'layered: embedded ' + AOV_EMBEDS.layered + ' times');
-        // Vega-Lite lays out an autosize-fit view itself: no correction re-embeds.
+        // Vega-Lite lays out an autosize fit-x view itself: no correction re-embeds.
         check(AOV_EMBEDS.container === 1, 'container: embedded ' + AOV_EMBEDS.container + ' times');
     } catch (e) {
         failures.push(String(e && e.stack || e));

@@ -578,12 +578,18 @@ function _embed_spec(spec; width=nothing, height=nothing, fit_width=true)
         is_faceted = _is_faceted(vl)
         is_layered = haskey(vl, "layer") || is_faceted || haskey(vl, "concat")
         # VL composite marks (boxplot, errorbar, errorband) internally create layers —
-        # "width: container" and "autosize: fit" don't work for them
+        # "width: container" and autosize "fit-x" don't work for them
         is_composite = _is_composite_mark(vl)
         if !is_layered && !is_composite
-            # "width": "container" only works for true single-view specs
+            # "width": "container" only works for true single-view specs.
+            # "fit-x" fits only the width: the authored height stays the plot
+            # area's, as in every other shape (VL's default "pad"), and the
+            # canvas grows to hold the axes. Under "fit" the height was the
+            # whole figure's, and a y title longer than the plot area
+            # overhung it: each layout pass took that overhang from the plot
+            # area again, down to 0 px (snag draw-a-low-figur-e0c74bcc).
             vl["width"] = "container"
-            vl["autosize"] = Dict("type" => "fit", "contains" => "padding")
+            vl["autosize"] = Dict("type" => "fit-x", "contains" => "padding")
         elseif is_faceted && haskey(vl, "spec")
             # Inject _aov hint for responsive JS resizing, preserving any keys
             # to_vegalite already stored (e.g. maxWidth from config(max_width=)).
