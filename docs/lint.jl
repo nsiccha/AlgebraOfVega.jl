@@ -1,3 +1,5 @@
+import AlgebraOfVega
+
 function lint_docs(pages)
     @assert first.(pages) == ["Start", "Guides", "Examples", "Reference"]
     listed = Set(last(p) for (_, group) in pages for p in group)
@@ -26,4 +28,9 @@ function lint_docs(pages)
         end
         @info "Docs lint" file words
     end
+end
+
+if abspath(PROGRAM_FILE) == @__FILE__
+    include("pages.jl")
+    lint_docs(PAGES)
 end
