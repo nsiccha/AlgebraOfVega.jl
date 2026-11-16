@@ -15,6 +15,25 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
+## 0.2.58
+
+- **A layer drawn with `visual(...; inspectable=false)` is left out of the
+  readout**, as Makie's DataInspector skips such a plot. So a `Band` from 0 to a
+  line's value is a wash under the line, and the line reads as a line:
+  `data(rows) * (mapping(:hour, :base, :added) * visual(Band; alpha=0.35,
+  inspectable=false) + mapping(:hour, :added) * visual(Lines))`, with `base`
+  0 in every row, reads `Added dose rate: 0.4096` at the pointer's hour.
+  - **Before**, the readout read the wash as the line's interval when the two
+    shared a name, `0.41 (0.00–0.41)` (the value also rounded at the
+    interval's width instead of four significant digits), or as a series of
+    its own, `nSv/h: 0.0–2.6`, beside the line, whatever `inspectable` said.
+  - **Also changes:** a ribbon or line drawn with `inspectable=false` (so that
+    hover reaches the observations under it) leaves the readout too, and a
+    figure whose only line or area is passive no longer gets a readout by
+    default; `config(readout=true)` still gives one to its other layers.
+  - **Unchanged:** an inspectable `Band` under a line of the same name is that
+    line's interval, as before (snag `draw-a-line-with-66afe965`).
+
 ## 0.2.57
 
 - **A figure's height is its plot area's, with one mark layer as with several,
