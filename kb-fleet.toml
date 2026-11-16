@@ -1,0 +1,4 @@
+[[landing_check]]
+name = "docs lint"
+run = ["bash", "docs/check.sh"]
+timeout_s = 300
