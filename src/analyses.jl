@@ -130,7 +130,9 @@ The default horizontal orientation maps values to x and categories through
 Color groups at the same category are dodged automatically; `dodge_y` or
 `dodge_x` selects the dodge field explicitly. `detail` preserves extra grouping
 columns. A fixed `visual(; color=...)` colors interval rules; `color=:ink`
-follows the page foreground. Other visual attributes are not applied.
+follows the page foreground. A fixed `visual(; markersize=...)` sizes the
+central point, in px as on `visual(Scatter; markersize)`, so it can be drawn
+smaller than short intervals. Other visual attributes are not applied.
 
 Intervals describe the supplied distribution. They are credible intervals only
 when that distribution consists of appropriate posterior draws.
@@ -150,8 +152,9 @@ end
     gradient_interval(; probs=[0.95, 0.8, 0.5], point=:median, orientation=:horizontal)
 
 Draw nested quantile intervals with uniform stroke width and varying opacity,
-plus a central point. Orientation, grouping, color, and dodge mappings follow
-`pointinterval`. Supply raw values; `probs` specifies central interval masses.
+plus a central point. Orientation, grouping, color, and dodge mappings, and a
+fixed `visual(; color, markersize)`, follow `pointinterval`. Supply raw values;
+`probs` specifies central interval masses.
 """
 gradient_interval(; probs=[0.95, 0.8, 0.5], point=:median, detail=Symbol[], orientation::Symbol=:horizontal) =
     Layer(transformation=GradientIntervalAnalysis(Float64.(probs), _point_statistic(point, "gradient_interval"),
@@ -208,8 +211,9 @@ ribbon(; probs=nothing, bands=nothing, point=nothing, detail=Symbol[], single_x_
 
 Represent a distribution with quantile dots, nested intervals, and a point.
 `n_dots` sets the quantile-dot count; `probs` chooses interval masses.
-Orientation, grouping, and fixed colors follow `pointinterval`. The dots are
-a distribution summary, not individual source observations.
+Orientation, grouping, and fixed colors follow `pointinterval`; a fixed
+`markersize` is not applied. The dots are a distribution summary, not
+individual source observations.
 """
 dotinterval(; probs=[0.95, 0.5], n_dots=50, point=:median, detail=Symbol[], orientation::Symbol=:horizontal) =
     Layer(transformation=DotIntervalAnalysis(Float64.(probs), n_dots, _point_statistic(point, "dotinterval"),

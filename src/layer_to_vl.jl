@@ -877,9 +877,14 @@ function _faceted_layers_to_vl(layers, facet_field, shared_table, shared_data;
                     ))
                 end
 
-                # Median point
+                # Median point, sized by `visual(; markersize)` as in the plain emitters
+                point_mark = Dict{String,Any}("type" => "point", "filled" => true, "size" => 60, "color" => "white", "stroke" => "#333", "strokeWidth" => 1.5)
+                if analysis isa Union{PointIntervalAnalysis,GradientIntervalAnalysis}
+                    name = analysis isa GradientIntervalAnalysis ? "gradient_interval()" : "pointinterval()"
+                    merge!(point_mark, Dict{String,Any}(string(k) => v for (k, v) in pairs(_interval_point_size(layer, name, 60))))
+                end
                 push!(inner_layers, Dict{String,Any}(
-                    "mark" => Dict{String,Any}("type" => "point", "filled" => true, "size" => 60, "color" => "white", "stroke" => "#333", "strokeWidth" => 1.5),
+                    "mark" => point_mark,
                     "transform" => [Dict{String,Any}("quantile" => x_field, "probs" => [0.5], "as" => ["prob", "val"])],
                     "encoding" => Dict{String,Any}(
                         "x" => Dict{String,Any}("field" => "val", "type" => "quantitative"),

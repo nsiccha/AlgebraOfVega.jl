@@ -510,15 +510,34 @@ end
 # authored colour value (a literal, or `:ink`), or `nothing` when the layer's
 # visual sets none. The analysis owns every other mark property (graduated band
 # opacities, line and rule widths), so any other visual attribute is reported
-# rather than silently dropped.
-function _analysis_fixed_color(layer::AlgebraOfGraphics.Layer, analysis::AbstractString)
+# rather than silently dropped. `point_size=true` (the analyses whose only point
+# is the median, `pointinterval` and `gradient_interval`) also accepts the
+# `markersize` that `_interval_point_size` reads.
+function _analysis_fixed_color(layer::AlgebraOfGraphics.Layer, analysis::AbstractString; point_size::Bool=false)
     vis = extract_visual(layer)
     isnothing(vis) && return nothing
     # `inspectable` applies to every mark of the layer (`_apply_layer_passive!`), and
     # `label` names it (`_apply_layer_labels!`).
-    ignored = [k for k in keys(vis.attributes) if k !== :color && k !== :inspectable && k !== :label]
-    isempty(ignored) || @warn "AlgebraOfVega: $analysis applies only a fixed `color` from `visual(...)`; ignoring $(join(("`$k`" for k in ignored), ", "))." maxlog=1
+    applied = point_size ? (:color, :markersize) : (:color,)
+    ignored = [k for k in keys(vis.attributes) if !(k in applied) && k !== :inspectable && k !== :label]
+    isempty(ignored) || @warn "AlgebraOfVega: $analysis applies only a fixed $(join(("`$k`" for k in applied), " and ")) from `visual(...)`; ignoring $(join(("`$k`" for k in ignored), ", "))." maxlog=1
     haskey(vis.attributes, :color) ? vis.attributes[:color] : nothing
+end
+
+# The median point of `pointinterval` / `gradient_interval`: `default` (the
+# analysis's own Vega area) unless the layer's `visual(; markersize=ms)` sets it.
+# A markersize is a length, as on `visual(Scatter; markersize)`, and lowers the
+# same way (`ms²/2`), so the point and a scatter dot of one markersize are drawn
+# alike. The dark ring thins with a point smaller than the default (at most a
+# sixth of its diameter), so a small point still shows white over its interval.
+function _interval_point_size(layer::AlgebraOfGraphics.Layer, analysis::AbstractString, default::Real)
+    vis = extract_visual(layer)
+    (isnothing(vis) || !haskey(vis.attributes, :markersize)) && return (; size=default)
+    ms = vis.attributes[:markersize]
+    ms isa Real && isfinite(ms) && ms > 0 || throw(ArgumentError(
+        "AlgebraOfVega: $analysis takes one positive number as `visual(...; markersize)`, the median point's size in px; got $(repr(ms))."))
+    size = _markersize_to_vl_size(ms)
+    (; size, strokeWidth=min(1.5, round(sqrt(size) / 6; digits=3)))
 end
 
 # The Vega-Lite mark properties of a fixed analysis colour: the same lowering as

@@ -93,9 +93,11 @@ end
 # A fixed `visual(; color=…)` on an interval analysis colours its rules (and
 # `dotinterval`'s dots) instead of the per-group fallback colour; the median
 # point keeps its white fill and dark ring. A colour mapping wins, as it does for
-# plain marks and ribbons (`_ribbon_to_vl`).
-function _interval_fixed_mark(layer::AlgebraOfGraphics.Layer, analysis::AbstractString, color_field)
-    fixed_color = _analysis_fixed_color(layer, analysis)
+# plain marks and ribbons (`_ribbon_to_vl`). `point_size=true` lets
+# `visual(; markersize)` size the median point (`_interval_point_size`).
+function _interval_fixed_mark(layer::AlgebraOfGraphics.Layer, analysis::AbstractString, color_field;
+                              point_size::Bool=false)
+    fixed_color = _analysis_fixed_color(layer, analysis; point_size)
     isnothing(color_field) ? _fixed_color_mark_props(fixed_color) : Dict{String,Any}()
 end
 
@@ -228,7 +230,7 @@ function analysis_to_vl(a::PointIntervalAnalysis, layer::AlgebraOfGraphics.Layer
     summary = compute_interval_summary(table, value_field, group_field, a.probs, a.point; color_field, facet_fields, detail_fields=detail_strs)
     offset_field, offset_sort = _interval_offset(summary, group_field, color_field, facet_fields,
                                                  dodge_field, dodge_sort, color_sort)
-    fixed_mark = _interval_fixed_mark(layer, "pointinterval()", color_field)
+    fixed_mark = _interval_fixed_mark(layer, "pointinterval()", color_field; point_size=true)
 
     sorted_probs = sort(a.probs, rev=true)
     stroke_widths = length(sorted_probs) == 1 ? [8.0] : range(1.5, 8, length=length(sorted_probs))
@@ -252,7 +254,7 @@ function analysis_to_vl(a::PointIntervalAnalysis, layer::AlgebraOfGraphics.Layer
     push!(layers, _interval_point_layer(group_field, ax.group_axis, ax.offset_key;
                                          value_axis=ax.value_axis, group_sort, offset_field, offset_sort,
                                          marker_field, marker_label, marker_sort,
-                                         size=80, color="white"))
+                                         _interval_point_size(layer, "pointinterval()", 80)..., color="white"))
     _add_analysis_tooltips!(layers, _interval_tooltips(value_label, group_field, color_field, a.probs;
         group_label, color_label, point=a.point); estimate=_interval_estimate("__point__", a.probs))
 
@@ -281,7 +283,7 @@ function analysis_to_vl(a::PrecomputedIntervalAnalysis, layer::AlgebraOfGraphics
     summary = table_to_rows(table)
     offset_field, offset_sort = _interval_offset(summary, group_field, color_field, facet_fields,
                                                  dodge_field, dodge_sort, color_sort)
-    fixed_mark = _interval_fixed_mark(layer, "pointinterval()", color_field)
+    fixed_mark = _interval_fixed_mark(layer, "pointinterval()", color_field; point_size=true)
     stroke_widths = length(a.bands) == 1 ? [8.0] : range(1.5, 8, length=length(a.bands))
 
     layers = Dict{String,Any}[]
@@ -304,7 +306,8 @@ function analysis_to_vl(a::PrecomputedIntervalAnalysis, layer::AlgebraOfGraphics
     push!(layers, _interval_point_layer(group_field, ax.group_axis, ax.offset_key;
                                          point_field=value_field, value_axis=ax.value_axis,
                                          group_sort, offset_field, offset_sort,
-                                         marker_field, marker_label, marker_sort, size=80, color="white"))
+                                         marker_field, marker_label, marker_sort,
+                                         _interval_point_size(layer, "pointinterval()", 80)..., color="white"))
 
     widest_lo = string(first(a.bands[1]))
     widest_hi = string(last(a.bands[1]))
@@ -334,7 +337,7 @@ function analysis_to_vl(a::GradientIntervalAnalysis, layer::AlgebraOfGraphics.La
     summary = compute_interval_summary(table, value_field, group_field, a.probs, a.point; color_field, facet_fields, detail_fields=detail_strs)
     offset_field, offset_sort = _interval_offset(summary, group_field, color_field, facet_fields,
                                                  dodge_field, dodge_sort, color_sort)
-    fixed_mark = _interval_fixed_mark(layer, "gradient_interval()", color_field)
+    fixed_mark = _interval_fixed_mark(layer, "gradient_interval()", color_field; point_size=true)
 
     sorted_probs = sort(a.probs, rev=true)
     opacities = range(0.2, 0.7, length=length(sorted_probs))
@@ -359,7 +362,7 @@ function analysis_to_vl(a::GradientIntervalAnalysis, layer::AlgebraOfGraphics.La
     push!(layers, _interval_point_layer(group_field, ax.group_axis, ax.offset_key;
                                          value_axis=ax.value_axis, group_sort, offset_field, offset_sort,
                                          marker_field, marker_label, marker_sort,
-                                         size=50, color="white"))
+                                         _interval_point_size(layer, "gradient_interval()", 50)..., color="white"))
     _add_analysis_tooltips!(layers, _interval_tooltips(value_label, group_field, color_field, a.probs;
         group_label, color_label, point=a.point); estimate=_interval_estimate("__point__", a.probs))
 
