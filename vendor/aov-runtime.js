@@ -1792,12 +1792,12 @@ window.AoV = window.AoV || {
     // which the view holds, and keeps no per-plot state.
     _viewLogging: false,
     _withViewLog: function(id, opts) {
-        var self = this, patch = opts.patch, Base = opts.viewClass || vega.View, roots = null;
+        var self = this, patch = opts.patch, Base = opts.viewClass || vega.View, refs = null;
         var View = function(spec, viewOpts) {
             var view = null;
             var logger = vega.logger(vega.Warn, undefined, function(method, level, args) {
                 args = Array.prototype.slice.call(args);
-                if (method === 'warn' && self._emptyExtent(view, roots, args)) return;
+                if (method === 'warn' && self._emptyExtent(view, refs, args)) return;
                 self._viewLogging = true;
                 try { console[method].apply(console, ['[' + id + '] ' + level].concat(args)); }
                 finally { self._viewLogging = false; }
@@ -1808,34 +1808,47 @@ window.AoV = window.AoV || {
         View.prototype = Base.prototype;
         return Object.assign({}, opts, {viewClass: View, patch: function(vg) {
             if (typeof patch === 'function') vg = patch(vg);
-            roots = self._extentRoots(vg);
+            refs = self._extentRefs(vg);
             return vg;
         }});
     },
 
-    // Vega takes one extent per field of a continuous scale's domain and
-    // skips an extent with no finite value, so a layer with no rows (a
-    // bound reference that is off, a typed-empty start) leaves the domain
-    // to the other layers. It still warns `Infinite extent for field "f":
-    // [Infinity, -Infinity]` for it, on every update. That says nothing
-    // when every dataset whose rows reach that field's extent has no rows,
-    // and is left out then. Rows whose values are all missing or
-    // non-finite still warn: those are rows the layer cannot draw.
+    // Vega takes one extent per dataset and field of a continuous scale's
+    // domain and skips an extent with no finite value, so a layer with no
+    // rows (a bound reference that is off, a typed-empty start) leaves the
+    // domain to the other layers. It still warns `Infinite extent for
+    // field "f": [Infinity, -Infinity]` for it, on every update. The
+    // message names only the field, so it is left out when every dataset
+    // over that field with no finite value comes from source rows that
+    // are empty. Rows that are there but have no finite value (all missing
+    // or non-finite) still warn: those are rows the layer cannot draw.
     _EMPTY_EXTENT: /^Infinite extent for field "(.*)": \[Infinity, -Infinity\]$/,
-    _emptyExtent: function(view, roots, args) {
-        var m = view && roots && args.length === 1 && typeof args[0] === 'string' &&
+    _emptyExtent: function(view, refs, args) {
+        var m = view && refs && args.length === 1 && typeof args[0] === 'string' &&
             this._EMPTY_EXTENT.exec(args[0]);
-        var names = m && Object.prototype.hasOwnProperty.call(roots, m[1]) && roots[m[1]];
-        if (!names || !names.length) return false;
+        var list = m && Object.prototype.hasOwnProperty.call(refs, m[1]) && refs[m[1]];
+        if (!list) return false;
         try {
-            return names.every(function(name) { return view.data(name).length === 0; });
+            var empty = false;
+            for (var i = 0; i < list.length; i++) {
+                var get = vega.field(list[i].field);
+                var finite = view.data(list[i].data).some(function(t) {
+                    var v = get(t);
+                    return v != null && v !== '' && Number.isFinite(+v);
+                });
+                if (finite) continue;
+                if (!list[i].roots.every(function(n) { return view.data(n).length === 0; })) return false;
+                empty = true;
+            }
+            return empty;
         } catch (err) { return false; }
     },
-    // Field -> the source datasets (no `source` of their own) whose rows
-    // reach a scale domain over that field in a compiled Vega spec, or
-    // false when one of them cannot be traced (then nothing is left out).
-    _extentRoots: function(vg) {
-        var sources = Object.create(null), refs = [], roots = Object.create(null);
+    // Field -> its domain references in a compiled Vega spec, each
+    // {data, field, roots}: the dataset an extent reads and the source
+    // datasets (no `source` of their own) its rows come from. False when
+    // one of them cannot be traced (then nothing is left out).
+    _extentRefs: function(vg) {
+        var sources = Object.create(null), refs = [], byField = Object.create(null);
         var domainRefs = function(d) {
             if (!d || typeof d !== 'object' || Array.isArray(d) || d.signal) return [];
             if (typeof d.data === 'string' && typeof d.field === 'string') return [[d.data, d.field]];
@@ -1868,14 +1881,14 @@ window.AoV = window.AoV || {
             return out;
         };
         refs.forEach(function(ref) {
-            var field = ref[1], r = trace(ref[0], []);
-            if (roots[field] === false) return;
-            if (!r) { roots[field] = false; return; }
-            roots[field] = (roots[field] || []).concat(r.filter(function(n) {
-                return (roots[field] || []).indexOf(n) < 0;
-            }));
+            var data = ref[0], field = ref[1], roots = trace(data, []);
+            if (byField[field] === false) return;
+            if (!roots) { byField[field] = false; return; }
+            var list = byField[field] = byField[field] || [];
+            if (!list.some(function(r) { return r.data === data && r.field === field; }))
+                list.push({data: data, field: field, roots: roots});
         });
-        return roots;
+        return byField;
     },
 
     // Finalize a plot's current view through vega-embed's own finalize:
