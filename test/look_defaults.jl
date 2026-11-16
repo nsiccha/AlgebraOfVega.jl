@@ -79,6 +79,10 @@ using TestItemRunner
         config(width=1200, encoding=(; x=(; axis=(; values=months, tickCount=6)))))
     @test counted["encoding"]["x"]["axis"]["tickCount"] == 6
     @test !haskey(get(to_vegalite(plot * config(width=1200))["encoding"]["x"], "axis", Dict()), "tickCount")
+    # A list a signal computes states its length as a signal.
+    computed = to_vegalite(data(year) * mapping(:day, :a) * visual(Lines) *
+        config(width=1200, encoding=(; x=(; axis=(; values=(; signal="[11, 42, 70]"))))))
+    @test computed["encoding"]["x"]["axis"]["tickCount"] == Dict("signal" => "isArray([11, 42, 70]) ? length([11, 42, 70]) : null")
     # The log values state theirs.
     @test enc["x"]["axis"]["tickCount"] == length(enc["x"]["axis"]["values"])
     @test enc["y"]["axis"]["tickCount"] == length(enc["y"]["axis"]["values"])
@@ -117,8 +121,11 @@ end
                 vdraw(figure * config(width=1200); id="lt-width"),
                 vdraw(data(logrows) * mapping(:x, :y) * visual(Lines) * config(height=400, scales=scales(Y=(; scale=log10))); id="lt-log"),
                 vdraw(raw; id="lt-raw"),
+                # The list as a signal expression.
+                vdraw(data(year) * mapping(:day, :a) * visual(Lines) *
+                    config(height=150, encoding=(; x=(; axis=(; values=(; signal="[" * join(months, ", ") * "]"))))); id="lt-signal"),
                 vdraw(data(year) * mapping(:day, :a) * visual(Lines) * config(height=150); id="lt-plain")]
-            ids = ["lt-months", "lt-width", "lt-log", "lt-raw", "lt-plain"]
+            ids = ["lt-months", "lt-width", "lt-log", "lt-raw", "lt-signal", "lt-plain"]
             head = join(html(n) for n in vega_head(; source=:inline))
             driver = """
             (async function () {
@@ -140,7 +147,9 @@ end
                 AoV._clearRemappedAxisDomain(moved, 'b');
                 const thinned = {field: 'a', axis: {values: [1, 2, 3], tickCount: 2}};
                 AoV._clearRemappedAxisDomain(thinned, 'b');
-                out.picker = {moved: moved.axis, thinned: thinned.axis};
+                const computed = {field: 'a', axis: {values: {signal: 'm'}, tickCount: {signal: 'isArray(m) ? length(m) : null'}}};
+                AoV._clearRemappedAxisDomain(computed, 'b');
+                out.picker = {moved: moved.axis, thinned: thinned.axis, computed: computed.axis};
                 const pre = document.createElement('pre'); pre.id = 'aov-listed-results';
                 pre.textContent = JSON.stringify(out); document.body.appendChild(pre);
             })();
@@ -165,10 +174,12 @@ end
                 @test report["lt-log"]["labels"]["y"] == ["0.01", "0.02", "0.05", "0.1", "0.2", "0.5", "1"]
                 @test report["lt-raw"]["width"] > 1000
                 @test length(report["lt-raw"]["labels"]["x"]) == 12
+                @test report["lt-signal"]["labels"]["x"] == string.(months)
                 # An axis that lists nothing keeps the default count.
                 @test 3 <= length(report["lt-plain"]["labels"]["x"]) <= 9
                 @test report["picker"]["moved"] == Dict("title" => "t")
                 @test report["picker"]["thinned"] == Dict("tickCount" => 2)
+                @test isempty(report["picker"]["computed"])
             end
         end
     end

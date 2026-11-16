@@ -467,9 +467,17 @@ end
 # a `vconcat` stack, or an authored `config.axisX`. So a listing axis states the
 # count of its own values, which Vega takes before any `config` count. That
 # covers the log values above as well as authored ones; a `tickCount` written
-# beside the values stays, and thins them as Vega does. The runtime states the
-# same count for a spec that was not lowered here (`_listedTicks`,
-# vendor/aov-runtime.js).
+# beside the values stays, and thins them as Vega does. A list that a signal
+# computes (`values=(; signal="…")`) states its length as a signal, `null`
+# (no count) while the signal holds no list. The runtime states the same count
+# for a spec that was not lowered here (`_listedTicks`, vendor/aov-runtime.js).
+_listed_tick_count(values::AbstractVector) = isempty(values) ? nothing : length(values)
+function _listed_tick_count(values::Dict)
+    expr = get(values, "signal", nothing)
+    expr isa AbstractString || return nothing
+    Dict{String,Any}("signal" => "isArray($expr) ? length($expr) : null")
+end
+_listed_tick_count(_) = nothing
 _apply_listed_ticks!(spec) = spec
 function _apply_listed_ticks!(node::Dict)
     enc = get(node, "encoding", nothing)
@@ -478,8 +486,8 @@ function _apply_listed_ticks!(node::Dict)
             c = get(enc, ch, nothing)
             axis = c isa Dict ? get(c, "axis", nothing) : nothing
             axis isa Dict || continue
-            values = get(axis, "values", nothing)
-            values isa AbstractVector && !isempty(values) && !haskey(axis, "tickCount") && (axis["tickCount"] = length(values))
+            count = haskey(axis, "tickCount") ? nothing : _listed_tick_count(get(axis, "values", nothing))
+            isnothing(count) || (axis["tickCount"] = count)
         end
     end
     for key in ("layer", "hconcat", "vconcat", "concat")

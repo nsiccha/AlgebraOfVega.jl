@@ -26,7 +26,8 @@ failing at run time with a `MethodError`.
   axis's `tickCount`, so a count set in `config` (AoV's default, or an authored
   `config.axisX`/`axisY`/`axis`) no longer thins them. The values AoV lists on
   a log axis are covered too: a log y axis taller than 200 px drew
-  `0.01 0.05 0.2 1` and now draws `0.01 0.02 0.05 0.1 0.2 0.5 1`. A `tickCount`
+  `0.01 0.05 0.2 1` and now draws `0.01 0.02 0.05 0.1 0.2 0.5 1`. A list that a
+  signal computes (`values=(; signal="…")`) is kept as well. A `tickCount`
   written beside the values on the same axis is kept and thins them as before,
   and an axis that lists no values is unchanged. A `tickCount` that was
   repeated beside `values` only to keep them all can be deleted

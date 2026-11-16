@@ -5264,9 +5264,22 @@ window.AoV = window.AoV || {
         // `_apply_log_ticks!`, are read from its rows), and with them the
         // count the lowering states for a listed set (`_apply_listed_ticks!`).
         if (enc.axis && typeof enc.axis === 'object') {
-            if (Array.isArray(enc.axis.values) && enc.axis.tickCount === enc.axis.values.length) delete enc.axis.tickCount;
+            var count = this._listedCount(enc.axis.values);
+            if (count !== undefined && JSON.stringify(enc.axis.tickCount) === JSON.stringify(count)) delete enc.axis.tickCount;
             delete enc.axis.values;
         }
+    },
+
+    // The count of a listed set of tick values: its length, or for a list a
+    // signal computes, that length as a signal (`null`, no count, while the
+    // signal holds no list). The same as `_listed_tick_count`
+    // (src/to_vegalite.jl).
+    _listedCount: function(values) {
+        if (Array.isArray(values)) return values.length ? values.length : undefined;
+        if (values && typeof values === 'object' && typeof values.signal === 'string') {
+            return {signal: 'isArray(' + values.signal + ') ? length(' + values.signal + ') : null'};
+        }
+        return undefined;
     },
 
     // An axis that lists its tick `values` draws each of them. Vega halves
@@ -5282,7 +5295,8 @@ window.AoV = window.AoV || {
         var self = this, enc = node.encoding;
         if (enc && typeof enc === 'object') ['x', 'y'].forEach(function(ch) {
             var ax = enc[ch] && enc[ch].axis;
-            if (ax && typeof ax === 'object' && Array.isArray(ax.values) && ax.values.length && ax.tickCount === undefined) ax.tickCount = ax.values.length;
+            var count = ax && typeof ax === 'object' && ax.tickCount === undefined ? self._listedCount(ax.values) : undefined;
+            if (count !== undefined) ax.tickCount = count;
         });
         ['layer', 'hconcat', 'vconcat', 'concat'].forEach(function(key) {
             if (Array.isArray(node[key])) node[key].forEach(function(sub) { self._listedTicks(sub); });
