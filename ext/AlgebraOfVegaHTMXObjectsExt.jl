@@ -44,7 +44,8 @@ _ci_str(s) = s
                       layer_labels=nothing,
                       extra_actions=(),
                       texts=plot_texts(),
-                      static_image=nothing, alt=nothing, id=nothing)
+                      static_image=nothing, alt=nothing, id=nothing,
+                      kind=:figure)
 
 Wrap `plot_node` (the result of `to_node(spec; id=plot_id)` or
 `auto_remap_node(plot_id, spec; ...)`) in a `<figure>` with a caption header.
@@ -124,6 +125,12 @@ who don't want that should not set the VL title.
   PDF. An id starting with `fig-` (`id="fig-posterior"`) is also the figure's
   label for Quarto. `plot_id` stays the id of the plot inside the figure, so
   the two must differ.
+- `kind=:figure`: what a `numbered` document counts the caption as, as in
+  HTMXObjects' `with_caption`. `kind=nothing` gives the figure no number: its
+  caption reads its plain title and the next figure is still "Figure 1".
+  `kind=:table` counts it as "Table N:". The figure keeps everything else (its
+  report image, alt text and downloads). Outside a `numbered` document it
+  changes nothing.
 """
 function with_plot_caption(plot_node, caption::CaptionSpec;
                             plot_id::AbstractString,
@@ -140,7 +147,8 @@ function with_plot_caption(plot_node, caption::CaptionSpec;
                             texts::PlotTexts=_EN_PLOT_TEXTS,
                             static_image::Union{Nothing,Bool,AbstractString}=nothing,
                             alt::Union{Nothing,AbstractString}=nothing,
-                            id::Union{Nothing,AbstractString}=nothing)
+                            id::Union{Nothing,AbstractString}=nothing,
+                            kind::Union{Nothing,Symbol}=:figure)
     plot_id = _sanitize_id(plot_id)
     # The figure encloses the plot, so a figure with the plot's id is the
     # element `document.getElementById(plot_id)` finds, and the downloads and
@@ -160,7 +168,7 @@ function with_plot_caption(plot_node, caption::CaptionSpec;
         push!(actions, caption_share_button(share_url; texts))
     end
 
-    body = Any[render_caption(caption; actions=tuple(actions...), id, _caption_texts_kw(texts)...),
+    body = Any[render_caption(caption; actions=tuple(actions...), id, kind, _caption_texts_kw(texts)...),
                _report_children(plot_node, caption, static_image, alt)...]
 
     has_pretty = !isnothing(summary_table)
@@ -349,6 +357,7 @@ figures (default 2).
 
 `id` gives the `<figure>` the id `ref` cites in a `numbered` document, as in
 the `plot_node` method; with `auto_remap` the picker stays outside that figure.
+`kind=nothing` leaves the figure unnumbered there, as in the `plot_node` method.
 
 `static_image` and `alt` work as in the `plot_node` method; a report draws a
 picker figure as `vsave(spec, path; auto_remap)` writes it. The channel picker
