@@ -244,6 +244,58 @@ const _AOV_INK_STYLES = (_AOV_INK => "color", "aov-ink-stroke" => "stroke", "aov
 const _AOV_INK_ATTRS = Dict{Symbol,String}(
     :color => _AOV_INK, :strokecolor => "aov-ink-stroke", :stroke => "aov-ink-stroke",
     :fill => "aov-ink-fill")
+const _AOV_BACKGROUND_STYLES = ("aov-background" => "color",
+    "aov-background-stroke" => "stroke", "aov-background-fill" => "fill")
+const _AOV_BACKGROUND_ATTRS = Dict{Symbol,String}(
+    :color => "aov-background", :strokecolor => "aov-background-stroke",
+    :stroke => "aov-background-stroke", :fill => "aov-background-fill")
+
+# Semantic background paint is opaque: a translucent outline over a filled
+# point would blend with the point, rather than match the drawing surface.
+function _opaque_background(color, under=:white)
+    c, b = _background_rgba(color), _background_rgba(under)
+    a = Makie.alpha(c)
+    Makie.RGBf(a * Makie.red(c) + (1 - a) * Makie.red(b),
+        a * Makie.green(c) + (1 - a) * Makie.green(b),
+        a * Makie.blue(c) + (1 - a) * Makie.blue(b))
+end
+function _background_rgba(color::AbstractString)
+    # Colors' CSS parser rounds functional colours to eight bits, including
+    # alpha (.5 becomes 128/255). Preserve these numbers while compositing.
+    m = match(r"^\s*rgba?\(([^()]*)\)\s*$"i, color)
+    if !isnothing(m)
+        parts = split(replace(m[1], ',' => ' ', '/' => ' '))
+        if length(parts) in (3, 4)
+            values = map(enumerate(parts)) do (i, s)
+                percent = endswith(s, '%')
+                v = tryparse(Float64, percent ? chop(s) : s)
+                isnothing(v) ? nothing : clamp(v / (percent ? 100 : i <= 3 ? 255 : 1), 0, 1)
+            end
+            all(!isnothing, values) && return Makie.RGBAf(values[1:3]..., length(values) == 4 ? values[4] : 1)
+        end
+    end
+    parse(Makie.RGBAf, color)
+end
+_background_rgba(color) = Makie.RGBAf(Makie.to_color(color))
+
+function _apply_background_default!(spec::Dict)
+    used = filter(p -> _uses_style(spec, first(p)), _AOV_BACKGROUND_STYLES)
+    isempty(used) && return
+    cfg = get!(spec, "config", Dict{String,Any}())
+    bg = something(get(spec, "background", get(cfg, "background", "white")), "white")
+    surface = _opaque_background(bg)
+    view = get(cfg, "view", nothing)
+    fill = view isa AbstractDict ? get(view, "fill", nothing) : nothing
+    isnothing(fill) || (surface = _opaque_background(fill, surface))
+    color = _color_to_css(surface)
+    styles = get!(cfg, "style", Dict{String,Any}())
+    defaults = get!(get!(spec, "_aov", Dict{String,Any}()), "paintDefaults", Dict{String,Any}())
+    for (name, prop) in used
+        style = get!(styles, name, Dict{String,Any}())
+        haskey(style, prop) || (style[prop] = color)
+        defaults[name] = color
+    end
+end
 # The style of every mark a `visual(...; inspectable=false)` layer draws
 # (`_apply_layer_passive!`). Vega-Lite has no mark property for Vega's
 # `interactive`, so the runtime sets `interactive: false` on each compiled mark
@@ -298,17 +350,18 @@ function _ink_style_default!(spec::Dict, name, prop)
     return
 end
 
-# The stroke and fill inks' colours — the spec's config, which a caller's
+# The stroke and fill theme colours — the spec's config, which a caller's
 # `config(config=…)` may have set — onto each mark (or composite-mark part) that
 # carries their style and does not set that side itself, and the `aov-ink`
 # colour onto a palette's ink entries (`_record_ink_palette!`). A finishing pass:
 # it runs after the caller's config is merged.
 _apply_ink_paint!(spec) = spec
 function _apply_ink_paint!(spec::Dict)
+    _apply_background_default!(spec)
     cfg = get(spec, "config", nothing)
     styles = cfg isa AbstractDict ? get(cfg, "style", nothing) : nothing
     styles isa AbstractDict || return spec
-    for (name, prop) in _AOV_INK_STYLES
+    for (name, prop) in (_AOV_INK_STYLES..., _AOV_BACKGROUND_STYLES...)
         prop == "color" && continue
         style = get(styles, name, nothing)
         style isa AbstractDict && haskey(style, prop) && _set_style_paint!(spec, name, prop, style[prop])

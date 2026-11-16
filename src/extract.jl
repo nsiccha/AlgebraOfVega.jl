@@ -413,6 +413,8 @@ function visual_attrs_to_mark_props(vis::AlgebraOfGraphics.Visual)
         # Map Makie attribute names to Vega mark properties
         if v === :ink && haskey(_AOV_INK_ATTRS, k)
             push!(inks, _AOV_INK_ATTRS[k])
+        elseif v === :background && haskey(_AOV_BACKGROUND_ATTRS, k)
+            push!(inks, _AOV_BACKGROUND_ATTRS[k])
         elseif k === :inspectable && v isa Bool
             # Not a mark property: the layer's lowering styles every mark it
             # draws (`_apply_layer_passive!`).
@@ -482,9 +484,9 @@ function visual_attrs_to_mark_props(vis::AlgebraOfGraphics.Visual)
         "no counterpart on the Vega-Lite `$(plottype_to_mark(vis.plottype))` mark it draws"
     isempty(ignored) || @warn "AlgebraOfVega: `$(_visual_name(vis))` sets $(join(("`$k`" for k in ignored), ", ")) with $mark_name; vdraw and vsave ignore $(length(ignored) == 1 ? "it" : "them")." _id=(:aov_unread_visual_attrs, vis.plottype, Tuple(ignored)) maxlog=1
     if !isempty(inks)
-        # A named style lets the host runtime resolve the inherited CSS colour
-        # at embed time. Keep any caller-authored styles, with ink last so the
-        # explicit `:ink` choice wins over their colour defaults.
+        # Named styles let the runtime resolve foreground/background paint at
+        # embed time. Keep caller styles first, so the semantic paint wins
+        # over their colour defaults.
         styles = get(props, "style", nothing)
         unique!(inks)
         props["style"] = isnothing(styles) && length(inks) == 1 ? only(inks) :
