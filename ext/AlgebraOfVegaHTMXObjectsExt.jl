@@ -10,7 +10,7 @@ import Tables
 import Statistics
 import AlgebraOfVega: with_plot_caption, draws_summary_table, _sanitize_id,
                       _summary_meta, _auto_remap_parts, to_node, to_html,
-                      VegaSpec, VConcat, caption_share_button, _vl_json,
+                      Layer, Layers, VegaSpec, VConcat, caption_share_button, _vl_json,
                       PlotTexts, _EN_PLOT_TEXTS, _plot_text, _runtime_texts_attrs,
                       _static_img, _MarkdownView, _ReportImage, _figure_sources,
                       cell_charts, CellColumn,
@@ -335,8 +335,8 @@ with_plot_caption(plot_node, caption::AbstractString; kwargs...) =
                       auto_remap=nothing, summary_table=:auto,
                       summary_ci=:outer, summary_sigfigs=2, kwargs...)
 
-Spec-aware dispatch: takes the original `VegaSpec` (not a pre-rendered node),
-builds the plot internally, and can:
+Spec-aware dispatch: takes the original `Layer`, `Layers`, `VegaSpec`, or
+`VConcat` (not a pre-rendered node), builds the plot internally, and can:
 
 - auto-wire `auto_remap_node` via `auto_remap=(; dims=..., fixed=..., pinned=...)`
   — controls are hoisted **above** the `<figure>` so they appear before the
@@ -366,7 +366,7 @@ is left out of a report's markdown, and of every markdown view when
 
 Remaining `kwargs` are forwarded to the `plot_node` method.
 """
-function with_plot_caption(spec::Union{VegaSpec,VConcat}, caption::CaptionSpec;
+function with_plot_caption(spec::Union{Layer,Layers,VegaSpec,VConcat}, caption::CaptionSpec;
                             plot_id::AbstractString,
                             auto_remap=nothing,
                             summary_table=:auto,
@@ -422,10 +422,10 @@ _report_controls(controls, ::Nothing) = report_view(controls, nothing)
 _report_controls(controls, ::AbstractString) = html_only(controls)
 _report_controls(controls, ::Bool) = controls
 
-with_plot_caption(spec::Union{VegaSpec,VConcat}; title, short="", long=nothing, kwargs...) =
+with_plot_caption(spec::Union{Layer,Layers,VegaSpec,VConcat}; title, short="", long=nothing, kwargs...) =
     with_plot_caption(spec, CaptionSpec(; title, short, long); kwargs...)
 
-with_plot_caption(spec::Union{VegaSpec,VConcat}, caption::AbstractString; kwargs...) =
+with_plot_caption(spec::Union{Layer,Layers,VegaSpec,VConcat}, caption::AbstractString; kwargs...) =
     with_plot_caption(spec, CaptionSpec(; title=caption); kwargs...)
 
 # Head extras a captioned fragment needs beyond `vega_head()`: caption-row
