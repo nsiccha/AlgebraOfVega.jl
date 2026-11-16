@@ -15,6 +15,15 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
+## 0.2.61
+
+- **Captioned plots work without a `config` term.** `with_plot_caption`
+  accepts bare `Layer` and `Layers` through the same rendering path as a
+  `VegaSpec`: reports get the plot's SVG and alt text, the browser gets its
+  automatic summary table, and `auto_remap` works. This applies to string
+  captions, `CaptionSpec` captions and `title=` alike. Previously a bare
+  layer was treated as an already-rendered node, losing those features.
+
 ## 0.2.60
 
 - **`with_plot_caption(…; kind=nothing)` leaves a figure unnumbered** in an
