@@ -376,7 +376,7 @@ window.AoV = window.AoV || {
     },
 
     // Run a view whose data changed, laying it out again. Vega sizes the
-    // view (autosize padding, and the plot width of an autosize "fit" view)
+    // view (autosize padding, and the plot width of an autosize "fit-x" view)
     // only when it is embedded or resized: its `autosize.resize` is false,
     // so a plain run keeps the layout of the rows it was embedded with. A
     // plot that starts empty has no axis labels then, and its axis titles
@@ -5765,9 +5765,11 @@ window.AoV = window.AoV || {
             facetResolve(false);
             if (!spec.layer) {
                 if (spec._aov && spec._aov.fitWidth) {
-                    // Single-view: use VL native responsive width
+                    // Single-view: use VL native responsive width. Only the
+                    // width is fitted ("fit-x"), as `_embed_spec` does: the
+                    // authored height stays the plot area's.
                     spec.width = 'container';
-                    spec.autosize = {type: 'fit', contains: 'padding'};
+                    spec.autosize = {type: 'fit-x', contains: 'padding'};
                     var kept = {};
                     ['frame', 'link', 'readout'].forEach(function(k) { if (spec._aov[k] !== undefined) kept[k] = spec._aov[k]; });
                     delete spec._aov;

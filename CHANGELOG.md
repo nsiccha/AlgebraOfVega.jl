@@ -15,6 +15,37 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
+## 0.2.57
+
+- **A figure's height is its plot area's, with one mark layer as with several,
+  and a long y title no longer empties a low figure.**
+  - **The defect.** `mapping(:hour => "Hour", :fall => "Precipitation (mm per hour)") *
+    visual(BarPlot) * config(height=130)` drew no bars and no y ticks, only the
+    x axis and a cut title.
+    - A figure with one mark layer and no facets was sized by Vega-Lite's
+      `autosize: "fit"`, where the height is the whole figure's.
+    - Its rotated y title, centred on the plot area and longer than it, stuck
+      out above and below, and Vega took that from the plot area.
+    - Each layout pass (every `update_data`, `append_data`, `replace_data`,
+      `remove_data`, `update_spec`, rows computed in the browser with
+      `data(bound(…))`, and container resizes) measured it again around the
+      smaller plot area: 73, then 36, then 0 px. A title such as
+      "Exposure (ng/mL·h)" did the same at `height=80`.
+  - **The change.** Such a figure now fits only its width to the container
+    (`autosize: "fit-x"`). `config(height=…)` is the plot area's height, as it
+    already was for layered, faceted and `vconcat` figures, in `vsave` files and
+    in `plot_size`, and the canvas grows to hold the axes and titles.
+  - **What looks different.** Every figure with one mark layer drawn by `vdraw`,
+    `to_node` or `with_plot_caption` is taller than before by its axes, about
+    50 px. A 130 px figure is now a 130 px plot area on a 179–187 px canvas, and
+    an unsized scatter's canvas grows from 200 to 249 px. To keep a figure's
+    old size, lower its `height` by about 50 px.
+  - **Other effects.** Adding a layer no longer changes the plot area's height.
+    A data change no longer leaves such a figure a few pixels shorter than a
+    fresh render of the same rows. Figures with an authored width
+    (`config(width=…)`, `fit_width=false`) keep Vega-Lite's own sizing, as before
+    (snag `draw-a-low-figur-e0c74bcc`).
+
 ## 0.2.56
 
 - **An axis that lists its tick values draws each of them.**
