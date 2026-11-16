@@ -108,13 +108,18 @@ aog_named_to_vl_channel(name::Symbol) = get(_CHANNEL_MAP, name, string(name))
 
 selector_to_field(sel::Symbol) = Dict{String,Any}("field" => string(sel))
 selector_to_field(sel::Int) = Dict{String,Any}("field" => "column_$sel")
+# AoG's direct scalar is data repeated for every table row, not a pixel or
+# fixed mark property. A datum encoding keeps scales and survives row updates
+# without adding a synthetic column to a bound or addressed table.
+selector_to_field(sel::AlgebraOfGraphics.DirectData{<:Union{Number,AbstractString,Symbol,TimeType}}) =
+    Dict{String,Any}("datum" => sel.data, "type" => vl_type((sel.data,)))
 function selector_to_field(sel::Pair)
     src, dst = sel
     field = selector_to_field(src)
     _apply_selector_modifier!(field, dst)
     field
 end
-selector_to_field(sel) = Dict{String,Any}("value" => sel)  # DirectData, Presorted, etc.
+selector_to_field(sel) = Dict{String,Any}("value" => sel)
 
 # Apply one Pair-destination modifier to a field dict. Handles string labels,
 # nested labels (`=> :fn => "Label"`), and AoG scale-type modifiers like

@@ -15,6 +15,15 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
+## 0.2.63
+
+- **Constant reference labels follow their rows.** A reference line or span
+  labelled with `mapping(...; text=direct("Detection limit"))` now draws
+  its label, including after bound-data updates and in standalone HTML and
+  report images. Empty rows remove both the reference and its label. Scalar
+  strings, symbols, numbers and dates in `direct(...)` lower as data values,
+  preserving scales without adding columns to the source table.
+
 ## 0.2.62
 
 - Fixed mark colours accept **`:background`**: for example,

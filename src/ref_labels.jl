@@ -39,12 +39,12 @@ end
 
 # The kind of reference a unit draws, with the channel its label stands on:
 # `(:vertical, "x")` for a VLines rule or a VSpan rect, `(:horizontal, "y")` for
-# HLines/HSpan; `nothing` for any other unit or one without a `text` field.
+# HLines/HSpan; `nothing` for any other unit or one without mapped text.
 function _ref_kind(unit::AbstractDict)
     enc = get(unit, "encoding", nothing)
     enc isa AbstractDict || return nothing
     text = get(enc, "text", nothing)
-    text isa AbstractDict && haskey(text, "field") || return nothing
+    text isa AbstractDict && (haskey(text, "field") || haskey(text, "datum")) || return nothing
     t = _mark_type(get(unit, "mark", nothing))
     has(ch) = get(enc, ch, nothing) isa AbstractDict && haskey(enc[ch], "field")
     if t == "rule"
@@ -109,7 +109,7 @@ function _ref_label_unit!(u::Dict)
     label_enc = Dict{String,Any}("text" => text, ch => at)
     if dir === :vertical
         f = "datum[" * _vl_json(at["field"]) * "]"
-        n = "datum[" * _vl_json(text["field"]) * "]"
+        n = haskey(text, "field") ? "datum[" * _vl_json(text["field"]) * "]" : _vl_json(text["datum"])
         row = "$(_REF_ROWS_PARAM)[datum.$(_REF_KEY)]"
         push!(transform,
             Dict{String,Any}("calculate" => "$f + '|' + $n", "as" => _REF_KEY),
