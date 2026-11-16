@@ -326,6 +326,55 @@ end
 _static_color(color) = color === :ink ?
     Makie.to_value(Makie.theme(:textcolor; default=:black)) : color
 
+# Resolve before converting analyses, so a ribbon's fixed colour takes the
+# same destination surface as an ordinary visual. Never edit the authored layer.
+function _background_visual(vis::AlgebraOfGraphics.Visual, color)
+    attrs = Dict(pairs(vis.attributes))
+    changed = false
+    for k in (:color, :strokecolor, :stroke, :fill)
+        get(attrs, k, nothing) === :background || continue
+        pop!(attrs, k)
+        attrs[k === :stroke ? :strokecolor : k === :fill ? :color : k] = color
+        changed = true
+    end
+    changed || return vis
+    AlgebraOfGraphics.Visual(vis.plottype, AlgebraOfGraphics.NamedArguments(attrs), vis.target)
+end
+function _background_drawable(layer::AlgebraOfGraphics.Layer, color)
+    t = _map_visuals(v -> _background_visual(v, color), layer.transformation)
+    t === layer.transformation && return layer
+    AlgebraOfGraphics.Layer(t, layer.data, layer.positional, layer.named)
+end
+_background_drawable(layers::AlgebraOfGraphics.Layers, color) =
+    AlgebraOfGraphics.Layers([_background_drawable(l, color) for l in layers.layers])
+_background_drawable(d, color) = d
+
+function _static_background(position, axis)
+    if position isa Union{Makie.Axis,Makie.Axis3}
+        return _opaque_background(Makie.to_value(position.backgroundcolor),
+            Makie.to_value(position.parent.scene.backgroundcolor))
+    end
+    axis_type = get(axis, :type, Makie.Axis)
+    theme = Makie.theme(nameof(axis_type); default=Makie.Attributes())
+    color = get(axis, :backgroundcolor,
+        haskey(theme, :backgroundcolor) ? Makie.to_value(theme[:backgroundcolor]) :
+        axis_type === Makie.Axis3 ? :transparent : :white)
+    figure = position isa Makie.Figure || isnothing(position) ? position : Makie.get_figure(position)
+    under = isnothing(figure) ? Makie.to_value(Makie.theme(:backgroundcolor; default=:white)) :
+        Makie.to_value(figure.scene.backgroundcolor)
+    _opaque_background(color, under)
+end
+
+function _has_background(layer::AlgebraOfGraphics.Layer)
+    vis = extract_visual(layer)
+    !isnothing(vis) && any(k -> get(vis.attributes, k, nothing) === :background,
+        (:color, :strokecolor, :stroke, :fill))
+end
+_has_background(layers::AlgebraOfGraphics.Layers) = any(_has_background, layers.layers)
+_has_background(_) = false
+_static_drawable(authored, position, axis) = _convert_drawable(_has_background(authored) ?
+    _background_drawable(authored, _static_background(position, axis)) : authored)
+
 # A `Color` palette's `:ink` entries (`scales(Color=(; palette=[:ink, …]))`, which
 # `vdraw` draws in the page's text colour) take that text colour too; Makie
 # itself has no colour named `ink`.
@@ -435,9 +484,9 @@ Requires a Makie backend (e.g. CairoMakie) to be loaded. Returns the result of
 function sdraw!(position, spec)
     _sdraw_check(spec)
     authored, cfg = _extract_drawable(spec)
-    drawable = _convert_drawable(authored)
-    kw = _draw_kwargs(cfg; faceted=_is_faceted(drawable),
+    kw = _draw_kwargs(cfg; faceted=_is_faceted(authored),
         layer_encodings=_spec_layer_encodings(spec))
+    drawable = _static_drawable(authored, position, kw.axis)
     sc = _sdraw_scales(kw.scales, authored, cfg)
     isnothing(sc) ?
         AlgebraOfGraphics.draw!(position, drawable; facet=kw.facet, axis=kw.axis) :
@@ -453,9 +502,9 @@ Returns the path. Extra `kwargs` are passed to `Makie.save`.
 function sdraw_file(spec, path::AbstractString; kwargs...)
     _sdraw_check(spec)
     authored, cfg = _extract_drawable(spec)
-    drawable = _convert_drawable(authored)
-    kw = _draw_kwargs(cfg; faceted=_is_faceted(drawable),
+    kw = _draw_kwargs(cfg; faceted=_is_faceted(authored),
         layer_encodings=_spec_layer_encodings(spec))
+    drawable = _static_drawable(authored, nothing, kw.axis)
     sc = _sdraw_scales(kw.scales, authored, cfg)
     fg = isnothing(sc) ?
         AlgebraOfGraphics.draw(drawable; figure=kw.figure, facet=kw.facet, axis=kw.axis) :

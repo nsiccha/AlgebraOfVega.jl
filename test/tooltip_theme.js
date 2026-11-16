@@ -131,9 +131,9 @@
             // A background image: the colour found behind the plot is the
             // page's, not what the text is read on.
             surface(look(AoV.views['tt-hero']), theme === 'light' ? '32, 32, 32' : page(), '240, 240, 240', theme + ' gradient');
-            // A translucent card: its colour is not what lies behind the plot.
-            surface(look(AoV.views['tt-translucent']), theme === 'light' ? '255, 255, 255' : '32, 32, 32', text, theme + ' translucent white');
-            surface(look(AoV.views['tt-shade']), theme === 'light' ? '255, 255, 255' : '0, 0, 0', text, theme + ' translucent black');
+            // The opaque surface composites the card with its page background.
+            surface(look(AoV.views['tt-translucent']), theme === 'light' ? '255, 255, 255' : '33, 37, 44', text, theme + ' translucent white');
+            surface(look(AoV.views['tt-shade']), theme === 'light' ? '245, 245, 245' : '18, 22, 30', text, theme + ' translucent black');
 
             // A cell chart takes its look from its own cell.
             const drawn = await cellView(previousCell);
@@ -184,11 +184,12 @@
         check(Math.round(on) === 0xd9, 'bare: the border reads ' + on + ' on white, not #d9d9d9');
     }
 
-    // A dark colour-scheme page paints no background of its own: there is no
-    // colour to find, and white text on the white fallback cannot be read.
+    // An unpainted page takes the browser's Canvas colour for its colour scheme.
     async function schemePage() {
         await ready('tt-host');
-        surface(look(AoV.views['tt-host']), '32, 32, 32', '255, 255, 255', 'dark color-scheme');
+        const probe = document.createElement('span'); probe.style.color = 'Canvas'; document.body.append(probe);
+        const canvas = channels(getComputedStyle(probe).color).slice(0, 3).join(', '); probe.remove();
+        surface(look(AoV.views['tt-host']), canvas, '255, 255, 255', 'dark color-scheme');
     }
 
     // A page's own tooltip rules win, whatever its stylesheet's place in the head.

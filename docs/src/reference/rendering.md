@@ -15,6 +15,29 @@ sdraw_file
 plot_size
 ```
 
+## Fixed mark colours
+
+Fixed marks can follow their background with `:background`. For example,
+`visual(Scatter; color="#1f6fb5", strokecolor=:background, strokewidth=1.5)`
+keeps its blue fill and draws a 1.5 px outline in the background colour.
+`color`, `strokecolor` (or `stroke`) and `fill` accept this token. Use
+`color=:ink` for the foreground text colour.
+
+In a host-themed browser plot, `:background` follows the local solid page
+background, compositing translucent ancestor colours. An explicit
+`config(config=Dict("background" => "#182025"))` takes precedence; an explicit
+`config.view.fill` supplies the surface inside the plotting area. Theme
+changes refresh both foreground and background paint; after changing a
+wrapper's CSS, call `AoV.refreshTheme()`. PNG/SVG downloads use the same
+resolved surface. Saved HTML resolves its own page's background.
+
+`vsave`, report images, bare-spec HTML and `theme=:none` use the configured
+plot background, white by default. `sdraw` uses the Makie axis background;
+`sdraw!` uses the destination axis, including an explicitly configured
+`backgroundcolor`. Existing literal colours, `:ink` and palettes keep their
+meaning. `:background` is a fixed solid paint, not a palette entry or a
+per-pixel eraser over an image, gradient, grid line or another mark.
+
 ## Browser assets
 
 ```@docs

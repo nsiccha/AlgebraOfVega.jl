@@ -1435,9 +1435,8 @@ window.AoV = window.AoV || {
         var text = (cs && this._rgba(cs.color)) || [0, 0, 0, 1];
         var back = (el && this._rgba(this.hostBackground(el))) || [255, 255, 255, 1];
         // Text that cannot be read on that background is not read on it: a
-        // background image or gradient, a translucent card (hostBackground
-        // takes its colour as opaque) or a dark `color-scheme` page that
-        // paints no background of its own. Pick the surface for the text.
+        // background image or gradient may differ from its solid fallback.
+        // Pick a surface for the text when that fallback is unreadable.
         var lt = this._luminance(text), lb = this._luminance(back);
         if ((Math.max(lt, lb) + 0.05) / (Math.min(lt, lb) + 0.05) < 3) {
             back = this._lightText(text) ? [32, 32, 32, 1] : [255, 255, 255, 1];
@@ -1484,6 +1483,10 @@ window.AoV = window.AoV || {
             text: {color: text},
             style: {'aov-ink': {color: text}, 'aov-ink-stroke': {stroke: text}, 'aov-ink-fill': {fill: text}}
         };
+        var background = this.hostBackground(el);
+        cfg.style['aov-background'] = {color: background};
+        cfg.style['aov-background-stroke'] = {stroke: background};
+        cfg.style['aov-background-fill'] = {fill: background};
         var dark = this._lightText(c) && this._darkCategory();
         if (dark) {
             cfg.range = {category: dark};
@@ -1602,13 +1605,49 @@ window.AoV = window.AoV || {
             console.warn('AoV: plot font ' + font + ' did not load; drawing with the fallback:', err);
         });
     },
-    // The first opaque background behind `el` (exports paint it).
+    // The solid drawing surface behind `el`, compositing translucent ancestors.
+    // Images/gradients have no single colour; this follows their solid fallback.
     hostBackground: function(el) {
+        var rgb = [0, 0, 0], remaining = 1;
         for (var n = el; n && n.nodeType === 1; n = n.parentElement) {
             var c = this._rgba(getComputedStyle(n).backgroundColor);
-            if (c && c[3] > 0) return 'rgb(' + c[0] + ',' + c[1] + ',' + c[2] + ')';
+            if (!c) continue;
+            for (var i = 0; i < 3; i++) rgb[i] += remaining * c[3] * c[i];
+            remaining *= 1 - c[3];
+            if (!remaining) break;
         }
-        return 'white';
+        if (remaining) {
+            var canvas = this._cssRGBA('Canvas', document.documentElement) || [255, 255, 255, 1];
+            for (var j = 0; j < 3; j++) rgb[j] += remaining * canvas[j];
+        }
+        return 'rgb(' + rgb.map(Math.round).join(',') + ')';
+    },
+    _cssRGBA: function(color, el) {
+        var direct = this._rgba(color);
+        if (direct) return direct;
+        var probe = document.createElement('span');
+        probe.style.display = 'none';
+        probe.style.color = color;
+        if (!probe.style.color) return null;
+        (el || document.documentElement).appendChild(probe);
+        var rgba = this._rgba(getComputedStyle(probe).color);
+        probe.remove();
+        return rgba;
+    },
+    _solidBackground: function(color, el, under) {
+        var back = this._rgba(under || this.hostBackground(el));
+        var c = color && this._cssRGBA(color, el);
+        if (!c) return this._withAlpha(back, 1);
+        return 'rgb(' + c.slice(0, 3).map(function(v, i) {
+            return Math.round(c[3] * v + (1 - c[3]) * back[i]);
+        }).join(',') + ')';
+    },
+    _plotBackground: function(spec, el, config) {
+        config = config || spec.config || {};
+        var color = spec.background;
+        if (color === undefined) color = config.background;
+        var surface = this._solidBackground(color, el);
+        return config.view ? this._solidBackground(config.view.fill, el, surface) : surface;
     },
     _deepMerge: function(base, over) {
         var out = Object.assign({}, base);
@@ -1624,7 +1663,10 @@ window.AoV = window.AoV || {
     // `aov-ink` (`color=:ink`, dot-interval rules), a style Vega-Lite
     // resolves, and `aov-ink-stroke` / `aov-ink-fill` (`stroke=:ink`,
     // `fill=:ink`), whose colour the server also wrote onto every mark that
-    // carries them. LOCKSTEP: `_AOV_INK_STYLES` (src/to_vegalite.jl).
+    // carries them. Background styles likewise take the local solid surface;
+    // `_aov.paintDefaults` records their server-side defaults so explicit style
+    // overrides survive. LOCKSTEP: `_AOV_INK_STYLES` and
+    // `_apply_background_default!` (src/to_vegalite.jl).
     // `aov-mark-color` likewise, unless the spec set a mark colour other
     // than Vega-Lite's default (`_AOV_MARK_COLOR`, src/ribbon_view.jl).
     // A palette's `:ink` entries (`scales(Color=(; palette=[:ink, …]))`)
@@ -1633,18 +1675,20 @@ window.AoV = window.AoV || {
     // exactly that range takes the host ink there, so the category's marks
     // and legend symbol do. LOCKSTEP: `_record_ink_palette!`
     // (src/to_vegalite.jl).
-    _hostInk: function(spec, theme) {
+    _hostInk: function(spec, theme, el, config) {
         var styles = spec.config && spec.config.style;
         if (!styles) return;
         var paint = [], ink = null;
+        var defaults = (spec._aov && spec._aov.paintDefaults) || {};
         Object.keys(theme.style).forEach(function(name) {
             var prop = Object.keys(theme.style[name])[0], own = styles[name];
-            var base = name === 'aov-mark-color' ? '#4c78a8' : '#333';
+            var background = Object.prototype.hasOwnProperty.call(defaults, name);
+            var base = background ? defaults[name] : name === 'aov-mark-color' ? '#4c78a8' : '#333';
             if (!own || own[prop] !== base) return;
-            own[prop] = theme.style[name][prop];
+            own[prop] = background ? this._plotBackground(spec, el, config) : theme.style[name][prop];
             if (name === 'aov-ink') ink = own[prop];
-            if (prop !== 'color') paint.push([name, prop, own[prop]]);
-        });
+            if (prop !== 'color') paint.push([name, prop, own[prop], base]);
+        }, this);
         var pal = ink && spec._aov && spec._aov.inkPalette;
         var palKey = pal && Array.isArray(pal.range) && Array.isArray(pal.ink) ? JSON.stringify(pal.range) : null;
         if (!paint.length && !palKey) return;
@@ -1654,7 +1698,7 @@ window.AoV = window.AoV || {
             var style = node.style;
             paint.forEach(function(p) {
                 var styled = style === p[0] || (Array.isArray(style) && style.indexOf(p[0]) !== -1);
-                if (styled && node[p[1]] === '#333') node[p[1]] = p[2];
+                if (styled && node[p[1]] === p[3]) node[p[1]] = p[2];
             });
             var enc = palKey && node.encoding;
             if (enc && typeof enc === 'object') ['color', 'stroke', 'fill'].forEach(function(ch) {
@@ -1675,7 +1719,7 @@ window.AoV = window.AoV || {
         var el = this._elOf(id);
         var cfg = this.hostThemeConfig(el), tip = this._tooltipTheme(el);
         this._themeKeys[id] = this._themeKey(cfg, tip);
-        this._hostInk(spec, cfg);
+        this._hostInk(spec, cfg, el, this._deepMerge(opts.config || {}, spec.config));
         var themed = Object.assign({}, opts, {config: this._deepMerge(cfg, opts.config)});
         if (opts.tooltip === undefined) themed.tooltip = {theme: tip};
         return themed;
@@ -3160,7 +3204,7 @@ window.AoV = window.AoV || {
         var tkey = JSON.stringify(theme);
         if (col.built[tkey]) return col.built[tkey];
         var s = JSON.parse(JSON.stringify(spec));
-        if (theme) this._hostInk(s, theme);
+        if (theme) this._hostInk(s, theme, el);
         var vg = this._passiveMarks(vegaLite.compile(s, theme ? {config: theme} : {}).spec);
         var own = (spec._aov && spec._aov.cells && spec._aov.cells.own) || [];
         if (plan) (vg.scales || []).forEach(function(sc) {
@@ -4697,7 +4741,7 @@ window.AoV = window.AoV || {
         if (!view) return Promise.reject(new Error('AoV.plotImageURL: no view for ' + id));
         if (!(id in this._themeKeys)) return view.toImageURL(format || 'png');
         var prev = view.background();
-        view.background(this.hostBackground(this._els[id]));
+        view.background(this._solidBackground(prev, this._els[id]));
         var restore = function() { view.background(prev); return view.runAsync(); };
         return view.toImageURL(format || 'png').then(function(url) {
             return restore().then(function() { return url; });
@@ -5384,7 +5428,8 @@ window.AoV = window.AoV || {
         if (!mark || typeof mark !== 'object') return false;
         var ink = function(m) {
             var style = m && typeof m === 'object' ? m.style : undefined;
-            return style === 'aov-ink' || (Array.isArray(style) && style.indexOf('aov-ink') !== -1);
+            return style === 'aov-ink' || style === 'aov-background' ||
+                (Array.isArray(style) && (style.indexOf('aov-ink') !== -1 || style.indexOf('aov-background') !== -1));
         };
         return !!mark.color || ink(mark) ||
             Object.keys(mark).some(function(k) { return ink(mark[k]); });

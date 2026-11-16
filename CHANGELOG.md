@@ -15,6 +15,21 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
+## 0.2.62
+
+- Fixed mark colours accept **`:background`**: for example,
+  `visual(Scatter; color="#1f6fb5", strokecolor=:background, strokewidth=1.5)`
+  draws a blue point with an outline matching its plotting background. It
+  works for `color`, `strokecolor`/`stroke` and `fill`. Browser plots follow
+  their local solid page background through theme changes; an explicit plot
+  background wins. Translucent ancestor colours are composited, and PNG/SVG
+  downloads use the same surface. Saved HTML resolves its own page; `vsave`
+  and bare exports use the configured background, white by default. Makie
+  output resolves the destination axis background. Literal colours and
+  `:ink` keep their existing meaning; palettes are unchanged. This is a
+  solid colour, not an eraser over images or gradients (snag
+  `preserve-the-cae-8de323c1`).
+
 ## 0.2.61
 
 - **Captioned plots work without a `config` term.** `with_plot_caption`
