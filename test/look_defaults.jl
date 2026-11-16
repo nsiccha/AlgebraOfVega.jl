@@ -63,6 +63,126 @@ using TestItemRunner
     @test !haskey(get(to_vegalite(plot * config(width=1200, config=Dict("axis" => Dict("tickCount" => 3))))["config"], "axisX", Dict()), "tickCount")
     hist = data((; v=randn(200))) * mapping(:v) * histogram() * config(width=1200)
     @test !haskey(get(to_vegalite(hist)["config"], "axisX", Dict()), "tickCount")
+
+    # An axis that lists its tick values states their count, so no `config`
+    # count thins them: Vega halves a listed set to fit a count, and twelve
+    # monthly values under the cap of 7 drew six (snag `draw-a-line-figu-9ca9fcd0`).
+    months = [11, 42, 70, 101, 131, 162, 192, 223, 254, 284, 315, 345]
+    year = (; day=collect(0:5:365), a=sin.(0:5:365), b=cos.(0:5:365))
+    listed = to_vegalite(data(year) * (mapping(:day, :a) * visual(Lines) + mapping(:day, :b) * visual(Lines)) *
+        config(width=1200, encoding=(; x=(; axis=(; values=months)))))
+    @test listed["config"]["axisX"]["tickCount"] == 7
+    @test length(listed["layer"]) == 2
+    @test all(l -> l["encoding"]["x"]["axis"]["values"] == months && l["encoding"]["x"]["axis"]["tickCount"] == 12, listed["layer"])
+    # A count written beside the values stays; an axis that lists none gets none.
+    counted = to_vegalite(data(year) * mapping(:day, :a) * visual(Lines) *
+        config(width=1200, encoding=(; x=(; axis=(; values=months, tickCount=6)))))
+    @test counted["encoding"]["x"]["axis"]["tickCount"] == 6
+    @test !haskey(get(to_vegalite(plot * config(width=1200))["encoding"]["x"], "axis", Dict()), "tickCount")
+    # A list a signal computes states its length as a signal.
+    computed = to_vegalite(data(year) * mapping(:day, :a) * visual(Lines) *
+        config(width=1200, encoding=(; x=(; axis=(; values=(; signal="[11, 42, 70]"))))))
+    @test computed["encoding"]["x"]["axis"]["tickCount"] == Dict("signal" => "isArray([11, 42, 70]) ? length([11, 42, 70]) : null")
+    # The log values state theirs.
+    @test enc["x"]["axis"]["tickCount"] == length(enc["x"]["axis"]["values"])
+    @test enc["y"]["axis"]["tickCount"] == length(enc["y"]["axis"]["values"])
+    # A stack has one config for all its panels: a tall panel's cap reaches
+    # the panel under it, whose listed values stay.
+    quarters = collect(-1:0.25:1)
+    stack = to_vegalite(vconcat(data(year) * mapping(:day, :a) * visual(Lines) * config(height=300),
+        data(year) * mapping(:day, :b) * visual(Lines) * config(height=120, encoding=(; y=(; axis=(; values=quarters))))))
+    @test stack["config"]["axisY"]["tickCount"] == 5
+    @test stack["vconcat"][2]["encoding"]["y"]["axis"]["tickCount"] == length(quarters)
+    @test !haskey(get(stack["vconcat"][1]["encoding"]["y"], "axis", Dict()), "tickCount")
+end
+
+@testitem "listed tick values are all drawn, whatever the tick count" tags=[:defaults, :browser] begin
+    using AlgebraOfVega, AlgebraOfGraphics, JSON
+    html(x) = sprint(show, MIME"text/html"(), x)
+    chrome = something(Sys.which("google-chrome"), Sys.which("chromium"), "")
+    if isempty(chrome)
+        @test_skip "headless Chrome is not installed"
+    else
+        mktempdir(prefix="kb-listed-ticks-") do dir
+            # One tick per month on a day-of-year axis (snag `draw-a-line-figu-9ca9fcd0`).
+            months = [11, 42, 70, 101, 131, 162, 192, 223, 254, 284, 315, 345]
+            day = collect(0:5:365)
+            year = (; day, a=3 .- cos.(2pi .* day ./ 365), b=6 .- cos.(2pi .* day ./ 365))
+            axis = (; values=months, labelExpr="utcFormat(utc(2025, 11, 21) + datum.value * 86400000, '%-d %b')")
+            figure = data(year) * (mapping(:day, :a) * visual(Lines) + mapping(:day, :b) * visual(Lines; linestyle=:dash)) *
+                config(height=150, encoding=(; x=(; axis)))
+            logrows = (; x=[25.0, 50, 100, 200, 400], y=[0.5, 0.21, 0.1, 0.048, 0.012])
+            # A spec AoV did not lower: the runtime states the count itself.
+            raw = Dict{String,Any}("width" => "container", "height" => 150,
+                "data" => Dict("values" => [Dict("day" => d, "a" => a) for (d, a) in zip(year.day, year.a)]), "mark" => "line",
+                "encoding" => Dict("x" => Dict("field" => "day", "type" => "quantitative", "axis" => Dict("values" => months)),
+                    "y" => Dict("field" => "a", "type" => "quantitative")))
+            page = [vdraw(figure; id="lt-months"),
+                vdraw(figure * config(width=1200); id="lt-width"),
+                vdraw(data(logrows) * mapping(:x, :y) * visual(Lines) * config(height=400, scales=scales(Y=(; scale=log10))); id="lt-log"),
+                vdraw(raw; id="lt-raw"),
+                # The list as a signal expression.
+                vdraw(data(year) * mapping(:day, :a) * visual(Lines) *
+                    config(height=150, encoding=(; x=(; axis=(; values=(; signal="[" * join(months, ", ") * "]"))))); id="lt-signal"),
+                vdraw(data(year) * mapping(:day, :a) * visual(Lines) * config(height=150); id="lt-plain")]
+            ids = ["lt-months", "lt-width", "lt-log", "lt-raw", "lt-signal", "lt-plain"]
+            head = join(html(n) for n in vega_head(; source=:inline))
+            driver = """
+            (async function () {
+                const out = {};
+                for (const id of $(JSON.json(ids))) {
+                    for (let i = 0; i < 500 && !(AoV.views[id] && !AoV._inFlight[id]); i++) await new Promise(r => setTimeout(r, 10));
+                    await new Promise(r => setTimeout(r, 300));
+                    // Axis labels per scale: an axis group's datum names its scale.
+                    const view = AoV.views[id], labels = {x: [], y: []};
+                    (function walk(it, scale) {
+                        const s = it.datum && it.datum.scale ? it.datum.scale : scale;
+                        if (it.mark && it.mark.role === 'axis-label' && it.opacity !== 0 && labels[scale]) labels[scale].push(it.text);
+                        (it.items || []).forEach(c => walk(c, it.mark && it.mark.role === 'axis' ? s : scale));
+                    })(view.scenegraph().root, null);
+                    out[id] = {width: view.width(), labels};
+                }
+                // The channel picker drops a field's tick values with their count.
+                const moved = {field: 'a', axis: {values: [1, 2, 3], tickCount: 3, title: 't'}};
+                AoV._clearRemappedAxisDomain(moved, 'b');
+                const thinned = {field: 'a', axis: {values: [1, 2, 3], tickCount: 2}};
+                AoV._clearRemappedAxisDomain(thinned, 'b');
+                const computed = {field: 'a', axis: {values: {signal: 'm'}, tickCount: {signal: 'isArray(m) ? length(m) : null'}}};
+                AoV._clearRemappedAxisDomain(computed, 'b');
+                out.picker = {moved: moved.axis, thinned: thinned.axis, computed: computed.axis};
+                const pre = document.createElement('pre'); pre.id = 'aov-listed-results';
+                pre.textContent = JSON.stringify(out); document.body.appendChild(pre);
+            })();
+            """
+            write(joinpath(dir, "page.html"), "<!doctype html><meta charset='utf-8'>" * head *
+                "<body style='width:1400px'>" * join(html(p) for p in page) * "<script>" * driver * "</script></body>")
+            output = read(pipeline(`$chrome --headless=new --no-sandbox --disable-gpu
+                --user-data-dir=$(joinpath(dir, "profile")) --window-size=1500,2400
+                --virtual-time-budget=20000 --dump-dom $("file://" * joinpath(dir, "page.html"))`,
+                stderr=joinpath(dir, "chrome.log")), String)
+            result = match(r"<pre id=\"aov-listed-results\">([^<]*)</pre>", output)
+            @test !isnothing(result)
+            if !isnothing(result)
+                report = JSON.parse(replace(result[1], "&quot;" => "\""))
+                @info "listed tick values in the browser" report
+                monthly = ["1 Jan", "1 Feb", "1 Mar", "1 Apr", "1 May", "1 Jun", "1 Jul", "1 Aug", "1 Sep", "1 Oct", "1 Nov", "1 Dec"]
+                # Container-sized (the runtime's cap) and an authored width (the lowering's).
+                @test report["lt-months"]["width"] > 1000
+                @test report["lt-months"]["labels"]["x"] == monthly
+                @test report["lt-width"]["labels"]["x"] == monthly
+                # AoV's own log values: 1-2-5 within two decades, under the y cap of 5.
+                @test report["lt-log"]["labels"]["y"] == ["0.01", "0.02", "0.05", "0.1", "0.2", "0.5", "1"]
+                @test report["lt-raw"]["width"] > 1000
+                @test length(report["lt-raw"]["labels"]["x"]) == 12
+                @test report["lt-signal"]["labels"]["x"] == string.(months)
+                # An axis that lists nothing keeps the default count.
+                @test 3 <= length(report["lt-plain"]["labels"]["x"]) <= 9
+                @test report["picker"]["moved"] == Dict("title" => "t")
+                @test report["picker"]["thinned"] == Dict("tickCount" => 2)
+                @test isempty(report["picker"]["computed"])
+            end
+        end
+    end
 end
 
 @testitem "a container-sized plot asks for 7 x ticks, not one per 40 px" tags=[:defaults, :browser] begin

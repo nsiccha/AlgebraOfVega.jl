@@ -460,12 +460,51 @@ function _apply_log_ticks!(spec::Dict)
     end
     spec
 end
+# An axis that lists its tick `values` draws each of them. Vega halves a listed
+# set until it fits the axis's tick count (twelve monthly values under a count
+# of 7 leave six, every second one), and a count reaches an axis from `config`:
+# the cap below, the runtime's for a container-sized plot, a sibling panel's in
+# a `vconcat` stack, or an authored `config.axisX`. So a listing axis states the
+# count of its own values, which Vega takes before any `config` count. That
+# covers the log values above as well as authored ones; a `tickCount` written
+# beside the values stays, and thins them as Vega does. A list that a signal
+# computes (`values=(; signal="…")`) states its length as a signal, `null`
+# (no count) while the signal holds no list. The runtime states the same count
+# for a spec that was not lowered here (`_listedTicks`, vendor/aov-runtime.js).
+_listed_tick_count(values::AbstractVector) = isempty(values) ? nothing : length(values)
+function _listed_tick_count(values::Dict)
+    expr = get(values, "signal", nothing)
+    expr isa AbstractString || return nothing
+    Dict{String,Any}("signal" => "isArray($expr) ? length($expr) : null")
+end
+_listed_tick_count(_) = nothing
+_apply_listed_ticks!(spec) = spec
+function _apply_listed_ticks!(node::Dict)
+    enc = get(node, "encoding", nothing)
+    if enc isa Dict
+        for ch in ("x", "y")
+            c = get(enc, ch, nothing)
+            axis = c isa Dict ? get(c, "axis", nothing) : nothing
+            axis isa Dict || continue
+            count = haskey(axis, "tickCount") ? nothing : _listed_tick_count(get(axis, "values", nothing))
+            isnothing(count) || (axis["tickCount"] = count)
+        end
+    end
+    for key in ("layer", "hconcat", "vconcat", "concat")
+        subs = get(node, key, nothing)
+        subs isa AbstractVector && foreach(_apply_listed_ticks!, subs)
+    end
+    _apply_listed_ticks!(get(node, "spec", nothing))
+    node
+end
 # Vega-Lite asks for one axis tick per 40 px (ceil(size / 40)), so a plot
 # 1,400 px wide gets 35 ticks and grid lines. Ask for 7 on x and 5 on y for an
 # authored size (Vega rounds to a nice step: 0–100 gets 6), unless the spec sets a tick count (`config.axis`,
 # `config.axisX`/`axisY`, set by `config(config=…)`). A binned axis keeps
-# Vega-Lite's ticks at its bin edges. The runtime caps a container-sized plot
-# the same way, from the size it draws at (`_capTicks`, vendor/aov-runtime.js).
+# Vega-Lite's ticks at its bin edges, and an axis that lists its tick values
+# keeps each of them (`_apply_listed_ticks!`). The runtime caps a
+# container-sized plot the same way, from the size it draws at (`_capTicks`,
+# vendor/aov-runtime.js).
 const _TICK_CAP = (x=7, y=5)
 _apply_tick_cap!(spec) = spec
 function _apply_tick_cap!(spec::Dict)
@@ -2517,10 +2556,10 @@ _finish_vegalite!(spec, ::Dict) = spec
 _finish_vegalite!(spec, v) = _record_summary!(
     _each_ribbon_view!(_apply_axis_defaults!, _finish_ribbon_views!(_each_ribbon_view!(_apply_finish_defaults!, spec))), v)
 # Log tick values and tick counts, again once a ribbon's interval drawing is
-# built (it gets x encodings of its own); both passes keep what is set.
-_apply_axis_defaults!(spec) = _apply_ref_labels!(_apply_label_legends!(_apply_tooltip_time!(_apply_tick_cap!(_apply_log_ticks!(spec)))))
+# built (it gets x encodings of its own); every pass keeps what is set.
+_apply_axis_defaults!(spec) = _apply_ref_labels!(_apply_label_legends!(_apply_tooltip_time!(_apply_tick_cap!(_apply_listed_ticks!(_apply_log_ticks!(spec))))))
 _apply_finish_defaults!(spec) = _apply_tooltip_time!(_apply_finish_defaults_inner!(spec))
-_apply_finish_defaults_inner!(spec) = _apply_ink_paint!(_fit_gradient_labels!(_one_colour_bar!(_heatmap_seams!(_apply_tick_cap!(_apply_log_ticks!(_apply_log_bar_base!(_apply_no_zero_default!(_apply_wrap_default!(spec)))))))))
+_apply_finish_defaults_inner!(spec) = _apply_ink_paint!(_fit_gradient_labels!(_one_colour_bar!(_heatmap_seams!(_apply_tick_cap!(_apply_listed_ticks!(_apply_log_ticks!(_apply_log_bar_base!(_apply_no_zero_default!(_apply_wrap_default!(spec))))))))))
 
 # Half a legend label's width. Vega expressions cannot measure text, so it counts
 # characters at 0.54 em each: about Arial's digits (0.556 em), and wide for `.`, `,`
