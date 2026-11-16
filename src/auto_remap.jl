@@ -161,14 +161,25 @@ end
 # channels are disabled because at least one axis is bound to computed
 # summary columns (lo_*/hi_*/__point__/__median__). A map's area layer
 # (geoshape, geobox) blocks for the simpler reason that it has no x/y channels.
-# Per-axis refuse-tagging is a planned follow-up (see TODO in
+# Bars on a continuous axis block too: their position axis is drawn from edges
+# the dataflow computes from the bars' column (`_bar_edges!`), and the browser's
+# axis remap rewrites only the axis field, so the edges would stay on the old
+# column. Per-axis refuse-tagging is a planned follow-up (see TODO in
 # Claude/algebraofvega.md).
 function _has_axis_blocker(layers)
     for layer in layers
         !isnothing(extract_transformation(layer, TidybayesAnalysis)) && return true
         !isnothing(extract_transformation(layer, MapAreaAnalysis)) && return true
+        _edged_bar_layer(layer) && return true
     end
     false
+end
+
+function _edged_bar_layer(layer)
+    vis = extract_visual(layer)
+    (isnothing(vis) || !(vis.plottype <: BarPlot) || is_pregrouped(layer)) && return false
+    isnothing(_layer_handler(layer)) || return false
+    haskey(_plain_layer_to_vl(layer), "_aov_edges")
 end
 
 # Append a new column to a column-table (NamedTuple of vectors).

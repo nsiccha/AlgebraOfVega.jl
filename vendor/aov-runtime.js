@@ -4056,7 +4056,10 @@ window.AoV = window.AoV || {
             var x = enc.x, y = enc.y;
             if (!this._READOUT_MARKS[mark] || !x || !x.field || !y || !y.field) return;
             if (x.type !== 'quantitative' && x.type !== 'temporal') return;
-            var xf = dodge && x.field === dodge.as ? dodge.field : x.field;
+            // Bars on a continuous x are placed by edges AoV computes
+            // (`_bar_edges!`, src/layer_to_vl.jl): their x is their own column.
+            var edges = u._aov_edges && u._aov_edges.channel === 'x' && x.field === u._aov_edges.lo ? u._aov_edges : null;
+            var xf = edges ? edges.field : dodge && x.field === dodge.as ? dodge.field : x.field;
             if (plan.x === null) { plan.x = xf; plan.xType = x.type; plan.xTitle = x.title || xf; }
             if (xf !== plan.x) return;
             if (this._READOUT_PATHS[mark]) paths = true;
@@ -4064,7 +4067,7 @@ window.AoV = window.AoV || {
             if (color && plan.series === null) plan.series = color;
             var tip = [].concat(enc.tooltip || []).filter(function(t) { return t && t.field === y.field; })[0];
             var name = prefix + (layered ? 'layer_' + i + '_marks' : 'marks');
-            plan.units[name] = {mark: mark, x: xf, y: y.field, y2: enc.y2 && enc.y2.field, color: color,
+            plan.units[name] = {mark: mark, x: xf, edges: edges, y: y.field, y2: enc.y2 && enc.y2.field, color: color,
                 title: y.title || (tip && tip.title) || y.field, label: typeof u._aov_label === 'string' ? u._aov_label : null,
                 index: plan.order.length};
             plan.order.push(name);
@@ -4182,8 +4185,13 @@ window.AoV = window.AoV || {
                 (m.items || []).forEach(function(it) {
                     var d = it.datum, v = d && d[u.x];
                     if (v instanceof Date) v = +v;
+                    // An edged bar's time column may be the text written; its
+                    // edges are epoch milliseconds either way.
+                    if (u.edges && d && typeof v !== 'number') v = (+d[u.edges.lo] + +d[u.edges.hi]) / 2;
                     if (typeof v !== 'number' || !isFinite(v) || typeof it.x !== 'number') return;
-                    out.push({unit: u, item: it, datum: d, x: dx + it.x, value: v});
+                    // An edged bar stands at its middle, not its left edge.
+                    var ix = it.x + (u.edges && typeof it.width === 'number' ? it.width / 2 : 0);
+                    out.push({unit: u, item: it, datum: d, x: dx + ix, value: v});
                 });
             });
         })(scope.group, scope.x);

@@ -15,6 +15,33 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
+## 0.2.57
+
+- **Bars on a numeric or time axis are as wide as Makie draws them.**
+  `visual(BarPlot)` over a continuous x drew every bar 5 px wide on `vdraw`,
+  `with_plot_caption` and `vsave`, whatever the plot's width: Vega-Lite's
+  `continuousBandSize`. Hourly bars 27 px apart read as separate sticks and a
+  one-hour shower as a thin line. Each bar is now `width * (1 - gap)` wide in
+  data units, centred on its position, as Makie and AlgebraOfGraphics draw it:
+  `width` is the smallest step between the bars' positions (over the layer's
+  rows; 1 when there is one position) and `gap` 0.2, so hourly bars are 0.8 h
+  wide. They follow the plot's width, its zoom, `update_data`/`append_data`,
+  rows a page computes (`data(bound(…))`), rows read `by_url` and a `vconcat`
+  panel. `visual(BarPlot; width=w, gap=g)` sets them as in Makie, in the
+  position axis's units (a time span such as `Hour(1)` on a time axis);
+  a negative width or a gap outside `[0, 1)` is an `ArgumentError`.
+  Horizontal bars (`direction=:x`) on a numeric y take the same thickness.
+  **Visible on upgrade:** every bar chart on a continuous axis draws wide bars
+  instead of 5 px ones. Before, `width=N` on a bar reached Vega-Lite as a
+  width in pixels; a number is now Makie's data-units width. A width in
+  pixels is Vega-Lite's `continuousBandSize`:
+  `visual(BarPlot; continuousBandSize=8)` keeps Vega-Lite's drawing at 8 px,
+  as does a Vega-Lite `width` object. Bars on a categorical axis, dodged, binned or
+  aggregated bars, and `sdraw` are unchanged; `width`/`gap` on a categorical
+  axis log a warning and are not applied. The channel picker's axis remap
+  (`auto_remap_node(...; axes=true)`) is off for a figure with such bars, as for
+  interval analyses and maps (snag `draw-hourly-amou-2b963e4e`).
+
 ## 0.2.56
 
 - **An axis that lists its tick values draws each of them.**

@@ -63,12 +63,14 @@ function _plain_layer_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false,
     # Visual / mark (default to Scatter like AoG)
     vis = extract_visual(layer)
     plot_type = !isnothing(vis) ? vis.plottype : Nothing
-    # A bar's `direction` and `fillto` place its positionals and its base, so
-    # they are lowered here, as encodings, rather than as mark properties.
+    # A bar's `direction`, `fillto`, `width` and `gap` place its positionals,
+    # its base and its edges, so they are lowered here, as encodings, rather
+    # than as mark properties.
     bar = !isnothing(vis) && plot_type <: BarPlot
     horizontal = bar && _bar_direction(vis) === :x
+    bar_size = bar ? _bar_size(vis) : nothing
     spec["mark"] = isnothing(vis) ? "point" :
-        _visual_mark(bar ? _without_attributes(vis, _BAR_ENCODED_ATTRS) : vis)
+        _visual_mark(bar ? _without_attributes(vis, _bar_encoded_attrs(vis)) : vis)
     horizontal && (spec["mark"] = _with_mark_property(spec["mark"], "orient", "horizontal"))
 
     # Encoding from positional + named
@@ -138,8 +140,9 @@ function _plain_layer_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false,
         !isempty(tt) && (encoding["tooltip"] = tt)
     end
 
-    # After the tooltip, which names each cell's centre, not its edges.
+    # After the tooltip, which names each cell's (bar's) centre, not its edges.
     !isnothing(vis) && plot_type <: Heatmap && _heatmap_cells!(spec, encoding)
+    bar && _bar_edges!(spec, encoding, bar_size)
 
     !isempty(encoding) && (spec["encoding"] = encoding)
     spec
@@ -228,11 +231,116 @@ function _heatmap_cells!(spec::Dict, encoding::Dict)
     spec
 end
 
-# --- Bars: direction and base ---
+# --- Bars: direction, base and width ---
 
 # The `visual(BarPlot)` attributes `_plain_layer_to_vl` lowers as encodings:
-# `direction` places the positionals (and the mark's `orient`), `fillto` the base.
-const _BAR_ENCODED_ATTRS = (:direction, :fillto)
+# `direction` places the positionals (and the mark's `orient`), `fillto` the
+# base, and Makie's `width` and `gap` the edges (`_bar_edges!`). A `width` that
+# is not Makie's (a Vega-Lite `{band: …}` object) stays the mark's.
+_bar_encoded_attrs(vis::AlgebraOfGraphics.Visual) =
+    _makie_bar_width(get(vis.attributes, :width, Makie.automatic)) ?
+        (:direction, :fillto, :width, :gap) : (:direction, :fillto, :gap)
+
+_makie_bar_width(w) = w === Makie.automatic || w isa Real || w isa Dates.Period
+
+# Makie's `barplot` draws each bar `width * (1 - gap)` wide, centred on its
+# position, in data units: `width` defaults to the smallest gap between the
+# distinct positions (AlgebraOfGraphics computes it over the whole layer,
+# `compute_plot_dependent_attributes!`, 1 for a single position) and `gap` to
+# 0.2. `width` is `nothing` here for that default, else the authored width (a
+# `Dates.Period` for a time axis, as milliseconds). An authored Vega-Lite
+# `width` object is `vl_width=true`: the author sized the bars in pixels.
+function _bar_size(vis::AlgebraOfGraphics.Visual)
+    w = get(vis.attributes, :width, Makie.automatic)
+    g = get(vis.attributes, :gap, 0.2)
+    authored = haskey(vis.attributes, :width) || haskey(vis.attributes, :gap)
+    g isa Real && isfinite(g) && 0 <= g < 1 || throw(ArgumentError(
+        "visual(BarPlot): gap=$(repr(g)) is not a share of the bar's width; give a number from 0 (bars touch) up to, not including, 1, as in Makie (default 0.2)."))
+    _makie_bar_width(w) || return (; width=nothing, gap=Float64(g), period=false, authored, vl_width=true)
+    period = w isa Dates.Period
+    if period
+        w isa Dates.FixedPeriod || throw(ArgumentError(
+            "visual(BarPlot): width=$(repr(w)) has no fixed length; give a time span such as `Hour(1)` or `Day(1)`."))
+        w = Dates.toms(w)
+    end
+    w === Makie.automatic || (w isa Real && isfinite(w) && w > 0) || throw(ArgumentError(
+        "visual(BarPlot): width=$(repr(w)) is not a bar width; give a positive number in the position axis's data units (a time span such as `Hour(1)` on a time axis), as in Makie."))
+    (; width=w === Makie.automatic ? nothing : Float64(w), gap=Float64(g), period, authored, vl_width=false)
+end
+
+# A Vega-Lite bar on a continuous position axis is `continuousBandSize` (5 px)
+# wide whatever the axis, so hourly bars 27 px apart read as separate sticks
+# while Makie draws them `width * (1 - gap)` wide in data units (snag
+# `draw-hourly-amou-2b963e4e`). So on a continuous (numeric or time) position
+# axis the bar is placed by its edges, `x`/`x2` (`y`/`y2` for `direction=:x`),
+# which the dataflow computes from the rows, as `_heatmap_cells!` does for
+# heatmap cells: a `window` gives each row the position before it in sorted
+# order, a `joinaggregate` the smallest positive step between them, and two
+# `calculate`s the edges. Being dataflow, they follow
+# `update_data`/`append_data`, rows a page computes (`bound`), rows fetched
+# `by_url` and each frame of `config(frame=…)`, and follow the plot's width
+# and zoom, since they are data units. The window comes first, so the rows the
+# dataset holds (the CSV download) stay as given.
+#
+# The step is the layer's, over all its rows, as in AlgebraOfGraphics; in a
+# facet operator (a faceted figure of several layers) Vega-Lite adds the facet
+# fields to the window and join, so each panel takes its own. The unit carries
+# `_aov_edges`, naming the bars' own column, so the runtime's readout (and its
+# link group) reads the bar's position, not its left edge. The mark's orient is
+# stated, because Vega-Lite reads a bar ranged on x and not on y as horizontal.
+#
+# Left as Vega-Lite draws them: bars on a categorical axis (band scale), binned,
+# aggregated or dodged bars (`xOffset`, which Vega-Lite drops on a continuous
+# axis), bars ranged by an authored `x2`, and bars whose thickness the author
+# gave in Vega-Lite's terms (`continuousBandSize` in pixels, a `width` object,
+# or `height` on horizontal bars).
+const _BAR_STEP_FIELDS = (lag="__aov_bar_lag", gap="__aov_bar_gap", step="__aov_bar_step")
+
+function _bar_edges!(spec::Dict, encoding::Dict, bs)
+    # The axis a bar stands on is the one Vega-Lite does not stretch it along:
+    # `direction=:x` states it, and without one Vega-Lite reads it from the
+    # column types (`mapping(:seconds, :method)` draws horizontal bars, §4).
+    horizontal = _vl_bar_orient(spec["mark"], encoding) == "horizontal"
+    ch = horizontal ? "y" : "x"
+    e = get(encoding, ch, nothing)
+    continuous = e isa Dict && haskey(e, "field") && get(e, "type", nothing) in ("quantitative", "temporal") &&
+        !_vl_binning(e) && !_vl_binned(e) && !_vl_agg(e) && !haskey(e, "timeUnit")
+    mark = spec["mark"]
+    vl_thickness = bs.vl_width || mark isa AbstractDict &&
+        (haskey(mark, "continuousBandSize") || horizontal && haskey(mark, "height"))
+    if !continuous || haskey(encoding, ch * "2") || haskey(encoding, ch * "Offset") || vl_thickness
+        bs.authored && !bs.vl_width &&
+            @warn "AlgebraOfVega: `visual(BarPlot)` sets `width`/`gap`; vdraw and vsave apply them to undodged bars on a continuous (numeric or time) position axis, and these bars stand on a $(continuous ? "dodged or ranged" : "categorical") axis, so they keep Vega-Lite's bar width." _id=(:aov_bar_width, continuous) maxlog=1
+        return spec
+    end
+    temporal = e["type"] == "temporal"
+    bs.period && !temporal && throw(ArgumentError(
+        "visual(BarPlot): width is a time span (a `Dates.Period`), but the bars stand on a numeric axis; give the width as a number in that axis's units."))
+    f, n, (lo, hi) = e["field"], _BAR_STEP_FIELDS, (_HEATMAP_CELL_FIELDS[ch].lo, _HEATMAP_CELL_FIELDS[ch].hi)
+    # A time is read as epoch milliseconds, whether Vega-Lite parsed the
+    # column into dates or left the written text.
+    num(x) = temporal ? "time($x)" : x
+    v, lag = "datum[" * _vl_json(f) * "]", "datum.$(n.lag)"
+    full = isnothing(bs.width) ? "(isValid(datum.$(n.step)) ? datum.$(n.step) : 1)" : _vl_json(bs.width)
+    half = "$full * $(_vl_json((1 - bs.gap) / 2))"
+    transforms = Any[
+        Dict{String,Any}("window" => Any[Dict{String,Any}("op" => "lag", "field" => f, "as" => n.lag)],
+            "sort" => Any[Dict{String,Any}("field" => f, "order" => "ascending")], "groupby" => Any[]),
+        Dict{String,Any}("calculate" => "isValid($v) && isValid($lag) && $(num(v)) > $(num(lag)) ? " *
+            "$(num(v)) - $(num(lag)) : null", "as" => n.gap),
+        Dict{String,Any}("joinaggregate" => Any[
+            Dict{String,Any}("op" => "min", "field" => n.gap, "as" => n.step)], "groupby" => Any[]),
+        Dict{String,Any}("calculate" => "!isValid($v) ? null : $(num(v)) - $half", "as" => lo),
+        Dict{String,Any}("calculate" => "!isValid($v) ? null : $(num(v)) + $half", "as" => hi),
+    ]
+    spec["transform"] = Any[something(_as_vec(get(spec, "transform", nothing)), Any[])...; transforms...]
+    # The axis keeps the column's title, not the edge field's name.
+    encoding[ch] = merge(e, Dict{String,Any}("field" => lo, "title" => get(e, "title", f)))
+    encoding[ch * "2"] = Dict{String,Any}("field" => hi)
+    spec["mark"] = _with_mark_property(mark, "orient", horizontal ? "horizontal" : "vertical")
+    spec["_aov_edges"] = Dict{String,Any}("channel" => ch, "field" => f, "lo" => lo, "hi" => hi)
+    spec
+end
 
 # Makie's `barplot` reads `direction` as `:y` (vertical bars, the default) or
 # `:x` (horizontal) and refuses anything else.
