@@ -2410,10 +2410,15 @@ _apply_facet_sugar!(spec, nt::NamedTuple) =
     _merge_facet_resolve!(spec, _facet_nt_to_resolve_scale(nt))
 
 _apply_axis_sugar!(args...) = nothing
-_apply_axis_sugar!(spec, nt::NamedTuple) =
-    let override = _axis_nt_to_encoding_override(nt)
-        isempty(override) || _merge_encoding_config!(spec, override)
+# `limits` reach only the encodings drawn through that axis's scale, as the X/Y `scales`
+# keys do (`_apply_scales_sugar!`). Through the raw encoding merge, a `VLines` rule (no `y`)
+# got a field-less `"y": {"scale": {"domain": …}}`, which Vega-Lite dropped with a console
+# warning on every render (snag `axis-limits-inje-a456c174`).
+function _apply_axis_sugar!(spec, nt::NamedTuple)
+    for (ch, override) in _axis_nt_to_encoding_override(nt)
+        _foreach_encoding(col -> _deep_merge_dict!(col, _owned_copy(override)), spec, ch, _reads_scale)
     end
+end
 
 # Sugar for VL resolve: independent_scales=true, =:x, =(:x,:y)
 _independent_axes(val::Bool) = val === true ? ["x", "y"] : String[]

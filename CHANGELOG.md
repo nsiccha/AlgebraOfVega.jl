@@ -15,7 +15,7 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
-## 0.2.64
+## 0.2.66
 
 - **A long data preview shows 1,000 rows at a time.** "Show data" (and the
   summary pane's table) built every row when it opened: on a 120,802-row
@@ -30,6 +30,31 @@ failing at run time with a `MethodError`.
   gains the pager's words: `table_rows`, `table_pages`, `previous_page`,
   `next_page`, `table_page`, `table_sorts_all` and `table_csv`, in English
   and German.
+
+## 0.2.65
+
+- **Axis limits reach only the layers drawn with that axis.**
+  `config(axis=(; limits=(nothing, (0, 100))))` sets the y domain on every
+  layer that draws a y, and no longer gives a layer drawn without that axis
+  (a `VLines` rule has no y, an `HLines` rule no x) a field-less
+  `"y": {"scale": …}` (or `"x"`). Vega-Lite
+  dropped that with a console warning (`Dropping {"scale":{"domain":[0,100],…}}
+  from channel "y" since it does not contain any data field, datum, value, or
+  signal.`) on every render. The drawn figure is unchanged: layers share the
+  axis scale, so the limits still hold for the rule. This matches the X/Y
+  `scales` keys, which have reached only such layers since 0.2.28 (snag
+  `axis-limits-inje-a456c174`).
+
+## 0.2.64
+
+- **A reference with no rows logs nothing.** A layer whose rows are empty,
+  such as `data(bound(p; columns=(:patient_exposure,)))` drawn as `VLines`
+  while `patient_exposure` is `Float64[]`, draws no mark. It no longer makes
+  Vega warn `Infinite extent for field "patient_exposure": [Infinity,
+  -Infinity]` on each update. The other layers set the shared axis, as before.
+  Rows whose positions are all missing or non-finite still warn.
+- A plot's own Vega warnings now carry its id (`[plot-id] WARN …`). Before,
+  they carried the id of whichever plot was being drawn at that moment.
 
 ## 0.2.63
 
