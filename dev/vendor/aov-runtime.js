@@ -5007,7 +5007,7 @@ window.AoV = window.AoV || {
     // (`plot_texts`, src/plot_texts.jl); without that attribute they are
     // English. LOCKSTEP: `_TEXTS_EN` is the English set of
     // `_RUNTIME_TEXT_NAMES` in src/plot_texts.jl; test/plot_texts.jl pins them.
-    _TEXTS_EN: {"no_data": "(no data available)", "no_summary": "(no summary data available)", "median": "Median", "mean": "Mean", "interval": "{point} [{width} credible interval]", "value": "value", "untitled": "AoV plot", "lang": "en", "play": "Play", "pause": "Pause", "ribbons": "Ribbons", "intervals": "Intervals", "ribbon_view": "Drawing", "overlap": "Bands overlap {score} of the y range", "overlap_auto": "Bands overlap {score} of the y range; intervals above {threshold}", "scrollable": "Scrollable plot", "scrollable_table": "Scrollable table", "reset_zoom": "Reset zoom"},
+    _TEXTS_EN: {"no_data": "(no data available)", "no_summary": "(no summary data available)", "median": "Median", "mean": "Mean", "interval": "{point} [{width} credible interval]", "value": "value", "untitled": "AoV plot", "lang": "en", "play": "Play", "pause": "Pause", "ribbons": "Ribbons", "intervals": "Intervals", "ribbon_view": "Drawing", "overlap": "Bands overlap {score} of the y range", "overlap_auto": "Bands overlap {score} of the y range; intervals above {threshold}", "scrollable": "Scrollable plot", "scrollable_table": "Scrollable table", "reset_zoom": "Reset zoom", "table_rows": "Rows {from}–{to} of {total}", "table_pages": "Table pages", "previous_page": "Previous", "next_page": "Next", "table_page": "Page {page}", "table_sorts_all": "A click on a column heading sorts all {total} rows.", "table_csv": "{csv} holds every row."},
     _texts: function(el) {
         var host = el && el.closest ? el.closest('[data-aov-texts]') : null;
         var texts = host ? JSON.parse(host.dataset.aovTexts) : {};
@@ -5036,7 +5036,7 @@ window.AoV = window.AoV || {
                 h.style.margin = '0.5rem 0 0.25rem';
                 container.appendChild(h);
             }
-            container.appendChild(self._buildSortableTable(g.rows));
+            container.appendChild(self._buildSortableTable(g.rows, null, container));
         });
         this._frameTables(container);
         container.dataset.aovRendered = '1';
@@ -5088,7 +5088,14 @@ window.AoV = window.AoV || {
         });
     },
 
-    _buildSortableTable: function(rows, cols) {
+    // A data table of up to this many rows is built whole; a longer one shows
+    // them a page at a time (`_pagedTable`).
+    _TABLE_PAGE: 1000,
+
+    // The rows as a table, sortable by a click on a column heading. `host` is
+    // the element the table goes into, for the words of a paged table's pager
+    // (`_texts`); without it they are English.
+    _buildSortableTable: function(rows, cols, host) {
         var table = document.createElement('table');
         table.className = 'striped';
         table.setAttribute('role', 'grid');
@@ -5113,19 +5120,27 @@ window.AoV = window.AoV || {
             numericCols.sort();
             cols = stringCols.concat(numericCols);
         }
+        if (rows.length > this._TABLE_PAGE) return this._pagedTable(table, rows, cols, host);
+        table.appendChild(this._tableHead(cols, function(i, th) {
+            if (typeof window.sortTable === 'function') window.sortTable(i, th);
+        }));
+        table.appendChild(this._tableBody(rows, cols));
+        return table;
+    },
+    _tableHead: function(cols, sort) {
         var thead = document.createElement('thead');
         var trh = document.createElement('tr');
         cols.forEach(function(c, i) {
             var th = document.createElement('th');
             th.textContent = c;
             th.style.cursor = 'pointer';
-            th.onclick = function() {
-                if (typeof window.sortTable === 'function') window.sortTable(i, th);
-            };
+            th.onclick = function() { sort(i, th); };
             trh.appendChild(th);
         });
         thead.appendChild(trh);
-        table.appendChild(thead);
+        return thead;
+    },
+    _tableBody: function(rows, cols) {
         var tbody = document.createElement('tbody');
         rows.forEach(function(r) {
             var tr = document.createElement('tr');
@@ -5137,8 +5152,155 @@ window.AoV = window.AoV || {
             });
             tbody.appendChild(tr);
         });
-        table.appendChild(tbody);
-        return table;
+        return tbody;
+    },
+
+    // A table of more than `_TABLE_PAGE` rows: building a row per data row
+    // took a 120,802-row map's tab from 0.4 to 7.1 GiB and 20 s (snag
+    // large-captioned-ce633d40). The rows stay a JavaScript array, and the
+    // table holds one page of them, with a pager above and below it. A click
+    // on a column heading sorts the whole array, in the order HTMXObjects'
+    // `sortTable` gives a table it holds whole (`_sortPages`), and shows the
+    // first page. The table goes into its scroll frame as any other
+    // (`_frameTables`); the pagers stay outside it, in reach. The pages
+    // state lives on the wrapper (`_aovPages`): a saved page (⬇ HTML) drops
+    // the rendered preview and builds it again.
+    _pagedTable: function(table, rows, cols, host) {
+        var self = this, wrap = document.createElement('div');
+        wrap.className = 'aov-table-pages';
+        var text = this._texts(host), lang = text('lang');
+        var figure = host && host.closest ? host.closest('figure') : null;
+        var csv = figure && figure.querySelector('button[data-aov-csv]');
+        // `rows` belongs to the caller: sorting works on a copy.
+        wrap._aovPages = {rows: rows, view: rows.slice(), cols: cols, page: 0, text: text,
+            number: function(n) { return Number(n).toLocaleString(lang); }};
+        table.appendChild(this._tableHead(cols, function(i, th) { self._sortPages(wrap, i, th); }));
+        table.appendChild(document.createElement('tbody'));
+        var pager = function(live) {
+            var nav = document.createElement('nav');
+            nav.className = 'aov-table-pager';
+            nav.setAttribute('aria-label', text('table_pages'));
+            nav.addEventListener('click', function(e) {
+                var b = e.target.closest('button[data-aov-page]');
+                if (b && !b.disabled) self._turnPage(wrap, b);
+            });
+            if (live) nav.dataset.aovLive = '1';
+            return nav;
+        };
+        var note = document.createElement('p');
+        note.className = 'aov-table-pages-note';
+        var total = wrap._aovPages.number(rows.length);
+        note.textContent = text('table_sorts_all', {total: total}) + (csv ?
+            ' ' + text('table_csv', {csv: csv.getAttribute('data-aov-csv-text') || csv.textContent}) : '');
+        wrap.appendChild(pager(true));
+        wrap.appendChild(table);
+        wrap.appendChild(note);
+        wrap.appendChild(pager(false));
+        this._showPage(wrap);
+        return wrap;
+    },
+    // Fills the table with the current page and both pagers with the pages:
+    // the first and the last, two either side of the current one, and "…"
+    // for the rest. The frame scrolls back to the page's first row.
+    _showPage: function(wrap) {
+        var st = wrap._aovPages, size = this._TABLE_PAGE, text = st.text;
+        var pages = Math.ceil(st.view.length / size);
+        st.page = Math.max(0, Math.min(st.page, pages - 1));
+        var from = st.page * size, to = Math.min(from + size, st.view.length);
+        var table = wrap.querySelector('table');
+        table.replaceChild(this._tableBody(st.view.slice(from, to), st.cols), table.tBodies[0]);
+        var frame = table.closest('.aov-table-frame');
+        if (frame) frame.scrollTop = 0;
+        var shown = [];
+        for (var p = 0; p < pages; p++) {
+            if (p === 0 || p === pages - 1 || Math.abs(p - st.page) <= 2) shown.push(p);
+        }
+        wrap.querySelectorAll('.aov-table-pager').forEach(function(nav) {
+            nav.textContent = '';
+            var range = document.createElement('span');
+            range.className = 'aov-table-pager-range';
+            if (nav.dataset.aovLive) range.setAttribute('aria-live', 'polite');
+            range.textContent = text('table_rows', {from: st.number(from + 1), to: st.number(to), total: st.number(st.view.length)});
+            nav.appendChild(range);
+            var button = function(key, label, disabled) {
+                var b = document.createElement('button');
+                b.type = 'button';
+                b.dataset.aovPage = key;
+                b.disabled = disabled;
+                label(b);
+                nav.appendChild(b);
+                return b;
+            };
+            var arrow = function(b, glyph, before) {
+                var s = document.createElement('span');
+                s.setAttribute('aria-hidden', 'true');
+                s.textContent = glyph;
+                if (before) b.insertBefore(s, b.firstChild); else b.appendChild(s);
+            };
+            button('prev', function(b) { b.textContent = text('previous_page'); arrow(b, '‹ ', true); }, st.page === 0);
+            shown.forEach(function(p, k) {
+                if (k > 0 && p > shown[k - 1] + 1) {
+                    var gap = document.createElement('span');
+                    gap.setAttribute('aria-hidden', 'true');
+                    gap.textContent = '…';
+                    nav.appendChild(gap);
+                }
+                var b = button(String(p), function(b) {
+                    b.textContent = st.number(p + 1);
+                    b.setAttribute('aria-label', text('table_page', {page: st.number(p + 1)}));
+                }, false);
+                if (p === st.page) b.setAttribute('aria-current', 'page');
+            });
+            button('next', function(b) { b.textContent = text('next_page'); arrow(b, ' ›', false); }, st.page === pages - 1);
+        });
+    },
+    // A pager button: its page, or the one before or after. The focus stays on
+    // the same button of the same pager, or on the current page's when that
+    // button is now disabled.
+    _turnPage: function(wrap, b) {
+        var st = wrap._aovPages, key = b.dataset.aovPage;
+        var navs = Array.prototype.slice.call(wrap.querySelectorAll('.aov-table-pager'));
+        var which = navs.indexOf(b.closest('.aov-table-pager'));
+        var focused = document.activeElement === b;
+        st.page = key === 'prev' ? st.page - 1 : key === 'next' ? st.page + 1 : Number(key);
+        this._showPage(wrap);
+        if (!focused) return;
+        var nav = wrap.querySelectorAll('.aov-table-pager')[which];
+        var again = nav.querySelector('button[data-aov-page="' + key + '"]');
+        if (!again || again.disabled) again = nav.querySelector('button[aria-current="page"]');
+        again.focus();
+    },
+    // Sorts every row by column `col` and shows the first page. The order is
+    // HTMXObjects' `sortTable`'s on the text a cell shows: two texts that read
+    // as numbers by their number (an equal number by the texts, numbers in
+    // them read whole), else the texts in the reader's language; a second
+    // click reverses it. LOCKSTEP: `sortTable` in HTMXObjects, which sorts a
+    // table of up to `_TABLE_PAGE` rows.
+    _sortPages: function(wrap, col, th) {
+        var st = wrap._aovPages, c = st.cols[col];
+        var asc = th.dataset.sortDir !== 'asc';
+        th.dataset.sortDir = asc ? 'asc' : 'desc';
+        th.setAttribute('aria-sort', asc ? 'ascending' : 'descending');
+        th.closest('thead').querySelectorAll('th').forEach(function(h) {
+            if (h !== th) { delete h.dataset.sortDir; h.removeAttribute('aria-sort'); }
+        });
+        var words = new Intl.Collator().compare;
+        var natural = new Intl.Collator(undefined, {numeric: true}).compare;
+        var keyed = st.rows.map(function(r) {
+            var v = r[c], s = ((v === null || v === undefined) ? '' : String(v)).trim();
+            return {row: r, text: s, number: parseFloat(s)};
+        });
+        keyed.sort(function(a, b) {
+            var d;
+            if (!isNaN(a.number) && !isNaN(b.number)) {
+                d = a.number < b.number ? -1 : a.number > b.number ? 1 : 0;
+                if (!d) d = natural(a.text, b.text);
+            } else d = words(a.text, b.text);
+            return asc ? d : -d;
+        });
+        st.view = keyed.map(function(k) { return k.row; });
+        st.page = 0;
+        this._showPage(wrap);
     },
 
     // Public: toggle between Pretty and Raw views inside a captioned plot's
@@ -5216,7 +5378,7 @@ window.AoV = window.AoV || {
             }
             var built = self._buildPrettyRows(g.rows, opts, text);
             if (!built) {
-                container.appendChild(self._buildSortableTable(g.rows));
+                container.appendChild(self._buildSortableTable(g.rows, null, container));
                 return;
             }
             if (built.caption) {
@@ -5225,7 +5387,7 @@ window.AoV = window.AoV || {
                 cap.style.cssText = 'font-size:0.85em;opacity:0.75;margin:0 0 0.25rem';
                 container.appendChild(cap);
             }
-            container.appendChild(self._buildSortableTable(built.rows, built.cols));
+            container.appendChild(self._buildSortableTable(built.rows, built.cols, container));
         });
         this._frameTables(container);
         container.dataset.aovRendered = '1';
