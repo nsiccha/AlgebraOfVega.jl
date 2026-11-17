@@ -1163,7 +1163,7 @@ window.AoV = window.AoV || {
             // expect. vega-embed resolves it only after its own awaits, by
             // which time a swap that briefly gave two elements this id
             // (_plotElement) has removed the old one.
-            return vegaEmbed('#' + id, s, self._withLiveRows(id, embedOpts, gen)).then(function(result) {
+            return vegaEmbed('#' + id, s, self._withViewLog(id, self._withLiveRows(id, embedOpts, gen))).then(function(result) {
                 settle();
                 if (self._gens[id] !== gen) {
                     result.finalize();
@@ -1777,10 +1777,118 @@ window.AoV = window.AoV || {
         ['warn', 'error'].forEach(function(level) {
             console[level] = function() {
                 var a = Array.prototype.slice.call(arguments), ids = Object.keys(self._inFlight);
-                if (ids.length === 1) a[0] = '[' + ids[0] + '] ' + a[0];
+                if (ids.length === 1 && !self._viewLogging) a[0] = '[' + ids[0] + '] ' + a[0];
                 return orig[level].apply(console, a);
             };
         });
+    },
+
+    // A view's own dataflow messages (Vega's transforms, data loading) are
+    // logged after its embed settled, often while another plot's embed is
+    // in flight, so _tagConsole would tag them with that plot's id. Each
+    // view therefore logs through a logger of its own (vega-embed's
+    // `viewClass`), which tags them with its plot's id and leaves out
+    // _emptyExtent's message. It reaches the view only through this logger,
+    // which the view holds, and keeps no per-plot state.
+    _viewLogging: false,
+    _withViewLog: function(id, opts) {
+        var self = this, patch = opts.patch, Base = opts.viewClass || vega.View, refs = null;
+        var View = function(spec, viewOpts) {
+            var view = null;
+            var logger = vega.logger(vega.Warn, undefined, function(method, level, args) {
+                args = Array.prototype.slice.call(args);
+                if (method === 'warn' && self._emptyExtent(view, refs, args)) return;
+                self._viewLogging = true;
+                try { console[method].apply(console, ['[' + id + '] ' + level].concat(args)); }
+                finally { self._viewLogging = false; }
+            });
+            view = Reflect.construct(Base, [spec, Object.assign({}, viewOpts, {logger: logger})], View);
+            return view;
+        };
+        View.prototype = Base.prototype;
+        return Object.assign({}, opts, {viewClass: View, patch: function(vg) {
+            if (typeof patch === 'function') vg = patch(vg);
+            refs = self._extentRefs(vg);
+            return vg;
+        }});
+    },
+
+    // Vega takes one extent per dataset and field of a continuous scale's
+    // domain and skips an extent with no finite value, so a layer with no
+    // rows (a bound reference that is off, a typed-empty start) leaves the
+    // domain to the other layers. It still warns `Infinite extent for
+    // field "f": [Infinity, -Infinity]` for it, on every update. The
+    // message names only the field, so it is left out when every dataset
+    // over that field with no finite value comes from source rows that
+    // are empty. Rows that are there but have no finite value (all missing
+    // or non-finite) still warn: those are rows the layer cannot draw.
+    _EMPTY_EXTENT: /^Infinite extent for field "(.*)": \[Infinity, -Infinity\]$/,
+    _emptyExtent: function(view, refs, args) {
+        var m = view && refs && args.length === 1 && typeof args[0] === 'string' &&
+            this._EMPTY_EXTENT.exec(args[0]);
+        var list = m && Object.prototype.hasOwnProperty.call(refs, m[1]) && refs[m[1]];
+        if (!list) return false;
+        try {
+            var empty = false;
+            for (var i = 0; i < list.length; i++) {
+                var get = vega.field(list[i].field);
+                var finite = view.data(list[i].data).some(function(t) {
+                    var v = get(t);
+                    return v != null && v !== '' && Number.isFinite(+v);
+                });
+                if (finite) continue;
+                if (!list[i].roots.every(function(n) { return view.data(n).length === 0; })) return false;
+                empty = true;
+            }
+            return empty;
+        } catch (err) { return false; }
+    },
+    // Field -> its domain references in a compiled Vega spec, each
+    // {data, field, roots}: the dataset an extent reads and the source
+    // datasets (no `source` of their own) its rows come from. False when
+    // one of them cannot be traced (then nothing is left out).
+    _extentRefs: function(vg) {
+        var sources = Object.create(null), refs = [], byField = Object.create(null);
+        var domainRefs = function(d) {
+            if (!d || typeof d !== 'object' || Array.isArray(d) || d.signal) return [];
+            if (typeof d.data === 'string' && typeof d.field === 'string') return [[d.data, d.field]];
+            if (typeof d.data === 'string' && Array.isArray(d.fields)) return d.fields
+                .filter(function(f) { return typeof f === 'string'; })
+                .map(function(f) { return [d.data, f]; });
+            if (Array.isArray(d.fields)) return d.fields
+                .filter(function(f) { return f && typeof f.data === 'string' && typeof f.field === 'string'; })
+                .map(function(f) { return [f.data, f.field]; });
+            return [];
+        };
+        (function walk(g) {
+            (g.data || []).forEach(function(d) {
+                sources[d.name] = d.source === undefined ? null : [].concat(d.source);
+            });
+            var facet = g.from && g.from.facet;
+            if (facet && facet.name) sources[facet.name] = [].concat(facet.data);
+            (g.scales || []).forEach(function(s) { refs = refs.concat(domainRefs(s.domain)); });
+            (g.marks || []).forEach(walk);
+        })(vg || {});
+        var trace = function(name, seen) {
+            if (!(name in sources) || seen.indexOf(name) >= 0) return null;
+            if (sources[name] === null) return [name];
+            var out = [];
+            for (var i = 0; i < sources[name].length; i++) {
+                var r = trace(sources[name][i], seen.concat([name]));
+                if (!r) return null;
+                out = out.concat(r);
+            }
+            return out;
+        };
+        refs.forEach(function(ref) {
+            var data = ref[0], field = ref[1], roots = trace(data, []);
+            if (byField[field] === false) return;
+            if (!roots) { byField[field] = false; return; }
+            var list = byField[field] = byField[field] || [];
+            if (!list.some(function(r) { return r.data === data && r.field === field; }))
+                list.push({data: data, field: field, roots: roots});
+        });
+        return byField;
     },
 
     // Finalize a plot's current view through vega-embed's own finalize:
