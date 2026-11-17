@@ -15,7 +15,7 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
-## 0.2.64
+## 0.2.65
 
 - **Axis limits reach only the layers drawn with that axis.**
   `config(axis=(; limits=(nothing, (0, 100))))` sets the y domain on every
@@ -28,6 +28,17 @@ failing at run time with a `MethodError`.
   axis scale, so the limits still hold for the rule. This matches the X/Y
   `scales` keys, which have reached only such layers since 0.2.28 (snag
   `axis-limits-inje-a456c174`).
+
+## 0.2.64
+
+- **A reference with no rows logs nothing.** A layer whose rows are empty,
+  such as `data(bound(p; columns=(:patient_exposure,)))` drawn as `VLines`
+  while `patient_exposure` is `Float64[]`, draws no mark. It no longer makes
+  Vega warn `Infinite extent for field "patient_exposure": [Infinity,
+  -Infinity]` on each update. The other layers set the shared axis, as before.
+  Rows whose positions are all missing or non-finite still warn.
+- A plot's own Vega warnings now carry its id (`[plot-id] WARN …`). Before,
+  they carried the id of whichever plot was being drawn at that moment.
 
 ## 0.2.63
 
