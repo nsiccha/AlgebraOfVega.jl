@@ -74,7 +74,8 @@ each as its own button. The downloads, in order:
 
 Also added:
 - A lazy "Show data" `<details>` rendered below the plot (when `data_preview=true`),
-  populated on first expand via the Vega view, with the rows the CSV gives.
+  populated on first expand via the Vega view, with the rows the CSV gives,
+  1,000 at a time when there are more.
 - "Share" clipboard button (when `share_url` is given): copies the absolute
   card URL; appended after `extra_actions` in the caption row.
 
@@ -87,7 +88,9 @@ who don't want that should not set the VL title.
 - `data_download::Bool=true`: add the "⬇ CSV" download
 - `data_preview::Bool=true`: add the lazy preview details below the plot. A table
   in it that is wider or longer than its place scrolls in a frame of its own, so
-  the page keeps its width
+  the page keeps its width. A table of more than 1,000 rows shows 1,000 at a
+  time, with a pager above and below it; a click on a column heading sorts all
+  its rows, and the CSV download still gives every row
 - `images=(:png, :svg)`: image formats to download; pass `()` / `nothing` to disable
 - `html_download::Bool=true`: add the "⬇ HTML" standalone-page download
 - `download_menu::Bool=true`: put the downloads into one "⬇ Export ▾" menu;

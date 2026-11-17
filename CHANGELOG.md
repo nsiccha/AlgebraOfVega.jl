@@ -15,6 +15,22 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
+## 0.2.66
+
+- **A long data preview shows 1,000 rows at a time.** "Show data" (and the
+  summary pane's table) built every row when it opened: on a 120,802-row
+  animated map that took the tab from 0.4 to 7.1 GiB and 20 s, and a sort
+  another 25 s. A table of more than 1,000 rows now shows one page of them,
+  with a pager above and below it ("Rows 1–1,000 of 120,802 · ‹ Previous ·
+  1 2 3 … 121 · Next ›"). A click on a column heading sorts all rows, in the
+  order the table would get as a whole, and shows the first page. A line
+  under the table says so and, when the figure has a CSV download, that it
+  holds every row. On that map the preview now opens in 0.2 s at 0.5 GiB.
+  Tables of 1,000 rows or fewer are built exactly as before. `PlotTexts`
+  gains the pager's words: `table_rows`, `table_pages`, `previous_page`,
+  `next_page`, `table_page`, `table_sorts_all` and `table_csv`, in English
+  and German.
+
 ## 0.2.65
 
 - **Axis limits reach only the layers drawn with that axis.**
