@@ -15,6 +15,20 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
+## 0.2.65
+
+- **Axis limits reach only the layers drawn with that axis.**
+  `config(axis=(; limits=(nothing, (0, 100))))` sets the y domain on every
+  layer that draws a y, and no longer gives a layer drawn without that axis
+  (a `VLines` rule has no y, an `HLines` rule no x) a field-less
+  `"y": {"scale": …}` (or `"x"`). Vega-Lite
+  dropped that with a console warning (`Dropping {"scale":{"domain":[0,100],…}}
+  from channel "y" since it does not contain any data field, datum, value, or
+  signal.`) on every render. The drawn figure is unchanged: layers share the
+  axis scale, so the limits still hold for the rule. This matches the X/Y
+  `scales` keys, which have reached only such layers since 0.2.28 (snag
+  `axis-limits-inje-a456c174`).
+
 ## 0.2.64
 
 - **A reference with no rows logs nothing.** A layer whose rows are empty,
