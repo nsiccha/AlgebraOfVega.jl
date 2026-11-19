@@ -584,13 +584,13 @@ function _ribbon_overlap(vl::Dict, src)
     filter!(c -> isfinite(c.lo) && isfinite(c.hi), cells)
     isempty(cells) && return (; score=0.0, pairs=false)
     extent(cs) = maximum(c -> c.hi, cs) - minimum(c -> c.lo, cs)
-    fixed = isnothing(y.domain) ? nothing : tr(y.domain[2]) - tr(y.domain[1])
+    fixed(panel) = isnothing(y.domain) ? nothing : tr(y.domain[2], panel) - tr(y.domain[1], panel)
     shared = extent(cells)
     score = 0.0
     pairs = false
     for panel in unique(c.panel for c in cells)
         pcells = filter(c -> isequal(c.panel, panel), cells)
-        range = something(fixed, y.per_panel ? extent(pcells) : shared)
+        range = something(fixed(panel), y.per_panel ? extent(pcells) : shared)
         (isfinite(range) && range > 0) || continue
         bands = Dict{Any,Dict{Float64,Tuple{Float64,Float64}}}()
         for c in pcells
