@@ -578,8 +578,9 @@ end
 # group, as without a colour mapping) the score is 0.0 and compared nothing.
 function _ribbon_overlap(vl::Dict, src)
     y = _ribbon_y_scale(vl, src)
-    tr(v) = y.log ? (v > 0 ? log10(v) : NaN) : v
-    cells = [(; c.panel, c.color, c.x, lo=tr(c.lo), hi=tr(c.hi)) for c in src.cells]
+    logs = _stack_panel_logs(vl, src)
+    tr(v, panel) = get(logs, panel, y.log) ? (v > 0 ? log10(v) : NaN) : v
+    cells = [(; c.panel, c.color, c.x, lo=tr(c.lo, c.panel), hi=tr(c.hi, c.panel)) for c in src.cells]
     filter!(c -> isfinite(c.lo) && isfinite(c.hi), cells)
     isempty(cells) && return (; score=0.0, pairs=false)
     extent(cs) = maximum(c -> c.hi, cs) - minimum(c -> c.lo, cs)
@@ -610,6 +611,23 @@ function _ribbon_overlap(vl::Dict, src)
     (; score, pairs)
 end
 
+# Whether each panel of a per-row-Y stack (`_per_row_y_vconcat!`) draws the
+# ribbon on a log y axis, keyed as the ribbon's cells key their panel: the
+# panels' Y scale types differ, so one figure-wide reading would measure the
+# linear panels in log units. Empty for any other figure.
+function _stack_panel_logs(vl::Dict, src)
+    out = Dict{Tuple,Bool}()
+    kids = get(vl, "vconcat", nothing)
+    kids isa AbstractVector || return out
+    for kid in kids
+        panel = kid isa Dict ? _as_dict(get(kid, "_aovPanel", nothing)) : nothing
+        (isnothing(panel) || length(panel) != 1) && continue
+        y = _ribbon_y_scale(kid, src)
+        out[(only(values(panel)),)] = y.log
+    end
+    out
+end
+
 # The y scale the ribbon's outer band is drawn on: a fixed two-value domain or
 # `nothing`, whether it is a log scale, and whether each facet panel has its own.
 function _ribbon_y_scale(vl::Dict, src)
@@ -628,7 +646,7 @@ function _ribbon_y_scale(vl::Dict, src)
     dom = get(scale, "domain", nothing)
     domain = dom isa Union{AbstractVector,Tuple} && length(dom) == 2 && all(_finite_number, dom) ?
         Float64[dom...] : nothing
-    independent = haskey(vl, "hconcat") || any(chain) do d
+    independent = haskey(vl, "hconcat") || haskey(vl, "vconcat") || any(chain) do d
         res = _as_dict(get(d, "resolve", nothing))
         sc = isnothing(res) ? nothing : _as_dict(get(res, "scale", nothing))
         !isnothing(sc) && get(sc, "y", nothing) == "independent"

@@ -15,6 +15,23 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
+## 0.2.69
+
+- **Each row of a `row=` facet can take its own Y scale type.**
+  `config(scales=scales(Y=(; scale=Dict("Cmax (ng/mL)" => log10, "AUC₂₄ (ng/mL·h)" => log10))))`
+  on a figure faceted by `row=` alone draws the listed rows on a log y axis
+  and the others on the shared one (linear by default), as the same `Dict`
+  already did for the columns of a `col=` facet. The panels become a stack
+  on one shared x (Vega-Lite `vconcat`, as `vconcat(a, b)` draws it): their
+  plot areas line up, the x axis is labelled under the bottom panel, and the
+  figure keeps its Ribbons | Intervals switch, legend, caption, CSV, link
+  group, `ylabels` axis titles and picker colour remaps. Its readout lists
+  every panel's series under the panel's title, as a stack's does. A figure
+  with a column facet still keys the `Dict` by column; a wrapped `layout=`
+  facet, or a figure without a facet, given a `Dict` is an `ArgumentError`
+  naming `row=`/`col=` (before, every figure without a column facet failed
+  with "per-column Y scales need a column facet").
+
 ## 0.2.68
 
 - **Each facet panel can title its own axis.** `config(facet=(; linkyaxes=:none,
