@@ -15,6 +15,22 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
+## 0.2.70
+
+- **A table several layers draw is written once.** In a figure that layers an
+  analysis (a `lineribbon`/`ribbon`, an interval) with other layers, the
+  analysis's summary is now the figure's top-level `data`, which its layers
+  inherit, as when it is drawn alone. Before, each of its layers carried its
+  own copy: one reference line beside a three-colour ribbon (9 layers) wrote
+  the table 9 times, 8.4 times the JSON of the ribbon alone, and `to_node` and
+  `update_spec` sent the same multiple to the page. What Vega draws is
+  unchanged: Vega-Lite merged the copies into one source.
+- **A layered ribbon grows colour groups from data.** Its rows are now the
+  plot's top-level rows (`source_0`), so `append_data`/`replace_data` rows that
+  bring a new colour group draw it, as on a lone ribbon, instead of logging a
+  console warning. The second of two ribbons in one figure still keeps a copy
+  per layer and draws only the groups of its first render.
+
 ## 0.2.69
 
 - **Each row of a `row=` facet can take its own Y scale type.**

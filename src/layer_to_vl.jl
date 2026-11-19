@@ -836,10 +836,50 @@ function layers_to_vl(layers::AlgebraOfGraphics.Layers; layer_encodings::Abstrac
         spec["spec"] = Dict{String,Any}("layer" => layer_specs)
     else
         _harmonize_axis_types!(layer_specs)
+        haskey(spec, "data") || _hoist_shared_data!(spec, layer_specs)
         spec["layer"] = layer_specs
     end
     _apply_layer_encodings!(units, layer_encodings)
 
+    spec
+end
+
+# A table several layers of an unfaceted figure draw is written once, as the
+# figure's top-level `data`, which those layers inherit. An analysis lowers to
+# several Vega-Lite layers over one summary (a ribbon's bands and median line,
+# per colour group), and `layers_to_vl` flattens them into the figure, giving
+# each its own `data`: the same Dict, but written out once per layer. One
+# reference line beside a three-colour ribbon (9 layers) made the JSON 8.4 times
+# larger (snag `one-extra-layer-dfa741c3`). Vega-Lite merged the copies into one
+# source at compile time, so they only cost bytes, and inheriting the table
+# keeps that one source as `source_0`, the shape the ribbon has when drawn alone
+# (the runtime's data operations, ribbon groups and picker read the top-level
+# rows).
+#
+# Hoisted: the inline table the most layers draw (by identity; ties: more rows,
+# then the first), when at least two do. Only when every layer has `data` of
+# its own, since a layer without would start drawing the hoisted rows. A second
+# shared table keeps a copy per layer.
+function _hoist_shared_data!(spec::Dict, layer_specs::AbstractVector)
+    uses = IdDict{Any,Int}()
+    for ls in layer_specs
+        d = get(ls, "data", nothing)
+        d isa AbstractDict || return spec
+        uses[d] = get(uses, d, 0) + 1
+    end
+    best, rank = nothing, (0, -1)
+    for ls in layer_specs
+        d = ls["data"]
+        vals = get(d, "values", nothing)
+        (uses[d] >= 2 && vals isa AbstractVector) || continue
+        r = (uses[d], length(vals))
+        r > rank && ((best, rank) = (d, r))
+    end
+    isnothing(best) && return spec
+    for ls in layer_specs
+        ls["data"] === best && delete!(ls, "data")
+    end
+    spec["data"] = best
     spec
 end
 
