@@ -15,6 +15,25 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
+## 0.2.68
+
+- **Each facet panel can title its own axis.** `config(facet=(; linkyaxes=:none,
+  ylabels=:quantity))` titles each panel's y axis with the panel's value of a
+  column that holds one value per panel (`xlabels=` does the same for x).
+  Naming the facet column itself (`ylabels=:panel`) titles each axis with the
+  panel's header text and leaves the header out; naming another column keeps
+  the header, so it can name an output and the axis its quantity and unit.
+  The figure stays one facet: the Ribbons | Intervals switch, wrapped
+  `layout=` panels, the legend, caption, CSV and link group are unchanged.
+  The tooltip's estimate row and a mark's value row read
+  `Cmax (ng/mL): median (95% interval)` and `Cmax (ng/mL)` in place of the
+  mapping's label, and the readout names a panel's uncoloured series by it.
+  Each panel draws its own axis on that side. The titles follow data changes,
+  render in `vsave` files, and `sdraw` labels each Makie axis. A panel whose
+  rows hold two values of the column is an `ArgumentError` naming it; a
+  figure without a facet ignores the setting. Before this, every panel showed
+  the mapping's one label.
+
 ## 0.2.67
 
 - **A stack's readout lists each panel's series under its y title.** In a
