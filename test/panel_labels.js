@@ -6,7 +6,7 @@
 // (`#vg-tooltip-element td, th`); and a picker remap that takes the panels
 // away gives the axes their mapping's title back.
 (async function () {
-    const failures = [];
+    const failures = [], samples = {};
     let checks = 0;
     const check = (ok, message) => { checks++; if (!ok) failures.push(message); };
     const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -81,6 +81,7 @@
             pointerAt('pl-readout', line);
             await sleep(30);
             const lines = box('pl-readout');
+            samples['readout ' + p] = lines;
             check(!!lines && lines.some(l => l.includes(QUANTITY[p])), p + ': the readout reads ' + JSON.stringify(lines));
             check(!!lines && !lines.some(l => l.includes('Median')), p + ': the readout still names Median: ' + JSON.stringify(lines));
             leave('pl-readout');
@@ -92,6 +93,7 @@
         await sleep(50);
         view = await ready('pl-readout');
         titles = axisTitles(view);
+        samples['intervals drawing axis titles'] = titles;
         check(quantities.every(q => titles.includes(q)) && !titles.includes('Median'),
             'intervals drawing: axis titles ' + JSON.stringify(titles));
 
@@ -105,6 +107,7 @@
             if (median) {
                 pointerAt('pl-tip', median);
                 const shown = await shownCells();
+                samples['median tooltip ' + p] = shown;
                 const keys = shown ? keysOf(shown) : null;
                 // `bands=` with `probs=` but no `point=` names the median column (aov-use §8).
                 check(!!keys && keys.includes(QUANTITY[p] + ': q50 (95% interval)'),
@@ -119,6 +122,7 @@
             if (observed) {
                 pointerAt('pl-tip', observed);
                 const shown = await shownCells();
+                samples['observation tooltip ' + p] = shown;
                 const keys = shown ? keysOf(shown) : null;
                 check(!!keys && keys.includes(QUANTITY[p]) && !keys.includes('Observed'),
                     p + ': the observation shows ' + JSON.stringify(shown));
@@ -146,6 +150,6 @@
     }
     const pre = document.createElement('pre');
     pre.id = 'aov-panel-labels-results';
-    pre.textContent = JSON.stringify({checks, failures});
+    pre.textContent = JSON.stringify({checks, failures, samples});
     document.body.appendChild(pre);
 })();

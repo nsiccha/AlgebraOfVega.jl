@@ -246,7 +246,7 @@ end
                     "&gt;" => ">", "&amp;" => "&"))
                 @test report["checks"] >= 14
                 @test isempty(report["failures"])
-                @info "panel label browser checks" checks=report["checks"]
+                @info "panel label browser checks" checks=report["checks"] samples=JSON.json(get(report, "samples", nothing))
                 isempty(report["failures"]) || println(JSON.json(report["failures"]))
             end
         end
