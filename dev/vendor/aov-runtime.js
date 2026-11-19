@@ -55,6 +55,10 @@ window.AoV = window.AoV || {
     _mapZooms: {},
     // A two-finger gesture on a map in progress (see _mapPinchStart).
     _mapPinches: {},
+    // A figure an htmx swap brought under the id of the plot on the page,
+    // waiting for the swap to end to take that plot's drawing over (see
+    // _adoptAfterSwap).
+    _adopting: {},
 
     // Every map keyed by plot id; dispose() clears each. A new per-plot
     // map belongs in this list.
@@ -63,7 +67,7 @@ window.AoV = window.AoV || {
         '_embedOpts', '_observers', '_computedWidths', '_corrections', '_correctedRegime',
         '_cur', '_pickers', '_mappings', '_themeKeys', '_reembeds', '_frames',
         '_highlights', '_hovers', '_touches', '_unmeasured', '_ribbonViews', '_scrollFrames',
-        '_mapZooms', '_mapPinches', '_readouts', '_refPending'],
+        '_mapZooms', '_mapPinches', '_readouts', '_refPending', '_adopting'],
 
     // Whether the runtime sizes this spec to its container: Julia's
     // `_embed_spec` marks a responsive layered/faceted/per-column spec with
@@ -510,7 +514,132 @@ window.AoV = window.AoV || {
     },
 
     embed: function(id, spec, opts) {
+        var el = this._plotElement(id), pending = this._adopting[id];
+        if (pending) {
+            // A further embed of the figure waiting to take the drawing over,
+            // in the same swap (an update_spec script after it): its newest
+            // spec is the one the figure shows.
+            if (pending.el === el) {
+                pending.spec = spec;
+                pending.opts = opts;
+                return pending.promise;
+            }
+            this._settleAdoption(id);
+        }
+        // A new element with the id of a plot that has a live view: an htmx
+        // swap replacing that figure, or a second figure under the id.
+        var old = this._els[id];
+        if (el && old && old !== el && this.views[id] && !this._inFlight[id] &&
+                !old.contains(el) && !el.contains(old) && this._keptOnSwap(id)) {
+            return this._adoptAfterSwap(id, el, old, spec, opts);
+        }
         return this._embed(id, this._takeRibbonViews(id, spec, false), opts, false);
+    },
+
+    // --- A same-id swap keeps the drawing ---
+    // A fragment that brings a new figure under the id of the one on the
+    // page, with the same structure (a control's refresh, a part sent ahead,
+    // the finished answer after them), updates that figure in place, as
+    // update_spec does: the drawing, its view and what the reader set on it
+    // (zoom and pan, the legend selection, the Ribbons | Intervals choice)
+    // stay, and only the new rows are swapped in. The caption, tables and
+    // everything else around the plot come from the new fragment.
+    //
+    // htmx runs a swapped fragment's scripts as it inserts them, before it
+    // removes what they replace (HTMXObjects' first part sent ahead removes
+    // the old result just before), so when the new figure's embed runs, the
+    // old figure may or may not be on its way out. The take-over therefore
+    // waits for the swap to end: the removal sweep, which runs when it has,
+    // or the next microtask, whichever comes first (_settleAdoption). Only
+    // then does the old element take the new one's place: moving it while
+    // htmx is still swapping could move the very node htmx is about to
+    // remove. An old figure still in the page by then was not replaced (a
+    // second figure under the id), so the new figure embeds on its own, as
+    // does any figure the take-over does not apply to (_adopt).
+    _adoptAfterSwap: function(id, el, old, spec, opts) {
+        var self = this, a = {el: el, old: old, spec: spec, opts: opts};
+        a.promise = new Promise(function(resolve) { a.resolve = resolve; });
+        self._adopting[id] = a;
+        var later = typeof queueMicrotask === 'function' ? queueMicrotask :
+            function(fn) { Promise.resolve().then(fn); };
+        later(function() { if (self._adopting[id] === a) self._settleAdoption(id); });
+        return a.promise;
+    },
+    // The waiting figure of plot `id` takes the drawing over, or embeds on
+    // its own. Queued data ops and whenReady callbacks run after either.
+    _settleAdoption: function(id) {
+        var self = this, a = self._adopting[id];
+        if (!a) return;
+        delete self._adopting[id];
+        var done;
+        try {
+            done = self._adopt(id, a) ||
+                self._embed(id, self._takeRibbonViews(id, a.spec, false), a.opts, false, a.el);
+        } catch (err) {
+            done = Promise.reject(err);
+        }
+        a.resolve(done);
+    },
+    // The take-over, when it applies; null otherwise.
+    _adopt: function(id, a) {
+        var self = this, old = a.old, el = a.el, view = self.views[id], cur = self._cur[id];
+        // The old figure stayed, the new one has already left, or the old
+        // drawing is no longer this plot's settled live view.
+        if (old.isConnected || !el.isConnected || self._els[id] !== old || !view || !cur ||
+                self._inFlight[id]) return null;
+        if (!self._keptOnSwap(id)) return null;
+        if (JSON.stringify(self._withDefaultActions(a.opts)) !== JSON.stringify(self._embedOpts[id] || {})) return null;
+        var p = self._preparedUpdate(id, a.spec);
+        if (!self._sameStructure(id, p.prepared)) return null;
+        // The old element, with its drawing, view and listeners, takes the new
+        // one's place in the new figure.
+        el.replaceWith(old);
+        var done = null, swapped = self._swapData(id, view, p.prepared);
+        if (swapped) {
+            cur.spec = p.prepared;
+            delete self._liveRows[id];
+            self._ribbonViewControls(id, old);
+            // The plot sits in the new figure's area now.
+            self._observeResize(id, cur.spec);
+            self._watchScrollFrame(id);
+            done = Promise.resolve(self._results[id]);
+        } else {
+            // A legend the new rows would leave empty: re-embed in place
+            // (its view runs what is queued).
+            done = self._embed(id, p.shown, a.opts, false, old);
+        }
+        self._origSpecs[id] = p.pristine;
+        self._dataChanged(id);
+        if (swapped) {
+            var queued = self._pending[id] || [];
+            delete self._pending[id];
+            queued.forEach(function(fn) { fn(view); });
+        }
+        return done;
+    },
+    // Whether plot `id` can be kept across a swap. Not when the new figure's
+    // own scripts set up again what keeping the old one would double or
+    // contradict: a channel picker (its controls come with the new figure)
+    // and signals wired to requests. A map starts at its fitted view, as a
+    // swap that shows other regions (a drill-down) needs. A frame player and
+    // a legend dropped for an empty domain re-embed on any new spec.
+    _keptOnSwap: function(id) {
+        return !(this._pickers[id] || this._mappings[id] || (this._signals[id] || []).length ||
+            this._mapView(id) || this._frames[id] || this._droppedLegends[id]);
+    },
+    // A call that reads or changes plot `id`'s state while a swapped-in
+    // figure waits to take it over settles that first, so it acts on the
+    // plot the page will show.
+    _settleWaiting: function(id) {
+        if (this._adopting[id]) this._settleAdoption(id);
+    },
+    // `opts` with the page's default for the actions menu (vega_controls).
+    _withDefaultActions: function(opts) {
+        opts = opts || {};
+        if (window.AoV && window.AoV.defaultActions !== undefined) {
+            opts = Object.assign({}, opts, {actions: window.AoV.defaultActions});
+        }
+        return opts;
     },
 
     // --- Ribbons | Intervals ---
@@ -547,6 +676,7 @@ window.AoV = window.AoV || {
     // render and the host theme carry over, as on a picker change. Returns
     // whether the plot has that drawing.
     setRibbonView: function(id, view) {
+        this._settleWaiting(id);
         var st = this._ribbonViews[id];
         if (!st || !st.specs[view]) return false;
         if (st.view === view) return true;
@@ -807,6 +937,9 @@ window.AoV = window.AoV || {
     _sweepDetached: function() {
         var self = this;
         Object.keys(self._els).forEach(function(id) {
+            // A figure waiting to take this plot's drawing over goes first:
+            // the swap that brought it has ended (_adoptAfterSwap).
+            if (self._adopting[id]) self._settleAdoption(id);
             var el = self._els[id];
             if (el && !el.isConnected) self.dispose(id);
         });
@@ -1052,11 +1185,10 @@ window.AoV = window.AoV || {
     },
 
     // `keepData` retains rows added via updateData/appendData on re-embed.
-    _embed: function(id, spec, opts, keepData) {
-        opts = opts || {};
-        if (window.AoV && window.AoV.defaultActions !== undefined) {
-            opts = Object.assign({}, opts, {actions: window.AoV.defaultActions});
-        }
+    // `into` is the element to draw in, for an embed that no inline script
+    // calls (a figure that waited for its swap to end); else _plotElement.
+    _embed: function(id, spec, opts, keepData, into) {
+        opts = this._withDefaultActions(opts);
         var self = this;
         self._watchRemovals();
         self._watchSettles();
@@ -1069,7 +1201,7 @@ window.AoV = window.AoV || {
         // Same element: the one the last embed recorded — which also covers
         // a re-embed issued while the previous one is still in flight (no
         // view registered yet), e.g. the two remaps of one picker change.
-        var prev = self.views[id], el = self._plotElement(id);
+        var prev = self.views[id], el = into || self._plotElement(id);
         var sameEl = el && (self._els[id] === el || (prev && el.contains(prev.container())));
         if (!sameEl) {
             // A hover on the replaced element ends (its link group hears the
@@ -1921,7 +2053,7 @@ window.AoV = window.AoV || {
     // embed still in flight is finalized, and its drawing released, when it
     // resolves.
     dispose: function(id) {
-        var self = this, el = self._els[id];
+        var self = this, el = self._els[id], waiting = self._adopting[id], queued = self._pending[id];
         self._touchReset(id);
         self._hoverEnd(id, null);
         self._frameStop(id);
@@ -1931,6 +2063,14 @@ window.AoV = window.AoV || {
         if (self._refPending[id]) clearTimeout(self._refPending[id]);
         self._perPlotState.forEach(function(k) { if (self[k]) delete self[k][id]; });
         self._releaseDrawing(id, el);
+        // A figure that was waiting to take this drawing over (an app that
+        // disposes what a swap removes) draws its own; what was queued for
+        // it runs on that view.
+        if (waiting) {
+            if (queued) self._pending[id] = queued;
+            waiting.resolve(self._embed(id, self._takeRibbonViews(id, waiting.spec, false), waiting.opts,
+                false, waiting.el));
+        }
     },
 
     // A finalized view stays reachable from the drawing it leaves in the page:
@@ -1988,8 +2128,10 @@ window.AoV = window.AoV || {
     },
 
     whenReady: function(id, fn) {
+        // While a swapped-in figure waits to take the plot over, the view
+        // that will show its rows is not settled yet (_adoptAfterSwap).
         var view = this.views[id];
-        if (view) { fn(view); return; }
+        if (view && !this._adopting[id]) { fn(view); return; }
         this._pending[id] = this._pending[id] || [];
         this._pending[id].push(fn);
     },
@@ -2417,35 +2559,49 @@ window.AoV = window.AoV || {
             if (!el) { if (now) self.updateSpec(id, spec, opts); return; }
             // Removed, or replaced by a fresh render, meanwhile.
             if (now !== el || self._els[id] !== el) return;
-            // A ribbon keeps the drawing the reader chose.
-            var drawn = self._takeRibbonViews(id, spec, true);
-            var pristine = self._expandSpecData(JSON.parse(JSON.stringify(drawn)));
-            self._refreshLegendSelections(pristine);
-            self._broadcastCrossSource(pristine);
-            var shown = pristine;
-            if (self._mappings[id]) {
-                // The picker builds combo columns from the stored original.
-                self._origSpecs[id] = pristine;
-                var mapping = self._pickers[id] ? self._pickers[id]() : self._mappings[id];
-                shown = (mapping && self._remappedSpec(id, mapping)) || pristine;
-            }
-            var prepared = JSON.parse(JSON.stringify(shown));
-            self._refreshLegendSelections(prepared);
-            self._broadcastCrossSource(prepared);
-            var cur = self._cur[id];
-            // A framed plot's fixed domains come from all its rows: re-embed.
-            if (cur && !self._droppedLegends[id] && !self._framed(prepared) && !self._framed(cur.spec) &&
-                    self._structureKey(prepared) === self._structureKey(cur.spec) &&
-                    self._swapData(id, view, prepared)) {
-                cur.spec = prepared;
+            var p = self._preparedUpdate(id, spec), cur = self._cur[id];
+            if (self._sameStructure(id, p.prepared) && self._swapData(id, view, p.prepared)) {
+                cur.spec = p.prepared;
                 delete self._liveRows[id];
                 self._ribbonViewControls(id, el);
             } else {
-                self._embed(id, shown, opts, false);
+                self._embed(id, p.shown, opts, false);
             }
-            self._origSpecs[id] = pristine;
+            self._origSpecs[id] = p.pristine;
             self._dataChanged(id);
         });
+    },
+    // A new spec of plot `id` as the reader would see it: `pristine`, the
+    // spec as sent (with the Ribbons | Intervals drawing the reader chose);
+    // `shown`, with the picker's current channel assignment; `prepared`, a
+    // copy of `shown` ready to compare and swap in.
+    _preparedUpdate: function(id, spec) {
+        var self = this;
+        // A ribbon keeps the drawing the reader chose.
+        var drawn = self._takeRibbonViews(id, spec, true);
+        var pristine = self._expandSpecData(JSON.parse(JSON.stringify(drawn)));
+        self._refreshLegendSelections(pristine);
+        self._broadcastCrossSource(pristine);
+        var shown = pristine;
+        if (self._mappings[id]) {
+            // The picker builds combo columns from the stored original.
+            self._origSpecs[id] = pristine;
+            var mapping = self._pickers[id] ? self._pickers[id]() : self._mappings[id];
+            shown = (mapping && self._remappedSpec(id, mapping)) || pristine;
+        }
+        var prepared = JSON.parse(JSON.stringify(shown));
+        self._refreshLegendSelections(prepared);
+        self._broadcastCrossSource(prepared);
+        return {pristine: pristine, shown: shown, prepared: prepared};
+    },
+    // Whether `prepared` differs from what plot `id` shows only in its
+    // inline rows, so they can be swapped into its view. A framed plot's
+    // fixed domains come from all its rows, and a dropped empty legend
+    // comes back only on an embed: both re-embed.
+    _sameStructure: function(id, prepared) {
+        var cur = this._cur[id];
+        return !!cur && !this._droppedLegends[id] && !this._framed(prepared) && !this._framed(cur.spec) &&
+            this._structureKey(prepared) === this._structureKey(cur.spec);
     },
 
     // A spec's JSON with its inline data rows blanked: equal keys mean two
@@ -2855,6 +3011,7 @@ window.AoV = window.AoV || {
     },
 
     onSignal: function(id, signal, callback) {
+        this._settleWaiting(id);
         // A plot disposed before its embed resolved (to_node wires signals
         // in the embed's .then) has nothing to listen to. Listeners added
         // before a plot's first embed were already dropped by that embed.
@@ -5744,6 +5901,7 @@ window.AoV = window.AoV || {
     // (minus its data copy) so update_spec can re-apply it to a refreshed
     // spec when no picker builder is registered for the plot.
     remapEncoding: function(id, mapping) {
+        this._settleWaiting(id);
         var spec = this._remappedSpec(id, mapping);
         if (!spec) return;
         // Ribbon groups that rows sent since the first render brought.
