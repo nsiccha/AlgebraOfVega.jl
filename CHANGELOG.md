@@ -15,6 +15,20 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
+## 0.2.67
+
+- **A stack's readout lists each panel's series under its y title.** In a
+  `vconcat` stack whose panels are coloured by one field (two scenarios in
+  each of three panels), the readout box keyed its rows by series name
+  alone, so a name shared by panels was one row with the last panel's median
+  and the widest panel's interval: `Scenario 1: −50 (11–115)`, a median in %
+  beside a ng/mL interval. Each panel's series is now its own row, the
+  panels are listed top to bottom, and a panel's rows sit indented under its
+  y title. A panel whose only series is already named by that title (one
+  uncoloured series) reads as before, without a heading. An uncoloured
+  layer is no longer named by the first panel's colour field. Figures that
+  are not stacks are unchanged.
+
 ## 0.2.66
 
 - **A long data preview shows 1,000 rows at a time.** "Show data" (and the

@@ -4184,7 +4184,9 @@ window.AoV = window.AoV || {
     // unless `config(readout=true)`.
     // Series are named by their colour field's value, by the layer's
     // `visual(...; label=…)` (`_aov_label`), or by its y title. In a faceted figure the readout follows the panel under the
-    // pointer. The box stands in for the mark tooltip while it shows. When
+    // pointer. A `vconcat` stack's box lists every panel's series, each
+    // panel's under its y title (_readoutStackPlan). The box stands in for
+    // the mark tooltip while it shows. When
     // the figure's link key is its x field, the readout's x is announced to
     // the link group, and another member's announcement of one x (a table
     // row) shows the rule and box there (_showLinkKeys).
@@ -4240,21 +4242,30 @@ window.AoV = window.AoV || {
     // units (Vega-Lite names a panel's marks `concat_<k>_…`), the panels as
     // its scopes, one rule through all of them and one box listing every
     // panel's series at the x under the pointer. A panel with
-    // `config(readout=false)` is left out (`_aov.panels`).
+    // `config(readout=false)` is left out (`_aov.panels`). Each unit keeps
+    // its panel `k` and that panel's own colour field: panels show different
+    // quantities, so a name in two panels is two series (_readoutEntries),
+    // listed under each panel's y title (`panelTitles`, _readoutShow).
     _readoutStackPlan: function(spec, aov) {
         var self = this, panels = aov.panels || [], paths = false;
-        var plan = {units: {}, order: [], x: null, xType: null, xTitle: null, faceted: false, stacked: true, series: null};
+        var plan = {units: {}, order: [], x: null, xType: null, xTitle: null, faceted: false, stacked: true, series: null,
+            panelTitles: {}};
         spec.vconcat.forEach(function(child, k) {
             if ((panels[k] || {}).readout === false) return;
             var sub = self._readoutPlan(Object.assign({}, child, {_aov: {readout: true}}), 'concat_' + k + '_');
             if (!sub) return;
             if (plan.x === null) { plan.x = sub.x; plan.xType = sub.xType; plan.xTitle = sub.xTitle; }
-            if (plan.series === null) plan.series = sub.series;
             paths = paths || sub.paths;
+            // The panel's y title as Vega-Lite writes a layered axis's: its
+            // layers' distinct titles, joined by a comma.
+            var titles = [];
             sub.order.forEach(function(name) {
-                plan.units[name] = Object.assign({}, sub.units[name], {index: plan.order.length});
+                var t = String(sub.units[name].title);
+                if (titles.indexOf(t) < 0) titles.push(t);
+                plan.units[name] = Object.assign({}, sub.units[name], {index: plan.order.length, panel: k, series: sub.series});
                 plan.order.push(name);
             });
+            plan.panelTitles[k] = titles.join(', ');
         });
         if (!plan.order.length || !(paths || aov.readout === true)) return null;
         return plan;
@@ -4401,16 +4412,23 @@ window.AoV = window.AoV || {
         });
     },
     // One entry per series at the shown x, in the colour scale's order (the
-    // legend's), then the uncoloured layers in layer order.
+    // legend's), then the uncoloured layers in layer order. In a stack, one
+    // entry per panel and series, panel by panel from the top: a name shared
+    // by two panels (a scenario in each) is two series of two quantities.
     _readoutEntries: function(view, plan, at) {
-        var series = {}, list = [];
+        var series = {}, list = [], stacked = !!plan.stacked;
         at.forEach(function(c) {
-            var u = c.unit, d = c.datum;
+            var u = c.unit, d = c.datum, field = stacked ? u.series : plan.series;
             var name = u.color ? d[u.color] : u.label !== null ? u.label :
-                (plan.series && d[plan.series] !== undefined ? d[plan.series] : u.title);
+                (field && d[field] !== undefined ? d[field] : u.title);
             name = String(name);
-            var s = series[name];
-            if (!s) { s = series[name] = {name: name, coloured: name !== String(u.title), first: u.index, colour: null, units: {}}; list.push(s); }
+            var key = stacked ? u.panel + '\u0000' + name : name;
+            var s = series[key];
+            if (!s) {
+                s = series[key] = {name: name, panel: stacked ? u.panel : null, coloured: name !== String(u.title),
+                    first: u.index, colour: null, units: {}};
+                list.push(s);
+            }
             s.first = Math.min(s.first, u.index);
             (s.units[u.index] = s.units[u.index] || []).push(c);
             // The series' colour: a line's or rule's stroke, an area's or
@@ -4443,6 +4461,7 @@ window.AoV = window.AoV || {
         var domain = [];
         try { domain = view.scale('color').domain().map(String); } catch (e) { domain = []; }
         return list.filter(function(s) { return s.median !== null || s.lo !== null; }).sort(function(a, b) {
+            if (a.panel !== b.panel) return a.panel - b.panel;
             var ia = domain.indexOf(a.name), ib = domain.indexOf(b.name);
             if ((ia < 0) !== (ib < 0)) return ia < 0 ? 1 : -1;
             return ia !== ib ? ia - ib : a.first - b.first;
@@ -4508,15 +4527,36 @@ window.AoV = window.AoV || {
             all.every(function(c) { return c.value % DAY === 0; });
         head.textContent = self._readoutHeading(view, st.plan, at[0].value, dateOnly);
         box.appendChild(head);
+        // A stack's panels, top to bottom: a panel's rows sit indented under
+        // its y title, unless that title already names every row (one
+        // uncoloured series), which then reads as it does alone.
+        var titles = st.plan.panelTitles || {}, groups = [];
         entries.forEach(function(s) {
-            var row = document.createElement('div');
-            row.style.whiteSpace = 'nowrap';
-            var sw = document.createElement('span');
-            sw.style.cssText = 'display:inline-block;width:0.6em;height:0.6em;border-radius:50%;margin-right:0.4em;' +
-                'vertical-align:baseline;background:' + (s.colour || look.key);
-            row.appendChild(sw);
-            row.appendChild(document.createTextNode(s.name + ': ' + self._readoutText(view, s)));
-            box.appendChild(row);
+            var g = groups[groups.length - 1];
+            if (!g || g.panel !== s.panel) groups.push(g = {panel: s.panel, rows: []});
+            g.rows.push(s);
+        });
+        groups.forEach(function(g) {
+            var title = g.panel === null ? undefined : titles[g.panel];
+            var headed = title !== undefined && !g.rows.every(function(s) { return s.name === title; });
+            if (headed) {
+                var ph = document.createElement('div');
+                ph.className = 'aov-readout-panel';
+                ph.style.cssText = 'white-space:nowrap;color:' + look.key;
+                ph.textContent = title;
+                box.appendChild(ph);
+            }
+            g.rows.forEach(function(s) {
+                var row = document.createElement('div');
+                row.style.whiteSpace = 'nowrap';
+                if (headed) row.style.paddingLeft = '0.9em';
+                var sw = document.createElement('span');
+                sw.style.cssText = 'display:inline-block;width:0.6em;height:0.6em;border-radius:50%;margin-right:0.4em;' +
+                    'vertical-align:baseline;background:' + (s.colour || look.key);
+                row.appendChild(sw);
+                row.appendChild(document.createTextNode(s.name + ': ' + self._readoutText(view, s)));
+                box.appendChild(row);
+            });
         });
         var bs = box.style;
         bs.cssText = 'position:absolute;pointer-events:none;z-index:3;padding:0.3em 0.55em;border-radius:4px;' +
