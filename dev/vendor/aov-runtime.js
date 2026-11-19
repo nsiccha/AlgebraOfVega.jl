@@ -2194,7 +2194,8 @@ window.AoV = window.AoV || {
         if (remapped) this._origSpecs[id] = orig;
         return true;
     },
-    // A ribbon layered with other layers (`lineribbon(...) + visual(...)`)
+    // A layered ribbon whose rows are not the plot's top-level data (the
+    // second of two ribbons: `layers_to_vl` hoists only one shared table)
     // keeps its group layers each with its own copy of the rows, which a
     // data change cannot extend: say so when the rows bring a group it lacks.
     _warnUngrownRibbons: function(id, spec, rows) {
