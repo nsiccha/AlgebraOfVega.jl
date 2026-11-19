@@ -2026,16 +2026,29 @@ window.AoV = window.AoV || {
     // {n, columns: {name: column}}, where a column is an array of values, a
     // scalar shared by every row, {runs, lengths}, or a numeric sequence
     // {start, step, scale?, den?, period?} whose row i holds
-    // ((start + j*step)*scale)/den with j = i % period. Returns the row
+    // ((start + j*step)*scale)/den with j = i % period. Rows whose keys
+    // differ (a faceted figure's merged tables) come as {n, parts: [...]},
+    // consecutive parts of that form (`_wire_rows`). Returns the row
     // objects the row-wise JSON would have parsed to; a row array passes
     // through unchanged. The server picks a sequence only when exactly
     // these double operations reproduce every value.
     _isColumns: function(data) {
         return !!data && typeof data === 'object' && !Array.isArray(data) &&
-            typeof data.n === 'number' && !!data.columns && typeof data.columns === 'object';
+            typeof data.n === 'number' &&
+            (Array.isArray(data.parts) || (!!data.columns && typeof data.columns === 'object'));
     },
     _rowsFromColumns: function(data) {
         if (!this._isColumns(data)) return data;
+        if (Array.isArray(data.parts)) {
+            var all = new Array(data.n), at = 0, that = this;
+            data.parts.forEach(function(part) {
+                var rows = that._rowsFromColumns(part);
+                for (var r = 0; r < rows.length; r++) all[at++] = rows[r];
+            });
+            if (at !== data.n)
+                throw new Error('AoV: a dataset of ' + data.n + ' rows arrived in parts holding ' + at);
+            return all;
+        }
         var n = data.n, names = Object.keys(data.columns), self = this;
         var cols = names.map(function(k) { return self._columnValues(k, data.columns[k], n); });
         var rows = new Array(n);

@@ -46,6 +46,20 @@
         let threw = null;
         try { AoV._rowsFromColumns({n: 1, columns: {x: {foo: 1}}}); } catch (e) { threw = e; }
         check(threw && /unknown encoding/.test(threw.message), 'an unknown column encoding throws');
+        threw = null;
+        try { AoV._rowsFromColumns({n: 3, parts: [{n: 1, columns: {a: 1}}]}); } catch (e) { threw = e; }
+        check(threw && /arrived in parts/.test(threw.message), 'parts that do not add up to n throw');
+
+        // A faceted figure's two merged tables, embedded and then updated in
+        // place, reach the view as the rows the row-wise JSON held.
+        await settle('two');
+        sameRows(AoV._plotData('two'), JSON.parse(fixture.expected.two), 'two tables embedded', false);
+        check(Array.isArray(AoV._origSpecs['two'].data.values), 'two tables: stored spec holds rows');
+        const twoView = AoV.views['two'];
+        send('two_spec');
+        await settle('two');
+        check(AoV.views['two'] === twoView, 'two tables update_spec: swapped in place');
+        sameRows(AoV._plotData('two'), JSON.parse(fixture.expected.two_spec), 'two tables update_spec', false);
 
         // An embedded dataset reaches the view as rows.
         await settle('emb');
@@ -78,7 +92,7 @@
         failures.push(error.stack);
     } finally {
         console.error = originalError;
-        ['live', 'emb'].forEach(id => AoV.dispose(id));
+        ['live', 'emb', 'two'].forEach(id => AoV.dispose(id));
     }
     const result = document.createElement('pre');
     result.id = 'aov-columnar-results';

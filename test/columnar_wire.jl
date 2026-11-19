@@ -60,13 +60,49 @@ replaced, windowed and embedded data reach live views unchanged.
     @test occursin("AoV.appendData('p', {\"n\":6721,", html(append_data("p", reporter)))
     @test occursin("AoV.updateData('p', {\"n\":6721,", html(update_data("p", reporter)))
 
-    # Embedded datasets use the same form; rows of different shapes stay rows.
+    # Embedded datasets use the same form; rows whose keys alternate stay rows.
     spec = data(reporter) * mapping(:x, :y; color=:scenario) * visual(Lines)
     vl = AlgebraOfVega._embed_spec(spec)
     wired = AlgebraOfVega._wire_spec(vl)
     @test wired["data"]["values"]["n"] == n
     @test vl["data"]["values"] isa Vector         # the lowered spec itself is not modified
     @test AlgebraOfVega._wire_rows([Dict("a" => 1), Dict("a" => 2, "b" => 3)]) === nothing
+    blocks = AlgebraOfVega._wire_rows([Dict("a" => 1), Dict("a" => 2), Dict("a" => 3, "b" => 4), Dict("a" => 5, "b" => 6)])
+    @test blocks["n"] == 4 && [p["n"] for p in blocks["parts"]] == [2, 2]
+    @test blocks["parts"][2]["columns"]["b"] == [4, 6]
+
+    # A faceted figure drawing two tables merges their rows into one
+    # `__src`-tagged dataset whose tables have different columns (snag
+    # `multi-table-figu-4f1eed0f`: a cohort time course's bands beside its
+    # population percentile lines). It travels as one part per table, each
+    # table's column names once and its `__src` tag as one value; it used to go
+    # as one JSON object per row, every key and label repeated.
+    days = collect(0.0:1.0:150.0)
+    nd = length(days)
+    outputs = ["Plasma (ng/mL)", "CSF (pg/mL)"]
+    function two_tables(s)
+        q(f) = [s * f * (1 + sin(d / 9)) + 0.137 * i for (i, d) in enumerate(repeat(days, 2))]
+        cohort = (; day=repeat(days, 2), output=repeat(outputs, inner=nd),
+            q2_5=q(0.6), q25=q(0.8), q50=q(1.0), q75=q(1.2), q97_5=q(1.4))
+        population = (; day=repeat(days, 4), output=repeat(outputs, inner=2nd),
+            line=repeat(["5th", "95th", "5th", "95th"], inner=nd), percentile=repeat([5.0, 95.0, 5.0, 95.0], inner=nd),
+            value=[s * (0.5 + cos(d / 7)) + 0.01 * i for (i, d) in enumerate(repeat(days, 4))])
+        (data(cohort) * mapping(:day, :q50; row=:output) * lineribbon(bands=[:q2_5 => :q97_5, :q25 => :q75]) +
+         data(population) * mapping(:day, :value; row=:output, group=:line) * visual(Lines; linestyle=:dash)) *
+            config(height=120)
+    end
+    merged = AlgebraOfVega._embed_spec(two_tables(1.0))["data"]["values"]
+    merged_wire = AlgebraOfVega._wire_spec(AlgebraOfVega._embed_spec(two_tables(1.0)))["data"]["values"]
+    @test merged isa Vector && length(merged) == 6nd
+    @test merged_wire["n"] == 6nd && [p["n"] for p in merged_wire["parts"]] == [2nd, 4nd]
+    @test [p["columns"]["__src"] for p in merged_wire["parts"]] == ["_s1", "_s2"]
+    @test merged_wire["parts"][2]["columns"]["day"]["period"] == nd
+    @test merged_wire["parts"][2]["columns"]["line"]["lengths"] == fill(nd, 4)
+    @test sizeof(AlgebraOfVega._vl_json(merged_wire)) < 0.5 * sizeof(AlgebraOfVega._vl_json(merged))
+    wire["merged"] = AlgebraOfVega._vl_json(merged_wire)
+    reference["merged"] = AlgebraOfVega._vl_json(merged)
+    @test occursin("\"parts\":", html(vdraw(two_tables(1.0); id="two")))
+    @test occursin("\"parts\":", script(update_spec("two", two_tables(1.5))))
 
     plain = data((; x=Float64[], y=Float64[], scenario=String[])) *
         mapping(:x, :y; color=:scenario) * visual(Lines) * config(height=200)
@@ -76,17 +112,20 @@ replaced, windowed and embedded data reach live views unchanged.
         "update" => script(update_data("live", long)),
         "spec" => script(update_spec("emb", data((; x=grid[1:50], y=y[1:50], scenario=Fill("B", 50))) *
             mapping(:x, :y; color=:scenario) * visual(Lines) * config(height=200))),
+        "two_spec" => script(update_spec("two", two_tables(1.5))),
     )
     expected = Dict("append" => reference["reporter"], "long" => reference["long"],
         "spec" => rowwise((; scenario=Fill("B", 50), x=grid[1:50], y=y[1:50])),
-        "embedded" => rowwise(reporter))
+        "embedded" => rowwise(reporter), "two" => reference["merged"],
+        "two_spec" => AlgebraOfVega._vl_json(AlgebraOfVega._embed_spec(two_tables(1.5))["data"]["values"]))
 
     chrome = something(Sys.which("google-chrome"), Sys.which("chromium"), "")
     if isempty(chrome)
         @test_skip "headless Chrome is not installed"
     else
         mktempdir(prefix="kb-columnar-wire-") do dir
-            page = [vdraw(plain; id="live"), vdraw(spec * config(height=200); id="emb")]
+            page = [vdraw(plain; id="live"), vdraw(spec * config(height=200); id="emb"),
+                vdraw(two_tables(1.0); id="two")]
             runtime = join(html(x) for x in vega_head(source=:inline))
             fixture = replace(JSON.json((; wire, reference, updates, expected)), "</" => "<\\/")
             driver = read(joinpath(@__DIR__, "columnar_wire.js"), String)
@@ -102,7 +141,7 @@ replaced, windowed and embedded data reach live views unchanged.
             if !isnothing(result)
                 report = JSON.parse(replace(result[1], "&quot;" => "\"", "&lt;" => "<",
                     "&gt;" => ">", "&amp;" => "&"))
-                @test report["checks"] >= 20
+                @test report["checks"] >= 28
                 @test isempty(report["failures"])
                 @info "columnar wire browser checks" checks=report["checks"]
                 isempty(report["failures"]) || println(JSON.json(report["failures"]))

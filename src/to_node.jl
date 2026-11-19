@@ -664,6 +664,13 @@ end
 #                                     ((a + j·b)·scale)/den, j = i mod period
 #                                     (`scale`, `den`, `period` optional).
 #
+# An embedded dataset whose rows do not all have the same keys (a faceted
+# figure's merge of several tables) travels as consecutive parts of that form,
+#
+#     {"n": <rows>, "parts": [{"n": …, "columns": …}, …]}
+#
+# whose rows, in order, are the dataset's rows (`_wire_rows`).
+#
 # `AoV._rowsFromColumns` expands it to the row objects the row-wise JSON
 # parses to, with the same values: a sequence is chosen only when JavaScript's
 # double arithmetic reproduces every value bit for bit, which is checked here
@@ -814,14 +821,46 @@ function _wire_data(d::AbstractDict)
     out
 end
 
-# Inline rows as columns: only when every row is an object with the same keys,
-# since a column cannot say that a row lacks a key.
+# Inline rows as columns. A column cannot say that a row lacks a key, so rows
+# go column by column in parts: each run of consecutive rows with the same keys
+# is one `{n, columns}`. Rows that all share their keys are a single part, sent
+# as it is; rows whose keys change (a faceted figure's `__src` merge of its
+# layers' tables, `layers_to_vl`) go as `{n, parts: [{n, columns}, …]}` in row
+# order, so each table's keys are written once and its `__src` tag is one
+# scalar. When the parts would not halve the row count, the rows stay rows.
 _wire_rows(rows) = nothing
 function _wire_rows(rows::AbstractVector)
     (isempty(rows) || !all(r -> r isa AbstractDict, rows)) && return nothing
+    starts = _key_run_starts(rows)
+    isnothing(starts) && return nothing
+    i0 = firstindex(rows)
+    parts = [_wire_part(view(rows, i0 + a - 1:i0 + b - 2))
+             for (a, b) in zip(starts, [starts[2:end]; length(rows) + 1])]
+    length(parts) == 1 && return only(parts)
+    JSON.Object{String,Any}("n" => length(rows), "parts" => parts)
+end
+
+function _wire_part(rows)
     ks = collect(keys(first(rows)))
-    all(r -> length(r) == length(ks) && all(k -> haskey(r, k), ks), rows) || return nothing
     _wire_columns(length(rows), (string(k) => [r[k] for r in rows] for k in ks))
+end
+
+# Start (1-based position) of each run of rows with the same keys, or `nothing`
+# once the runs would not halve the row count (as `_run_starts` does for values).
+function _key_run_starts(rows)
+    n = length(rows)
+    starts = [1]
+    i0 = firstindex(rows)
+    prev = rows[i0]
+    for k in 2:n
+        r = rows[i0 + k - 1]
+        if !(length(r) == length(prev) && all(key -> haskey(r, key), keys(prev)))
+            push!(starts, k)
+            2 * length(starts) > n && return nothing
+            prev = r
+        end
+    end
+    starts
 end
 
 # The rows of `table` as the runtime's data operations receive them.
