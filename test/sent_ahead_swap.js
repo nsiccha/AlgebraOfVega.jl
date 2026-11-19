@@ -29,9 +29,12 @@
     const ownView = () => !!view() && !!shown() && shown().contains(view().container());
     const figButtons = () => shown() ? shown().closest('figure').querySelectorAll(SEL) : [];
     // The figure in `el` is complete: its own live view, the switch beside it,
-    // the runtime's record on it, and a drawing that fits its column.
-    async function complete(stage, previous) {
-        await until(() => ownView() && view() !== previous, stage + ': a new view draws in the shown element');
+    // the runtime's record on it, and a drawing that fits its column. A part
+    // of the same structure as the one it replaces updates that figure in
+    // place (test/same_id_swap.jl), so its view may be the previous one.
+    async function complete(stage) {
+        await until(() => ownView() && !AoV._inFlight[ID] && !(AoV._adopting || {})[ID],
+            stage + ': a view draws in the shown element');
         await pause(600);   // the fit correction re-embeds once
         const el = shown(), area = el && el.closest('.aov-plot-area');
         const canvas = el && el.querySelector('canvas.marks');
@@ -53,13 +56,14 @@
     const inner = document.querySelector('.treebar-poller-inner');
     // Part 1 opens the region above the polling inner.
     window.htmxoSentAhead.land(inner, 1, window.AOV_PARTS.part1);
-    const v1 = await complete('first part', undefined);
+    const v1 = await complete('first part');
     check(!!document.querySelector('.htmxo-sent-ahead #' + ID), 'first part: the figure is in the sent-ahead region');
 
     // Part 2 replaces part 1 out of band: htmx inserts it before the old one
     // and runs its script while both are in the page.
     window.htmxoSentAhead.land(inner, 2, window.AOV_PARTS.part2);
-    const v2 = await complete('second part', v1);
+    const v2 = await complete('second part');
+    check(v2 === v1, 'second part: the figure is updated in place');
     check(sharing[1] === 2, 'second part: its embed ran while the old figure was in the page (' + sharing[1] + ')');
 
     // The finished answer, as Treebars swaps a pushed or polled answer in:
@@ -67,7 +71,10 @@
     // removes once the swap has happened.
     htmx.swap(inner, window.AOV_PARTS.final, {swapStyle: 'outerHTML', settleDelay: 20},
         {select: '.treebar-terminal-content', contextElement: inner});
-    const v3 = await complete('finished answer', v2);
+    const v3 = await complete('finished answer');
+    // A fifth dose moves the interval dodge offsets, which the spec's
+    // transforms carry: a changed structure, so a fresh embed.
+    check(v3 !== v2, 'finished answer: the figure with one more dose embeds afresh');
     check(sharing[2] === 2, 'finished answer: its embed ran while the parts were in the page (' + sharing[2] + ')');
     check(document.querySelectorAll('.htmxo-sent-ahead').length === 0, 'finished answer: the parts are gone');
     check(!!document.querySelector('.treebar-terminal-content #' + ID), 'finished answer: the figure is the answer\'s');

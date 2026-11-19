@@ -13,7 +13,7 @@
     async function ready(id, previous) {
         for (let i = 0; i < 500; i++) {
             const view = AoV.views[id];
-            if (view && view !== previous && !AoV._inFlight[id]) return view;
+            if (view && view !== previous && !AoV._inFlight[id] && !(AoV._adopting || {})[id]) return view;
             await pause();
         }
         throw new Error(id + ': embed did not complete');
@@ -277,13 +277,14 @@
         await settle();
         check(same(opacities('hh-map', 'symbol', 'kenn'), {a: 0.105, b: 0.7, c: 0.7}),
             'map on branch row b, c: ' + JSON.stringify(opacities('hh-map', 'symbol', 'kenn')));
-        // A linked plot swapped in while the group shows a set shows the set.
+        // A linked plot swapped in while the group shows a set shows the set:
+        // the same spec updates it in place, and its view keeps showing it.
         let lines = AoV.views['hh-lines'], lineSpec = JSON.parse(JSON.stringify(AoV._origSpecs['hh-lines']));
         let fresh = document.createElement('div');
         fresh.id = 'hh-lines';
         document.getElementById('hh-lines').replaceWith(fresh);
         AoV.embed('hh-lines', lineSpec, {actions: false});
-        await ready('hh-lines', lines);
+        check(await ready('hh-lines') === lines, 'lines swapped in with the same spec keep their view');
         await settle();
         check(same(opacities('hh-lines', 'line', 'kenn'), {a: 0.15, b: 1, c: 1}),
             'swapped-in lines while b, c are shown: ' + JSON.stringify(opacities('hh-lines', 'line', 'kenn')));
@@ -301,8 +302,9 @@
         got = await during(() => pointerAt('hh-map', probe.x, probe.y));
         check(same(summary(got), ['aov:hover:hh-map:a']) && same(got.links.map(l => l.key), ['a']),
             'map hover a: ' + JSON.stringify(summary(got)) + ' ' + JSON.stringify(got.links.map(l => l.key)));
+        // A changed spec embeds afresh, and the new view joins the group's key.
         lines = AoV.views['hh-lines'];
-        lineSpec = JSON.parse(JSON.stringify(AoV._origSpecs['hh-lines']));
+        lineSpec = Object.assign(JSON.parse(JSON.stringify(AoV._origSpecs['hh-lines'])), {description: 'swapped'});
         fresh = document.createElement('div');
         fresh.id = 'hh-lines';
         document.getElementById('hh-lines').replaceWith(fresh);

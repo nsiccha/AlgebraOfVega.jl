@@ -15,6 +15,26 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
+## 0.2.71
+
+- **A figure swapped in under the same plot id with the same structure is
+  updated in place.** When a fragment brings a new figure under the id of
+  the plot on the page (an htmx answer to a control change, a part sent
+  ahead with `send_ahead`, the finished answer after such parts) and the new
+  spec differs from the shown one only in its inline rows, the plot keeps
+  its element and Vega view and the new rows are swapped in, as
+  `update_spec` does: zoom and pan, the legend selection and the reader's
+  Ribbons | Intervals choice stay, and the swap costs a data change instead
+  of a full embed (measured on a three-panel time course: 298 → 134 ms to
+  the last drawing, median of 12). The caption, tables and everything else
+  come from the new fragment, as before. A changed structure, a channel
+  picker, signals wired with `to_node(...; signals)`, a map (which starts at
+  its fitted view, as a drill-down to other regions needs) and a framed plot
+  still embed afresh. The plot element is the kept one, not the one the
+  fragment brings, so a listener belongs on the document or an ancestor
+  (`aov:click` and `aov:hover` bubble); no app on record attaches one to the
+  element itself.
+
 ## 0.2.70
 
 - **A table several layers draw is written once.** In a figure that layers an

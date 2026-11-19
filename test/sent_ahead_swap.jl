@@ -21,7 +21,10 @@ still in the page:
   its column, the legend off-screen), no view.
 
 An answer within the grace period (a cached one) sends no parts and looked right,
-in either colour scheme. The item lands parts through HTMXObjects' own
+in either colour scheme. A part of the same structure as the one
+it replaces updates that figure in place (its view stays; `test/same_id_swap.jl`),
+as the second part here does; the finished answer, with one more dose, moves the
+interval dodge offsets and embeds afresh. The item lands parts through HTMXObjects' own
 `sent_ahead_script()` and swaps the finished answer as Treebars does (outerHTML
 of the polling inner, `select` of `.treebar-terminal-content`), with the
 vendored htmx 2.
