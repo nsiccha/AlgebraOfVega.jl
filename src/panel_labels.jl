@@ -276,13 +276,14 @@ function _panel_labels_stack!(vl::Dict, opts, tables, row_sets)
             "AlgebraOfVega: `config(facet=(; $key_name=:$col))` names no column of the figure's tables. " *
             "Name a column that holds each panel's $ch-axis title, such as the facet column itself."))
         titles, titled, facets = String[], String[], String[]
+        labels = nothing    # read once, for the first panel that needs it
         for view in vl["vconcat"]
             panel = view["_aovPanel"]
             fields = collect(String, keys(panel))
             label = if col in fields
                 panel[col]
             else
-                labels = _panel_label_map(tables, row_sets, fields, col, key_name)
+                isnothing(labels) && (labels = _panel_label_map(tables, row_sets, fields, col, key_name))
                 get(labels, [_panel_key_part(panel[f]) for f in fields], nothing)
             end
             encs = Dict[]

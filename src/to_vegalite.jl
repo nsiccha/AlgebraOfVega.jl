@@ -1613,6 +1613,38 @@ _independent_y(_) = false
 _independent_y_scale(scale::Dict) = get(scale, "y", nothing) == "independent"
 _independent_y_scale(_) = false
 
+# Single-view `col=`/`row=` specs carry the facet at the encoding level:
+# rebuild them in the operator form (`facet` + `spec.layer`), which the
+# per-panel Y lowerings take. Every view-level key moves into the view: the
+# concat they build keeps only figure-level keys, so one left on top is
+# silently dropped. `_aovLegend` is the legend pass's undo record; without it
+# a re-run (the positional `Scales` form) could not clear its first pass.
+# Per-cell width/height belong on the operator's inner spec. Returns the
+# facet, or `nothing` for a spec with neither form.
+function _operator_facet_form!(spec::Dict)
+    facet = _as_dict(get(spec, "facet", nothing))
+    isnothing(facet) || return facet
+    enc = _as_dict(get(spec, "encoding", nothing))
+    (isnothing(enc) || !(haskey(enc, "column") || haskey(enc, "row"))) && return nothing
+    unit = Dict{String,Any}()
+    for k in ("mark", "encoding", "transform", "params", "projection", "_aovLegend")
+        haskey(spec, k) && (unit[k] = pop!(spec, k))
+    end
+    inner = Dict{String,Any}("layer" => Any[unit])
+    for k in ("width", "height")
+        haskey(spec, k) && (inner[k] = pop!(spec, k))
+    end
+    uenc = _as_dict(unit["encoding"])
+    facet = Dict{String,Any}()
+    for ch in ("column", "row")
+        haskey(uenc, ch) && (facet[ch] = pop!(uenc, ch))
+    end
+    spec["facet"] = facet
+    spec["spec"] = inner
+    haskey(spec, "data") || (spec["data"] = Dict{String,Any}("values" => Any[]))
+    facet
+end
+
 """Re-lower a single-facet spec into an `hconcat` of per-column facet views so
 every column-facet VALUE can carry its own Y scale type.
 
@@ -1648,38 +1680,6 @@ when the figure already carries its own title, which is never clobbered).
 VL header suppression is honored: `header: null` drops both, `labels: false`
 drops the child titles, and a null channel/header title drops the concat
 title."""
-# Single-view `col=`/`row=` specs carry the facet at the encoding level:
-# rebuild them in the operator form (`facet` + `spec.layer`), which the
-# per-panel Y lowerings take. Every view-level key moves into the view: the
-# concat they build keeps only figure-level keys, so one left on top is
-# silently dropped. `_aovLegend` is the legend pass's undo record; without it
-# a re-run (the positional `Scales` form) could not clear its first pass.
-# Per-cell width/height belong on the operator's inner spec. Returns the
-# facet, or `nothing` for a spec with neither form.
-function _operator_facet_form!(spec::Dict)
-    facet = _as_dict(get(spec, "facet", nothing))
-    isnothing(facet) || return facet
-    enc = _as_dict(get(spec, "encoding", nothing))
-    (isnothing(enc) || !(haskey(enc, "column") || haskey(enc, "row"))) && return nothing
-    unit = Dict{String,Any}()
-    for k in ("mark", "encoding", "transform", "params", "projection", "_aovLegend")
-        haskey(spec, k) && (unit[k] = pop!(spec, k))
-    end
-    inner = Dict{String,Any}("layer" => Any[unit])
-    for k in ("width", "height")
-        haskey(spec, k) && (inner[k] = pop!(spec, k))
-    end
-    uenc = _as_dict(unit["encoding"])
-    facet = Dict{String,Any}()
-    for ch in ("column", "row")
-        haskey(uenc, ch) && (facet[ch] = pop!(uenc, ch))
-    end
-    spec["facet"] = facet
-    spec["spec"] = inner
-    haskey(spec, "data") || (spec["data"] = Dict{String,Any}("values" => Any[]))
-    facet
-end
-
 function _per_column_y_hconcat!(spec::Dict, ycols::Dict)
     facet = _operator_facet_form!(spec)
     isnothing(facet) && error("AlgebraOfVega: per-column Y scales (`scales(Y=(; scale=Dict(...)))`) need a faceted spec with a column facet; this spec has no facet.")
