@@ -232,6 +232,7 @@ function _apply_panel_labels!(vl::Dict, v::VegaSpec)
     isempty(opts) && return vl
     tables = _panel_label_tables(v)
     row_sets = _inline_row_sets!(Any[], vl)
+    _is_panel_stack(vl) && return _panel_labels_stack!(vl, opts, tables, row_sets)
     children = get(vl, "hconcat", nothing)
     views = children isa AbstractVector ?
         [(c, "concat_$(k - 1)_facet") for (k, c) in enumerate(children) if c isa Dict] : [(vl, "facet")]
@@ -253,6 +254,52 @@ function _apply_panel_labels!(vl::Dict, v::VegaSpec)
             append!(titles, done.titles); append!(titled, done.titled); append!(facets, done.fields)
             # A per-column child's title is its column value; the axis says it now.
             children isa AbstractVector && col in fields && delete!(view, "title")
+        end
+        isempty(titled) && continue
+        meta[ch] = Dict{String,Any}("field" => col, "facet" => unique!(facets),
+            "titles" => unique!(titles), "fields" => unique!(titled))
+    end
+    isempty(meta) || (get!(Dict{String,Any}, vl, "_aov")["panelLabels"] = meta)
+    vl
+end
+
+# The stack's panels are not facet cells, so each one's axis takes its title as
+# text: the panel's row value, or its value of another column, written as the
+# encodings' title (an authored axis title is kept). The panel title (its row
+# header) leaves when the axis already says it.
+function _panel_labels_stack!(vl::Dict, opts, tables, row_sets)
+    meta = Dict{String,Any}()
+    for ch in sort!(collect(keys(opts)))
+        col = opts[ch]
+        key_name = ch == "y" ? "ylabels" : "xlabels"
+        _has_column(tables, row_sets, col) || throw(ArgumentError(
+            "AlgebraOfVega: `config(facet=(; $key_name=:$col))` names no column of the figure's tables. " *
+            "Name a column that holds each panel's $ch-axis title, such as the facet column itself."))
+        titles, titled, facets = String[], String[], String[]
+        labels = nothing    # read once, for the first panel that needs it
+        for view in vl["vconcat"]
+            panel = view["_aovPanel"]
+            fields = collect(String, keys(panel))
+            label = if col in fields
+                panel[col]
+            else
+                isnothing(labels) && (labels = _panel_label_map(tables, row_sets, fields, col, key_name))
+                get(labels, [_panel_key_part(panel[f]) for f in fields], nothing)
+            end
+            encs = Dict[]
+            _foreach_encoding(view, ch, enc -> haskey(enc, "field")) do enc
+                axis = get(enc, "axis", Dict{String,Any}())
+                axis isa Dict && !haskey(axis, "title") && push!(encs, enc)
+            end
+            isempty(encs) && continue
+            append!(titles, _static_title.(encs)); append!(titled, [string(e["field"]) for e in encs])
+            append!(facets, fields)
+            label = _panel_value(label)
+            isnothing(label) && continue
+            # The encoding's own title, which its axis shows and the stack's
+            # readout heads the panel's series with.
+            foreach(enc -> enc["title"] = _vl_header_label(label), encs)
+            col in fields && delete!(view, "title")
         end
         isempty(titled) && continue
         meta[ch] = Dict{String,Any}("field" => col, "facet" => unique!(facets),

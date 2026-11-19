@@ -1613,6 +1613,38 @@ _independent_y(_) = false
 _independent_y_scale(scale::Dict) = get(scale, "y", nothing) == "independent"
 _independent_y_scale(_) = false
 
+# Single-view `col=`/`row=` specs carry the facet at the encoding level:
+# rebuild them in the operator form (`facet` + `spec.layer`), which the
+# per-panel Y lowerings take. Every view-level key moves into the view: the
+# concat they build keeps only figure-level keys, so one left on top is
+# silently dropped. `_aovLegend` is the legend pass's undo record; without it
+# a re-run (the positional `Scales` form) could not clear its first pass.
+# Per-cell width/height belong on the operator's inner spec. Returns the
+# facet, or `nothing` for a spec with neither form.
+function _operator_facet_form!(spec::Dict)
+    facet = _as_dict(get(spec, "facet", nothing))
+    isnothing(facet) || return facet
+    enc = _as_dict(get(spec, "encoding", nothing))
+    (isnothing(enc) || !(haskey(enc, "column") || haskey(enc, "row"))) && return nothing
+    unit = Dict{String,Any}()
+    for k in ("mark", "encoding", "transform", "params", "projection", "_aovLegend")
+        haskey(spec, k) && (unit[k] = pop!(spec, k))
+    end
+    inner = Dict{String,Any}("layer" => Any[unit])
+    for k in ("width", "height")
+        haskey(spec, k) && (inner[k] = pop!(spec, k))
+    end
+    uenc = _as_dict(unit["encoding"])
+    facet = Dict{String,Any}()
+    for ch in ("column", "row")
+        haskey(uenc, ch) && (facet[ch] = pop!(uenc, ch))
+    end
+    spec["facet"] = facet
+    spec["spec"] = inner
+    haskey(spec, "data") || (spec["data"] = Dict{String,Any}("values" => Any[]))
+    facet
+end
+
 """Re-lower a single-facet spec into an `hconcat` of per-column facet views so
 every column-facet VALUE can carry its own Y scale type.
 
@@ -1649,39 +1681,8 @@ VL header suppression is honored: `header: null` drops both, `labels: false`
 drops the child titles, and a null channel/header title drops the concat
 title."""
 function _per_column_y_hconcat!(spec::Dict, ycols::Dict)
-    facet = _as_dict(get(spec, "facet", nothing))
-    if isnothing(facet)
-        # Single-view `col=` specs carry the facet at the encoding level —
-        # normalize into the operator form (`facet` + `spec.layer`) so the rest
-        # of the lowering is shape-uniform.
-        enc = _as_dict(get(spec, "encoding", nothing))
-        if !isnothing(enc) && haskey(enc, "column")
-            # Every view-level key moves into the view: the concat below keeps
-            # only figure-level keys, so one left on top is silently dropped.
-            # `_aovLegend` is the legend pass's undo record; without it a
-            # re-run (the positional `Scales` form) could not clear its first
-            # pass. Per-cell width/height belong on the operator's inner spec.
-            unit = Dict{String,Any}()
-            for k in ("mark", "encoding", "transform", "params", "projection", "_aovLegend")
-                haskey(spec, k) && (unit[k] = pop!(spec, k))
-            end
-            inner = Dict{String,Any}("layer" => Any[unit])
-            for k in ("width", "height")
-                haskey(spec, k) && (inner[k] = pop!(spec, k))
-            end
-            uenc = _as_dict(unit["encoding"])
-            facet = Dict{String,Any}()
-            facet["column"] = uenc["column"]
-            haskey(uenc, "row") && (facet["row"] = uenc["row"])
-            delete!(uenc, "column")
-            delete!(uenc, "row")
-            spec["facet"] = facet
-            spec["spec"] = inner
-            haskey(spec, "data") || (spec["data"] = Dict{String,Any}("values" => Any[]))
-        else
-            error("AlgebraOfVega: per-column Y scales (`scales(Y=(; scale=Dict(...)))`) need a faceted spec with a column facet; this spec has no facet.")
-        end
-    end
+    facet = _operator_facet_form!(spec)
+    isnothing(facet) && error("AlgebraOfVega: per-column Y scales (`scales(Y=(; scale=Dict(...)))`) need a faceted spec with a column facet; this spec has no facet.")
     coldef = _as_dict(get(facet, "column", nothing))
     if isnothing(coldef) || !haskey(coldef, "field")
         error("AlgebraOfVega: per-column Y scales need a column facet (mapping col=...); this spec only facets by row/layout.")
@@ -1847,6 +1848,151 @@ function _per_column_y_hconcat!(spec::Dict, ycols::Dict)
     else
         newspec["_aov"] = Dict{String,Any}("nFacetCols" => length(children))
     end
+    empty!(spec)
+    merge!(spec, newspec)
+    spec
+end
+
+# The facet channel a per-panel Y scale `Dict` is keyed by: the column facet
+# when the figure has one (as before), else the row facet, else the wrap
+# facet (`layout=`).
+function _per_panel_y_channel(spec::Dict)
+    facet = _as_dict(get(spec, "facet", nothing))
+    enc = _as_dict(get(spec, "encoding", nothing))
+    has(ch) = (d = isnothing(facet) ? nothing : _as_dict(get(facet, ch, nothing)); !isnothing(d) && haskey(d, "field")) ||
+        (e = isnothing(enc) ? nothing : _as_dict(get(enc, ch, nothing)); !isnothing(e) && haskey(e, "field"))
+    has("column") && return :column
+    has("row") && return :row
+    (!isnothing(facet) && haskey(facet, "field")) || has("facet") ? :wrap : nothing
+end
+
+"""Give each facet panel the Y scale type `scales(Y=(; scale=Dict(<panel value>
+=> log10, …)))` lists for it: keyed by the column facet's values when the
+figure has one (`_per_column_y_hconcat!`), else by the row facet's
+(`_per_row_y_vconcat!`). Unlisted panels keep the shared Y scale."""
+function _per_panel_y_concat!(spec::Dict, yscales::Dict)
+    ch = _per_panel_y_channel(spec)
+    ch === :column && return _per_column_y_hconcat!(spec, yscales)
+    ch === :row && return _per_row_y_vconcat!(spec, yscales)
+    ch === :wrap && throw(ArgumentError("AlgebraOfVega: a per-panel Y scale " *
+        "(`scales(Y=(; scale=Dict(...)))`) is not available on a wrapped `layout=` facet yet. " *
+        "Facet the panels with `row=` (one panel per row, on a shared x) or `col=` instead."))
+    throw(ArgumentError("AlgebraOfVega: a per-panel Y scale (`scales(Y=(; scale=Dict(<panel> => log10)))`) " *
+        "keys the scale by the value of a facet (`row=` or `col=`), and this figure has no facet. " *
+        "For one Y scale write `scales(Y=(; scale=log10))`."))
+end
+
+"""Re-lower a figure faceted by `row=` alone into a `vconcat` of one panel per
+row value, so each row can carry its own Y scale type.
+
+Vega-Lite's facet operator shares one encoding across its cells, so its scale
+TYPE cannot differ per row. The panels are stacked as `vconcat(a, b, …)`
+stacks them (src/vconcat.jl): the x scale shared (unless the facet unlinked
+it, `linkxaxes=:none`), laid out by their plot areas (`bounds: "flush"`) so
+the plot areas line up whatever each y axis' label width, the x axis labelled
+under the bottom panel only, and the facet's row spacing (20 px by default)
+between them. The runtime sizes every panel to the container and reads the
+stack as one readout (`_aov.panels`).
+
+Each panel is the facet's inner layers filtered to its row value. A row
+without the row field (a reference layer that lacks it) is kept in every
+panel, as the facet broadcasts it. The panel's row header becomes its title,
+on the left as the facet draws it (header label config applies), and the row
+field's title sits once on the stack (or as a subtitle under a figure title).
+`header: null` drops both, `labels: false` the panel titles. `_aovPanel`
+records the panel's row value for the per-panel axis titles
+(`_apply_panel_labels!`).
+
+`yrows` maps row VALUES (as they appear in the data) to VL `scale` dicts
+(from `_scales_column_y_scales`); unlisted rows keep the shared Y scale, and a
+key no row has does nothing, as for columns."""
+function _per_row_y_vconcat!(spec::Dict, yrows::Dict)
+    facet = _operator_facet_form!(spec)
+    rowdef = isnothing(facet) ? nothing : _as_dict(get(facet, "row", nothing))
+    (isnothing(rowdef) || !haskey(rowdef, "field")) && error(
+        "AlgebraOfVega: per-row Y scales need a row facet (mapping row=...).")
+    inner = _as_dict(get(spec, "spec", nothing))
+    (isnothing(inner) || !haskey(inner, "layer")) && error(
+        "AlgebraOfVega: per-row Y scales need the layered facet form (`facet` + `spec.layer`).")
+    rowfield = string(rowdef["field"])
+    rowvals = _facet_column_values(spec, rowdef)
+    isempty(rowvals) && error("AlgebraOfVega: per-row Y scales found no values for row facet field `$rowfield`.")
+
+    # Row chrome the facet drew and the stack must keep (as for columns).
+    rheader_raw = get(rowdef, "header", :absent)
+    header_off = rheader_raw === nothing
+    rheader = header_off ? nothing : _as_dict(rheader_raw)
+    labels_off = header_off || (!isnothing(rheader) && get(rheader, "labels", true) === false)
+    htitle_raw = isnothing(rheader) ? :absent : get(rheader, "title", :absent)
+    rtitle_raw = get(rowdef, "title", :absent)
+    field_title = htitle_raw isa AbstractString ? string(htitle_raw) :
+        rtitle_raw isa AbstractString ? string(rtitle_raw) : rowfield
+    # An empty field title (`row = :panel => ""`) draws nothing, as on the facet.
+    title_off = header_off || htitle_raw === nothing || rtitle_raw === nothing || isempty(field_title)
+    cfg = _as_dict(get(spec, "config", nothing))
+    cfg_header = isnothing(cfg) ? nothing : _as_dict(get(cfg, "header", nothing))
+
+    # The x scale stays shared unless the facet unlinked it.
+    resolve = _as_dict(get(spec, "resolve", nothing))
+    rscale = isnothing(resolve) ? nothing : _as_dict(get(resolve, "scale", nothing))
+    x_independent = !isnothing(rscale) && get(rscale, "x", nothing) == "independent"
+    select_transforms = _as_vec(get(spec, "transform", nothing))
+    access = "datum[$(_vl_json(rowfield))]"
+    children = Any[]
+    for (i, v) in enumerate(rowvals)
+        child = deepcopy(inner)
+        ts = Any[Dict{String,Any}("filter" => "!isDefined($access) || $access === $(_vl_filter_literal(v))")]
+        isnothing(select_transforms) || append!(ts, deepcopy(select_transforms))
+        own = _as_vec(get(child, "transform", nothing))
+        isnothing(own) || append!(ts, own)
+        child["transform"] = ts
+        yscale = get(yrows, v, nothing)
+        isnothing(yscale) || _merge_column_y_scale!(child, yscale)
+        if !labels_off
+            ct = Dict{String,Any}("text" => _vl_header_label(v), "orient" => "left", "anchor" => "middle",
+                                  "fontSize" => 10, "fontWeight" => "normal")
+            _map_header_props!(ct, cfg_header, "label")
+            _map_header_props!(ct, rheader, "label")
+            child["title"] = ct
+        end
+        child["_aovPanel"] = Dict{String,Any}(rowfield => v)
+        i < length(rowvals) && !x_independent && _vconcat_hide_x_labels!(child)
+        push!(children, child)
+    end
+
+    spacing = get(spec, "spacing", nothing)
+    spacing = spacing isa Real ? spacing : spacing isa AbstractDict ? get(spacing, "row", nothing) : nothing
+    if !(spacing isa Real)
+        fcfg = isnothing(cfg) ? nothing : _as_dict(get(cfg, "facet", nothing))
+        spacing = isnothing(fcfg) ? nothing : get(fcfg, "spacing", nothing)
+        spacing isa Real || (spacing = 20)
+    end
+    newspec = Dict{String,Any}("\$schema" => VL_SCHEMA, "vconcat" => children, "spacing" => spacing,
+        "bounds" => "flush",
+        "resolve" => Dict{String,Any}("scale" => Dict{String,Any}("x" => x_independent ? "independent" : "shared")))
+    for keep in ("data", "params", "config", "usermeta")
+        haskey(spec, keep) && (newspec[keep] = spec[keep])
+    end
+    if title_off
+        haskey(spec, "title") && (newspec["title"] = spec["title"])
+    else
+        ft = Dict{String,Any}("text" => field_title, "orient" => "left", "anchor" => "middle",
+                              "fontSize" => 11, "fontWeight" => "bold")
+        _map_header_props!(ft, cfg_header, "title")
+        _map_header_props!(ft, rheader, "title")
+        if !haskey(spec, "title") || spec["title"] === nothing
+            newspec["title"] = ft
+        else
+            ut = spec["title"]
+            ud = _as_dict(ut)
+            newspec["title"] = isnothing(ud) ?
+                Dict{String,Any}("text" => ut isa AbstractString ? ut : string(ut), "subtitle" => ft["text"]) :
+                haskey(ud, "subtitle") ? ut : merge(deepcopy(ud), Dict{String,Any}("subtitle" => ft["text"]))
+        end
+    end
+    aov = something(_as_dict(get(spec, "_aov", nothing)), Dict{String,Any}())
+    newspec["_aov"] = merge!(deepcopy(aov), Dict{String,Any}(
+        "panels" => Any[Dict{String,Any}("readout" => nothing) for _ in children]))
     empty!(spec)
     merge!(spec, newspec)
     spec
@@ -2550,7 +2696,7 @@ function _lower_vegaspec(v::VegaSpec; interactive::Bool=true)
     # per-column facet views. Runs last among the lowerings so child copies
     # inherit select filters (moved per child) and auto-interactivity params
     # (inner layers) as built.
-    isnothing(col_yscales) || _per_column_y_hconcat!(spec, col_yscales)
+    isnothing(col_yscales) || _per_panel_y_concat!(spec, col_yscales)
     # Facet sorts can arrive via config — `scales(Row/Col/Layout=categories)`
     # sugar or a raw `encoding.sort` override — AFTER the inner lowering already
     # ran the densifier on the unsorted spec. Re-run it so a sparse row×column
@@ -2594,7 +2740,7 @@ function to_vegalite(v, sc::AlgebraOfGraphics.Scales; interactive::Bool=true,
     _each_ribbon_view!(spec) do s
         _apply_scales_sugar!(s, sc)
         col = _scales_column_y_scales(sc)
-        isnothing(col) || _per_column_y_hconcat!(s, col)
+        isnothing(col) || _per_panel_y_concat!(s, col)
         # The sugar above can add a facet sort after the inner lowering densified
         # (or skipped an unsorted spec) — re-run so a sparse grid never meets a
         # sort (snag `facet-column-sor-9904da1f`).

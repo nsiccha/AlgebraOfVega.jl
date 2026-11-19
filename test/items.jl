@@ -2762,17 +2762,22 @@ end
     @test get(get(y2, "scale", Dict()), "type", "linear") == "log"
 end
 
-@testitem "per-column Y scales fail loudly on unsupported shapes" setup=[AoVTestImports] tags=[:translation, :config] begin
+@testitem "per-panel Y scales fail loudly on unsupported shapes" setup=[AoVTestImports] tags=[:translation, :config] begin
     rows = (t=[0.0, 1.0], val=[1.0, 2.0], endpoint=["a", "b"], basis=["p", "q"])
     colsc = scales(Y=(; scale=Dict("a" => log10)))
 
-    # non-faceted spec: no facet to key columns by — refuse instead of guessing
+    # non-faceted spec: no facet to key panels by — refuse instead of guessing
     spec1 = data(rows) * mapping(:t, :val) * visual(Scatter) * config(scales=colsc)
-    @test_throws ErrorException to_vegalite(spec1)
+    @test_throws ArgumentError to_vegalite(spec1)
 
-    # row-only facet: no column channel
+    # wrapped `layout=` facet: not lowered yet
+    spec3 = data(rows) * mapping(:t, :val; layout=:basis) * visual(Scatter) * config(scales=colsc)
+    @test_throws ArgumentError to_vegalite(spec3)
+
+    # row-only facet: keyed by the row values since 0.2.69 (test/per_row_y.jl);
+    # a key no row has does nothing, as for columns.
     spec2 = data(rows) * mapping(:t, :val; row=:basis) * visual(Scatter) * config(scales=colsc)
-    @test_throws ErrorException to_vegalite(spec2)
+    @test haskey(to_vegalite(spec2), "vconcat")
 end
 
 """

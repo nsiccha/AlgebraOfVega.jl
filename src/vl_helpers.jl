@@ -385,3 +385,9 @@ end
 Base.:*(a::VegaSpec, b::VegaSpec) = _mul_specs(a, b)
 Base.:*(a::VegaSpec, b::AlgebraOfGraphics.AbstractAlgebraic) = _mul_specs(a, b)
 Base.:*(a::AlgebraOfGraphics.AbstractAlgebraic, b::VegaSpec) = _mul_specs(a, b)
+
+# A row facet given per-row Y scales is a stack of panels (`_per_row_y_vconcat!`),
+# each recording the row value it was filtered to (`_aovPanel`).
+_is_panel_stack(vl::Dict) = (kids = get(vl, "vconcat", nothing);
+    kids isa AbstractVector && !isempty(kids) && all(k -> k isa Dict && haskey(k, "_aovPanel"), kids))
+_is_panel_stack(_) = false

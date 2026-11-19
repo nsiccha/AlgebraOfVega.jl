@@ -38,6 +38,8 @@ println() # hide
 
 Use a log axis for strictly positive quantities spanning multiplicative ranges. Transforming the values beforehand would change the numbers shown in tooltips. When genuine zeros must remain visible across a wide range, `symlog` provides a linear region around zero and logarithmic behavior farther away. Choose the scale based on the quantity being compared; do not use a log axis to conceal invalid nonpositive data.
 
+Facet panels that show different quantities can take different y scale types in one figure. Key the scale by the facet value: on a figure faceted by `row=`, `scales(Y=(scale=Dict("Cmax (ng/mL)" => log10),))` draws the Cmax row on a log axis and the other rows on the shared linear one, on one x axis. With a `col=` facet the same `Dict` keys the columns. A wrapped `layout=` facet does not take it yet.
+
 Axis options also include `zero`, `nice`, `domain`, and `clamp`. AoV's quantitative axes do not force zero into the domain. A bar's length depends on its baseline, so check that choice before interpreting bar lengths.
 
 ## Appearance

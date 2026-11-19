@@ -3475,7 +3475,18 @@ window.AoV = window.AoV || {
             else if (v.encoding) { push(v.encoding.facet); push(v.encoding.row); push(v.encoding.column); }
             (v.hconcat || []).forEach(view);
         })(spec);
+        // A per-row-Y stack's panels each stand for a row value.
+        if (this._isPanelStack(spec)) spec.vconcat.forEach(function(c) {
+            Object.keys(c._aovPanel).forEach(function(f) { if (out.indexOf(f) === -1) out.push(f); });
+        });
         return out;
+    },
+    // A row facet given per-row Y scales, lowered to a stack of panels
+    // (`_per_row_y_vconcat!`, src/to_vegalite.jl): every child records the
+    // row value it shows as `_aovPanel`.
+    _isPanelStack: function(spec) {
+        return !!(spec && Array.isArray(spec.vconcat) && spec.vconcat.length &&
+            spec.vconcat.every(function(c) { return c && typeof c === 'object' && c._aovPanel; }));
     },
     // Call f(encoding) on every `ch` encoding of a spec's units.
     _eachEncoding: function(node, ch, f) {
@@ -5900,26 +5911,41 @@ window.AoV = window.AoV || {
             else if (spec.spec && spec.spec.data) spec.spec.data = mapping._comboData;
         }
 
-        // Per-column-Y concat (`hconcat` of per-column facet views —
-        // `scales(Y=(; scale=Dict(...)))`): remap color/row/detail/axes in
-        // EVERY child, preserving each child's Y scale type and column
-        // filter. Column remapping is not supported — the per-column scale
-        // keys bind to the authored column field — so it logs and no-ops
-        // (the picker should pin the column channel on these figures).
-        if (spec.hconcat && Array.isArray(spec.hconcat)) {
+        // Per-panel-Y concat (`scales(Y=(; scale=Dict(...)))`): an `hconcat`
+        // of per-column facet views, or a stack of per-row panels (`vconcat`
+        // whose children record `_aovPanel`, `_per_row_y_vconcat!`). Remap
+        // color/detail/axes in EVERY child (and rows of the hconcat),
+        // preserving each child's Y scale type and filter. The channel the
+        // scale keys are bound to (the column, or the stack's row) is not
+        // remappable, so it logs and no-ops (the picker should pin it); nor
+        // is a column on a stack, whose panels are not facets.
+        var stackC = this._isPanelStack(spec);
+        var kidsC = (spec.hconcat && Array.isArray(spec.hconcat)) ? spec.hconcat : stackC ? spec.vconcat : null;
+        if (kidsC) {
             // Local title lookup — the shared `_titles`/`_fieldTitle` pair is
             // declared further down, so at this point the hoisted `var` is
             // still undefined (proven live: `_titles[f]` TypeError).
             var _titlesC = mapping._comboTitles || {};
             function _fieldTitleC(f) { return _titlesC[f] || f; }
+            // A child's layers: a facet view's inner ones, a stack panel's own.
+            function _kidLayersC(child) {
+                var layersC = child && (stackC ? child.layer : child.spec && child.spec.layer);
+                return Array.isArray(layersC) ? layersC : null;
+            }
             if ('column' in mapping) {
-                console.info('AoV.remapEncoding: column remap is not supported on per-column-scale (hconcat) figures; keeping the authored column field.');
+                console.info(stackC ?
+                    'AoV.remapEncoding: column remap is not supported on per-row-scale (stacked) figures; keeping one column.' :
+                    'AoV.remapEncoding: column remap is not supported on per-column-scale (hconcat) figures; keeping the authored column field.');
+            }
+            if (stackC && 'row' in mapping) {
+                console.info('AoV.remapEncoding: row remap is not supported on per-row-scale (stacked) figures; keeping the authored row field.');
             }
             if ('color' in mapping) {
                 var cfC = mapping.color;
-                spec.hconcat.forEach(function(child) {
-                    if (!child || !child.spec || !Array.isArray(child.spec.layer)) return;
-                    child.spec.layer.forEach(function(l) {
+                kidsC.forEach(function(child) {
+                    var layersC = _kidLayersC(child);
+                    if (!layersC) return;
+                    layersC.forEach(function(l) {
                         if (!l || !l.encoding || l._keep_color || self._fixedMarkColor(l)) return;
                         if (cfC) {
                             l.encoding.color = self._remappedColor(l.encoding.color, cfC, _fieldTitleC(cfC));
@@ -5929,7 +5955,7 @@ window.AoV = window.AoV || {
                     });
                 });
             }
-            if ('row' in mapping) {
+            if (!stackC && 'row' in mapping) {
                 var rfC = mapping.row;
                 spec.hconcat.forEach(function(child) {
                     if (!child || !child.facet) return;
@@ -5942,9 +5968,10 @@ window.AoV = window.AoV || {
             }
             if (mapping._dimensions) {
                 var detailFieldsC = mapping._dimensions;
-                spec.hconcat.forEach(function(child) {
-                    if (!child || !child.spec || !Array.isArray(child.spec.layer)) return;
-                    child.spec.layer.forEach(function(l) {
+                kidsC.forEach(function(child) {
+                    var layersC = _kidLayersC(child);
+                    if (!layersC) return;
+                    layersC.forEach(function(l) {
                         if (!l || !l.encoding) return;
                         if (detailFieldsC.length > 0) {
                             l.encoding.detail = detailFieldsC.length === 1 ?
@@ -5968,9 +5995,10 @@ window.AoV = window.AoV || {
                     }
                 }
                 var newTypeC = sampleC !== null ? _inferType(sampleC) : null;
-                spec.hconcat.forEach(function(child) {
-                    if (!child || !child.spec || !Array.isArray(child.spec.layer)) return;
-                    child.spec.layer.forEach(function(l) {
+                kidsC.forEach(function(child) {
+                    var layersC = _kidLayersC(child);
+                    if (!layersC) return;
+                    layersC.forEach(function(l) {
                         if (!l || l._no_axis_remap || !l.encoding) return;
                         var encC = l.encoding[axis];
                         if (!encC || typeof encC !== 'object' || encC.field === undefined) return;
@@ -6000,8 +6028,9 @@ window.AoV = window.AoV || {
             _remapConcatAxis('x');
             _remapConcatAxis('y');
 
-            // Re-broadcast cross-source layers after row mutations
-            this._broadcastCrossSource(spec);
+            // Re-broadcast cross-source layers after row mutations (a stack's
+            // panel filters keep rows without the row field themselves).
+            if (!stackC) this._broadcastCrossSource(spec);
 
             return this._fitPanelLabels(spec);
         }
