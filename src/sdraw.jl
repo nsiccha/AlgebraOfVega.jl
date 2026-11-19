@@ -101,7 +101,8 @@ function _draw_kwargs(cfg::Union{Config,Nothing}; faceted=false, layer_encodings
     for enc in layer_encodings
         _apply_log_scales!(axis_kw, _as_dict(enc))
     end
-    isnothing(cfg) && return (; figure=NamedTuple(), facet=NamedTuple(), axis=NamedTuple(axis_kw), scales=nothing)
+    panel_labels = Dict{String,String}()
+    isnothing(cfg) && return (; figure=NamedTuple(), facet=NamedTuple(), axis=NamedTuple(axis_kw), scales=nothing, panel_labels)
     props = cfg.properties
     if !faceted
         w = get(props, :width, nothing)
@@ -126,7 +127,13 @@ function _draw_kwargs(cfg::Union{Config,Nothing}; faceted=false, layer_encodings
         elseif k === :frame
             throw(ArgumentError("AlgebraOfVega: `config(frame=…)` animations are not supported on the static Makie path; render with `vdraw`/`to_html`, or filter the table to one frame for a static figure."))
         elseif k === :facet
-            _merge_nt!(facet_kw, _as_nt(v))
+            nt = _as_nt(v)
+            if !isnothing(nt)
+                # `xlabels`/`ylabels` are AoV's (src/panel_labels.jl): AoG's `draw` gets
+                # the panels' own labels instead (`_label_static_panels!`).
+                merge!(panel_labels, _panel_label_opts(nt))
+                _merge_nt!(facet_kw, _without_panel_label_keys(nt))
+            end
         elseif k === :axis
             _merge_axis_nt!(axis_kw, _as_nt(v))
         elseif k === :independent_scales
@@ -137,7 +144,83 @@ function _draw_kwargs(cfg::Union{Config,Nothing}; faceted=false, layer_encodings
             end
         end
     end
-    (; figure=NamedTuple(figure_kw), facet=NamedTuple(facet_kw), axis=NamedTuple(axis_kw), scales=scales_obj)
+    # Each panel keeps its own axis label: AoG spans one label over the grid, and hides
+    # inner panels' decorations, only when every axis has the same one.
+    for (ch, single, hide) in (("x", :singlexlabel, :hidexdecorations), ("y", :singleylabel, :hideydecorations))
+        haskey(panel_labels, ch) || continue
+        get!(facet_kw, single, false)
+        get!(facet_kw, hide, false)
+    end
+    (; figure=NamedTuple(figure_kw), facet=NamedTuple(facet_kw), axis=NamedTuple(axis_kw), scales=scales_obj, panel_labels)
+end
+
+# The facet fields of an AoG drawable, by facet channel (`:layout`, `:row`, `:col`).
+function _drawable_facet_fields(drawable)
+    out = Dict{Symbol,String}()
+    for l in something(_spec_layers_or_nothing(drawable), [])
+        l isa AlgebraOfGraphics.Layer || continue
+        for ch in (:layout, :row, :col)
+            haskey(l.named, ch) && get!(out, ch, _field_name(l.named[ch]))
+        end
+    end
+    out
+end
+
+const _STATIC_FACET_SCALES = (:layout => :Layout, :row => :Row, :col => :Col)
+
+# A facet whose labels the panels' axes now show (`config(facet=(; ylabels=:panel))`
+# with `:panel` its field) draws no facet labels, as the Vega-Lite figure leaves its
+# header out: AoG's `legend=false` on that facet scale.
+function _hide_static_panel_headers(scales_obj, drawable, labels)
+    isempty(labels) && return scales_obj
+    facets = _drawable_facet_fields(drawable)
+    hidden = [name for (ch, name) in _STATIC_FACET_SCALES if get(facets, ch, nothing) in values(labels)]
+    isempty(hidden) && return scales_obj
+    dict = isnothing(scales_obj) ? Dict{Symbol,Any}() :
+        Dict{Symbol,Any}(k => (; pairs(v)...) for (k, v) in pairs(scales_obj.dict))
+    for name in hidden
+        dict[name] = merge(get(dict, name, (;)), (; legend=false))
+    end
+    AlgebraOfGraphics.scales(; dict...)
+end
+
+# Label each drawn panel's axes with its own title (src/panel_labels.jl). A panel's
+# facet values come from AoG's facet scales: the position each value's panel takes in
+# the grid AoG drew (`plotvalues`, a (row, column) pair for `layout=`, a row or a
+# column index for `row=`/`col=`).
+function _label_static_panels!(grid::AbstractMatrix, drawable, labels)
+    (isempty(labels) || isempty(grid)) && return grid
+    facets = _drawable_facet_fields(drawable)
+    isempty(facets) && return grid
+    scales = first(grid).categoricalscales
+    scale(aes) = AlgebraOfGraphics.extract_single(aes, scales)
+    found = [(ch, facets[ch], scale(aes)) for (ch, aes) in ((:layout, AlgebraOfGraphics.AesLayout),
+        (:row, AlgebraOfGraphics.AesRow), (:col, AlgebraOfGraphics.AesCol)) if haskey(facets, ch)]
+    found = [f for f in found if !isnothing(f[3])]
+    isempty(found) && return grid
+    fields = [f[2] for f in found]
+    tables = _panel_label_tables(drawable)
+    maps = Dict(col => (col in fields ? nothing :
+        _panel_label_map(tables, Any[], fields, col, ch == "y" ? "ylabels" : "xlabels")) for (ch, col) in labels)
+    for idx in CartesianIndices(grid)
+        ae = grid[idx]
+        isempty(ae.entries) && continue
+        key = Any[]
+        for (ch, _, sc) in found
+            at = ch === :layout ? (idx[1], idx[2]) : ch === :row ? idx[1] : idx[2]
+            k = findfirst(==(at), AlgebraOfGraphics.plotvalues(sc))
+            isnothing(k) && break
+            push!(key, AlgebraOfGraphics.datavalues(sc)[k])
+        end
+        length(key) == length(found) || continue
+        for (ch, col) in labels
+            label = col in fields ? key[findfirst(==(col), fields)] :
+                get(maps[col], [_panel_key_part(v) for v in key], nothing)
+            isnothing(label) && continue
+            ch == "y" ? (ae.axis.ylabel = string(label)) : (ae.axis.xlabel = string(label))
+        end
+    end
+    grid
 end
 
 """
@@ -487,10 +570,11 @@ function sdraw!(position, spec)
     kw = _draw_kwargs(cfg; faceted=_is_faceted(authored),
         layer_encodings=_spec_layer_encodings(spec))
     drawable = _static_drawable(authored, position, kw.axis)
-    sc = _sdraw_scales(kw.scales, authored, cfg)
-    isnothing(sc) ?
+    sc = _hide_static_panel_headers(_sdraw_scales(kw.scales, authored, cfg), authored, kw.panel_labels)
+    grid = isnothing(sc) ?
         AlgebraOfGraphics.draw!(position, drawable; facet=kw.facet, axis=kw.axis) :
         AlgebraOfGraphics.draw!(position, drawable, sc; facet=kw.facet, axis=kw.axis)
+    _label_static_panels!(grid, authored, kw.panel_labels)
 end
 
 """
@@ -505,10 +589,11 @@ function sdraw_file(spec, path::AbstractString; kwargs...)
     kw = _draw_kwargs(cfg; faceted=_is_faceted(authored),
         layer_encodings=_spec_layer_encodings(spec))
     drawable = _static_drawable(authored, nothing, kw.axis)
-    sc = _sdraw_scales(kw.scales, authored, cfg)
+    sc = _hide_static_panel_headers(_sdraw_scales(kw.scales, authored, cfg), authored, kw.panel_labels)
     fg = isnothing(sc) ?
         AlgebraOfGraphics.draw(drawable; figure=kw.figure, facet=kw.facet, axis=kw.axis) :
         AlgebraOfGraphics.draw(drawable, sc; figure=kw.figure, facet=kw.facet, axis=kw.axis)
+    _label_static_panels!(fg.grid, authored, kw.panel_labels)
     Makie.save(path, fg; kwargs...)
     path
 end

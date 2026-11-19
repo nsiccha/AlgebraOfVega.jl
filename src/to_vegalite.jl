@@ -2611,8 +2611,8 @@ end
 # default follows every authored count (`config(columns=…)`, a positional
 # `scales(Layout=…)`), so it only fills a count nobody set.
 _finish_vegalite!(spec, ::Dict) = spec
-_finish_vegalite!(spec, v) = _record_summary!(
-    _each_ribbon_view!(_apply_axis_defaults!, _finish_ribbon_views!(_each_ribbon_view!(_apply_finish_defaults!, spec))), v)
+_finish_vegalite!(spec, v) = _record_summary!(_each_ribbon_view!(s -> _apply_panel_labels!(s, v),
+    _each_ribbon_view!(_apply_axis_defaults!, _finish_ribbon_views!(_each_ribbon_view!(_apply_finish_defaults!, spec)))), v)
 # Log tick values and tick counts, again once a ribbon's interval drawing is
 # built (it gets x encodings of its own); every pass keeps what is set.
 _apply_axis_defaults!(spec) = _apply_ref_labels!(_apply_label_legends!(_apply_tooltip_time!(_apply_tick_cap!(_apply_listed_ticks!(_apply_log_ticks!(spec))))))
