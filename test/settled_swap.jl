@@ -37,9 +37,12 @@ settle delay, and checks each against a freshly loaded page.
         rows = (; k=[f["properties"]["k"] for f in geo["features"]], v=Float64.(n .+ (1:length(geo["features"]))))
         map = data(rows) * mapping(:k; color=:v) * geoshape(geo) * config(width=360, height=240)
         xy = data((; a=Float64.(1:3 + n), b=Float64.(n .+ (1:3 + n)))) * mapping(:a, :b) * visual(Scatter)
+        # The two plots' height differs per level: a figure of the same
+        # structure would be updated in place, keeping its element
+        # (test/same_id_swap.jl), and these must embed into the new one.
         join([html(with_plot_caption(map, CaptionSpec(; title="Level $n", short="A click drills down."); plot_id="ss-map")),
-            html(to_node(xy * config(height=120); id="ss-act", actions=true)),
-            html(to_node(xy * config(height=120, max_width=300); id="ss-cap"))])
+            html(to_node(xy * config(height=120 + n); id="ss-act", actions=true)),
+            html(to_node(xy * config(height=120 + n, max_width=300); id="ss-cap"))])
     end
     driver = read(joinpath(@__DIR__, "settled_swap.js"), String)
     chrome = something(Sys.which("google-chrome"), Sys.which("chromium"), "")

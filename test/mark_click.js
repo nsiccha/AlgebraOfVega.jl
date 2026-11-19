@@ -13,7 +13,7 @@
     async function ready(id, previous) {
         for (let i = 0; i < 500; i++) {
             const view = AoV.views[id];
-            if (view && view !== previous && !AoV._inFlight[id]) return view;
+            if (view && view !== previous && !AoV._inFlight[id] && !(AoV._adopting || {})[id]) return view;
             await pause();
         }
         throw new Error(id + ': embed did not complete');
@@ -190,12 +190,25 @@
             'facet: a click on empty cell space (bar top ' + short.top + ') dispatched ' + got.length + ' events');
 
         // An htmx-style swap: a new element with the same id and its own embed.
-        // The old view is disposed and the new one reports each click once.
-        const old = AoV.views['mc-bars'], spec = JSON.parse(JSON.stringify(AoV._origSpecs['mc-bars']));
-        const fresh = document.createElement('div');
-        fresh.id = 'mc-bars';
-        document.getElementById('mc-bars').replaceWith(fresh);
-        AoV.embed('mc-bars', spec, {actions: false});
+        // The same spec updates the plot in place (its view stays); a changed
+        // one embeds afresh and disposes the old view. Either way each click
+        // reports once.
+        const swapIn = spec => {
+            const fresh = document.createElement('div');
+            fresh.id = 'mc-bars';
+            document.getElementById('mc-bars').replaceWith(fresh);
+            AoV.embed('mc-bars', spec, {actions: false});
+        };
+        let old = AoV.views['mc-bars'];
+        const spec = JSON.parse(JSON.stringify(AoV._origSpecs['mc-bars']));
+        swapIn(JSON.parse(JSON.stringify(spec)));
+        view = await ready('mc-bars');
+        check(view === old, 'bars after an in-place swap: the view is kept');
+        got = clicked('mc-bars', one(view, 'bar c after in-place swap', isRow('k', 'c')));
+        check(got.length === 1 && got[0].detail.datum.k === 'c' && got[0].target === 'mc-bars',
+            'bars after in-place swap: ' + JSON.stringify(got.map(e => e.detail.datum)));
+        old = view;
+        swapIn(Object.assign(JSON.parse(JSON.stringify(spec)), {description: 'swapped'}));
         view = await ready('mc-bars', old);
         got = clicked('mc-bars', one(view, 'bar c after swap', isRow('k', 'c')));
         check(got.length === 1 && got[0].detail.datum.k === 'c' && got[0].target === 'mc-bars',
