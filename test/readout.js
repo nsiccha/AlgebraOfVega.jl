@@ -203,6 +203,34 @@
         // The wash as a stacked panel under bars: one box, the bars' value and the line's.
         got2 = await readAt('ro-wash-stack', 11);
         check(same(got2, ['Hour: 11', 'Rain (mm/h): 0', 'Added dose rate: 0.4096']), 'stacked wash: ' + JSON.stringify(got2));
+        check(document.querySelectorAll('#ro-wash-stack .aov-readout-panel').length === 0,
+            'a stack of single uncoloured series got panel headings');
+
+        // --- a stack whose panels share a colour field: each panel's own
+        // series, under its y title; the uncoloured panel below unheaded ---
+        const scen = await ready('ro-stack-scenarios');
+        const expected = ['Day: 2', 'Plasma (ng/mL)', 'S1: 120 (60–240)', 'S2: 1,200 (900–1,500)',
+            'PBMC (%)', 'S1: −49.8 (−53.5 – −46.5)', 'S2: −40.0 (−44.0 – −36.0)',
+            'CSF (%)', 'S1: −50.2 (−53.3 – −45.1)', 'S2: −30 (−35 – −25)', 'Dose (mg): 100'];
+        const lines2 = items(scen, mark('line', 'day', 2));
+        check(lines2.length >= 4, 'stack: ' + lines2.length + ' line items at day 2');
+        // From the top panel and from the bottom one: the same box.
+        for (const it of [lines2[0], lines2[lines2.length - 1]].filter(Boolean)) {
+            pointerAt('ro-stack-scenarios', it.x + 3, it.y);
+            await settle();
+            const got = box('ro-stack-scenarios');
+            check(same(got, expected), 'stack at y ' + Math.round(it.y) + ': ' + JSON.stringify(got));
+        }
+        const heads = [...document.querySelectorAll('#ro-stack-scenarios .aov-readout-panel')].map(h => h.textContent);
+        check(same(heads, ['Plasma (ng/mL)', 'PBMC (%)', 'CSF (%)']), 'panel headings ' + JSON.stringify(heads));
+        // Headed rows are indented; the uncoloured panel's row, named by its title, is not.
+        const rows = [...document.querySelectorAll('#ro-stack-scenarios .aov-readout > div')]
+            .filter(r => !r.classList.contains('aov-readout-panel')).slice(1);
+        const indents = rows.map(r => [r.textContent.split(':')[0], r.style.paddingLeft]);
+        check(same(indents, [['S1', '0.9em'], ['S2', '0.9em'], ['S1', '0.9em'], ['S2', '0.9em'],
+            ['S1', '0.9em'], ['S2', '0.9em'], ['Dose (mg)', '']]), 'indents ' + JSON.stringify(indents));
+        leave('ro-stack-scenarios');
+        await settle();
         // A figure whose only line is passive gets no readout.
         await ready('ro-passive');
         check(!(AoV._readouts['ro-passive'] && AoV._readouts['ro-passive'].plan), 'a passive line got a readout');

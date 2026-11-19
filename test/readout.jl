@@ -11,6 +11,10 @@ using TestItemRunner
 # readout: a `Band` from 0 to a line's value is a wash under the line, and the
 # line reads as a line. Before 0.2.58 the wash was read as the line's interval,
 # `0.41 (0.00–0.41)`, or as a series of its own (snag `draw-a-line-with-66afe965`).
+# A `vconcat` stack whose panels are coloured by one field lists each panel's
+# series under that panel's y title. Before 0.2.67 a name shared by panels was
+# one row with the last panel's median and the widest panel's interval,
+# `S1: −50 (60–240)` (snag `vconcat-readout-7dc3b818`, decision `0lhkthg`).
 @testitem "config(readout=…) and temporal link keys lower to _aov metadata" tags=[:interactivity] begin
     using AlgebraOfVega, AlgebraOfGraphics, Dates
     rows = (; x=[1.0, 2.0, 3.0], y=[1.0, 4.0, 9.0])
@@ -60,6 +64,22 @@ end
         mapping(:hour => "Hour", :added => "nSv/h") * visual(Lines; color="#CC79A7", label="Added dose rate"))
     rain = data(hours) * mapping(:hour => "Hour", :mm => "Rain (mm/h)") * visual(BarPlot) *
         config(height=60, readout=true)
+    # Three quantities coloured by one scenario field, as Bruno web-sim's time
+    # course stacks its outputs, over an uncoloured panel whose rows carry a
+    # `scenario` column too (the stack's first colour field must not name it).
+    days = collect(0.0:4)
+    column(s1, s2, i) = repeat(Float64[s1[i], s2[i]], inner=5)
+    quantity(title, s1, s2) = data((; day=repeat(days, 2), scenario=repeat(["S1", "S2"], inner=5),
+            q50=column(s1, s2, 1), q025=column(s1, s2, 2), q975=column(s1, s2, 3),
+            q25=column(s1, s2, 4), q75=column(s1, s2, 5))) *
+        mapping(:day => "Day", :q50 => title; color=:scenario) *
+        lineribbon(bands=[:q025 => :q975, :q25 => :q75]) * config(width=360, height=80)
+    scenarios = vconcat(
+        quantity("Plasma (ng/mL)", (120, 60, 240, 90, 160), (1200, 900, 1500, 1000, 1400)),
+        quantity("PBMC (%)", (-49.8, -53.5, -46.5, -51, -48), (-40, -44, -36, -42, -38)),
+        quantity("CSF (%)", (-50.2, -53.3, -45.1, -52, -48), (-30, -35, -25, -32, -28)),
+        data((; day=days, dose=fill(100.0, 5), scenario=fill("S1", 5))) *
+            mapping(:day => "Day", :dose => "Dose (mg)") * visual(Lines) * config(width=360, height=60))
 
     chrome = something(Sys.which("google-chrome"), Sys.which("chromium"), "")
     if isempty(chrome)
@@ -78,6 +98,7 @@ end
                 vdraw(labelled * size; id="ro-wash-label"),
                 vdraw(banded * size; id="ro-band"),
                 vdraw(vconcat(rain, washed * config(height=120)); id="ro-wash-stack"),
+                vdraw(scenarios; id="ro-stack-scenarios"),
                 vdraw(data(hours) * mapping(:hour, :added) * visual(Lines; inspectable=false) * size;
                     id="ro-passive")]
             head = join(html(n) for n in vega_head(; source=:inline))
