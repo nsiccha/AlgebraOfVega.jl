@@ -110,7 +110,8 @@ data change that brings a new group re-embeds once with that group's layers.
                     col=:panel) * config(height=150); id="rk-ribbon"),
                 vdraw(ribbon(typed_empty) * config(height=150); id="rk-empty"),
                 vdraw(data(draws) * mapping(:v; y=:g) * pointinterval() * config(height=150); id="rk-interval"),
-                # A ribbon layered with other layers cannot grow groups: warned.
+                # A ribbon layered with a layer of other rows grows groups too:
+                # its rows are the top-level data (snag `one-extra-layer-dfa741c3`).
                 vdraw((ribbon(cat(rows("A"), rows("B"; off=3))) + data((; x=[1.0], y=[0.0], scenario=["A"])) *
                     mapping(:x, :y; color=:scenario) * visual(Scatter)) * config(height=150); id="rk-layered"),
                 vdraw(data(cat(rows("A"), rows("B"; off=3))) * mapping(:x, :y; color=:scenario) *

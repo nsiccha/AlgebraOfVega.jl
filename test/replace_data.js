@@ -265,17 +265,22 @@
             /update_spec/.test(errors[before] || ''), 'lowered: refused with an update_spec pointer');
         check(AoV._plotData(id).length === intervalRows, 'lowered: data left unchanged');
 
-        // --- A ribbon layered with other layers: a new group is not drawn, and said so.
+        // --- A ribbon layered with a layer of other rows: the ribbon's rows are
+        // the plot's top-level data (`_hoist_shared_data!`), so a new group is
+        // drawn as on a lone ribbon (snag `one-extra-layer-dfa741c3`).
         id = 'rk-layered';
         view = await ready(id);
+        check(!AoV._cur[id].spec.layer.some(l => l._lr_layer && l.data), 'layered ribbon: group layers read the top-level rows');
         const warned = warnings.filter(w => /layered lineribbon/.test(w)).length;
         send('layered_C');
-        await view.runAsync();
-        const w = warnings.filter(w => /layered lineribbon/.test(w));
-        check(w.length === warned + 1 && /group\(s\) C /.test(w[w.length - 1]) && /update_spec/.test(w[w.length - 1]),
-            'layered ribbon new group: warned with an update_spec pointer');
+        view = await ready(id, view);
         d = drawn(view);
-        check(d['area:A'] === 5 && d['area:B'] === 5 && !d['area:C'], 'layered ribbon new group: A and B kept, C not drawn');
+        check(d['area:A'] === 5 && d['area:B'] === 5 && d['area:C'] === 5 && d['line:C'] === 5,
+            'layered ribbon new group: C drawn beside A and B');
+        check(paintOrder(view).join('|') === byKind(['A', 'B', 'C'], 1),
+            'layered ribbon new group: painted by kind ' + paintOrder(view).join('|'));
+        check(warnings.filter(w => /layered lineribbon/.test(w)).length === warned, 'layered ribbon new group: no warning');
+        check(view.data('source_1').length === 1, 'layered ribbon new group: the other layer keeps its own row');
         check(AoV._plotData(id).length === 15, 'layered ribbon new group: rows kept');
 
         check(errors.length === 2, 'unexpected runtime errors: ' + errors.join('; '));
