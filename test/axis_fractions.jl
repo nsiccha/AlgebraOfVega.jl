@@ -193,6 +193,7 @@ end
 end
 
 @testitem "sdraw! hands the fractions to Makie's own plots" setup=[AoVAxisFractionFixtures] tags=[:static] begin
+    import AlgebraOfGraphics   # with Makie, loads the static path (AlgebraOfVegaMakieExt)
     fig = Makie.Figure()
     sdraw!(fig[1, 1], vlines(ymin=0.25, ymax=0.9, linestyle=:dash) + hlines(xmin=0.5) + pts)
     plots = [p for ax in fig.content if ax isa Makie.Axis for p in ax.scene.plots]

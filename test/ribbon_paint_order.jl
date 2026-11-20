@@ -69,5 +69,5 @@ when it rebuilds group layers (`test/replace_data.js`, "paint order").
     # Lines, each across every colour group.
     c = AlgebraOfVega._convert_drawable(first(AlgebraOfVega._extract_drawable(
         data(rows) * mapping(:day, :q50; color=colour) * lineribbon(bands=bands))))
-    @test [AlgebraOfVega.extract_visual(l).plottype for l in c.layers] == [Makie.Band, Makie.Band, Makie.Lines]
+    @test [AlgebraOfVega.extract_visual(l).plottype for l in c.layers] == [Band, Band, Lines]
 end

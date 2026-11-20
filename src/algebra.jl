@@ -74,9 +74,22 @@ using .PlotTypes: Plot, Density as MakieDensity
 """Compatibility alias of [`AlgebraOfVega.PlotTypes`](@ref) — not the Makie package."""
 const Makie = PlotTypes
 
-# The Makie plotting-function name of a plot type, as `Makie.plotsym` gives it
-# (`:scatter` for `Scatter`, `:plot` for the unspecified `Plot{:plot}`).
-_plotsym(::Type{Plot{F}}) where {F} = F
+# The name of a plot type in messages, as `Makie.plotsym` gives it: the type's
+# own name (`:VLines` for `VLines`, `:Text`), and `:plot` for the unspecified
+# `Plot{:plot}`. A token without a `PlotTypes` name (one built from a Makie
+# plot type AoV does not list) capitalizes its function name.
+function _plot_type_names()
+    out = Dict{Type,Symbol}()
+    for n in names(PlotTypes; all=true)
+        isdefined(PlotTypes, n) || continue
+        t = getfield(PlotTypes, n)
+        t isa Type && t <: Plot && t !== Plot && (out[t] = n)
+    end
+    out
+end
+const _PLOTSYMS = _plot_type_names()
+_plotsym(::Type{Plot{:plot}}) = :plot
+_plotsym(P::Type{Plot{F}}) where {F} = get(_PLOTSYMS, P, Symbol(uppercasefirst(string(F))))
 
 """
     Automatic

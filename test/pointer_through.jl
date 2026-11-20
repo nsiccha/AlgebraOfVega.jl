@@ -9,7 +9,7 @@ using TestItemRunner
 @testsnippet AoVPointerThroughFixtures begin
     using AlgebraOfVega
     import AlgebraOfGraphics
-    const Makie = AlgebraOfVega.Makie
+    import Makie   # the Makie package: these tests draw into a Makie.Figure
     ags = ["01001", "01002", "01003"]
     # Clockwise rings (see test/mark_click.jl).
     square(x0) = Dict{String,Any}("type" => "Polygon", "coordinates" =>

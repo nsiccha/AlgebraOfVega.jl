@@ -105,6 +105,7 @@ end
 end
 
 @testitem "sdraw! draws VSpan/HSpan with Makie's own span plots" setup=[AoVSpanFixtures] tags=[:static] begin
+    import AlgebraOfGraphics   # with Makie, loads the static path (AlgebraOfVegaMakieExt)
     fig = Makie.Figure()
     grid = sdraw!(fig[1, 1], schedule + hspans())
     plots = [p for ax in fig.content if ax isa Makie.Axis for p in ax.scene.plots]

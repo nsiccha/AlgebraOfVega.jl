@@ -90,6 +90,7 @@ end
 end
 
 @testitem "Per-wrap Y scales: authored column counts, headers and titles" setup=[AoVPerWrapYFixtures] tags=[:translation, :regression] begin
+    import AlgebraOfGraphics   # with Makie, loads the static path (AlgebraOfVegaMakieExt)
     # An authored count is kept and never marked automatic.
     three = to_vegalite(exposure_figure(extra=config(columns=3)))
     @test three["columns"] == 3 && !haskey(three["_aov"], "autoColumns")

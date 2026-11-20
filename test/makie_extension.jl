@@ -16,7 +16,6 @@ process, since this test process imports AlgebraOfGraphics.
         loaded = Set(string(k.name) for k in keys(Base.loaded_modules))
         println("MAKIE=", "Makie" in loaded)
         println("AOG=", "AlgebraOfGraphics" in loaded)
-        println("HTMXOEXT=", !isnothing(Base.get_extension(AlgebraOfVega, :AlgebraOfVegaHTMXObjectsExt)))
         spec = data((; x=[1, 2], y=[3, 4])) * mapping(:x, :y) * visual(Scatter)
         println("MARK=", to_vegalite(spec)["mark"]["type"])
         msg = try
@@ -25,6 +24,10 @@ process, since this test process imports AlgebraOfGraphics.
             sprint(showerror, err)
         end
         println("HINT=", occursin("AlgebraOfVegaMakieExt", msg))
+        # HTMXObjects' typed glue loads once the caller loads HTMXObjects, as before.
+        using HTMXObjects
+        println("HTMXOEXT=", !isnothing(Base.get_extension(AlgebraOfVega, :AlgebraOfVegaHTMXObjectsExt)))
+        println("MAKIE2=", "Makie" in Set(string(k.name) for k in keys(Base.loaded_modules)))
         # Makie alone (no AlgebraOfGraphics): its plot types and values are read,
         # but the drawing extension stays unloaded.
         import Makie
@@ -38,6 +41,7 @@ process, since this test process imports AlgebraOfGraphics.
     @test occursin("MAKIE=false", out)
     @test occursin("AOG=false", out)
     @test occursin("HTMXOEXT=true", out)
+    @test occursin("MAKIE2=false", out)
     @test occursin("MARK=point", out)
     @test occursin("HINT=true", out)
     @test occursin("TYPESEXT=true", out)

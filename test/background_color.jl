@@ -31,6 +31,7 @@
 end
 
 @testitem "background paint uses the Makie destination axis" tags=[:theme, :static, :regression] begin
+    import AlgebraOfGraphics   # with Makie, loads the static path (AlgebraOfVegaMakieExt)
     import Makie
     spec = data((; x=[1, 2], y=[2, 1])) * mapping(:x, :y) *
         visual(Scatter; color="#1f6fb5", strokecolor=:background, strokewidth=1.5)

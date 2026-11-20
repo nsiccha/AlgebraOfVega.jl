@@ -199,6 +199,7 @@ end
 end
 
 @testitem "sdraw labels each Makie axis with its panel's title" setup=[AoVPanelLabelFixtures] tags=[:static, :regression] begin
+    import AlgebraOfGraphics   # with Makie, loads the static path (AlgebraOfVegaMakieExt)
     plain(labels) = (data(bands) * mapping(:dose => "Dose (mg)", :q50 => "Median"; layout=:panel) * visual(Scatter) +
         data(lines) * mapping(:dose => "Dose (mg)", :q50 => "Median"; group=:line, layout=:panel) * visual(Lines)) *
         config(facet=(; linkyaxes=:none, ylabels=labels))
