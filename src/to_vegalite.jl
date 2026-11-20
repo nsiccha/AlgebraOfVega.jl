@@ -476,10 +476,13 @@ end
 # A log axis is labelled at 1, 2 and 5 times each power of ten when its data
 # span at most two decades, else at the powers of ten. Vega labels every
 # multiple (25, 30, 40, … 90, 100 on 25–400) and draws a grid line at each.
-# The span comes from the rows the plot carries, over every encoding that
-# shares the scale (its y2/x2 field too); an authored axis `values` or
-# `tickCount`, or rows read from an address, keep Vega's ticks. The values are
-# the whole sequence from 1e-15 to 1e15 (Vega draws those inside the scale's
+# The span of a y axis is its scale's fixed domain when it has one
+# (`scales(Y=(; domain))`, axis `limits`, or a panel's own domain), since that
+# is what the axis shows; otherwise (and on x) the span of the rows the plot
+# carries, over every encoding that shares the scale
+# (its y2/x2 field too); an authored axis `values` or `tickCount`, or rows read
+# from an address with no fixed domain, keep Vega's ticks. The values are the
+# whole sequence from 1e-15 to 1e15 (Vega draws those inside the scale's
 # domain), so zooming, streamed rows and a data-only `update_spec` keep them:
 # only a span that crosses two decades changes the spec.
 _apply_log_ticks!(spec) = spec
@@ -492,6 +495,13 @@ function _apply_log_ticks!(spec::Dict)
     for ch in ("x", "y"), group in _shared_scale_units(spec, ch)
         any(((enc, _, _),) -> _is_log_scale(get(enc, "scale", nothing)), group) || continue
         any(((enc, _, _),) -> (a = get(enc, "axis", nothing); a isa Dict && (haskey(a, "values") || haskey(a, "tickCount"))), group) && continue
+        # On y only: a ribbon's interval drawing widens an authored x domain by
+        # its dodge, which could move one drawing's span across two decades.
+        fixed = ch == "y" ? _fixed_log_domain(group) : nothing
+        if !isnothing(fixed)
+            _set_log_tick_values!(group, _log_tick_values(fixed...))
+            continue
+        end
         any(((_, _, rows),) -> isnothing(rows), group) && continue
         lo, hi = Inf, -Inf
         for (enc, unit, rows) in group
@@ -503,15 +513,32 @@ function _apply_log_ticks!(spec::Dict)
             end
         end
         isfinite(lo) || continue
-        values = _log_tick_values(lo, hi)
-        for (enc, _, _) in group
-            haskey(enc, "field") || continue
-            get(enc, "axis", Dict()) === nothing && continue
-            axis = get!(enc, "axis", Dict{String,Any}())
-            axis isa Dict && (axis["values"] = copy(values))
-        end
+        _set_log_tick_values!(group, _log_tick_values(lo, hi))
     end
     spec
+end
+
+function _set_log_tick_values!(group, values)
+    for (enc, _, _) in group
+        haskey(enc, "field") || continue
+        get(enc, "axis", Dict()) === nothing && continue
+        axis = get!(enc, "axis", Dict{String,Any}())
+        axis isa Dict && (axis["values"] = copy(values))
+    end
+end
+
+# The `(lo, hi)` of a fixed two-number positive domain one encoding of a log
+# scale group sets (they share one scale, so one domain), or `nothing`.
+function _fixed_log_domain(group)
+    for (enc, _, _) in group
+        s = get(enc, "scale", nothing)
+        d = s isa AbstractDict ? get(s, "domain", nothing) : nothing
+        d isa Union{AbstractVector,Tuple} && length(d) == 2 || continue
+        lo, hi = d
+        (lo isa Real && hi isa Real && isfinite(lo) && isfinite(hi) && lo > 0 && hi > 0) || continue
+        return (min(lo, hi), max(lo, hi))
+    end
+    nothing
 end
 # An axis that lists its tick `values` draws each of them. Vega halves a listed
 # set until it fits the axis's tick count (twelve monthly values under a count
@@ -1080,6 +1107,10 @@ const _SCALES_NT_FORWARD = (
     constant = "constant",
 )
 
+# The `scales(Y=…)` keys that take a value per facet panel, as a
+# `Dict(<panel value> => value)` (`_scales_panel_y_scales`).
+const _PANEL_Y_KEYS = (:scale, keys(_SCALES_NT_FORWARD)...)
+
 """Translate an AoG `Scales` object into a VL encoding-override dict (X/Y/Z scales only).
 
 Per-channel kwargs forwarded into the VL `scale` dict:
@@ -1089,7 +1120,14 @@ Per-channel kwargs forwarded into the VL `scale` dict:
 
 `categories` is lowered separately (`_scales_axis_categories`), since it reaches only the
 categorical encodings of its axis. Channels with no forwardable kwargs are skipped (no
-`scale` key emitted)."""
+`scale` key emitted).
+
+A `Y` key whose value is a `Dict` is the per-panel form (`Dict(<panel value> => value)`,
+`_scales_panel_y_scales`): it is left out here, since one shared facet encoding cannot
+carry a value per panel, and the per-panel lowering gives each panel its own. The `Y`
+keys given as plain values still reach every panel (todo `16z8s5l`: before, a `scale`
+`Dict` left the whole `Y` axis out, so a shared `domain` or `nice` beside it was dropped).
+A `Dict` on an `X` or `Z` key is an `ArgumentError`: only the Y scale is per panel."""
 function _scales_to_encoding_override(sc::AlgebraOfGraphics.Scales)
     override = Dict{String,Any}()
     for (axis_key, props) in pairs(sc.dict)
@@ -1104,20 +1142,28 @@ function _scales_to_encoding_override(sc::AlgebraOfGraphics.Scales)
             k in (:scale, :categories) && continue
             @warn "AlgebraOfVega: unknown `$axis_key` scale option `$k` — not a known scale/categories/nice/zero/domain/clamp/constant key. If you meant a facet order or per-column scale, check the parentheses (it must be a sibling of the `$axis_key=` argument, not inside its NamedTuple)." maxlog=1
         end
+        for k in _PANEL_Y_KEYS
+            (haskey(props, k) && props[k] isa AbstractDict) || continue
+            axis_key === :Y && continue
+            throw(ArgumentError("AlgebraOfVega: `scales($axis_key=(; $k=Dict(...)))` gives a value per facet " *
+                "panel, which only the Y scale takes: each panel draws its own y axis, while the panels share " *
+                "their x scale. Write one `$k` for `$axis_key`, or key the `Dict` on `scales(Y=…)`."))
+        end
         vl_scale = Dict{String,Any}()
         scale_fn = get(props, :scale, nothing)
-        # A Dict-valued `scale` is the per-facet-column form — it can never go
-        # into one shared facet encoding (every column would take the LAST
-        # written type). It is consumed by `_per_column_y_hconcat!` instead,
-        # which re-lowers the single-facet spec into an `hconcat` of per-column
-        # facet views (snag `mixed-log-and-li-a69d2f23`).
-        scale_fn isa AbstractDict && continue
-        if !isnothing(scale_fn)
+        # A Dict-valued key is the per-panel form: it can never go into one
+        # shared facet encoding (every panel would take the LAST written
+        # value). It is consumed by `_per_panel_y_concat!` instead, which
+        # re-lowers the facet into one view per panel (snag
+        # `mixed-log-and-li-a69d2f23`); the keys given as plain values stay
+        # shared (todo `16z8s5l`).
+        if !isnothing(scale_fn) && !(scale_fn isa AbstractDict)
             translated = _aog_scale_fn_to_vl(scale_fn)
             !isnothing(translated) && merge!(vl_scale, translated)
         end
         for (jl_key, vl_key) in pairs(_SCALES_NT_FORWARD)
             haskey(props, jl_key) || continue
+            props[jl_key] isa AbstractDict && continue
             vl_scale[vl_key] = props[jl_key]
         end
         isempty(vl_scale) && continue
@@ -1175,23 +1221,48 @@ function _merge_axis_categories!(spec::Dict, cats::Dict)
     end
 end
 
-"""Extract a per-facet-column Y scale mapping from a `Scales` object, or `nothing`.
+"""The Y scale each facet panel takes for itself, as `panel value => Vega-Lite scale`,
+or `nothing` when no `scales(Y=…)` key is given per panel.
 
-`scales(Y=(; scale=Dict("Tumor size (mm)" => log10)))` requests one Y scale TYPE
-per column-facet VALUE: listed columns get the mapped transform, unlisted columns
-stay linear. Values are translated through `_aog_scale_fn_to_vl` (an unsupported
-function warns there and drops that column's entry)."""
-function _scales_column_y_scales(sc::AlgebraOfGraphics.Scales)
+Any key of `_PANEL_Y_KEYS` may be a `Dict(<panel value> => value)`:
+`scales(Y=(; scale=Dict("Cmax (ng/mL)" => log10), domain=Dict("Ctrough (ng/mL)" =>
+(0.3, 3e5)), clamp=Dict("Ctrough (ng/mL)" => true)))` gives the Cmax panel a log scale
+and the Ctrough panel a fixed domain whose out-of-range values are drawn at its edge. A
+panel's entries from every key merge into its one scale; a panel no `Dict` lists keeps
+the shared Y scale (with its own fitted domain under independent panel scales). `scale`
+values are translated through `_aog_scale_fn_to_vl` (an unsupported function warns there
+and drops that panel's entry; `identity` lists nothing). A `domain` is two values, written
+as a tuple or vector; a Vega-Lite domain object is a NamedTuple (`(; unionWith=[0, 100])`),
+since a `Dict` is the per-panel form. Keys given as plain values are shared
+(`_scales_to_encoding_override`)."""
+function _scales_panel_y_scales(sc::AlgebraOfGraphics.Scales)
     props = get(sc.dict, :Y, nothing)
     isnothing(props) && return nothing
-    s = get(props, :scale, nothing)
-    s isa AbstractDict || return nothing
     out = Dict{Any,Any}()
-    for (k, v) in s
-        translated = _aog_scale_fn_to_vl(v)
-        isnothing(translated) || (out[k] = translated)
+    for k in _PANEL_Y_KEYS
+        haskey(props, k) || continue
+        d = props[k]
+        d isa AbstractDict || continue
+        for (panel, v) in d
+            entry = k === :scale ? _aog_scale_fn_to_vl(v) :
+                Dict{String,Any}(_SCALES_NT_FORWARD[k] => _panel_scale_value(k, panel, v))
+            isnothing(entry) && continue
+            merge!(get!(Dict{String,Any}, out, panel), entry)
+        end
     end
     isempty(out) ? nothing : out
+end
+
+# One panel's value of a per-panel Y key: a `domain` is a tuple or vector of two
+# (or, piecewise, more) values, written as a Vega-Lite array, or a NamedTuple
+# Vega-Lite domain object; anything else is an `ArgumentError` naming the panel.
+# Other keys pass as written, as the shared keys do.
+function _panel_scale_value(k::Symbol, panel, v)
+    k === :domain || return v
+    v isa NamedTuple && return v
+    (v isa Union{Tuple,AbstractVector} && length(v) >= 2) && return Any[v...]
+    throw(ArgumentError("AlgebraOfVega: the per-panel Y `domain` of panel $(repr(panel)) is $(repr(v)); " *
+        "give each panel two values, as in `scales(Y=(; domain=Dict($(repr(panel)) => (lo, hi))))`."))
 end
 
 # Vega-Lite filter literals: quote strings (escaping embedded quotes), emit
@@ -1235,8 +1306,10 @@ function _merge_column_y_scale!(spec, yscale::Dict)
     if !isnothing(enc)
         y = _as_dict(get(enc, "y", nothing))
         if !isnothing(y) && haskey(y, "field")
+            # An owned copy per encoding: a panel's `domain` array must not be
+            # shared between its layers, which later passes extend in place.
             existing = get!(y, "scale", Dict{String,Any}())
-            existing isa Dict ? merge!(existing, yscale) : (y["scale"] = copy(yscale))
+            existing isa Dict ? merge!(existing, deepcopy(yscale)) : (y["scale"] = deepcopy(yscale))
         end
     end
     layers = get(d, "layer", nothing)
@@ -1665,7 +1738,7 @@ is a facet view with or without a row facet and keeps the column field as a
 declared partition (cross-source broadcast, picker row remaps).
 
 `ycols` maps column VALUES (as they appear in the data) to VL `scale` dicts
-(from `_scales_column_y_scales`). Unlisted columns keep the shared encoding's
+(from `_scales_panel_y_scales`). Unlisted columns keep the shared encoding's
 existing scale (linear by default).
 
 Requires the operator-facet shape `layers_to_vl` emits: top-level `facet` with a
@@ -1869,19 +1942,21 @@ function _per_panel_y_channel(spec::Dict)
     (!isnothing(facet) && haskey(facet, "field")) || has("facet") ? :wrap : nothing
 end
 
-"""Give each facet panel the Y scale type `scales(Y=(; scale=Dict(<panel value>
-=> log10, …)))` lists for it: keyed by the column facet's values when the
-figure has one (`_per_column_y_hconcat!`), else by the row facet's
-(`_per_row_y_vconcat!`), else by the wrap facet's (`layout=`,
-`_per_wrap_y_concat!`). Unlisted panels keep the shared Y scale."""
+"""Give each facet panel the Y scale `scales(Y=(; scale=Dict(<panel value> =>
+log10, …), domain=Dict(…), clamp=Dict(…)))` lists for it (its type, domain,
+clamp, `nice`, `zero` or `constant`; `_scales_panel_y_scales`): keyed by the
+column facet's values when the figure has one (`_per_column_y_hconcat!`), else
+by the row facet's (`_per_row_y_vconcat!`), else by the wrap facet's
+(`layout=`, `_per_wrap_y_concat!`). Unlisted panels keep the shared Y scale."""
 function _per_panel_y_concat!(spec::Dict, yscales::Dict)
     ch = _per_panel_y_channel(spec)
     ch === :column && return _per_column_y_hconcat!(spec, yscales)
     ch === :row && return _per_row_y_vconcat!(spec, yscales)
     ch === :wrap && return _per_wrap_y_concat!(spec, yscales)
-    throw(ArgumentError("AlgebraOfVega: a per-panel Y scale (`scales(Y=(; scale=Dict(<panel> => log10)))`) " *
+    throw(ArgumentError("AlgebraOfVega: a per-panel Y scale (`scales(Y=(; scale=Dict(<panel> => log10)))`, " *
+        "or a `domain`, `clamp`, `nice`, `zero` or `constant` given as a `Dict`) " *
         "keys the scale by the value of a facet (`row=`, `col=` or `layout=`), and this figure has no facet. " *
-        "For one Y scale write `scales(Y=(; scale=log10))`."))
+        "For one Y scale write the value itself, as in `scales(Y=(; scale=log10, domain=(lo, hi)))`."))
 end
 
 # The facet chrome a per-panel lowering keeps from the facet channel `def`
@@ -2026,7 +2101,7 @@ titles. `_aovPanel` records the panel's row value for the per-panel axis
 titles (`_apply_panel_labels!`).
 
 `yrows` maps row VALUES (as they appear in the data) to VL `scale` dicts
-(from `_scales_column_y_scales`); unlisted rows keep the shared Y scale, and a
+(from `_scales_panel_y_scales`); unlisted rows keep the shared Y scale, and a
 key no row has does nothing, as for columns."""
 function _per_row_y_vconcat!(spec::Dict, yrows::Dict)
     facet = _operator_facet_form!(spec)
@@ -2712,7 +2787,7 @@ function _lower_vegaspec(v::VegaSpec; interactive::Bool=true)
         haskey(props, :scales) && _apply_scales_sugar!(spec, props[:scales])
         if haskey(props, :scales)
             sc = _as_scales(props[:scales])
-            isnothing(sc) || (col_yscales = _scales_column_y_scales(sc))
+            isnothing(sc) || (col_yscales = _scales_panel_y_scales(sc))
         end
         haskey(props, :facet) && _apply_facet_sugar!(spec, props[:facet])
         haskey(props, :axis) && _apply_axis_sugar!(spec, props[:axis])
@@ -2819,7 +2894,10 @@ to it. This is the second-positional-argument form; `config(scales=scales(...))`
 applies the identical override inline.
 
 Handles X/Y/Z axis scales (log/log2/log10/sqrt/symlog + `nice`/`zero`/`domain`/
-`clamp`/`constant`) and a categorical/continuous `Color` scale — `palette`
+`clamp`/`constant`; on a faceted figure any of these `Y` keys may instead be a
+`Dict(<panel value> => value)`, which gives each listed facet panel its own value,
+e.g. `scales(Y=(; domain=Dict("Ctrough" => (0.3, 3e5)), clamp=Dict("Ctrough" => true)))`)
+and a categorical/continuous `Color` scale — `palette`
 (explicit colours or a named scheme), `categories` (domain/group ORDER), `colormap`
 (named scheme), `colorrange` (continuous value range; values outside it take the
 colormap's end colours, or `lowclip`/`highclip`), `scale` (log/sqrt/symlog) and
@@ -2840,7 +2918,7 @@ function to_vegalite(v, sc::AlgebraOfGraphics.Scales; interactive::Bool=true,
     # its overlap score reads the y scale.
     _each_ribbon_view!(spec) do s
         _apply_scales_sugar!(s, sc)
-        col = _scales_column_y_scales(sc)
+        col = _scales_panel_y_scales(sc)
         isnothing(col) || _per_panel_y_concat!(s, col)
         # The sugar above can add a facet sort after the inner lowering densified
         # (or skipped an unsorted spec) — re-run so a sparse grid never meets a

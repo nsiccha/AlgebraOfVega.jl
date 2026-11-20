@@ -64,7 +64,7 @@ function _ribbon_view_source(v)
         :not_numeric_x : :no_x_values
     length(slots) > _RIBBON_INTERVAL_MAX_X && return :too_many_x
     (; index, analysis=a, x_field, x_title=_field_label(layer.positional[1]), color_field, lo, hi, cells,
-       slots=Any[slots[k] for k in sort!(collect(keys(slots)))])
+       facet_fields=Tuple(facet_fields), slots=Any[slots[k] for k in sort!(collect(keys(slots)))])
 end
 
 _finite_number(x) = x isa Real && !(x isa Bool) && isfinite(x)
@@ -574,17 +574,27 @@ end
 # overlap of their outer bands; the largest over panels and pairs. The y range
 # is the axis domain when the spec fixes one, else the bands' extent (each
 # panel's own under independent y scales); a log y axis is measured in log10.
+# A panel with a Y scale of its own (per-panel Y scales) is measured on it: its
+# type and its fixed domain. A clamped fixed domain draws every value beyond it
+# at its edge, so the bands are measured as drawn, cut to the domain.
 # `pairs`: whether some pair of groups shared an x in a panel; without one (one
 # group, as without a colour mapping) the score is 0.0 and compared nothing.
 function _ribbon_overlap(vl::Dict, src)
     y = _ribbon_y_scale(vl, src)
-    logs = _stack_panel_logs(vl, src)
-    tr(v, panel) = get(logs, panel, y.log) ? (v > 0 ? log10(v) : NaN) : v
-    cells = [(; c.panel, c.color, c.x, lo=tr(c.lo, c.panel), hi=tr(c.hi, c.panel)) for c in src.cells]
+    panels = _panel_y_scales(vl, src)
+    scale_of(panel) = get(panels, panel, y)
+    tr(v, panel) = scale_of(panel).log ? (v > 0 ? log10(v) : NaN) : v
+    function cut(v, panel)
+        s = scale_of(panel)
+        (s.clamp && !isnothing(s.domain)) || return v
+        clamp(v, minimum(s.domain), maximum(s.domain))
+    end
+    cells = [(; c.panel, c.color, c.x, lo=tr(cut(c.lo, c.panel), c.panel), hi=tr(cut(c.hi, c.panel), c.panel))
+             for c in src.cells]
     filter!(c -> isfinite(c.lo) && isfinite(c.hi), cells)
     isempty(cells) && return (; score=0.0, pairs=false)
     extent(cs) = maximum(c -> c.hi, cs) - minimum(c -> c.lo, cs)
-    fixed(panel) = isnothing(y.domain) ? nothing : tr(y.domain[2], panel) - tr(y.domain[1], panel)
+    fixed(panel) = (s = scale_of(panel); isnothing(s.domain) ? nothing : tr(s.domain[2], panel) - tr(s.domain[1], panel))
     shared = extent(cells)
     score = 0.0
     pairs = false
@@ -611,26 +621,56 @@ function _ribbon_overlap(vl::Dict, src)
     (; score, pairs)
 end
 
-# Whether each panel of a per-row-Y stack (`_per_row_y_vconcat!`) or per-wrap-Y
-# concat (`_per_wrap_y_concat!`) draws the ribbon on a log y axis, keyed as the
-# ribbon's cells key their panel: the panels' Y scale types differ, so one
-# figure-wide reading would measure the linear panels in log units. Empty for
+# The y scale each facet panel draws the ribbon on (`_ribbon_y_scale` of its
+# own view), keyed as the ribbon's cells key their panel, for a figure lowered
+# to one view per panel by per-panel Y scales: the panels' types and domains
+# differ, so one figure-wide reading would measure the linear panels in log
+# units and every panel against the first one's domain. A per-row-Y stack
+# (`_per_row_y_vconcat!`) or per-wrap-Y concat (`_per_wrap_y_concat!`) names
+# each panel's value (`_aovPanel`); a per-column-Y `hconcat`
+# (`_per_column_y_hconcat!`) filters each child to its column value, and every
+# panel of that column (one per row value) takes the child's scale. Empty for
 # any other figure.
-function _stack_panel_logs(vl::Dict, src)
-    out = Dict{Tuple,Bool}()
+function _panel_y_scales(vl::Dict, src)
+    out = Dict{Tuple,Any}()
     kids = _panel_kids(vl)
-    isnothing(kids) && return out
-    for kid in kids
-        panel = kid isa Dict ? _as_dict(get(kid, "_aovPanel", nothing)) : nothing
-        (isnothing(panel) || length(panel) != 1) && continue
-        y = _ribbon_y_scale(kid, src)
-        out[(only(values(panel)),)] = y.log
+    if !isnothing(kids)
+        for kid in kids
+            panel = kid isa Dict ? _as_dict(get(kid, "_aovPanel", nothing)) : nothing
+            (isnothing(panel) || length(panel) != 1) && continue
+            out[(only(values(panel)),)] = _ribbon_y_scale(kid, src)
+        end
+        return out
+    end
+    children = get(vl, "hconcat", nothing)
+    children isa AbstractVector || return out
+    for child in children
+        cd = _as_dict(child)
+        facet = isnothing(cd) ? nothing : _as_dict(get(cd, "facet", nothing))
+        coldef = isnothing(facet) ? nothing : _as_dict(get(facet, "column", nothing))
+        field = isnothing(coldef) ? nothing : get(coldef, "field", nothing)
+        field isa AbstractString || continue
+        i = findfirst(==(field), src.facet_fields)
+        isnothing(i) && continue
+        ts = _as_vec(get(cd, "transform", nothing))
+        filt = isnothing(ts) || isempty(ts) ? nothing : get(something(_as_dict(first(ts)), Dict()), "filter", nothing)
+        filt isa AbstractString || continue
+        scale = nothing
+        for panel in unique(c.panel for c in src.cells)
+            filt == "datum.$field === $(_vl_filter_literal(panel[i]))" || continue
+            scale = something(scale, _ribbon_y_scale(cd, src))
+            out[panel] = scale
+        end
     end
     out
 end
 
+# Whether each panel draws the ribbon on a log y axis (`_panel_y_scales`).
+_stack_panel_logs(vl::Dict, src) = Dict{Tuple,Bool}(k => s.log for (k, s) in _panel_y_scales(vl, src))
+
 # The y scale the ribbon's outer band is drawn on: a fixed two-value domain or
-# `nothing`, whether it is a log scale, and whether each facet panel has its own.
+# `nothing`, whether it is a log scale, whether it clamps values to that
+# domain, and whether each facet panel has its own.
 function _ribbon_y_scale(vl::Dict, src)
     found = Ref{Any}(nothing)
     _each_encoded(vl) do d, chain
@@ -641,7 +681,7 @@ function _ribbon_y_scale(vl::Dict, src)
         (get(y, "field", nothing) == src.lo && get(y2, "field", nothing) == src.hi) || return
         found[] = (y, chain)
     end
-    isnothing(found[]) && return (; domain=nothing, log=false, per_panel=false)
+    isnothing(found[]) && return (; domain=nothing, log=false, clamp=false, per_panel=false)
     y, chain = found[]
     scale = something(_as_dict(get(y, "scale", nothing)), Dict{String,Any}())
     dom = get(scale, "domain", nothing)
@@ -652,7 +692,8 @@ function _ribbon_y_scale(vl::Dict, src)
         sc = isnothing(res) ? nothing : _as_dict(get(res, "scale", nothing))
         !isnothing(sc) && get(sc, "y", nothing) == "independent"
     end
-    (; domain, log=get(scale, "type", nothing) == "log", per_panel=independent)
+    (; domain, log=get(scale, "type", nothing) == "log", clamp=get(scale, "clamp", false) === true,
+       per_panel=independent)
 end
 
 # --- Public API: ribbon_view ---

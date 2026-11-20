@@ -42,6 +42,8 @@ Facet panels that show different quantities can take different y scale types in 
 
 Axis options also include `zero`, `nice`, `domain`, and `clamp`. AoV's quantitative axes do not force zero into the domain. A bar's length depends on its baseline, so check that choice before interpreting bar lengths.
 
+Every one of these Y options can also be given per panel, keyed the same way. `scales(Y=(scale=Dict(p => log10 for p in panels), domain=Dict("Ctrough (ng/mL)" => (0.3, 3e5)), clamp=Dict("Ctrough (ng/mL)" => true)))` puts every panel on a log axis and cuts the Ctrough panel's at 0.3, drawing its lower values on the axis edge, while the other panels fit their own ranges. The values themselves are unchanged, so tooltips, the readout and the CSV download still show them. An option given as a plain value applies to every panel, beside the per-panel ones.
+
 ## Appearance
 
 The browser runtime follows the page's foreground color for axes and text. An authored categorical palette keeps its colors when the theme changes. Use `color=:ink` for reference rules that should follow the foreground, instead of a fixed black mark that could disappear on a dark page.

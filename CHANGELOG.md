@@ -15,6 +15,35 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
+## 0.2.74
+
+- **Each facet panel can take its own Y `domain` and `clamp`.** Every
+  `scales(Y=(; …))` key (`scale`, `domain`, `clamp`, `nice`, `zero`,
+  `constant`) may be a `Dict` keyed by the panel's facet value, as `scale`
+  already could:
+  `scales(Y=(; scale=Dict(p => log10 for p in panels), domain=Dict("Ctrough (ng/mL)" => (0.3, 3e5)), clamp=Dict("Ctrough (ng/mL)" => true)))`
+  draws every row on a log axis and cuts the Ctrough row's at 0.3, its lower
+  values drawn on the axis edge, while the other rows fit their own ranges.
+  It works on `row=`, `col=` and wrapped `layout=` facets, in both drawings of
+  the Ribbons | Intervals switch, `vdraw`, `with_plot_caption` and `vsave`;
+  `sdraw` refuses it, as it refuses per-panel scale types. The rows are not
+  changed, so tooltips, the readout and the CSV keep their values. A per-panel
+  key alone (a `domain` `Dict` with no `scale` `Dict`) re-lowers the facet to
+  one view per panel too. Before, only `scale` was read per panel: a `Dict`
+  on another key reached Vega-Lite as an object it cannot read.
+- **Shared Y keys survive a per-panel `Dict`.** A key given as a plain value
+  beside a per-panel one reaches every panel: `scales(Y=(; scale=Dict(…),
+  domain=(1, 3), nice=false))` keeps the domain and `nice`. Before, a `scale`
+  `Dict` dropped every other Y key without a warning.
+- A `Dict` on an `X` (or `Z`) scale key is an `ArgumentError`: the panels
+  share their x scale. Before, `scales(X=(; scale=Dict(…)))` dropped every X
+  key without a warning.
+- The Ribbons | Intervals switch's overlap score measures each panel on its
+  own Y scale (type and fixed domain), per-column panels included, and a
+  clamped domain as drawn, with the bands cut to it. A log y axis with a fixed
+  domain of at most two decades is labelled at 1, 2 and 5 times each power of
+  ten, whatever span its rows have.
+
 ## 0.2.73
 
 - **Each panel of a wrapped `layout=` facet can take its own Y scale type.**
