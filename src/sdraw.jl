@@ -117,12 +117,13 @@ function _draw_kwargs(cfg::Union{Config,Nothing}; faceted=false, layer_encodings
         k in (:width, :height, :encoding) && continue  # handled above
         if k === :scales
             s = _as_scales(v); isnothing(s) || (scales_obj = s)
-            # Per-column Y scales are a Vega-Lite composition (`hconcat` of
-            # per-column facet views). Makie's `draw(spec, scales(...))` has no
-            # per-facet-column scale; rendering one linearly would silently
-            # violate the never-pre-log rule the feature exists for — fail loud.
-            if !isnothing(s) && !isnothing(_scales_column_y_scales(s))
-                error("AlgebraOfVega: per-panel Y scales (`scales(Y=(; scale=Dict(...)))`) are not supported on the static Makie path; render with `vdraw`/`to_vegalite` (a Vega-Lite concat of one view per facet column, row or wrapped panel), or write a file with `vsave`, instead.")
+            # Per-panel Y scales (a type, domain, clamp, … per facet panel) are
+            # a Vega-Lite composition (a concat of one view per panel). Makie's
+            # `draw(spec, scales(...))` has no per-facet-panel scale; rendering
+            # one shared scale would silently drop the panels' own (a log type
+            # the never-pre-log rule needs, a cut-off domain) — fail loud.
+            if !isnothing(s) && !isnothing(_scales_panel_y_scales(s))
+                error("AlgebraOfVega: per-panel Y scales (a `scales(Y=(; …))` key given as a `Dict` keyed by panel, e.g. `scale=Dict(...)` or `domain=Dict(...)`) are not supported on the static Makie path; render with `vdraw`/`to_vegalite` (a Vega-Lite concat of one view per facet column, row or wrapped panel), or write a file with `vsave`, instead.")
             end
         elseif k === :frame
             throw(ArgumentError("AlgebraOfVega: `config(frame=…)` animations are not supported on the static Makie path; render with `vdraw`/`to_html`, or filter the table to one frame for a static figure."))
