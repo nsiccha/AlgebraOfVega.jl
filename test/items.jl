@@ -2770,9 +2770,10 @@ end
     spec1 = data(rows) * mapping(:t, :val) * visual(Scatter) * config(scales=colsc)
     @test_throws ArgumentError to_vegalite(spec1)
 
-    # wrapped `layout=` facet: not lowered yet
+    # wrapped `layout=` facet: keyed by the wrap values since 0.2.73
+    # (test/per_wrap_y.jl); a key no panel has does nothing.
     spec3 = data(rows) * mapping(:t, :val; layout=:basis) * visual(Scatter) * config(scales=colsc)
-    @test_throws ArgumentError to_vegalite(spec3)
+    @test haskey(to_vegalite(spec3), "concat")
 
     # row-only facet: keyed by the row values since 0.2.69 (test/per_row_y.jl);
     # a key no row has does nothing, as for columns.
