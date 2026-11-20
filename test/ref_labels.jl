@@ -7,7 +7,8 @@ using TestItemRunner
 # channel of a rule or rect drew nothing, and a hand-placed Text layer at a data
 # height overprinted its neighbours.
 @testitem "reference labels: lowering" tags=[:reflabels] begin
-    using AlgebraOfVega, AlgebraOfGraphics
+    using AlgebraOfVega
+    import AlgebraOfGraphics
     refs = (; t=[3.0, 3.2, 7.0], name=["Issue", "Update", "Deadline"])
     line = data((; t=collect(1.0:10), y=sin.(1:10))) * mapping(:t, :y) * visual(Lines)
     vl = to_vegalite(line + data(refs) * mapping(:t; text=:name) * visual(VLines; color=:gray) +
@@ -50,7 +51,8 @@ using TestItemRunner
 end
 
 @testitem "reference labels in the browser: rows, never overprinting" tags=[:reflabels, :browser] begin
-    using AlgebraOfVega, AlgebraOfGraphics, JSON
+    using AlgebraOfVega, JSON
+    import AlgebraOfGraphics
     html(x) = sprint(show, MIME"text/html"(), x)
     chrome = something(Sys.which("google-chrome"), Sys.which("chromium"), "")
     if isempty(chrome)

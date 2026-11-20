@@ -5,12 +5,11 @@
 # the default `Plot{plot}`, and a later term's attributes win. So a library can add
 # `visual(; clip=true)` to an app's `visual(Scatter)` layer. A single term is
 # returned as it is; `nothing` when the layer has none.
-function extract_visual(layer::AlgebraOfGraphics.Layer)
-    visuals = _chain_parts(AlgebraOfGraphics.Visual, layer.transformation)
+function extract_visual(layer::Layer)
+    visuals = _chain_parts(Visual, layer.transformation)
     isempty(visuals) && return nothing
     length(visuals) == 1 && return only(visuals)
-    pl = foldl((pl, v) -> v(pl), visuals; init=AlgebraOfGraphics.ProcessedLayer())
-    AlgebraOfGraphics.Visual(pl.plottype, pl.attributes, nothing)
+    _combine_visuals(visuals)
 end
 
 # Every `T` in a transformation chain, in the order AoG applies them
@@ -20,18 +19,18 @@ _chain_parts(::Type{T}, t::ComposedFunction) where {T} =
     vcat(_chain_parts(T, t.inner), _chain_parts(T, t.outer))
 _chain_parts(::Type{T}, _) where {T} = T[]
 
-_unwrap_columns(cols::AlgebraOfGraphics.Columns) = cols.columns
+_unwrap_columns(cols::Columns) = cols.columns
 _unwrap_columns(cols) = cols
 
-function extract_data(layer::AlgebraOfGraphics.Layer)
+function extract_data(layer::Layer)
     isnothing(layer.data) && return nothing
     _unwrap_columns(layer.data)
 end
 
-is_pregrouped(layer::AlgebraOfGraphics.Layer) = _layer_pregrouped(layer.data)
+is_pregrouped(layer::Layer) = _layer_pregrouped(layer.data)
 _layer_pregrouped(::Nothing) = false
 _layer_pregrouped(data) = _columns_pregrouped(_unwrap_columns(data))
-_columns_pregrouped(::AlgebraOfGraphics.Pregrouped) = true
+_columns_pregrouped(::Pregrouped) = true
 _columns_pregrouped(_) = false
 
 """
@@ -41,7 +40,7 @@ Translate a pregrouped AoG layer to Vega-Lite. Flattens grouped vectors
 into long-form inline data with "x" (nominal) and "y" (quantitative) columns.
 Handles renamer labels on the x axis.
 """
-function pregrouped_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
+function pregrouped_to_vl(layer::Layer; is_sublayer=false)
     pos = layer.positional
 
     # Extract x and y grouped data from positional args
@@ -117,11 +116,11 @@ _unwrap_x_arg(x::Pair) = (first(x), last(x))
 
 # Sort labels from a renamer (only AoG.Renamer carries an explicit order)
 _renamer_sort(_) = nothing
-_renamer_sort(r::AlgebraOfGraphics.Renamer) = [string(l) for l in r.labels]
+_renamer_sort(r::Renamer) = [string(l) for l in r.labels]
 
 # Map a raw x-tick value through the optional renamer before stringifying
 _apply_rename(::Nothing, x_raw) = string(x_raw)
-_apply_rename(r::AlgebraOfGraphics.Renamer, x_raw) = string(r(x_raw).value)
+_apply_rename(r::Renamer, x_raw) = string(r(x_raw).value)
 _apply_rename(f::Function, x_raw) = string(f(x_raw))
 
 # Histogram bin spec: integer → maxbins; vector of edges → step + extent
@@ -378,26 +377,41 @@ function _axis_fraction_mark_props(fractions::AbstractDict{Symbol}, defaults::Na
             "x2" => expr("item.mark.group.width * $hi"))
 end
 
-_visual_name(vis::AlgebraOfGraphics.Visual) =
-    vis.plottype === Makie.Plot{Makie.plot} ? "visual(...)" : "visual($(Makie.plotsym(vis.plottype)))"
+_visual_name(vis::Visual) =
+    vis.plottype === Plot{:plot} ? "visual(...)" : "visual($(_plotsym(vis.plottype)))"
 
-# Keep CSS names and expressions as authored. Makie's colour values and
-# (colour, alpha) tuples need CSS rather than Julia's printed representation.
-# Resolve through Makie so non-RGB colour spaces and tuple alpha agree with
-# sdraw; keep alpha in the colour, independently of the mark's opacity.
-_color_to_css(c) = c
-_color_to_css(c::Union{AbstractString,Symbol}) = string(c)
-function _color_to_css(c::Union{Makie.Colorant,Tuple{Any,Real}})
-    rgba = Makie.RGBAf(Makie.to_color(c))
-    "rgba($(255 * Makie.red(rgba)), $(255 * Makie.green(rgba)), $(255 * Makie.blue(rgba)), $(Makie.alpha(rgba)))"
+# Colour values as Makie reads them (`Makie.to_color`, mirrored here so the
+# Vega-Lite path needs no Makie): a colour type converts to `RGBA{Float32}`, a
+# name or CSS string parses, and a `(colour, alpha)` tuple scales the alpha.
+const _RGBAf = Colors.RGBA{Float32}
+const _RGBf = Colors.RGB{Float32}
+_to_rgba(c::Colors.Colorant) = convert(_RGBAf, c)
+_to_rgba(c::Symbol) = _to_rgba(string(c))
+_to_rgba(c::AbstractString) = parse(_RGBAf, c)
+_to_rgba(c::NTuple{3,Real}) = _RGBAf(c[1], c[2], c[3], 1)
+_to_rgba(c::NTuple{4,Real}) = _RGBAf(c[1], c[2], c[3], c[4])
+function _to_rgba(c::Tuple{Any,Real})
+    col = _to_rgba(c[1])
+    _RGBAf(Colors.color(col), Colors.alpha(col) * c[2])
 end
 
-function visual_attrs_to_mark_props(vis::AlgebraOfGraphics.Visual)
+# Keep CSS names and expressions as authored. Colour values and (colour, alpha)
+# tuples need CSS rather than Julia's printed representation. Resolve them as
+# Makie does so non-RGB colour spaces and tuple alpha agree with sdraw; keep
+# alpha in the colour, independently of the mark's opacity.
+_color_to_css(c) = c
+_color_to_css(c::Union{AbstractString,Symbol}) = string(c)
+function _color_to_css(c::Union{Colors.Colorant,Tuple{Any,Real}})
+    rgba = _to_rgba(c)
+    "rgba($(255 * Colors.red(rgba)), $(255 * Colors.green(rgba)), $(255 * Colors.blue(rgba)), $(Colors.alpha(rgba)))"
+end
+
+function visual_attrs_to_mark_props(vis::Visual)
     props = Dict{String,Any}()
     # Only a true Scatter becomes a Vega point mark, where `size` is an area.
     # (ScatterLines lowers to a line mark, where `size` is a stroke width.)
     scatter = vis.plottype <: Scatter
-    text = vis.plottype <: Makie.Text
+    text = vis.plottype <: PlotTypes.Text
     errorbars = vis.plottype <: Union{Errorbars, Rangebars}
     # A composite mark reads only its own properties (`_COMPOSITE_MARK_PROPERTIES`).
     composite = _composite_mark_properties(vis.plottype)
@@ -498,7 +512,7 @@ end
 # The Vega-Lite mark of a plain layer's `visual(...)`: the bare mark string when
 # nothing qualifies it, else the mark dict with its plot-type defaults and
 # visual attributes (a composite mark's style moved onto its drawn parts).
-function _visual_mark(vis::AlgebraOfGraphics.Visual)
+function _visual_mark(vis::Visual)
     mark_type = plottype_to_mark(vis.plottype)
     props = merge(plottype_to_mark_props(vis.plottype), visual_attrs_to_mark_props(vis))
     isempty(props) && return mark_type
@@ -515,7 +529,7 @@ end
 # rather than silently dropped. `point_size=true` (the analyses whose only point
 # is the median, `pointinterval` and `gradient_interval`) also accepts the
 # `markersize` that `_interval_point_size` reads.
-function _analysis_fixed_color(layer::AlgebraOfGraphics.Layer, analysis::AbstractString; point_size::Bool=false)
+function _analysis_fixed_color(layer::Layer, analysis::AbstractString; point_size::Bool=false)
     vis = extract_visual(layer)
     isnothing(vis) && return nothing
     # `inspectable` applies to every mark of the layer (`_apply_layer_passive!`), and
@@ -532,7 +546,7 @@ end
 # same way (`ms²/2`), so the point and a scatter dot of one markersize are drawn
 # alike. The dark ring thins with a point smaller than the default (at most a
 # sixth of its diameter), so a small point still shows white over its interval.
-function _interval_point_size(layer::AlgebraOfGraphics.Layer, analysis::AbstractString, default::Real)
+function _interval_point_size(layer::Layer, analysis::AbstractString, default::Real)
     vis = extract_visual(layer)
     (isnothing(vis) || !haskey(vis.attributes, :markersize)) && return (; size=default)
     ms = vis.attributes[:markersize]
@@ -546,4 +560,4 @@ end
 # a plain mark's `visual(...; color=…)` (`:ink` becomes the theme-ink style).
 _fixed_color_mark_props(::Nothing) = Dict{String,Any}()
 _fixed_color_mark_props(color) =
-    visual_attrs_to_mark_props(AlgebraOfGraphics.Visual(; color))
+    visual_attrs_to_mark_props(Visual(; color))

@@ -7,7 +7,8 @@ using TestItemRunner
 # `interactive: false` on them. Makie's `DataInspector` skips such a plot and
 # shows the one beneath, so `sdraw` keeps the attribute as Makie's own.
 @testsnippet AoVPointerThroughFixtures begin
-    using AlgebraOfVega, AlgebraOfGraphics
+    using AlgebraOfVega
+    import AlgebraOfGraphics
     const Makie = AlgebraOfVega.Makie
     ags = ["01001", "01002", "01003"]
     # Clockwise rings (see test/mark_click.jl).

@@ -9,7 +9,7 @@ using TestItemRunner
 # escape that duplicated the table into the lookup by hand.
 @testsnippet AoVGeoshapeFixtures begin
     using AlgebraOfVega
-    using AlgebraOfGraphics
+    import AlgebraOfGraphics
 
     effects = (; AGS=["01001", "01002", "01003"], effect=[-0.4, 0.1, 0.7])
     # Counter-clockwise rings, as RFC 7946 winds them (and WFS servers write them).
@@ -199,7 +199,8 @@ end
 end
 
 @testitem "geoshape in the browser: each facet panel draws its own year" tags=[:regression, :browser, :geoshape, :facet] begin
-    using AlgebraOfVega, AlgebraOfGraphics, HTMXObjects, JSON
+    using AlgebraOfVega, HTMXObjects, JSON
+    import AlgebraOfGraphics
     html(x) = sprint(show, MIME"text/html"(), x)
 
     ags = ["01001", "01002", "01003"]
@@ -250,7 +251,8 @@ end
 # rewinds it before Vega reads it (snag `a-choropleth-of-89e8fdc1`). A file://
 # page cannot fetch, so the page and its GeoJSON files are served over HTTP.
 @testitem "geoshape in the browser: any winding draws each district in place, inline and from a URL" setup=[AoVBrowserServer] tags=[:regression, :browser, :geoshape] begin
-    using AlgebraOfVega, AlgebraOfGraphics, HTMXObjects, JSON
+    using AlgebraOfVega, HTMXObjects, JSON
+    import AlgebraOfGraphics
     html(x) = sprint(show, MIME"text/html"(), x)
 
     ags = ["01001", "01002", "01003"]
@@ -324,7 +326,7 @@ end
 # standing on the map, and AoV's x/y zoom parameter landed on the geoshape.
 @testsnippet AoVGeoshapeMapFixtures begin
     using AlgebraOfVega
-    using AlgebraOfGraphics
+    import AlgebraOfGraphics
 
     # Clockwise rings (d3's exterior winding), 9–12°E × 54–55°N.
     district(x0) = Dict{String,Any}("type" => "Polygon", "coordinates" =>
@@ -474,7 +476,8 @@ end
 end
 
 @testitem "geoshape map in the browser: points stand inside their districts" tags=[:regression, :browser, :geoshape, :facet] begin
-    using AlgebraOfVega, AlgebraOfGraphics, HTMXObjects, JSON
+    using AlgebraOfVega, HTMXObjects, JSON
+    import AlgebraOfGraphics
     html(x) = sprint(show, MIME"text/html"(), x)
 
     district(x0) = Dict{String,Any}("type" => "Polygon", "coordinates" =>

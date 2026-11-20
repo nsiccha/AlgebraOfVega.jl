@@ -6,7 +6,8 @@ using TestItemRunner
 # `shared-x`). Before, a level chart and a precipitation panel drawn as two
 # figures had plot areas 1,427 and 1,384 px wide, so 18:00 sat 40 px apart.
 @testitem "vconcat: lowering" tags=[:vconcat] begin
-    using AlgebraOfVega, AlgebraOfGraphics
+    using AlgebraOfVega
+    import AlgebraOfGraphics
     t = collect(1.0:24)
     level = data((; t, y=sin.(t) .+ 10)) * mapping(:t => "Hour", :y => "Level (cm)") * visual(Lines) *
         config(height=200, link=(; group="hours", key=:t))
@@ -40,7 +41,8 @@ using TestItemRunner
 end
 
 @testitem "vconcat in the browser: aligned panels, one readout, one x zoom" tags=[:vconcat, :browser] begin
-    using AlgebraOfVega, AlgebraOfGraphics, JSON
+    using AlgebraOfVega, JSON
+    import AlgebraOfGraphics
     html(x) = sprint(show, MIME"text/html"(), x)
     chrome = something(Sys.which("google-chrome"), Sys.which("chromium"), "")
     if isempty(chrome)

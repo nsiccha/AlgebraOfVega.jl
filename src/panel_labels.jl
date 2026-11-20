@@ -132,7 +132,7 @@ end
 function _panel_label_tables(v)
     out = Any[]
     for l in something(_spec_layers_or_nothing(_spec_drawable(v)), [])
-        l isa AlgebraOfGraphics.Layer || continue
+        l isa Layer || continue
         is_pregrouped(l) && continue
         t = extract_data(l)
         isnothing(t) || !Tables.istable(t) || push!(out, Tables.columns(t))

@@ -5,7 +5,7 @@ using TestItemRunner
 # gets its own copy of these `using`s. `Test` is injected automatically.
 @testsnippet AoVTestImports begin
     using AlgebraOfVega
-    using AlgebraOfGraphics
+    import AlgebraOfGraphics
     using Tables
     using HTMX
     import Statistics
@@ -423,7 +423,7 @@ matching the static ≈5.6px dot); a VL-spelled `size` passes through, mapped
     @test AlgebraOfVega._vl_size_to_markersize(32) ≈ 8.0
     @test AlgebraOfVega._vl_size_to_markersize(0) == 0
     spec = data(df) * mapping(:x, :y) * visual(Scatter; size=32)
-    lyr = spec isa AlgebraOfGraphics.Layer ? spec : only(spec.layers)
+    lyr = spec isa AlgebraOfVega.Layer ? spec : only(spec.layers)
     fixed = AlgebraOfVega._fix_visual_attrs(lyr)
     attrs = Dict(pairs(AlgebraOfVega.extract_visual(fixed).attributes))
     @test attrs[:markersize] ≈ 8.0
@@ -467,7 +467,7 @@ static path are untouched.
     # has no :strokeDash key to convert, so it leaves `linestyle=:dash` untouched
     # and vdraw/sdraw agree.
     spec = data(df) * mapping(:x, :y) * visual(Lines; linestyle=:dash)
-    lyr = spec isa AlgebraOfGraphics.Layer ? spec : only(spec.layers)
+    lyr = spec isa AlgebraOfVega.Layer ? spec : only(spec.layers)
     attrs = Dict(pairs(AlgebraOfVega.extract_visual(AlgebraOfVega._fix_visual_attrs(lyr)).attributes))
     @test attrs[:linestyle] === :dash
 end
@@ -528,7 +528,7 @@ anything else passes through as its string form; the data-driven
     # Static (sdraw) path renders the symbol natively via Makie: _fix_visual_attrs
     # leaves `marker=:cross` untouched and vdraw/sdraw agree.
     spec = data(df) * mapping(:x, :y) * visual(Scatter; marker=:cross)
-    lyr = spec isa AlgebraOfGraphics.Layer ? spec : only(spec.layers)
+    lyr = spec isa AlgebraOfVega.Layer ? spec : only(spec.layers)
     attrs = Dict(pairs(AlgebraOfVega.extract_visual(AlgebraOfVega._fix_visual_attrs(lyr)).attributes))
     @test attrs[:marker] === :cross
 end
@@ -562,7 +562,7 @@ encoding rather than a fixed mark property.
     @test mapped_vl["encoding"]["stroke"]["field"] == "group"
     @test !haskey(mapped_vl["mark"], "stroke")
 
-    layer = spec isa AlgebraOfGraphics.Layer ? spec : only(spec.layers)
+    layer = spec isa AlgebraOfVega.Layer ? spec : only(spec.layers)
     static_attrs = Dict(pairs(AlgebraOfVega.extract_visual(
         AlgebraOfVega._fix_visual_attrs(layer)).attributes))
     @test static_attrs[:strokecolor] == "black"
@@ -620,7 +620,7 @@ emitted where Vega-Lite drops it without a word.
     # The static path keeps the Makie spellings, which Makie draws natively.
     layer = labels(visual(Text; fontsize=18, align=(:left, :center)))
     static_attrs = Dict(pairs(AlgebraOfVega.extract_visual(
-        AlgebraOfVega._fix_visual_attrs(layer isa AlgebraOfGraphics.Layer ? layer : only(layer.layers))).attributes))
+        AlgebraOfVega._fix_visual_attrs(layer isa AlgebraOfVega.Layer ? layer : only(layer.layers))).attributes))
     @test static_attrs[:fontsize] == 18 && static_attrs[:align] == (:left, :center)
 end
 
@@ -637,7 +637,7 @@ failed with "Unsupported plot type for Vega-Lite: Makie.Plot{Makie.plot}"
     df = (; x=[1.0, 2.0], y=[2.0, 3.0])
     pts = data(df) * mapping(:x, :y)
     mark(vis) = to_vegalite(pts * vis; interactive=false)["mark"]
-    lay(spec) = spec isa AlgebraOfGraphics.Layer ? spec : only(spec.layers)
+    lay(spec) = spec isa AlgebraOfVega.Layer ? spec : only(spec.layers)
 
     # The reporter's shapes: an attribute added to a Scatter layer.
     @test mark(visual(Scatter) * visual(; color="red")) == mark(visual(Scatter; color="red"))
@@ -654,14 +654,16 @@ failed with "Unsupported plot type for Vega-Lite: Makie.Plot{Makie.plot}"
     @test [l["mark"] for l in vl["layer"]] == [mark(visual(Scatter; color="red")), mark(visual(Lines; color="red"))]
 
     # The combination is AoG's own: the plot type and attributes of AoG's
-    # processed layer for the same chain.
+    # processed layer for the same chain (the layer converted to AoG's values by
+    # the Makie extension).
+    ext = Base.get_extension(AlgebraOfVega, :AlgebraOfVegaMakieExt)
     for spec in (pts * visual(Scatter) * visual(; color="red"),
                  pts * visual(; color="red") * visual(Scatter),
                  pts * visual(; markersize=8) * visual(Scatter; color="red") * visual(; color="blue"),
                  pts * visual(Scatter; markersize=8) * visual(Lines; linewidth=2))
         layer = lay(spec)
-        vis, processed = AlgebraOfVega.extract_visual(layer), AlgebraOfGraphics.ProcessedLayer(layer)
-        @test vis.plottype == processed.plottype
+        vis, processed = AlgebraOfVega.extract_visual(layer), AlgebraOfGraphics.ProcessedLayer(ext._to_aog(layer))
+        @test ext._makie_plottype(vis.plottype) == processed.plottype
         @test Dict(pairs(vis.attributes)) == Dict(pairs(processed.attributes))
     end
     single = visual(Scatter; color="red")
@@ -1288,11 +1290,11 @@ mismatched type or a plain visual layer.
 
     # DensityAnalysis
     layer2 = data((; x=[1.0])) * mapping(:x) * density()
-    a2 = AlgebraOfVega.extract_transformation(layer2, AlgebraOfGraphics.DensityAnalysis)
+    a2 = AlgebraOfVega.extract_transformation(layer2, AlgebraOfVega.DensityAnalysis)
     @test !isnothing(a2)
 
     # Returns nothing for wrong type
-    a3 = AlgebraOfVega.extract_transformation(layer, AlgebraOfGraphics.DensityAnalysis)
+    a3 = AlgebraOfVega.extract_transformation(layer, AlgebraOfVega.DensityAnalysis)
     @test isnothing(a3)
 
     # Plain visual layer → no analysis
@@ -1368,7 +1370,7 @@ color channel; it composes with `config`.
 
     # Basic overlay returns Layers
     layers = ppc_overlay(obs, pred; x=:x, y=:y, group=:draw)
-    @test layers isa AlgebraOfGraphics.Layers
+    @test layers isa AlgebraOfVega.Layers
 
     # Composable with config. The overlay has no facet, so unlinking facet axes
     # does nothing there (as in AoG); with `col=` it unlinks the panels.
@@ -1383,14 +1385,14 @@ color channel; it composes with `config`.
     # With truth data
     truth = (; x=[1.0, 2.0, 3.0], y=[4.1, 5.1, 6.1])
     layers2 = ppc_overlay(obs, pred; x=:x, y=:y, group=:draw, truth=truth)
-    @test layers2 isa AlgebraOfGraphics.Layers
+    @test layers2 isa AlgebraOfVega.Layers
     # truth adds a third layer
     @test length(layers2.layers) == length(layers.layers) + 1
 
     # With color (model comparison)
     pred2 = (; x=pred.x, y=pred.y, draw=pred.draw, model=repeat(["A"], 6))
     layers3 = ppc_overlay(obs, pred2; x=:x, y=:y, group=:draw, color=:model)
-    @test layers3 isa AlgebraOfGraphics.Layers
+    @test layers3 isa AlgebraOfVega.Layers
 end
 
 """
@@ -1479,7 +1481,7 @@ and colour/facet labels survive alongside the fields.
         mapping(:t => "Time (ms)", :m => "Response"; color=:g => "Group") *
         lineribbon(bands=[:lo => :hi])
     converted = AlgebraOfVega._convert_drawable(first(AlgebraOfVega._extract_drawable(spec)))
-    @test converted isa AlgebraOfGraphics.Layers
+    @test converted isa AlgebraOfVega.Layers
     @test length(converted.layers) == 2  # one band + median line
     band, line = converted.layers
     @test band.positional[1] == (:t => "Time (ms)")

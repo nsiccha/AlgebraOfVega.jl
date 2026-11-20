@@ -1,5 +1,6 @@
 @testitem "background paint lowers without changing authored colours" tags=[:theme, :regression] begin
-    using JSON, Makie
+    using JSON
+    import Makie
     xy = data((; x=[1, 2], y=[2, 1])) * mapping(:x, :y)
     for (attr, prop, style) in ((:color, "color", "aov-background"),
             (:strokecolor, "stroke", "aov-background-stroke"),

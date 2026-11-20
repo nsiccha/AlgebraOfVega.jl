@@ -2,7 +2,8 @@ using TestItemRunner
 
 # A wide data preview scrolls in its own frame without widening the page.
 @testitem "a data table scrolls in its own frame and leaves the page its width" tags=[:regression, :browser, :caption, :texts] begin
-    using AlgebraOfVega, AlgebraOfGraphics, HTMXObjects, JSON
+    using AlgebraOfVega, HTMXObjects, JSON
+    import AlgebraOfGraphics
     html(x) = sprint(show, MIME"text/html"(), x)
 
     # Long words set a column's narrowest width, so many of them outgrow any pane.

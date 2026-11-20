@@ -1,18 +1,24 @@
-# --- Static (Makie) rendering ---
+# --- Static (Makie) rendering: the backend-free preparation ---
+#
+# `sdraw`/`sdraw!`/`sdraw_file` live in the `AlgebraOfVegaMakieExt` extension,
+# which converts the AoV values prepared here into AlgebraOfGraphics/Makie ones
+# and draws them. What needs Makie itself (the theme's text colour, the
+# background under an axis, labelling the drawn panels) is there too.
 
 """
     _extract_drawable(spec)
 
 Extract the AoG drawable (Layer/Layers) from a spec. Returns `(drawable, config)`.
 """
-_extract_drawable(layer::AlgebraOfGraphics.Layer) = (layer, nothing)
-_extract_drawable(layers::AlgebraOfGraphics.Layers) = (layers, nothing)
+_extract_drawable(layer::Layer) = (layer, nothing)
+_extract_drawable(layers::Layers) = (layers, nothing)
 _extract_drawable(v::VegaSpec) = (v.drawable, v.config)
 
 """
     _draw_kwargs(cfg::Union{Config,Nothing})
 
-Translate AoV Config properties into keyword arguments for `AlgebraOfGraphics.draw`.
+Translate AoV Config properties into keyword arguments for `AlgebraOfGraphics.draw`
+(values in AoV's vocabulary; the Makie extension converts them).
 """
 _merge_nt!(_, ::Nothing) = nothing
 function _merge_nt!(kw, nt::NamedTuple)
@@ -49,18 +55,18 @@ function _apply_log_scales!(axis_kw, enc::Dict)
     end
 end
 
-_is_faceted(drawable::AlgebraOfGraphics.Layer) =
+_is_faceted(drawable::Layer) =
     haskey(drawable.named, :col) || haskey(drawable.named, :row) || haskey(drawable.named, :layout)
-_is_faceted(drawable::AlgebraOfGraphics.Layers) = any(_is_faceted, drawable.layers)
+_is_faceted(drawable::Layers) = any(_is_faceted, drawable.layers)
 _is_faceted(_) = false
 
 # The distinct `layout=` levels across the drawable's layer tables: the number of
 # wrap-facet panels (0 without a `layout=` mapping or readable table).
-_layout_levels(drawable::AlgebraOfGraphics.Layer) = length(_layout_values!(Set{Any}(), drawable))
-_layout_levels(drawable::AlgebraOfGraphics.Layers) =
+_layout_levels(drawable::Layer) = length(_layout_values!(Set{Any}(), drawable))
+_layout_levels(drawable::Layers) =
     length(foldl(_layout_values!, drawable.layers; init=Set{Any}()))
 _layout_levels(_) = 0
-function _layout_values!(seen::Set, layer::AlgebraOfGraphics.Layer)
+function _layout_values!(seen::Set, layer::Layer)
     haskey(layer.named, :layout) || return seen
     tbl = extract_data(layer)
     field = Symbol(_field_name(layer.named[:layout]))
@@ -86,8 +92,8 @@ function _sdraw_scales(scales_obj, drawable, cfg)
     cols = isnothing(cols) ?
         _aog_wrap_columns(n, _panel_aspect(get(props, :width, nothing), get(props, :height, nothing))) :
         max(1, round(Int, cols))
-    dict[:Layout] = merge(layout, (; palette=AlgebraOfGraphics.wrapped(; cols)))
-    AlgebraOfGraphics.scales(; dict...)
+    dict[:Layout] = merge(layout, (; palette=AlgebraOfVega.wrapped(; cols)))
+    AlgebraOfVega.scales(; dict...)
 end
 
 function _draw_kwargs(cfg::Union{Config,Nothing}; faceted=false, layer_encodings=Any[])
@@ -159,7 +165,7 @@ end
 function _drawable_facet_fields(drawable)
     out = Dict{Symbol,String}()
     for l in something(_spec_layers_or_nothing(drawable), [])
-        l isa AlgebraOfGraphics.Layer || continue
+        l isa Layer || continue
         for ch in (:layout, :row, :col)
             haskey(l.named, ch) && get!(out, ch, _field_name(l.named[ch]))
         end
@@ -182,50 +188,11 @@ function _hide_static_panel_headers(scales_obj, drawable, labels)
     for name in hidden
         dict[name] = merge(get(dict, name, (;)), (; legend=false))
     end
-    AlgebraOfGraphics.scales(; dict...)
-end
-
-# Label each drawn panel's axes with its own title (src/panel_labels.jl). A panel's
-# facet values come from AoG's facet scales: the position each value's panel takes in
-# the grid AoG drew (`plotvalues`, a (row, column) pair for `layout=`, a row or a
-# column index for `row=`/`col=`).
-function _label_static_panels!(grid::AbstractMatrix, drawable, labels)
-    (isempty(labels) || isempty(grid)) && return grid
-    facets = _drawable_facet_fields(drawable)
-    isempty(facets) && return grid
-    scales = first(grid).categoricalscales
-    scale(aes) = AlgebraOfGraphics.extract_single(aes, scales)
-    found = [(ch, facets[ch], scale(aes)) for (ch, aes) in ((:layout, AlgebraOfGraphics.AesLayout),
-        (:row, AlgebraOfGraphics.AesRow), (:col, AlgebraOfGraphics.AesCol)) if haskey(facets, ch)]
-    found = [f for f in found if !isnothing(f[3])]
-    isempty(found) && return grid
-    fields = [f[2] for f in found]
-    tables = _panel_label_tables(drawable)
-    maps = Dict(col => (col in fields ? nothing :
-        _panel_label_map(tables, Any[], fields, col, ch == "y" ? "ylabels" : "xlabels")) for (ch, col) in labels)
-    for idx in CartesianIndices(grid)
-        ae = grid[idx]
-        isempty(ae.entries) && continue
-        key = Any[]
-        for (ch, _, sc) in found
-            at = ch === :layout ? (idx[1], idx[2]) : ch === :row ? idx[1] : idx[2]
-            k = findfirst(==(at), AlgebraOfGraphics.plotvalues(sc))
-            isnothing(k) && break
-            push!(key, AlgebraOfGraphics.datavalues(sc)[k])
-        end
-        length(key) == length(found) || continue
-        for (ch, col) in labels
-            label = col in fields ? key[findfirst(==(col), fields)] :
-                get(maps[col], [_panel_key_part(v) for v in key], nothing)
-            isnothing(label) && continue
-            ch == "y" ? (ae.axis.ylabel = string(label)) : (ae.axis.xlabel = string(label))
-        end
-    end
-    grid
+    AlgebraOfVega.scales(; dict...)
 end
 
 """
-    _has_aov_analysis(layer::AlgebraOfGraphics.Layer)
+    _has_aov_analysis(layer::Layer)
 
 Check if a layer uses an AoV-specific transformation (tidybayes analyses).
 """
@@ -239,7 +206,7 @@ function _analysis_in(t::ComposedFunction)
 end
 _analysis_in(_) = nothing
 
-_get_analysis(layer::AlgebraOfGraphics.Layer) = _analysis_in(layer.transformation)
+_get_analysis(layer::Layer) = _analysis_in(layer.transformation)
 
 function _rows_to_columntable(rows::Vector{Dict{String,Any}})
     cols = collect(keys(rows[1]))
@@ -303,11 +270,11 @@ function _extract_aog_facet_color_kw(layer)
 end
 
 """
-    _lineribbon_to_aog(a::LineRibbonAnalysis, layer::AlgebraOfGraphics.Layer)
+    _lineribbon_to_aog(a::LineRibbonAnalysis, layer::Layer)
 
 Convert a LineRibbonAnalysis layer to pure AoG Band + Lines layers.
 """
-function _lineribbon_to_aog(a::LineRibbonAnalysis, layer::AlgebraOfGraphics.Layer)
+function _lineribbon_to_aog(a::LineRibbonAnalysis, layer::Layer)
     table = extract_data(layer)
     x_field = length(layer.positional) >= 1 ? _field_name(layer.positional[1]) : "x"
     x_label = length(layer.positional) >= 1 ? _field_label(layer.positional[1]) : "x"
@@ -329,7 +296,7 @@ function _lineribbon_to_aog(a::LineRibbonAnalysis, layer::AlgebraOfGraphics.Laye
         fixed_color=_analysis_fixed_color(layer, _ribbon_name(a)))
 end
 
-function _precomputed_ribbon_to_aog(a::PrecomputedRibbonAnalysis, layer::AlgebraOfGraphics.Layer)
+function _precomputed_ribbon_to_aog(a::PrecomputedRibbonAnalysis, layer::Layer)
     table = extract_data(layer)
     x_field = length(layer.positional) >= 1 ? _field_name(layer.positional[1]) : "x"
     x_label = length(layer.positional) >= 1 ? _field_label(layer.positional[1]) : "x"
@@ -346,7 +313,7 @@ function _precomputed_ribbon_to_aog(a::PrecomputedRibbonAnalysis, layer::Algebra
 end
 
 """
-    _fix_visual_attrs(layer::AlgebraOfGraphics.Layer)
+    _fix_visual_attrs(layer::Layer)
 
 Remap VL-style visual attributes to Makie equivalents (e.g. size → markersize).
 Returns the layer unchanged if no visual or no remapping needed.
@@ -360,18 +327,18 @@ Each `visual(...)` term in the layer is rewritten in place, so AoG still
 combines them as authored; whether the layer is a Scatter is read from their
 combination (`extract_visual`).
 """
-function _fix_visual_attrs(layer::AlgebraOfGraphics.Layer)
+function _fix_visual_attrs(layer::Layer)
     vis = extract_visual(layer)
     isnothing(vis) && return layer
     scatter = vis.plottype <: Scatter
     t = _map_visuals(v -> _fix_visual(v, scatter), layer.transformation)
     t === layer.transformation && return layer
-    AlgebraOfGraphics.Layer(t, layer.data, layer.positional, layer.named)
+    Layer(t, layer.data, layer.positional, layer.named)
 end
 
 # One `visual(...)` term with its VL-style attributes renamed; the term itself
 # when nothing needs it.
-function _fix_visual(vis::AlgebraOfGraphics.Visual, scatter::Bool)
+function _fix_visual(vis::Visual, scatter::Bool)
     attrs = Dict(pairs(vis.attributes))
     changed = false
     for k in (:color, :strokecolor)
@@ -401,18 +368,19 @@ function _fix_visual(vis::AlgebraOfGraphics.Visual, scatter::Bool)
         changed = true
     end
     !changed && return vis
-    AlgebraOfGraphics.Visual(vis.plottype, AlgebraOfGraphics.NamedArguments(attrs), vis.target)
+    Visual(vis.plottype, NamedArguments(attrs), vis.target)
 end
 
 # Static output has no CSS host, so the theme-following `:ink` becomes the
-# active Makie theme's text colour, which follows light/dark themes and is
-# readable on exports. Any other colour is already a Makie colour.
-_static_color(color) = color === :ink ?
-    Makie.to_value(Makie.theme(:textcolor; default=:black)) : color
+# active Makie theme's text colour (`_static_text_color`, AlgebraOfVegaMakieExt),
+# which follows light/dark themes and is readable on exports. Any other colour
+# is already a Makie colour.
+_static_color(color) = color === :ink ? _static_text_color() : color
+function _static_text_color end
 
 # Resolve before converting analyses, so a ribbon's fixed colour takes the
 # same destination surface as an ordinary visual. Never edit the authored layer.
-function _background_visual(vis::AlgebraOfGraphics.Visual, color)
+function _background_visual(vis::Visual, color)
     attrs = Dict(pairs(vis.attributes))
     changed = false
     for k in (:color, :strokecolor, :stroke, :fill)
@@ -422,39 +390,27 @@ function _background_visual(vis::AlgebraOfGraphics.Visual, color)
         changed = true
     end
     changed || return vis
-    AlgebraOfGraphics.Visual(vis.plottype, AlgebraOfGraphics.NamedArguments(attrs), vis.target)
+    Visual(vis.plottype, NamedArguments(attrs), vis.target)
 end
-function _background_drawable(layer::AlgebraOfGraphics.Layer, color)
+function _background_drawable(layer::Layer, color)
     t = _map_visuals(v -> _background_visual(v, color), layer.transformation)
     t === layer.transformation && return layer
-    AlgebraOfGraphics.Layer(t, layer.data, layer.positional, layer.named)
+    Layer(t, layer.data, layer.positional, layer.named)
 end
-_background_drawable(layers::AlgebraOfGraphics.Layers, color) =
-    AlgebraOfGraphics.Layers([_background_drawable(l, color) for l in layers.layers])
+_background_drawable(layers::Layers, color) =
+    Layers([_background_drawable(l, color) for l in layers.layers])
 _background_drawable(d, color) = d
 
-function _static_background(position, axis)
-    if position isa Union{Makie.Axis,Makie.Axis3}
-        return _opaque_background(Makie.to_value(position.backgroundcolor),
-            Makie.to_value(position.parent.scene.backgroundcolor))
-    end
-    axis_type = get(axis, :type, Makie.Axis)
-    theme = Makie.theme(nameof(axis_type); default=Makie.Attributes())
-    color = get(axis, :backgroundcolor,
-        haskey(theme, :backgroundcolor) ? Makie.to_value(theme[:backgroundcolor]) :
-        axis_type === Makie.Axis3 ? :transparent : :white)
-    figure = position isa Makie.Figure || isnothing(position) ? position : Makie.get_figure(position)
-    under = isnothing(figure) ? Makie.to_value(Makie.theme(:backgroundcolor; default=:white)) :
-        Makie.to_value(figure.scene.backgroundcolor)
-    _opaque_background(color, under)
-end
+# The opaque colour of the surface a static figure draws on, from the Makie axis
+# or figure it goes into (`AlgebraOfVegaMakieExt`).
+function _static_background end
 
-function _has_background(layer::AlgebraOfGraphics.Layer)
+function _has_background(layer::Layer)
     vis = extract_visual(layer)
     !isnothing(vis) && any(k -> get(vis.attributes, k, nothing) === :background,
         (:color, :strokecolor, :stroke, :fill))
 end
-_has_background(layers::AlgebraOfGraphics.Layers) = any(_has_background, layers.layers)
+_has_background(layers::Layers) = any(_has_background, layers.layers)
 _has_background(_) = false
 _static_drawable(authored, position, axis) = _convert_drawable(_has_background(authored) ?
     _background_drawable(authored, _static_background(position, axis)) : authored)
@@ -463,37 +419,41 @@ _static_drawable(authored, position, axis) = _convert_drawable(_has_background(a
 # `vdraw` draws in the page's text colour) take that text colour too; Makie
 # itself has no colour named `ink`.
 _static_ink_palette(s) = s
-function _static_ink_palette(s::AlgebraOfGraphics.Scales)
+function _static_ink_palette(s::Scales)
     color = get(s.dict, :Color, nothing)
     (isnothing(color) || !haskey(color, :palette)) && return s
     pal = color[:palette]
     (pal isa Union{AbstractVector,Tuple} && any(c -> c === :ink, pal)) || return s
     dict = Dict{Symbol,Any}(k => (; pairs(v)...) for (k, v) in pairs(s.dict))
     dict[:Color] = merge(dict[:Color], (; palette=Any[_static_color(c) for c in pal]))
-    AlgebraOfGraphics.scales(; dict...)
+    AlgebraOfVega.scales(; dict...)
 end
 
-_to_linestyle(v::AbstractVector{<:Real}) = Makie.Linestyle(collect(Float64, v))
+# A VL `strokeDash` pattern; the Makie extension draws it as `Makie.Linestyle`.
+struct _LinestylePattern
+    pattern::Vector{Float64}
+end
+_to_linestyle(v::AbstractVector{<:Real}) = _LinestylePattern(collect(Float64, v))
 _to_linestyle(v) = v
 
 # The transformation chain with `f` applied to every `visual(...)` term. An
 # unchanged chain comes back `===` the original.
-_map_visuals(f, v::AlgebraOfGraphics.Visual) = f(v)
+_map_visuals(f, v::Visual) = f(v)
 function _map_visuals(f, t::ComposedFunction)
     outer, inner = _map_visuals(f, t.outer), _map_visuals(f, t.inner)
     outer === t.outer && inner === t.inner ? t : outer ∘ inner
 end
 _map_visuals(f, t) = t
 
-_convert_drawable(d::AlgebraOfGraphics.Layers) = _to_aog_drawable(d)
-_convert_drawable(d::AlgebraOfGraphics.Layer) = _convert_single_layer(d)
+_convert_drawable(d::Layers) = _to_aog_drawable(d)
+_convert_drawable(d::Layer) = _convert_single_layer(d)
 _convert_drawable(d) = d
 
 _aog_from_analysis(a::LineRibbonAnalysis, l) = _lineribbon_to_aog(a, l)
 _aog_from_analysis(a::PrecomputedRibbonAnalysis, l) = _precomputed_ribbon_to_aog(a, l)
 _aog_from_analysis(a, _) = error("sdraw does not yet support $(typeof(a)) — use vdraw for this plot type, or vsave(spec, path) for a PDF/SVG/PNG file of it")
 
-function _convert_single_layer(l::AlgebraOfGraphics.Layer)
+function _convert_single_layer(l::Layer)
     area = extract_transformation(l, MapAreaAnalysis)
     isnothing(area) || error(
         "sdraw does not support $(_map_term(area)) — a map has no Makie analogue in AlgebraOfVega; use vdraw for this plot type, or vsave(spec, path) for a PDF/SVG/PNG file of it")
@@ -505,96 +465,20 @@ end
 # A reference line's or period's `text` mapping names it in the browser
 # (src/ref_labels.jl); Makie's `vlines`/`vspan`/`hlines`/`hspan` have no text,
 # so the static figure leaves the labels out.
-function _without_ref_text(l::AlgebraOfGraphics.Layer)
+function _without_ref_text(l::Layer)
     vis = extract_visual(l)
     (isnothing(vis) || !(vis.plottype <: Union{VLines,VSpan,HLines,HSpan}) || !haskey(l.named, :text)) && return l
-    @warn "sdraw: Makie draws no labels on $(Makie.plotsym(vis.plottype)); the `text` mapping of this reference layer is left out (vdraw and vsave label it)." maxlog=1
+    @warn "sdraw: Makie draws no labels on $(_plotsym(vis.plottype)); the `text` mapping of this reference layer is left out (vdraw and vsave label it)." maxlog=1
     named = [k => v for (k, v) in pairs(l.named) if k !== :text]
-    m = AlgebraOfGraphics.mapping(l.positional...; named...)
-    AlgebraOfGraphics.Layer(l.transformation, l.data, m.positional, m.named)
+    m = AlgebraOfVega.mapping(l.positional...; named...)
+    Layer(l.transformation, l.data, m.positional, m.named)
 end
 
-function _to_aog_drawable(layers::AlgebraOfGraphics.Layers)
+function _to_aog_drawable(layers::Layers)
     converted = map(_convert_single_layer, layers.layers)
     result = nothing
     for c in converted
         result = isnothing(result) ? c : result + c
     end
     result
-end
-
-"""
-    sdraw(spec, path::AbstractString; kwargs...)
-
-Render an AoG spec via AlgebraOfGraphics.draw → Makie → file.
-Saves the figure to `path` (format inferred from extension) and returns
-an `h.img` node pointing to `path`.
-
-`alt` gives the image its alt text, a description of what the figure shows
-(`<img src alt>`, Markdown carrying the alt). An accessible (PDF/UA) report
-needs it on every figure; without `alt` the image has none.
-
-Requires a Makie backend (e.g. CairoMakie) to be loaded.
-
-Extra `kwargs` are passed to `Makie.save` (e.g. `px_per_unit=2` for retina).
-"""
-function sdraw(spec, path::AbstractString; alt::Union{Nothing,AbstractString}=nothing, kwargs...)
-    sdraw_file(spec, path; kwargs...)
-    _static_img(path, alt)
-end
-
-"""
-    sdraw!(position, spec)
-
-Render an AoV spec into an existing Makie figure, layout position, or axis via
-`AlgebraOfGraphics.draw!`. This is the static composition counterpart to
-`sdraw_file`: create a `Figure`, place independently configured specs with
-`sdraw!(fig[row, col], spec)`, then save the complete figure with `Makie.save`.
-
-Each spec keeps its own `config(axis=...)`, `config(facet=...)`, and
-`config(scales=...)` settings. `config(width=...)` and `config(height=...)` are
-standalone-figure settings and are therefore ignored when drawing into an
-existing layout. `mapping` display labels (`:x => "Label"`), including
-`lineribbon`/`ribbon(bands=...)` x/y/colour/facet labels, are preserved on the
-rebuilt static layers.
-
-Like `AlgebraOfGraphics.draw!`, this does not add legends or colorbars — call
-`AlgebraOfGraphics.legend!(position, grid)` with the returned grid afterwards
-(see `aov-use` §1a for the composition pattern).
-
-Requires a Makie backend (e.g. CairoMakie) to be loaded. Returns the result of
-`AlgebraOfGraphics.draw!`.
-"""
-function sdraw!(position, spec)
-    _sdraw_check(spec)
-    authored, cfg = _extract_drawable(spec)
-    kw = _draw_kwargs(cfg; faceted=_is_faceted(authored),
-        layer_encodings=_spec_layer_encodings(spec))
-    drawable = _static_drawable(authored, position, kw.axis)
-    sc = _hide_static_panel_headers(_sdraw_scales(kw.scales, authored, cfg), authored, kw.panel_labels)
-    grid = isnothing(sc) ?
-        AlgebraOfGraphics.draw!(position, drawable; facet=kw.facet, axis=kw.axis) :
-        AlgebraOfGraphics.draw!(position, drawable, sc; facet=kw.facet, axis=kw.axis)
-    _label_static_panels!(grid, authored, kw.panel_labels)
-end
-
-"""
-    sdraw_file(spec, path::AbstractString; kwargs...)
-
-Render an AoG spec to a file via AlgebraOfGraphics.draw → Makie.save.
-Returns the path. Extra `kwargs` are passed to `Makie.save`.
-"""
-function sdraw_file(spec, path::AbstractString; kwargs...)
-    _sdraw_check(spec)
-    authored, cfg = _extract_drawable(spec)
-    kw = _draw_kwargs(cfg; faceted=_is_faceted(authored),
-        layer_encodings=_spec_layer_encodings(spec))
-    drawable = _static_drawable(authored, nothing, kw.axis)
-    sc = _hide_static_panel_headers(_sdraw_scales(kw.scales, authored, cfg), authored, kw.panel_labels)
-    fg = isnothing(sc) ?
-        AlgebraOfGraphics.draw(drawable; figure=kw.figure, facet=kw.facet, axis=kw.axis) :
-        AlgebraOfGraphics.draw(drawable, sc; figure=kw.figure, facet=kw.facet, axis=kw.axis)
-    _label_static_panels!(fg.grid, authored, kw.panel_labels)
-    Makie.save(path, fg; kwargs...)
-    path
 end

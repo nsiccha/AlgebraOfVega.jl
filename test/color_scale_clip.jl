@@ -11,7 +11,7 @@ using TestItemRunner
 # design decision `0zeeod8`).
 @testsnippet AoVColorClipFixtures begin
     using AlgebraOfVega
-    using AlgebraOfGraphics
+    import AlgebraOfGraphics
 
     # Clockwise rings (d3's exterior winding), side by side at 54–55°N.
     district(x0) = Dict{String,Any}("type" => "Polygon", "coordinates" =>

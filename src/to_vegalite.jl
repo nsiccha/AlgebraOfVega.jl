@@ -18,12 +18,12 @@ facet fields), without building the picker controls or a plot node — e.g. for 
 JSON, markdown or static export of that figure. An already-lowered Vega-Lite
 `Dict` cannot be remapped: it no longer carries the layer tables.
 """
-function to_vegalite(layer::AlgebraOfGraphics.Layer; interactive::Bool=true,
+function to_vegalite(layer::Layer; interactive::Bool=true,
                      auto_remap::Union{Nothing,NamedTuple}=nothing)
     to_vegalite(vlspec(layer); interactive, auto_remap)
 end
 
-function to_vegalite(layers::AlgebraOfGraphics.Layers; interactive::Bool=true,
+function to_vegalite(layers::Layers; interactive::Bool=true,
                      auto_remap::Union{Nothing,NamedTuple}=nothing)
     to_vegalite(vlspec(layers); interactive, auto_remap)
 end
@@ -41,7 +41,7 @@ _base_vegalite(drawable) = to_vegalite(drawable; interactive=false)
 _base_vegalite(drawable, layer_encodings::AbstractVector, layer_transforms::AbstractVector) =
     isempty(layer_encodings) && isempty(layer_transforms) ? _base_vegalite(drawable) :
     throw(ArgumentError("AlgebraOfVega: per-layer overrides need a Layer/Layers drawable, got $(typeof(drawable))."))
-function _base_vegalite(layer::AlgebraOfGraphics.Layer, layer_encodings::AbstractVector=Any[],
+function _base_vegalite(layer::Layer, layer_encodings::AbstractVector=Any[],
         layer_transforms::AbstractVector=Any[])
     spec = layer_to_vl(layer)
     # One layer: its units are the whole spec.
@@ -56,7 +56,7 @@ function _base_vegalite(layer::AlgebraOfGraphics.Layer, layer_encodings::Abstrac
     spec
 end
 
-function _base_vegalite(layers::AlgebraOfGraphics.Layers, layer_encodings::AbstractVector=Any[],
+function _base_vegalite(layers::Layers, layer_encodings::AbstractVector=Any[],
         layer_transforms::AbstractVector=Any[])
     spec = layers_to_vl(layers; layer_encodings, layer_transforms)
     _apply_no_truncate_default!(spec)
@@ -254,10 +254,10 @@ const _AOV_BACKGROUND_ATTRS = Dict{Symbol,String}(
 # point would blend with the point, rather than match the drawing surface.
 function _opaque_background(color, under=:white)
     c, b = _background_rgba(color), _background_rgba(under)
-    a = Makie.alpha(c)
-    Makie.RGBf(a * Makie.red(c) + (1 - a) * Makie.red(b),
-        a * Makie.green(c) + (1 - a) * Makie.green(b),
-        a * Makie.blue(c) + (1 - a) * Makie.blue(b))
+    a = Colors.alpha(c)
+    _RGBf(a * Colors.red(c) + (1 - a) * Colors.red(b),
+        a * Colors.green(c) + (1 - a) * Colors.green(b),
+        a * Colors.blue(c) + (1 - a) * Colors.blue(b))
 end
 function _background_rgba(color::AbstractString)
     # Colors' CSS parser rounds functional colours to eight bits, including
@@ -271,12 +271,12 @@ function _background_rgba(color::AbstractString)
                 v = tryparse(Float64, percent ? chop(s) : s)
                 isnothing(v) ? nothing : clamp(v / (percent ? 100 : i <= 3 ? 255 : 1), 0, 1)
             end
-            all(!isnothing, values) && return Makie.RGBAf(values[1:3]..., length(values) == 4 ? values[4] : 1)
+            all(!isnothing, values) && return _RGBAf(values[1:3]..., length(values) == 4 ? values[4] : 1)
         end
     end
-    parse(Makie.RGBAf, color)
+    parse(_RGBAf, color)
 end
-_background_rgba(color) = Makie.RGBAf(Makie.to_color(color))
+_background_rgba(color) = _RGBAf(_to_rgba(color))
 
 function _apply_background_default!(spec::Dict)
     used = filter(p -> _uses_style(spec, first(p)), _AOV_BACKGROUND_STYLES)
@@ -1128,7 +1128,7 @@ carry a value per panel, and the per-panel lowering gives each panel its own. Th
 keys given as plain values still reach every panel (todo `16z8s5l`: before, a `scale`
 `Dict` left the whole `Y` axis out, so a shared `domain` or `nice` beside it was dropped).
 A `Dict` on an `X` or `Z` key is an `ArgumentError`: only the Y scale is per panel."""
-function _scales_to_encoding_override(sc::AlgebraOfGraphics.Scales)
+function _scales_to_encoding_override(sc::Scales)
     override = Dict{String,Any}()
     for (axis_key, props) in pairs(sc.dict)
         ch = _aog_axis_key_to_vl_channel(axis_key)
@@ -1176,7 +1176,7 @@ end
 Vega-Lite channel, as `channel => (axis_key, values)`. A `value => label` pair contributes
 its value, as on the `Color` scale; a label that differs from the value is not lowered and
 warns once (`sdraw` shows it). A function-valued `categories` is an `ArgumentError`."""
-function _scales_axis_categories(sc::AlgebraOfGraphics.Scales)
+function _scales_axis_categories(sc::Scales)
     out = Dict{String,Any}()
     for (axis_key, props) in pairs(sc.dict)
         ch = _aog_axis_key_to_vl_channel(axis_key)
@@ -1235,7 +1235,7 @@ and drops that panel's entry; `identity` lists nothing). A `domain` is two value
 as a tuple or vector; a Vega-Lite domain object is a NamedTuple (`(; unionWith=[0, 100])`),
 since a `Dict` is the per-panel form. Keys given as plain values are shared
 (`_scales_to_encoding_override`)."""
-function _scales_panel_y_scales(sc::AlgebraOfGraphics.Scales)
+function _scales_panel_y_scales(sc::Scales)
     props = get(sc.dict, :Y, nothing)
     isnothing(props) && return nothing
     out = Dict{Any,Any}()
@@ -2300,7 +2300,7 @@ function _color_scale_props_to_vl(props)
 end
 
 """Extract the `_ColorScaleVL` from a `scales(Color=...)` object (`nothing` if none)."""
-function _scales_to_color_scale(sc::AlgebraOfGraphics.Scales)
+function _scales_to_color_scale(sc::Scales)
     props = get(sc.dict, :Color, nothing)
     isnothing(props) && return nothing
     _color_scale_props_to_vl(props)
@@ -2494,7 +2494,7 @@ function _axis_nt_to_encoding_override(nt)
 end
 
 # Narrow a config-prop to the type our sugar handlers expect, or `nothing`.
-_as_scales(s::AlgebraOfGraphics.Scales) = s
+_as_scales(s::Scales) = s
 _as_scales(_) = nothing
 _as_nt(nt::NamedTuple) = nt
 _as_nt(_) = nothing
@@ -2502,7 +2502,7 @@ _as_nt(_) = nothing
 # Sugar appliers — dispatch the work over the `val` type. The Any fallback is
 # what fires when the prop key exists but the value isn't of the expected shape.
 _apply_scales_sugar!(args...) = nothing
-function _apply_scales_sugar!(spec, s::AlgebraOfGraphics.Scales)
+function _apply_scales_sugar!(spec, s::Scales)
     # X/Y/Z axis scales reach every encoding of their channel that reads a scale. A
     # layer drawn without that channel keeps none: a `VLines` rule given a field-less
     # `y` made Vega-Lite drop it with a console warning (snag `categorical-y-sc-55ea6237`).
@@ -2579,7 +2579,7 @@ the VL row/column facet channels. AoG's `Layout` scale is one wrap dimension; on
 facet it maps to `facet.field`, and on a single row/column facet it maps to that channel.
 When both grid channels exist, `Layout` is ambiguous and is ignored with a warning.
 """
-function _scales_to_facet_sorts(s::AlgebraOfGraphics.Scales)
+function _scales_to_facet_sorts(s::Scales)
     sorts = Dict{String,Any}()
     for (key, channel) in ((:Row, "row"), (:Col, "column"), (:Column, "column"))
         props = get(s.dict, key, nothing)
@@ -2643,7 +2643,7 @@ function _apply_wrap_palette!(spec::Dict, props)
     spec
 end
 
-function _wrap_palette_columns(w::AlgebraOfGraphics.Wrap, n::Integer)
+function _wrap_palette_columns(w::Wrap, n::Integer)
     w.by_col && throw(ArgumentError(
         "AlgebraOfVega: `scales(Layout=(; palette=wrapped(by_col=true)))` cannot be drawn " *
         "with Vega-Lite, which fills a wrapped facet row by row; use `wrapped(cols=N)` or " *
@@ -2656,7 +2656,7 @@ _wrap_palette_columns(p, ::Integer) = throw(ArgumentError(
     "column count and cannot place them at explicit positions; got $(repr(p))."))
 
 # `wrapped()` (neither count): AoG's own default rule applies.
-_wrap_restriction_columns(::Makie.Automatic, ::Integer) = nothing
+_wrap_restriction_columns(::Automatic, ::Integer) = nothing
 # `wrapped(cols=N)` → N columns; `wrapped(rows=N)` → enough columns for N rows.
 _wrap_restriction_columns(r::NamedTuple, n::Integer) =
     r.cols ? max(1, r.n) : (n > 0 ? cld(n, max(1, r.n)) : nothing)
@@ -2763,7 +2763,7 @@ end
 # other input lowers through its own `to_vegalite`.
 _lower_vegalite(x; interactive::Bool=true, auto_remap::Union{Nothing,NamedTuple}=nothing) =
     to_vegalite(x; interactive, auto_remap)
-_lower_vegalite(x::Union{AlgebraOfGraphics.Layer,AlgebraOfGraphics.Layers}; kwargs...) =
+_lower_vegalite(x::Union{Layer,Layers}; kwargs...) =
     _lower_vegalite(vlspec(x); kwargs...)
 function _lower_vegalite(v::VegaSpec; interactive::Bool=true,
                          auto_remap::Union{Nothing,NamedTuple}=nothing)
@@ -2911,7 +2911,7 @@ quantitative/temporal ones, so one override configures both colours of a figure 
 mixes them. A key no colour encoding of the figure can take is an `ArgumentError`, as
 in AoG.
 """
-function to_vegalite(v, sc::AlgebraOfGraphics.Scales; interactive::Bool=true,
+function to_vegalite(v, sc::Scales; interactive::Bool=true,
                      auto_remap::Union{Nothing,NamedTuple}=nothing)
     spec = _lower_vegalite(v; interactive, auto_remap)
     # Both drawings of a ribbon with an interval view take the scales, before
@@ -3110,8 +3110,8 @@ the data and injects VL `params` with `bind: {input: "select"}` + expression fil
 Usage via config: `config(select=:origin)` or `config(select=[:origin, :cylinders])`.
 Each field gets a dropdown with "All" + sorted unique values.
 """
-_drawable_table(l::AlgebraOfGraphics.Layer) = extract_data(l)
-function _drawable_table(ls::AlgebraOfGraphics.Layers)
+_drawable_table(l::Layer) = extract_data(l)
+function _drawable_table(ls::Layers)
     for l in ls.layers
         t = extract_data(l)
         isnothing(t) || return t

@@ -7,7 +7,7 @@
 
 @testsnippet AoVAxisCategoryRows begin
     using AlgebraOfVega
-    using AlgebraOfGraphics
+    import AlgebraOfGraphics
 
     # A blank (zero-width space) spacer row between two groups that no layer draws.
     rows = ["1.1  A", "1.2  B", "\u200b", "2.1  C"]

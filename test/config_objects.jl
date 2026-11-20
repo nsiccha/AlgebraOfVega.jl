@@ -9,7 +9,7 @@ using TestItemRunner
 # (todo `0wqszhg`, decision `1a16qo7`).
 @testsnippet AoVConfigObjectFixtures begin
     using AlgebraOfVega
-    using AlgebraOfGraphics
+    import AlgebraOfGraphics
 
     rows = (; x=[1.0, 10.0, 100.0], y=[1.0, 2.0, 3.0], group=["a", "b", "b"])
     base = data(rows) * mapping(:x, :y) * visual(Scatter)
@@ -163,7 +163,7 @@ end
     kw = AlgebraOfVega._draw_kwargs((faceted * config(facet = (; linkxaxes = :none)) *
         config(facet = (; linkyaxes = :none), scales = scales(Y = (; scale = log10)))).config; faceted=true)
     @test kw.facet == (; linkxaxes = :none, linkyaxes = :none)
-    @test kw.scales isa AlgebraOfGraphics.Scales
+    @test kw.scales isa AlgebraOfVega.Scales
     @test kw.scales.dict[:Y][:scale] === log10
 end
 

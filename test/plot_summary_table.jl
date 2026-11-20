@@ -4,7 +4,8 @@ using TestItemRunner
 # lowered Vega-Lite alone. Item "… matches the browser" is the LOCKSTEP guard: the
 # Julia computation and the runtime's "Show summary" pane must read the same.
 @testsnippet AoVSummaryTableFixtures begin
-    using AlgebraOfVega, AlgebraOfGraphics, JSON, Dates
+    using AlgebraOfVega, JSON, Dates
+    import AlgebraOfGraphics
 
     # JSON and back: what a consumer holds when it read the spec from a payload.
     roundtrip(vl) = JSON.parse(AlgebraOfVega._vl_json(vl))
@@ -232,8 +233,8 @@ A figure without such a summary gives `nothing`, never an error.
     scatter = data(obs) * mapping(:x, :y) * visual(Scatter)
     for fig in (scatter, scatter * config(width=200),
                 data(obs) * mapping(:x, :y) * visual(Lines),
-                data(obs) * mapping(:x) * AlgebraOfVega.AlgebraOfGraphics.density(),
-                data(obs) * mapping(:x, :y) * AlgebraOfVega.AlgebraOfGraphics.linear(),
+                data(obs) * mapping(:x) * AlgebraOfVega.density(),
+                data(obs) * mapping(:x, :y) * AlgebraOfVega.linear(),
                 # No rows at all.
                 data((; m=Float64[], lo=Float64[], hi=Float64[], g=String[])) * mapping(:m; y=:g) * pointinterval(bands=[:lo => :hi]))
         @test isnothing(plot_summary_table(fig))

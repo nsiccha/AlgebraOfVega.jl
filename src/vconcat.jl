@@ -44,7 +44,7 @@ function vconcat(panels...; spacing::Integer=8)
     length(panels) >= 2 || throw(ArgumentError(
         "vconcat: stack two or more figures, e.g. `vconcat(level, rain)`; got $(length(panels))."))
     for (k, p) in enumerate(panels)
-        p isa Union{AlgebraOfGraphics.Layer,AlgebraOfGraphics.Layers,VegaSpec} || throw(ArgumentError(
+        p isa Union{Layer,Layers,VegaSpec} || throw(ArgumentError(
             "vconcat: panel $k is a $(typeof(p)), not a figure (`data(...) * mapping(...) * visual(...)`)."))
     end
     spacing >= 0 || throw(ArgumentError("vconcat: `spacing` is a gap in pixels, ≥ 0; got $spacing."))

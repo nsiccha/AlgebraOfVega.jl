@@ -3,7 +3,10 @@ module AlgebraOfVegaGallery
 using HTMXObjects
 using AlgebraOfVega
 import HTMX
-import CairoMakie
+# AlgebraOfGraphics + a Makie backend activate AoV's static-path extension
+# (`sdraw_file` for the static gallery); imported, not `using`, because AoV owns
+# the AoG-spelled names.
+import AlgebraOfGraphics, CairoMakie
 using JSON
 using Random, Tables, Statistics
 # Load Treebars before importing RecordingRoutes — Treebars activates

@@ -95,7 +95,7 @@ end
 # point keeps its white fill and dark ring. A colour mapping wins, as it does for
 # plain marks and ribbons (`_ribbon_to_vl`). `point_size=true` lets
 # `visual(; markersize)` size the median point (`_interval_point_size`).
-function _interval_fixed_mark(layer::AlgebraOfGraphics.Layer, analysis::AbstractString, color_field;
+function _interval_fixed_mark(layer::Layer, analysis::AbstractString, color_field;
                               point_size::Bool=false)
     fixed_color = _analysis_fixed_color(layer, analysis; point_size)
     isnothing(color_field) ? _fixed_color_mark_props(fixed_color) : Dict{String,Any}()
@@ -219,7 +219,7 @@ end
 
 # --- Analysis → Vega-Lite spec ---
 
-function analysis_to_vl(a::PointIntervalAnalysis, layer::AlgebraOfGraphics.Layer; is_sublayer=false)
+function analysis_to_vl(a::PointIntervalAnalysis, layer::Layer; is_sublayer=false)
     (; table, value_field, value_label, group_field, group_label, group_sort,
        color_field, color_label, color_sort, dodge_field, dodge_sort,
        marker_field, marker_label, marker_sort, facet, facet_fields) = _extract_interval_fields(layer, a.orientation)
@@ -266,7 +266,7 @@ function analysis_to_vl(a::PointIntervalAnalysis, layer::AlgebraOfGraphics.Layer
     spec
 end
 
-function analysis_to_vl(a::PrecomputedIntervalAnalysis, layer::AlgebraOfGraphics.Layer; is_sublayer=false)
+function analysis_to_vl(a::PrecomputedIntervalAnalysis, layer::Layer; is_sublayer=false)
     (; table, value_field, value_label, group_field, group_label, group_sort,
        color_field, color_label, color_sort, dodge_field, dodge_sort,
        marker_field, marker_label, marker_sort, facet, facet_fields) = _extract_interval_fields(layer, a.orientation)
@@ -326,7 +326,7 @@ function analysis_to_vl(a::PrecomputedIntervalAnalysis, layer::AlgebraOfGraphics
     spec
 end
 
-function analysis_to_vl(a::GradientIntervalAnalysis, layer::AlgebraOfGraphics.Layer; is_sublayer=false)
+function analysis_to_vl(a::GradientIntervalAnalysis, layer::Layer; is_sublayer=false)
     (; table, value_field, value_label, group_field, group_label, group_sort,
        color_field, color_label, color_sort, dodge_field, dodge_sort,
        marker_field, marker_label, marker_sort, facet, facet_fields) = _extract_interval_fields(layer, a.orientation)
@@ -629,7 +629,7 @@ _tidybayes_name(a::LineRibbonAnalysis) = _ribbon_name(a)
 _tidybayes_name(a::PrecomputedRibbonAnalysis) = (a.show_line ? "lineribbon" : "ribbon") * "(bands=…)"
 _tidybayes_name(a::TidybayesAnalysis) = string(nameof(typeof(a)))
 
-function analysis_to_vl(a::LineRibbonAnalysis, layer::AlgebraOfGraphics.Layer; is_sublayer=false)
+function analysis_to_vl(a::LineRibbonAnalysis, layer::Layer; is_sublayer=false)
     table = extract_data(layer)
     x_field = length(layer.positional) >= 1 ? _field_name(layer.positional[1]) : "x"
     x_label = length(layer.positional) >= 1 ? _field_label(layer.positional[1]) : "x"
@@ -656,7 +656,7 @@ function analysis_to_vl(a::LineRibbonAnalysis, layer::AlgebraOfGraphics.Layer; i
         fixed_color=_analysis_fixed_color(layer, _ribbon_name(a)))
 end
 
-function analysis_to_vl(a::PrecomputedRibbonAnalysis, layer::AlgebraOfGraphics.Layer; is_sublayer=false)
+function analysis_to_vl(a::PrecomputedRibbonAnalysis, layer::Layer; is_sublayer=false)
     table = extract_data(layer)
     x_field = length(layer.positional) >= 1 ? _field_name(layer.positional[1]) : error("Pre-aggregated lineribbon requires at least one positional mapping (x)")
     x_label = _field_label(layer.positional[1])
@@ -691,7 +691,7 @@ function analysis_to_vl(a::PrecomputedRibbonAnalysis, layer::AlgebraOfGraphics.L
         fixed_color=_analysis_fixed_color(layer, _ribbon_name(a)))
 end
 
-function analysis_to_vl(a::DotIntervalAnalysis, layer::AlgebraOfGraphics.Layer; is_sublayer=false)
+function analysis_to_vl(a::DotIntervalAnalysis, layer::Layer; is_sublayer=false)
     (; table, value_field, value_label, group_field, group_label, group_sort,
        color_field, color_label, color_sort, dodge_field, dodge_sort,
        marker_field, marker_label, marker_sort, facet, facet_fields) = _extract_interval_fields(layer, a.orientation)
@@ -819,7 +819,7 @@ makes it correct everywhere else.
 """
 _unstack_area!(encoding::Dict{String,Any}) = (encoding["y"]["stack"] = nothing; encoding)
 
-function density_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
+function density_to_vl(layer::Layer; is_sublayer=false)
     table = extract_data(layer)
     x_field = length(layer.positional) >= 1 ? _field_name(layer.positional[1]) : "value"
     x_label = length(layer.positional) >= 1 ? _field_label(layer.positional[1]) : "value"
@@ -985,7 +985,7 @@ end
 Translate AoG's `linear()` to Vega-Lite's `regression` transform + line mark.
 When `interval` is set, computes regression CI in Julia and renders as area+y2.
 """
-function linear_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
+function linear_to_vl(layer::Layer; is_sublayer=false)
     table = extract_data(layer)
     x_field = length(layer.positional) >= 1 ? _field_name(layer.positional[1]) : "x"
     x_label = length(layer.positional) >= 1 ? _field_label(layer.positional[1]) : "x"
@@ -993,7 +993,7 @@ function linear_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
     y_label = length(layer.positional) >= 2 ? _field_label(layer.positional[2]) : "y"
     color_field = haskey(layer.named, :color) ? _field_name(layer.named[:color]) : nothing
     color_label = haskey(layer.named, :color) ? _field_label(layer.named[:color]) : nothing
-    analysis = extract_transformation(layer, AlgebraOfGraphics.LinearAnalysis)
+    analysis = extract_transformation(layer, LinearAnalysis)
     has_band = !isnothing(_resolved_band_interval(analysis))
 
     reg_transform = Dict{String,Any}(
@@ -1122,7 +1122,7 @@ end
 Translate AoG's `smooth()` to Vega-Lite's `loess` transform + line mark.
 When `interval` is set, computes smooth CI in Julia and renders as area+y2.
 """
-function smooth_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
+function smooth_to_vl(layer::Layer; is_sublayer=false)
     table = extract_data(layer)
     x_field = length(layer.positional) >= 1 ? _field_name(layer.positional[1]) : "x"
     x_label = length(layer.positional) >= 1 ? _field_label(layer.positional[1]) : "x"
@@ -1130,7 +1130,7 @@ function smooth_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
     y_label = length(layer.positional) >= 2 ? _field_label(layer.positional[2]) : "y"
     color_field = haskey(layer.named, :color) ? _field_name(layer.named[:color]) : nothing
     color_label = haskey(layer.named, :color) ? _field_label(layer.named[:color]) : nothing
-    analysis = extract_transformation(layer, AlgebraOfGraphics.SmoothAnalysis)
+    analysis = extract_transformation(layer, SmoothAnalysis)
     bandwidth = !isnothing(analysis) ? analysis.span : 0.75
     has_band = !isnothing(_resolved_band_interval(analysis))
 
@@ -1218,7 +1218,7 @@ end
 
 Translate AoG's `histogram()` to Vega-Lite's bar mark with bin + count aggregation.
 """
-function histogram_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
+function histogram_to_vl(layer::Layer; is_sublayer=false)
     table = extract_data(layer)
     x_field = length(layer.positional) >= 1 ? _field_name(layer.positional[1]) : "x"
     x_label = length(layer.positional) >= 1 ? _field_label(layer.positional[1]) : "x"
@@ -1226,7 +1226,7 @@ function histogram_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
     # Read the HistogramAnalysis struct so bins / datalimits / normalization
     # from `histogram(; bins=N, datalimits=…, normalization=…)` actually
     # reach the emitted VL spec.
-    ha = extract_transformation(layer, AlgebraOfGraphics.HistogramAnalysis)
+    ha = extract_transformation(layer, HistogramAnalysis)
     bin_params, count_op = _histogram_bin_config(ha)
 
     # Collect facet (row/col) and other named channels separately. Row/col
@@ -1351,7 +1351,7 @@ end
 
 Translate AoG's `frequency()` to a Vega-Lite bar chart with `aggregate: "count"`.
 """
-function frequency_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
+function frequency_to_vl(layer::Layer; is_sublayer=false)
     table = extract_data(layer)
     x_field = length(layer.positional) >= 1 ? _field_name(layer.positional[1]) : "x"
     x_label = length(layer.positional) >= 1 ? _field_label(layer.positional[1]) : "x"
@@ -1385,7 +1385,7 @@ end
 
 Translate AoG's `expectation()` to a Vega-Lite bar chart with `aggregate: "mean"`.
 """
-function expectation_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
+function expectation_to_vl(layer::Layer; is_sublayer=false)
     table = extract_data(layer)
     x_field = length(layer.positional) >= 1 ? _field_name(layer.positional[1]) : "x"
     x_label = length(layer.positional) >= 1 ? _field_label(layer.positional[1]) : "x"
@@ -1438,7 +1438,7 @@ separate lines without coloring them differently -- useful when
 overlaying many posterior-draw ECDFs and a per-draw color legend would
 just be noise.
 """
-function ecdf_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
+function ecdf_to_vl(layer::Layer; is_sublayer=false)
     table = extract_data(layer)
     x_field = length(layer.positional) >= 1 ? _field_name(layer.positional[1]) : "x"
     x_label = length(layer.positional) >= 1 ? _field_label(layer.positional[1]) : "x"
@@ -1707,7 +1707,7 @@ const _GEOSHAPE_FIELD = "__geometry__"
 _geoshape_projection(::Nothing) = nothing
 # Left out: the map's default. On a map with an area layer that sets one,
 # `_share_map_projection!` replaces it with that one.
-_geoshape_projection(::Makie.Automatic) = Dict{String,Any}("type" => "mercator")
+_geoshape_projection(::Automatic) = Dict{String,Any}("type" => "mercator")
 _geoshape_projection(p::Union{Symbol,AbstractString}) = Dict{String,Any}("type" => string(p))
 _geoshape_projection(p::Union{AbstractDict,NamedTuple}) = _owned_copy(p)
 
@@ -1819,12 +1819,12 @@ function _map_keys(a::MapAreaAnalysis, layer, table)
     (data_key, area_key)
 end
 
-geoshape_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer::Bool=false) =
+geoshape_to_vl(layer::Layer; is_sublayer::Bool=false) =
     _map_area_to_vl(extract_transformation(layer, GeoShapeAnalysis), layer)
-geobox_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer::Bool=false) =
+geobox_to_vl(layer::Layer; is_sublayer::Bool=false) =
     _map_area_to_vl(extract_transformation(layer, GeoBoxAnalysis), layer)
 
-function _map_area_to_vl(a::MapAreaAnalysis, layer::AlgebraOfGraphics.Layer)
+function _map_area_to_vl(a::MapAreaAnalysis, layer::Layer)
     term = _map_term(a)
     table = extract_data(layer)
     isnothing(table) && throw(ArgumentError(

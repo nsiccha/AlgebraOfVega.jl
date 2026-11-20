@@ -61,7 +61,7 @@ function plot_summary_table(vl::AbstractDict; ci=:outer, sigfigs::Integer=2,
     end
     nothing
 end
-plot_summary_table(spec::Union{VegaSpec,AlgebraOfGraphics.Layer,AlgebraOfGraphics.Layers}; kwargs...) =
+plot_summary_table(spec::Union{VegaSpec,Layer,Layers}; kwargs...) =
     plot_summary_table(to_vegalite(spec); kwargs...)
 
 # Every `data.values` of a Vega-Lite tree, in the order Vega-Lite numbers its

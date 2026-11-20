@@ -15,7 +15,7 @@ when it rebuilds group layers (`test/replace_data.js`, "paint order").
 """
 @testitem "a coloured ribbon paints every band below every median line" tags=[:regression, :translation, :tidybayes] begin
     using AlgebraOfVega
-    using AlgebraOfGraphics
+    import AlgebraOfGraphics
     import Makie
 
     days = collect(0.0:0.5:10.0)

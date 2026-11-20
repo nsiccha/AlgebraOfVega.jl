@@ -11,7 +11,7 @@ using TestItemRunner
 # (snag `gave-two-layers-0c054233`).
 @testsnippet AoVLayerTransformFixtures begin
     using AlgebraOfVega
-    using AlgebraOfGraphics
+    import AlgebraOfGraphics
     const Makie = AlgebraOfVega.Makie
 
     # Every Vega-Lite unit (a dict with a `mark`), in emission order.
@@ -97,7 +97,7 @@ end
     @test filters(geo) == ["datum.v > 0"]
     @test haskey(geo["transform"][2], "lookup")
 
-    dens = to_vegalite(data(rows) * mapping(:a) * AlgebraOfGraphics.density() *
+    dens = to_vegalite(data(rows) * mapping(:a) * AlgebraOfVega.density() *
         config(transform=drop("datum.x > 1")))
     @test filters(dens) == ["datum.x > 1"]
     @test haskey(dens["transform"][2], "density")
@@ -210,7 +210,8 @@ end
 end
 
 @testitem "per-layer and whole-figure transforms draw the right rows in the browser" tags=[:regression, :browser, :config] begin
-    using AlgebraOfVega, AlgebraOfGraphics, HTMXObjects, JSON
+    using AlgebraOfVega, HTMXObjects, JSON
+    import AlgebraOfGraphics
     const Makie = AlgebraOfVega.Makie
     html(x) = sprint(show, MIME"text/html"(), x)
     drop(cond) = Any[Dict("filter" => cond)]

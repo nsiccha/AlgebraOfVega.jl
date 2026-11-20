@@ -9,7 +9,7 @@ using TestItemRunner
 # and the two draw the fill's colour bar: Vega draws a legend of two scales as symbols.
 @testsnippet AoVStrokeScaleFixtures begin
     using AlgebraOfVega
-    using AlgebraOfGraphics
+    import AlgebraOfGraphics
 
     cell(x0) = Dict{String,Any}("type" => "Polygon", "coordinates" =>
         [[[x0, 54.0], [x0, 55.0], [x0 + 1, 55.0], [x0 + 1, 54.0], [x0, 54.0]]])

@@ -5,7 +5,8 @@ using TestItemRunner
 # their plot area, so the in-row charts can be read off (decision 0qrccve, prong
 # `cell-axis`). Before, the cells compared rows but showed no values at all.
 @testitem "cell charts: the shared x axis in the column header" tags=[:cells, :browser] begin
-    using AlgebraOfVega, AlgebraOfGraphics, HTMXObjects, HTMX, JSON
+    using AlgebraOfVega, HTMXObjects, HTMX, JSON
+    import AlgebraOfGraphics
     html(x) = sprint(show, MIME"text/html"(), x)
     sites = ["a", "b", "c"]
     est = (; site=sites, q50=[0.1, 1.0, -0.4], q025=[-0.9, 0.4, -1.2], q975=[0.4, 1.7, 0.3])

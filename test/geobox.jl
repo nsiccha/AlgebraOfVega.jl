@@ -10,7 +10,7 @@ using TestItemRunner
 # twice as slow to draw and redraw.
 @testsnippet AoVGeoboxFixtures begin
     using AlgebraOfVega
-    using AlgebraOfGraphics
+    import AlgebraOfGraphics
 
     # A 3 × 2 grid of 0.1° cells, 9.9–10.2°E × 54.0–54.2°N; `c<i><j>` is
     # column i (west to east), row j (south to north).

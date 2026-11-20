@@ -9,7 +9,8 @@ using TestItemRunner
 # mark moves it with the pointer, so it ended on the mark again and drilled a
 # map down into the region it started on (snag `a-pan-drag-that-624d0e39`).
 @testitem "mark clicks in the browser: one aov:click per data-mark click, on every view" tags=[:regression, :browser, :interactivity] begin
-    using AlgebraOfVega, AlgebraOfGraphics, JSON
+    using AlgebraOfVega, JSON
+    import AlgebraOfGraphics
     html(x) = sprint(show, MIME"text/html"(), x)
 
     points = (; x=[1.0, 2.0, 3.0], y=[1.0, 4.0, 9.0], g=["a", "b", "c"])

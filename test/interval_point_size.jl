@@ -9,7 +9,7 @@ using TestItemRunner
 # in the browser and in `vsave` files alike (snag `pointinterval-na-6aea7e31`).
 @testsnippet AoVIntervalPointSizeFixtures begin
     using AlgebraOfVega
-    using AlgebraOfGraphics
+    import AlgebraOfGraphics
 
     function units(node, out=Dict{String,Any}[])
         node isa Dict || return out

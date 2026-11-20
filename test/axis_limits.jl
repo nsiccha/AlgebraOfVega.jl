@@ -7,7 +7,7 @@
 
 @testsnippet AoVAxisLimitsFixtures begin
     using AlgebraOfVega
-    using AlgebraOfGraphics
+    import AlgebraOfGraphics
     import Makie
 
     curve = data((; exposure=[0.0, 5.0, 10.0, 20.0], response=[2.0, 30.0, 70.0, 95.0])) *

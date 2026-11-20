@@ -35,7 +35,8 @@ using TestItemRunner
 end
 
 @testitem "frame lowering: parameter, unit filters and player metadata" setup=[AoVFrameFixtures] tags=[:frame] begin
-    using AlgebraOfVega, AlgebraOfGraphics, Dates
+    using AlgebraOfVega, Dates
+    import AlgebraOfGraphics
     v = to_vegalite(frame_map())
     # The frame filter comes first and the geoshape's own lookup survives.
     @test v["transform"][1] == Dict("filter" => "!isValid(datum[\"year\"]) || datum[\"year\"] === aov_frame")
@@ -94,7 +95,8 @@ end
 end
 
 @testitem "frame refusals name the fix" setup=[AoVFrameFixtures] tags=[:frame] begin
-    using AlgebraOfVega, AlgebraOfGraphics
+    using AlgebraOfVega
+    import AlgebraOfGraphics
     draws = (; v=randn(20), g=fill("a", 20), t=repeat([1, 2], 10))
     # A summary computed in Julia carries no frame value ...
     err = try
@@ -125,7 +127,8 @@ end
 end
 
 @testitem "frame players in the browser" setup=[AoVFrameFixtures] tags=[:frame, :browser, :regression] begin
-    using AlgebraOfVega, AlgebraOfGraphics, HTMXObjects, JSON, Dates
+    using AlgebraOfVega, HTMXObjects, JSON, Dates
+    import AlgebraOfGraphics
     html(x) = sprint(show, MIME"text/html"(), x)
     script_text(node) = let s = html(node)
         s[last(findfirst(r"<script[^>]*>", s)) + 1:first(findlast("</script>", s)) - 1]
@@ -193,7 +196,8 @@ end
 # Pico's button variables (as HTMXObjects' `pico_bridge()` does, ahead of
 # `vega_head` in the shell) it looks like the page's other buttons.
 @testitem "frame controls never take a theme's primary blue" setup=[AoVFrameFixtures] tags=[:frame, :browser, :regression] begin
-    using AlgebraOfVega, AlgebraOfGraphics, HTMXObjects, JSON
+    using AlgebraOfVega, HTMXObjects, JSON
+    import AlgebraOfGraphics
     html(x) = sprint(show, MIME"text/html"(), x)
     if isempty(frame_chrome)
         @test_skip "headless Chrome is not installed"

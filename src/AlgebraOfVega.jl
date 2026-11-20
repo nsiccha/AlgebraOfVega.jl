@@ -1,17 +1,10 @@
 module AlgebraOfVega
 
-using AlgebraOfGraphics
-import AlgebraOfGraphics: data, mapping, visual, dims,
-    density, histogram, linear, smooth, expectation, frequency,
-    Layer, Layers, ProcessedLayer, ProcessedLayers,
-    renamer, sorter, nonnumeric, verbatim, presorted, direct,
-    scale, scales, pregrouped, wrapped
-using Makie: Scatter, Lines, ScatterLines, BarPlot, Heatmap, BoxPlot,
-    Band, HLines, VLines, HSpan, VSpan, Hist, Density as MakieDensity, Errorbars, Stairs,
-    Contour, Violin, RainClouds, Rangebars, CrossBar, ECDFPlot,
-    Plot, plot
-import Makie
 using JSON, Tables, Statistics
+using Dictionaries: Dictionary, dictionary
+# Colour values (`RGBAf`, `parse(RGBA{Float32}, "red")`): the colour types Makie
+# itself uses, so a colour reads the same on the Vega-Lite and the static path.
+import Colors
 using Dates: TimeType
 import Dates
 using SHA: sha256
@@ -23,6 +16,8 @@ using HTMX
 # body AoV emits — so every such child MUST be wrapped in `Raw(...)`, through
 # `_inline_script` / `_inline_style` below.
 import HTMX: h, Raw
+
+include("algebra.jl")
 
 # Text inside an inline `<script>`/`<style>` must not spell a closing tag that
 # ends the element early (`</script`, `</style`) or that a text-substituting
@@ -40,12 +35,12 @@ _inline_text(s::AbstractString) = replace(s, _INLINE_CLOSING_TAG => "<\\/")
 _inline_script(js::AbstractString) = h.script(Raw(_inline_text(js)))
 _inline_style(css::AbstractString) = h.style(Raw(_inline_text(css)))
 
-# Re-export AoG API
+# The AlgebraOfGraphics-spelled algebra (owned in algebra.jl)
 export data, mapping, visual, dims
 export density, histogram, linear, smooth, expectation, frequency
 export renamer, sorter, nonnumeric, verbatim, presorted, direct
 export scale, scales, pregrouped, wrapped
-# Re-export Makie plot types users need
+# Plot-type vocabulary (`PlotTypes`); `Text`/`Density` stay qualified, like Makie
 export Scatter, Lines, ScatterLines, BarPlot, Heatmap, BoxPlot,
     Band, HLines, VLines, HSpan, VSpan, Hist, Errorbars, Stairs,
     Contour, Violin, RainClouds, Rangebars, CrossBar, ECDFPlot
@@ -64,17 +59,71 @@ export PlotTexts, plot_texts
 export symlog
 
 """
-    symlog
+    sdraw(spec, path::AbstractString; alt=nothing, kwargs...)
 
-Scale marker for an axis that is linear near zero and logarithmic farther away.
-Pass as `scale=symlog` in an X or Y scale configuration. Unlike a logarithmic
-axis, it can represent genuine zero values.
+Render an AoV spec statically through AlgebraOfGraphics and Makie, save it to
+`path` (format inferred from the extension) and return an `h.img` node pointing
+to `path`.
 
-The optional `constant` sets the Vega-Lite linear region's half-width. The
-Makie path uses `Makie.pseudolog10` with its fixed unit region, so changing
-`constant` affects the browser path only.
+`alt` gives the image its alt text, a description of what the figure shows
+(`<img src alt>`, Markdown carrying the alt). An accessible (PDF/UA) report
+needs it on every figure; without `alt` the image has none.
+
+Extra `kwargs` are passed to `Makie.save` (e.g. `px_per_unit=2` for retina).
+
+Provided by the `AlgebraOfVegaMakieExt` extension: load AlgebraOfGraphics and a
+Makie backend first (`import AlgebraOfGraphics, CairoMakie`).
 """
-const symlog = Makie.pseudolog10
+function sdraw end
+
+"""
+    sdraw!(position, spec)
+
+Render an AoV spec into an existing Makie figure, layout position, or axis via
+`AlgebraOfGraphics.draw!`. This is the static composition counterpart to
+`sdraw_file`: create a `Figure`, place independently configured specs with
+`sdraw!(fig[row, col], spec)`, then save the complete figure with `Makie.save`.
+
+Each spec keeps its own `config(axis=...)`, `config(facet=...)`, and
+`config(scales=...)` settings. `config(width=...)` and `config(height=...)` are
+standalone-figure settings and are therefore ignored when drawing into an
+existing layout. `mapping` display labels (`:x => "Label"`), including
+`lineribbon`/`ribbon(bands=...)` x/y/colour/facet labels, are preserved on the
+rebuilt static layers.
+
+Like `AlgebraOfGraphics.draw!`, this does not add legends or colorbars — call
+`AlgebraOfGraphics.legend!(position, grid)` with the returned grid afterwards
+(see `aov-use` §1a for the composition pattern).
+
+Provided by the `AlgebraOfVegaMakieExt` extension: load AlgebraOfGraphics and a
+Makie backend first (`import AlgebraOfGraphics, CairoMakie`). Returns the result
+of `AlgebraOfGraphics.draw!`.
+"""
+function sdraw! end
+
+"""
+    sdraw_file(spec, path::AbstractString; kwargs...)
+
+Render an AoV spec to a file via `AlgebraOfGraphics.draw` and `Makie.save`.
+Returns the path. Extra `kwargs` are passed to `Makie.save`.
+
+Provided by the `AlgebraOfVegaMakieExt` extension: load AlgebraOfGraphics and a
+Makie backend first (`import AlgebraOfGraphics, CairoMakie`).
+"""
+function sdraw_file end
+
+const _MAKIE_EXT_FUNCTIONS = (sdraw, sdraw!, sdraw_file)
+
+function __init__()
+    # `sdraw*` without the extension: name what to load instead of a bare
+    # MethodError.
+    Base.Experimental.register_error_hint(MethodError) do io, exc, argtypes, kwargs
+        exc.f in _MAKIE_EXT_FUNCTIONS || return
+        isnothing(Base.get_extension(@__MODULE__, :AlgebraOfVegaMakieExt)) || return
+        print(io, "\n`", nameof(exc.f), "` is the static Makie path, provided by the AlgebraOfVegaMakieExt extension: ",
+            "load AlgebraOfGraphics and a Makie backend first, e.g. `import AlgebraOfGraphics, CairoMakie`.")
+    end
+end
 
 """
     with_plot_caption(plot_node, caption; plot_id, kwargs...)
@@ -131,7 +180,7 @@ export default_explorer_datasets, explorer_widget, write_explorer_assets,
 """
     vdata(args...; kwargs...)
 
-Alias for `AlgebraOfGraphics.data`. Use when `data` clashes with a local variable
+Alias for [`data`](@ref). Use when `data` clashes with a local variable
 (e.g. an HTMXObjects struct field named `data`).
 """
 vdata(args...; kwargs...) = data(args...; kwargs...)
@@ -166,7 +215,7 @@ include("to_html.jl")
 include("vsave.jl")
 include("caption_actions.jl")
 include("widgets.jl")
-include("sdraw.jl")
+include("static_prep.jl")
 include("show.jl")
 
 end # module

@@ -10,7 +10,8 @@ using TestItemRunner
 # tooltips listed `median`, `q025`, `q975` (or `95% lo`/`95% hi`) unrounded
 # (`125.057600736`), and an hourly time read `Mar 15, 2026`.
 @testitem "interval and ribbon tooltips: one rounded estimate row; temporal tooltips keep the time" tags=[:tooltips] begin
-    using AlgebraOfVega, AlgebraOfGraphics, Dates
+    using AlgebraOfVega, Dates
+    import AlgebraOfGraphics
     estimate_rows(vl) = begin
         out = Any[]
         walk(n) = n isa Dict ? (begin
@@ -77,7 +78,8 @@ using TestItemRunner
 end
 
 @testitem "the estimate row's text in the browser" tags=[:tooltips, :browser] begin
-    using AlgebraOfVega, AlgebraOfGraphics, JSON
+    using AlgebraOfVega, JSON
+    import AlgebraOfGraphics
     html(x) = sprint(show, MIME"text/html"(), x)
     chrome = something(Sys.which("google-chrome"), Sys.which("chromium"), "")
     if isempty(chrome)

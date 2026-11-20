@@ -52,8 +52,8 @@ _frame_options(x) = throw(ArgumentError(
     "config(frame=…) takes the frame column (`config(frame=:year)`) or a NamedTuple " *
     "(`config(frame=(; field=:year, interval=0.5, loop=false, start=:first))`); got $(repr(x))."))
 
-_frame_layers(l::AlgebraOfGraphics.Layer) = [l]
-_frame_layers(ls::AlgebraOfGraphics.Layers) = ls.layers
+_frame_layers(l::Layer) = [l]
+_frame_layers(ls::Layers) = ls.layers
 
 _frame_table(layer, field::String) = let t = extract_data(layer)
     !isnothing(t) && Symbol(field) in Tables.columnnames(t) ? t : nothing
@@ -67,7 +67,7 @@ _frame_unsupported(layer) = _frame_unsupported(_layer_handler(layer), layer)
 _frame_unsupported(::Any, layer) = nothing
 _frame_unsupported(::TidybayesAnalysis, layer) = "an interval/ribbon summary computed from raw draws"
 _frame_unsupported(::Union{PrecomputedRibbonAnalysis,PrecomputedIntervalAnalysis}, layer) = nothing
-_frame_unsupported(::AlgebraOfGraphics.DensityAnalysis, layer) =
+_frame_unsupported(::DensityAnalysis, layer) =
     haskey(layer.named, :y) || !isempty(first(_extract_facet_info(layer))) ?
         "a faceted or ridgeline density() (computed in Julia)" : nothing
 

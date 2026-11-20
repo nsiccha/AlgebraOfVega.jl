@@ -16,7 +16,8 @@ using TestItemRunner
 # one row with the last panel's median and the widest panel's interval,
 # `S1: −50 (60–240)` (snag `vconcat-readout-7dc3b818`, decision `0lhkthg`).
 @testitem "config(readout=…) and temporal link keys lower to _aov metadata" tags=[:interactivity] begin
-    using AlgebraOfVega, AlgebraOfGraphics, Dates
+    using AlgebraOfVega, Dates
+    import AlgebraOfGraphics
     rows = (; x=[1.0, 2.0, 3.0], y=[1.0, 4.0, 9.0])
     lines = data(rows) * mapping(:x, :y) * visual(Lines)
     @test !haskey(get(to_vegalite(lines), "_aov", Dict()), "readout")      # the runtime decides
@@ -37,7 +38,8 @@ using TestItemRunner
 end
 
 @testitem "readout box, rule and link group in the browser" tags=[:regression, :browser, :interactivity] begin
-    using AlgebraOfVega, AlgebraOfGraphics, Dates, JSON
+    using AlgebraOfVega, Dates, JSON
+    import AlgebraOfGraphics
     html(x) = sprint(show, MIME"text/html"(), x)
     size = config(width=360, height=180)
     t = DateTime(2026, 3, 15) .+ Hour.(0:3)

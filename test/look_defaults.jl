@@ -8,7 +8,8 @@ using TestItemRunner
 # Before, a figure took Vega-Lite's 10-11 px type, a tick per 40 px (35 on a
 # 1,400 px plot) and a label at every multiple on a log axis (`90100`).
 @testitem "type, log-axis and tick-count defaults" tags=[:defaults] begin
-    using AlgebraOfVega, AlgebraOfGraphics
+    using AlgebraOfVega
+    import AlgebraOfGraphics
     rows = (; x=[25.0, 50, 100, 200, 400], y=[0.5, 0.21, 0.1, 0.048, 0.012])
     plot = data(rows) * mapping(:x, :y) * visual(Lines)
 
@@ -97,7 +98,8 @@ using TestItemRunner
 end
 
 @testitem "listed tick values are all drawn, whatever the tick count" tags=[:defaults, :browser] begin
-    using AlgebraOfVega, AlgebraOfGraphics, JSON
+    using AlgebraOfVega, JSON
+    import AlgebraOfGraphics
     html(x) = sprint(show, MIME"text/html"(), x)
     chrome = something(Sys.which("google-chrome"), Sys.which("chromium"), "")
     if isempty(chrome)
@@ -186,7 +188,8 @@ end
 end
 
 @testitem "a container-sized plot asks for 7 x ticks, not one per 40 px" tags=[:defaults, :browser] begin
-    using AlgebraOfVega, AlgebraOfGraphics, JSON
+    using AlgebraOfVega, JSON
+    import AlgebraOfGraphics
     html(x) = sprint(show, MIME"text/html"(), x)
     chrome = something(Sys.which("google-chrome"), Sys.which("chromium"), "")
     if isempty(chrome)
