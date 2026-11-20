@@ -558,7 +558,8 @@ window.AoV = window.AoV || {
     // the finished answer after them), updates that figure in place, as
     // update_spec does: the drawing, its view and what the reader set on it
     // (zoom and pan, the legend selection, the Ribbons | Intervals choice)
-    // stay, and only the new rows are swapped in. The caption, tables and
+    // stay, and only the new rows (and the tick values axes list, which
+    // often follow them) are swapped in. The caption, tables and
     // everything else around the plot come from the new fragment.
     //
     // htmx runs a swapped fragment's scripts as it inserts them, before it
@@ -2560,7 +2561,8 @@ window.AoV = window.AoV || {
     // Refresh a plot from a newly lowered spec (`update_spec`), keeping the
     // reader's state. The picker's current channel assignment is re-applied
     // to the new spec. When the result differs from the embedded spec only
-    // in inline data, the view's datasets are swapped in place, so zoom/pan,
+    // in inline data and listed axis tick values, the view's datasets and
+    // tick lists are swapped in place, so zoom/pan,
     // legend selection and the canvas survive; any structural change
     // (panels, layers, encodings, size) re-embeds in place.
     updateSpec: function(id, spec, opts) {
@@ -2611,18 +2613,21 @@ window.AoV = window.AoV || {
         return {pristine: pristine, shown: shown, prepared: prepared};
     },
     // Whether `prepared` differs from what plot `id` shows only in its
-    // inline rows, so they can be swapped into its view. A framed plot's
-    // fixed domains come from all its rows, and a dropped empty legend
-    // comes back only on an embed: both re-embed.
+    // inline rows and the tick values its axes list, so they can be swapped
+    // into its view. A framed plot's fixed domains come from all its rows,
+    // and a dropped empty legend comes back only on an embed: both re-embed.
     _sameStructure: function(id, prepared) {
         var cur = this._cur[id];
         return !!cur && !this._droppedLegends[id] && !this._framed(prepared) && !this._framed(cur.spec) &&
             this._structureKey(prepared) === this._structureKey(cur.spec);
     },
 
-    // A spec's JSON with its inline data rows blanked: equal keys mean two
-    // specs compile to the same dataflow, differing only in the rows.
+    // A spec's JSON with its inline data rows and its listed tick values
+    // blanked: equal keys mean two specs compile to the same dataflow,
+    // differing only in the rows and in tick lists, which the view holds in
+    // signals (_bindTicks).
     _structureKey: function(spec) {
+        var self = this;
         return JSON.stringify(spec, function(k, v) {
             if (k === 'data' && v && typeof v === 'object' && Array.isArray(v.values)) {
                 var shape = Object.assign({}, v);
@@ -2630,25 +2635,154 @@ window.AoV = window.AoV || {
                 return shape;
             }
             if (k === 'datasets' && v && typeof v === 'object') return Object.keys(v).sort();
+            if (k === 'encoding' && v && typeof v === 'object' && !Array.isArray(v)) return self._ticksBlanked(v);
             return v;
         });
     },
+    // An encoding whose axes that list their tick values are written without
+    // them, and without the tick count beside them.
+    _ticksBlanked: function(enc) {
+        var self = this, out = null;
+        Object.keys(enc).forEach(function(ch) {
+            var def = enc[ch], ax = def && typeof def === 'object' ? def.axis : null;
+            if (!ax || typeof ax !== 'object' || !self._listsTicks(ax.values)) return;
+            var blank = Object.assign({}, ax, {values: null});
+            if (typeof blank.tickCount === 'number') blank.tickCount = null;
+            out = out || Object.assign({}, enc);
+            out[ch] = Object.assign({}, def, {axis: blank});
+        });
+        return out || enc;
+    },
+    // A tick list written out: numbers, strings, booleans or Vega-Lite
+    // DateTime objects, not a list a signal or an expression computes.
+    _listsTicks: function(values) {
+        return Array.isArray(values) && values.every(function(v) {
+            return v === null || typeof v !== 'object' || (!('signal' in v) && !('expr' in v));
+        });
+    },
+
+    // --- Listed tick values follow the rows ---
+    // An axis that lists its tick values (`config(encoding=(; x=(; axis=(;
+    // values=…))))`, or the 1-2-5 values the lowering lists on a log axis)
+    // often lists values its rows hold, such as the doses a figure draws plus
+    // the dose a marker shows. Written into the compiled axes, a new list
+    // would make every new spec with other rows structural: an embed, which
+    // resets zoom and redraws. So each embed holds a scale's list, and the
+    // tick count beside it, in signals of the view (`aov_ticks_<scale>`,
+    // `aov_tick_count_<scale>`) that its axes read, and a swap of rows
+    // (`update_spec`, a same-id swap) sets them to the new spec's list.
+
+    // Per scale of a compiled spec, the tick lists its axes write out: `raw`,
+    // as written, in walk order, and `ticks`, the values and count all of
+    // the scale's axes share (an axis and its grid twin, or every panel's
+    // axis on a shared scale) as a signal holds them; null when the axes
+    // differ or a value cannot be read.
+    _axisTicks: function(vg) {
+        var self = this, out = {};
+        (function walk(g) {
+            (g.axes || []).forEach(function(a) {
+                if (!Array.isArray(a.values)) return;
+                var s = String(a.scale), e = out[s] = out[s] || {raw: [], ticks: undefined};
+                e.raw.push(JSON.stringify([a.values, a.tickCount]));
+                var values = self._tickValues(a.values);
+                var t = values && {values: values, count: typeof a.tickCount === 'number' ? a.tickCount : undefined};
+                if (e.ticks === undefined) e.ticks = t;
+                else if (!t || !e.ticks || JSON.stringify(t) !== JSON.stringify(e.ticks)) e.ticks = null;
+            });
+            (g.marks || []).forEach(function(m) { if (m.type === 'group') walk(m); });
+        })(vg || {});
+        return out;
+    },
+    // The values of a compiled tick list: numbers, strings and booleans as
+    // written, and the `datetime(…)` / `utc(…)` calls Vega-Lite writes for
+    // dates, evaluated as Vega's expressions evaluate them (`new Date(…)`,
+    // `Date.UTC(…)`). null when a value is anything else.
+    _tickValues: function(values) {
+        var out = [];
+        for (var i = 0; i < values.length; i++) {
+            var v = values[i];
+            if (v === null || typeof v !== 'object') { out.push(v); continue; }
+            var m = typeof v.signal === 'string' && /^\s*(datetime|utc)\s*\(([^()]*)\)\s*$/.exec(v.signal);
+            if (!m) return null;
+            var args;
+            try { args = JSON.parse('[' + m[2] + ']'); } catch (e) { return null; }
+            if (!args.length || !args.every(function(a) { return typeof a === 'number' || typeof a === 'string'; })) return null;
+            out.push(m[1] === 'utc' ? Date.UTC.apply(null, args) : Reflect.construct(Date, args));
+        }
+        return out;
+    },
+    _tickSignals: function(scale) {
+        var s = String(scale).replace(/\W/g, '_');
+        return {values: 'aov_ticks_' + s, count: 'aov_tick_count_' + s};
+    },
+    // At embed (_withLiveRows): every scale whose axes share one readable
+    // tick list holds it in signals, which those axes read.
+    _bindTicks: function(vg) {
+        if (!vg) return vg;
+        var self = this, lists = self._axisTicks(vg), bound = {};
+        Object.keys(lists).forEach(function(scale) {
+            var t = lists[scale].ticks;
+            if (!t) return;
+            var n = bound[scale] = self._tickSignals(scale);
+            vg.signals = vg.signals || [];
+            vg.signals.push({name: n.values, value: t.values});
+            if (t.count !== undefined) vg.signals.push({name: n.count, value: t.count});
+        });
+        (function walk(g) {
+            (g.axes || []).forEach(function(a) {
+                var n = bound[a.scale];
+                if (!n || !Array.isArray(a.values)) return;
+                a.values = {signal: n.values};
+                if (typeof a.tickCount === 'number') a.tickCount = {signal: n.count};
+            });
+            (g.marks || []).forEach(function(m) { if (m.type === 'group') walk(m); });
+        })(vg);
+        return vg;
+    },
+    // The new compiled spec `vg`'s tick lists as a swap into plot `id`'s
+    // view sets them: [signal, value] pairs. null when the view cannot show
+    // them without an embed: a list its axes hold as written that changed,
+    // or a list or count it holds no signal for.
+    _swappedTicks: function(id, view, vg) {
+        var self = this, lists = self._axisTicks(vg), sets = [];
+        var held = self._results[id] && self._results[id].vgSpec;
+        var written = held ? self._axisTicks(held) : {};
+        var has = function(name) { try { view.signal(name); return true; } catch (e) { return false; } };
+        var ok = Object.keys(lists).every(function(scale) {
+            var t = lists[scale].ticks, n = self._tickSignals(scale);
+            if (!has(n.values)) {
+                return !!written[scale] && JSON.stringify(written[scale].raw) === JSON.stringify(lists[scale].raw);
+            }
+            if (!t || (t.count !== undefined) !== has(n.count)) return false;
+            sets.push([n.values, t.values]);
+            if (t.count !== undefined) sets.push([n.count, t.count]);
+            return true;
+        });
+        return ok ? sets : null;
+    },
 
     // Insert `spec`'s inline datasets into the live view in place of its
-    // current rows. `spec` matches the embedded one up to data rows, so its
-    // compiled dataset names are the view's. Returns false (the caller then
-    // re-embeds) when that cannot be established or a legend would be left
-    // with an empty domain (handled by the embed-time legend drop).
+    // current rows, and its listed tick values into the view's tick signals
+    // (_bindTicks). `spec` matches the embedded one up to data rows and tick
+    // lists, so its compiled dataset names are the view's. Returns false (the
+    // caller then re-embeds) when that cannot be established or a legend
+    // would be left with an empty domain (handled by the embed-time legend
+    // drop).
     _swapData: function(id, view, spec) {
         var vg, self = this, opts = self._embedOpts[id] || {};
         try {
-            vg = vegaLite.compile(JSON.parse(JSON.stringify(spec)),
+            // Each listing axis states its tick count, as the embed's spec
+            // does (_capTicks).
+            vg = vegaLite.compile(self._listedTicks(JSON.parse(JSON.stringify(spec))),
                 {logger: vega.logger(vega.None)}).spec;
             if (typeof opts.patch === 'function') vg = opts.patch(vg);
         } catch (e) { return false; }
         if (self._emptyLegends(vg).length) return false;
+        var ticks = self._swappedTicks(id, view, vg);
+        if (!ticks) return false;
         var sources = (vg.data || []).filter(function(d) { return Array.isArray(d.values); });
         try { sources.forEach(function(d) { view.data(d.name); }); } catch (e) { return false; }
+        ticks.forEach(function(t) { view.signal(t[0], t[1]); });
         var specRows = self._specRows[id] = self._specRows[id] || {};
         sources.forEach(function(d) {
             var rows = d.format ? vega.read(d.values, d.format) : d.values;
@@ -2841,6 +2975,7 @@ window.AoV = window.AoV || {
             if (typeof patch === 'function') vg = patch(vg);
             self._passiveMarks(vg);
             self._panZoomClip(vg);
+            self._bindTicks(vg);
             // An embed superseded or disposed while compiling still compiles;
             // it must not re-create the plot's state.
             if (self._gens[id] !== gen) return vg;
