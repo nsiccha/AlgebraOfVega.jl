@@ -40,4 +40,7 @@ also needed; the package's existing component is maintained here meanwhile.
 
 `check_site.py` checks local links and writes a generated manifest. After a dev
 deployment, CI waits for that revision and verifies every published file by
-SHA-256, including figures and browser libraries.
+SHA-256, including figures and browser libraries. A 5xx or network error on a
+file is retried every 10 s until the `--wait` deadline, because GitHub Pages
+can answer 503 briefly after a deploy; a 404 or a content mismatch fails at
+once.

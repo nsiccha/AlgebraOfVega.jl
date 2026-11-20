@@ -68,6 +68,33 @@ def fetch(url):
         return response.read()
 
 
+RETRY_SECONDS = 10
+
+
+def transient(error):
+    """True for a server error or network failure that a later fetch may not repeat."""
+    if isinstance(error, HTTPError):
+        return error.code >= 500
+    return isinstance(error, (URLError, TimeoutError, ConnectionError))
+
+
+def fetch_until(url, deadline):
+    """Fetch `url`, retrying a transient failure every RETRY_SECONDS until `deadline`.
+
+    GitHub Pages can answer 5xx for a few seconds after a deploy while its CDN
+    settles. Any other error, such as a 404, fails at once.
+    """
+    while True:
+        try:
+            return fetch(url)
+        except (URLError, TimeoutError, ConnectionError) as error:
+            remaining = deadline - time.monotonic()
+            if not transient(error) or remaining <= 0:
+                raise SystemExit(f"{url}: {error}")
+            print(f"Retrying {url} after {error}", flush=True)
+        time.sleep(min(RETRY_SECONDS, remaining))
+
+
 def deployed_check(url, revision, wait):
     url = url.rstrip("/") + "/"
     deadline = time.monotonic() + wait
@@ -81,9 +108,9 @@ def deployed_check(url, revision, wait):
             problem = str(error)
         if time.monotonic() >= deadline:
             raise SystemExit(problem)
-        time.sleep(10)
+        time.sleep(RETRY_SECONDS)
     for name, digest in manifest["files"].items():
-        actual = hashlib.sha256(fetch(urljoin(url, name))).hexdigest()
+        actual = hashlib.sha256(fetch_until(urljoin(url, name), deadline)).hexdigest()
         if actual != digest:
             raise SystemExit(f"Content mismatch: {name}")
     print(f"Deployment: {len(manifest['files'])} pages/assets match revision {revision}")
