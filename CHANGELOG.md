@@ -76,7 +76,6 @@ failing at run time with a `MethodError`.
   would. An authored x domain, which the dodge widens by half the step, still
   makes a new step structural.
 
-
 ## 0.2.74
 
 - **Each facet panel can take its own Y `domain` and `clamp`.** Every
