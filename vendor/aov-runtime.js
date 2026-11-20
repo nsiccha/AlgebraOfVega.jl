@@ -85,9 +85,16 @@ window.AoV = window.AoV || {
     // `_aov.autoColumns`. In the browser the row takes as many panels as fit the
     // plot's width instead (_wrapColumns), re-wrapping when that width changes.
     // An authored count (`config(columns=N)`, `wrapped(cols=N)`) carries no
-    // marker and is never changed.
+    // marker and is never changed. A wrap given per-panel Y scales is a
+    // `concat` of its panels (`_per_wrap_y_concat!`), wrapped the same way.
     _autoColumns: function(spec) {
-        return !!(spec && spec._aov && spec._aov.autoColumns && this._wrapField(spec));
+        return !!(spec && spec._aov && spec._aov.autoColumns && (this._wrapField(spec) || this._isPanelWrap(spec)));
+    },
+
+    // A `layout=` facet given per-panel Y scales: a `concat` of one view per
+    // panel, each recording its wrap value (`_aovPanel`).
+    _isPanelWrap: function(spec) {
+        return !!(spec && Array.isArray(spec.concat) && this._panelKids(spec));
     },
 
     // The field of a wrap facet: the operator's `facet.field`, or a single
@@ -113,16 +120,19 @@ window.AoV = window.AoV || {
     // (measured on Vega-Lite 5.23: 170px panels take 196px each). At most one
     // row of every level; without inline rows the Julia count stays. A first
     // paint that still overshoots drops columns until it fits or reaches
-    // one column (_fitCorrection).
+    // one column (_fitCorrection). A per-panel-Y wrap (`concat`) counts its
+    // panels, and every panel draws its own y axis, so each takes the ~40px.
     _wrapColumns: function(spec, budget, fit) {
-        var n = this._distinctCount(spec.data && spec.data.values, this._wrapField(spec));
+        var wrap = this._isPanelWrap(spec);
+        var n = wrap ? spec.concat.length : this._distinctCount(spec.data && spec.data.values, this._wrapField(spec));
         if (!n) return spec.columns;
-        var panel = spec.spec || spec;
+        var panel = wrap ? spec.concat[0] : (spec.spec || spec);
         var cell = (!fit && typeof panel.width === 'number') ? panel.width : 200;
-        var facetCfg = (spec.config && spec.config.facet) || {};
-        var gap = typeof spec.spacing === 'number' ? spec.spacing :
-            (typeof facetCfg.spacing === 'number' ? facetCfg.spacing : 20);
-        var k = Math.floor((budget - 40 + gap) / (cell + gap + 6));
+        var cfg = (spec.config && (wrap ? spec.config.concat : spec.config.facet)) || {};
+        var sp = wrap && spec.spacing && typeof spec.spacing === 'object' ? spec.spacing.column : spec.spacing;
+        var gap = typeof sp === 'number' ? sp : (typeof cfg.spacing === 'number' ? cfg.spacing : 20);
+        var k = wrap ? Math.floor((budget + gap) / (cell + 40 + gap + 6)) :
+            Math.floor((budget - 40 + gap) / (cell + gap + 6));
         return Math.max(1, Math.min(n, k));
     },
 
@@ -202,7 +212,7 @@ window.AoV = window.AoV || {
         // authored panel widths that is all the runtime changes.
         if (wrap) {
             var wrapEst = this._wrapColumns(spec, containerWidth, fit);
-            var wrapRegime = [containerWidth, 'wrap', wrapEst, this._wrapField(spec)].join('|');
+            var wrapRegime = [containerWidth, 'wrap', wrapEst, this._wrapField(spec) || 'concat'].join('|');
             var wrapCorr = (self._corrections || {})[id];
             var wrapCols = (wrapCorr && wrapCorr.wrapRegime === wrapRegime && wrapCorr.cols) ? wrapCorr.cols : wrapEst;
             spec = Object.assign({}, spec, {columns: wrapCols,
@@ -218,7 +228,12 @@ window.AoV = window.AoV || {
         // Classify the shape. Only _aov-marked composite specs are JS-sized
         // (single views use VL-native width:"container").
         var kind = null, nCols = 0, computed = 0;
-        if (spec._aov && spec.vconcat) {
+        if (spec._aov && this._isPanelWrap(spec)) {
+            // A per-panel-Y wrap (`concat`): `columns` panels to a row, each
+            // written its share of the container, as the hconcat's children.
+            kind = 'concat'; nCols = Math.max(1, Math.min(spec.concat.length, spec.columns || spec.concat.length));
+            computed = Math.max(minCell, Math.floor((containerWidth - padding) / nCols) - padding);
+        } else if (spec._aov && spec.vconcat) {
             // A `vconcat` stack (src/vconcat.jl): every panel spans the
             // container, one width for all, so their plot areas line up.
             kind = 'vconcat';
@@ -262,10 +277,10 @@ window.AoV = window.AoV || {
             spec.hconcat.forEach(function(child) {
                 if (child && child.spec) child.spec = Object.assign({}, child.spec, {width: width});
             });
-        } else if (kind === 'vconcat') {
-            spec = Object.assign({}, spec, {vconcat: spec.vconcat.map(function(child) {
-                return Object.assign({}, child, {width: width});
-            })});
+        } else if (kind === 'vconcat' || kind === 'concat') {
+            var kids = {};
+            kids[kind] = spec[kind].map(function(child) { return Object.assign({}, child, {width: width}); });
+            spec = Object.assign({}, spec, kids);
         } else if (kind === 'facet' || kind === 'inner') {
             spec.spec = Object.assign({}, spec.spec, {width: width});
         } else {
@@ -313,7 +328,8 @@ window.AoV = window.AoV || {
         self._correctedRegime = self._correctedRegime || {};
         self._corrections = self._corrections || {};
         var minCell = 100;
-        var perCell = (info.kind === 'facet' || info.kind === 'encfacet' || info.kind === 'hconcat') && info.nCols > 0;
+        var perCell = (info.kind === 'facet' || info.kind === 'encfacet' || info.kind === 'hconcat' ||
+            info.kind === 'concat') && info.nCols > 0;
         // A relayout can also need less room than the correction made: a mark
         // at the domain's edge drawn past the frame for some rows, then not.
         // The plot widens back by what it falls short of its column, never
@@ -3633,18 +3649,26 @@ window.AoV = window.AoV || {
             else if (v.encoding) { push(v.encoding.facet); push(v.encoding.row); push(v.encoding.column); }
             (v.hconcat || []).forEach(view);
         })(spec);
-        // A per-row-Y stack's panels each stand for a row value.
-        if (this._isPanelStack(spec)) spec.vconcat.forEach(function(c) {
+        // The panels of a per-row-Y stack or per-wrap-Y concat each stand
+        // for a facet value.
+        (this._panelKids(spec) || []).forEach(function(c) {
             Object.keys(c._aovPanel).forEach(function(f) { if (out.indexOf(f) === -1) out.push(f); });
         });
         return out;
     },
-    // A row facet given per-row Y scales, lowered to a stack of panels
-    // (`_per_row_y_vconcat!`, src/to_vegalite.jl): every child records the
-    // row value it shows as `_aovPanel`.
-    _isPanelStack: function(spec) {
-        return !!(spec && Array.isArray(spec.vconcat) && spec.vconcat.length &&
-            spec.vconcat.every(function(c) { return c && typeof c === 'object' && c._aovPanel; }));
+    // The panels of a facet given per-panel Y scales: a row facet's stack
+    // (`vconcat`, `_per_row_y_vconcat!`) or a wrap's `concat`
+    // (`_per_wrap_y_concat!`, src/to_vegalite.jl), every child recording the
+    // facet value it shows as `_aovPanel`. Null for any other spec.
+    _panelKids: function(spec) {
+        if (!spec) return null;
+        var keys = ['vconcat', 'concat'];
+        for (var i = 0; i < keys.length; i++) {
+            var kids = spec[keys[i]];
+            if (Array.isArray(kids) && kids.length &&
+                kids.every(function(c) { return c && typeof c === 'object' && c._aovPanel; })) return kids;
+        }
+        return null;
     },
     // Call f(encoding) on every `ch` encoding of a spec's units.
     _eachEncoding: function(node, ch, f) {
@@ -4507,7 +4531,8 @@ window.AoV = window.AoV || {
     // gets no readout.
     _readoutPlan: function(spec, namePrefix) {
         var aov = (spec && spec._aov) || {};
-        if (!spec || aov.readout === false || spec.hconcat || spec.concat || spec.repeat) return null;
+        if (!spec || aov.readout === false || spec.hconcat || spec.repeat) return null;
+        if (spec.concat) return namePrefix === undefined && this._isPanelWrap(spec) ? this._readoutStackPlan(spec, aov) : null;
         if (spec.vconcat) return namePrefix === undefined ? this._readoutStackPlan(spec, aov) : null;
         var inner = spec.spec || spec, top = inner.encoding || {};
         var faceted = !!(spec.facet || spec.spec || top.column || top.row || top.facet);
@@ -4552,11 +4577,16 @@ window.AoV = window.AoV || {
     // its panel `k` and that panel's own colour field: panels show different
     // quantities, so a name in two panels is two series (_readoutEntries),
     // listed under each panel's y title (`panelTitles`, _readoutShow).
+    // A per-panel-Y wrap (`concat`, `_per_wrap_y_concat!`) is planned the
+    // same way, but its panels sit side by side in rows, so its readout
+    // follows the hovered panel as a wrap facet's does (`wrapped`): one rule
+    // through that panel and its series only, without a panel heading (its
+    // title above the panel names it).
     _readoutStackPlan: function(spec, aov) {
-        var self = this, panels = aov.panels || [], paths = false;
-        var plan = {units: {}, order: [], x: null, xType: null, xTitle: null, faceted: false, stacked: true, series: null,
-            panelTitles: {}};
-        spec.vconcat.forEach(function(child, k) {
+        var self = this, panels = aov.panels || [], paths = false, wrapped = !!spec.concat;
+        var plan = {units: {}, order: [], x: null, xType: null, xTitle: null, faceted: false, stacked: !wrapped,
+            wrapped: wrapped, series: null, panelTitles: {}};
+        (wrapped ? spec.concat : spec.vconcat).forEach(function(child, k) {
             if ((panels[k] || {}).readout === false) return;
             var sub = self._readoutPlan(Object.assign({}, child, {_aov: {readout: true}}), 'concat_' + k + '_');
             if (!sub) return;
@@ -4571,7 +4601,7 @@ window.AoV = window.AoV || {
                 plan.units[name] = Object.assign({}, sub.units[name], {index: plan.order.length, panel: k, series: sub.series});
                 plan.order.push(name);
             });
-            plan.panelTitles[k] = titles.join(', ');
+            if (!wrapped) plan.panelTitles[k] = titles.join(', ');
         });
         if (!plan.order.length || !(paths || aov.readout === true)) return null;
         return plan;
@@ -4628,7 +4658,7 @@ window.AoV = window.AoV || {
     _readoutScopes: function(view, plan) {
         var root = view.scenegraph().root, frame = root && root.items && root.items[0];
         if (!frame) return [];
-        if (plan.stacked) {
+        if (plan.stacked || plan.wrapped) {
             var panels = [];
             (frame.items || []).forEach(function(m) {
                 if (m.marktype === 'group' && /^concat_\d+_group$/.test(m.name || '')) (m.items || []).forEach(function(g) {
@@ -4724,7 +4754,7 @@ window.AoV = window.AoV || {
     _readoutEntries: function(view, plan, at) {
         var self = this, series = {}, list = [], stacked = !!plan.stacked;
         at.forEach(function(c) {
-            var u = c.unit, d = c.datum, field = stacked ? u.series : plan.series;
+            var u = c.unit, d = c.datum, field = stacked || plan.wrapped ? u.series : plan.series;
             // A panel with its own axis title (`config(facet=(; ylabels))`)
             // names its uncoloured series by it.
             var title = self._panelTitle(plan.panel && plan.panel.y, d, u.title);
@@ -6071,15 +6101,17 @@ window.AoV = window.AoV || {
         }
 
         // Per-panel-Y concat (`scales(Y=(; scale=Dict(...)))`): an `hconcat`
-        // of per-column facet views, or a stack of per-row panels (`vconcat`
-        // whose children record `_aovPanel`, `_per_row_y_vconcat!`). Remap
+        // of per-column facet views, or the panels of a row facet's stack
+        // (`vconcat`) or a wrap's `concat`, whose children record
+        // `_aovPanel` (`_per_row_y_vconcat!`, `_per_wrap_y_concat!`). Remap
         // color/detail/axes in EVERY child (and rows of the hconcat),
         // preserving each child's Y scale type and filter. The channel the
-        // scale keys are bound to (the column, or the stack's row) is not
-        // remappable, so it logs and no-ops (the picker should pin it); nor
-        // is a column on a stack, whose panels are not facets.
-        var stackC = this._isPanelStack(spec);
-        var kidsC = (spec.hconcat && Array.isArray(spec.hconcat)) ? spec.hconcat : stackC ? spec.vconcat : null;
+        // scale keys are bound to (the column, or the panels' row or wrap)
+        // is not remappable, so it logs and no-ops (the picker should pin
+        // it); nor is a column on panels, which are not facets.
+        var panelsC = (spec.hconcat && Array.isArray(spec.hconcat)) ? null : this._panelKids(spec);
+        var stackC = !!panelsC;
+        var kidsC = (spec.hconcat && Array.isArray(spec.hconcat)) ? spec.hconcat : panelsC;
         if (kidsC) {
             // Local title lookup — the shared `_titles`/`_fieldTitle` pair is
             // declared further down, so at this point the hoisted `var` is
@@ -6093,11 +6125,11 @@ window.AoV = window.AoV || {
             }
             if ('column' in mapping) {
                 console.info(stackC ?
-                    'AoV.remapEncoding: column remap is not supported on per-row-scale (stacked) figures; keeping one column.' :
+                    'AoV.remapEncoding: column remap is not supported on per-panel-scale (stacked or wrapped) figures; keeping the authored panels.' :
                     'AoV.remapEncoding: column remap is not supported on per-column-scale (hconcat) figures; keeping the authored column field.');
             }
             if (stackC && 'row' in mapping) {
-                console.info('AoV.remapEncoding: row remap is not supported on per-row-scale (stacked) figures; keeping the authored row field.');
+                console.info('AoV.remapEncoding: row remap is not supported on per-panel-scale (stacked or wrapped) figures; keeping the authored panels.');
             }
             if ('color' in mapping) {
                 var cfC = mapping.color;
