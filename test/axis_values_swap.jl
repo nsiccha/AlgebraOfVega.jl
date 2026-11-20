@@ -21,8 +21,10 @@ the reader's Ribbons | Intervals choice made; the marker moving off the
 ladder (a fifth tick) and back; an `update_spec` refresh; a re-embed after
 those (the new ticks stay); a temporal axis listing hours; and a wrapped
 facet with a per-panel Y scale type (one view per panel). The control: a
-changed axis title still embeds afresh. Red on base: 16 of 69 checks (the
-kept view and element at each tick-changing swap and update).
+changed axis title still embeds afresh, and a swap whose ticks did not change
+was kept before too. Red on base: 10 of 71 checks (the kept view and element
+at each tick-changing swap, the kept view at the `update_spec`, and the
+reader's drawing, which the fresh embed reset to the starting one).
 """
 @testitem "a same-id swap or update_spec whose listed axis tick values follow the rows is kept in place" setup=[AoVBrowserServer] tags=[:browser, :regression] begin
     using AlgebraOfVega, HTMXObjects, JSON, Dates
@@ -107,7 +109,7 @@ kept view and element at each tick-changing swap and update).
                 if !isnothing(result)
                     report = JSON.parse(replace(result[1], "&quot;" => "\"", "&lt;" => "<",
                         "&gt;" => ">", "&amp;" => "&"))
-                    @test report["checks"] >= 69
+                    @test report["checks"] >= 71
                     @test isempty(report["failures"])
                     @info "listed tick values swap browser checks" checks=report["checks"]
                     isempty(report["failures"]) || println(JSON.json(report["failures"]))

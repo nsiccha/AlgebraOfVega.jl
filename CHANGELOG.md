@@ -15,6 +15,24 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
+## 0.2.75
+
+- **Listed axis tick values follow the rows in place.** A figure whose axis
+  lists its tick values, such as
+  `config(encoding=(; x=(; axis=(; values=ticks))))` with `ticks` the doses
+  drawn plus the dose a marker shows, or the 1-2-5 values AoV lists on a log
+  axis, is now updated in place when a same-id swap or `update_spec` brings
+  other rows and another tick list: the plot keeps its element and Vega view,
+  zoom and pan, the legend selection and the reader's Ribbons | Intervals
+  choice, and the axis shows the new ticks, every one of them (the tick count
+  beside them follows too). Each embed holds a scale's listed values in a view
+  signal its axes read, and the swap sets it with the rows. Lists of numbers,
+  strings, booleans and dates (`DateTime` values on a time axis) are covered.
+  Before, a new tick list made the change structural: the figure embedded
+  afresh, the zoom was reset and the reader's drawing went back to the
+  starting one, although only data had changed (snag `same-id-figure-w-ca30c584`).
+  A changed axis title, format or other axis property still embeds afresh.
+
 ## 0.2.74
 
 - **Each facet panel can take its own Y `domain` and `clamp`.** Every
