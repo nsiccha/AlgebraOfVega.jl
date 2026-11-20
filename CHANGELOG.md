@@ -32,6 +32,14 @@ failing at run time with a `MethodError`.
   afresh, the zoom was reset and the reader's drawing went back to the
   starting one, although only data had changed (snag `same-id-figure-w-ca30c584`).
   A changed axis title, format or other axis property still embeds afresh.
+- **A new dose ladder keeps a ribbon's interval drawing in place.** The
+  intervals of a coloured ribbon's point-interval drawing are dodged by a step
+  that is a share of the smallest gap between x values, so another set of
+  doses brings another step. That step is now held in a view signal too, so a
+  same-id swap or `update_spec` with a new ladder keeps the Intervals drawing,
+  its view and the reader's zoom, and draws each interval where a fresh embed
+  would. An authored x domain, which the dodge widens by half the step, still
+  makes a new step structural.
 
 ## 0.2.74
 
