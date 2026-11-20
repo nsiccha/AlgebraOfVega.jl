@@ -143,7 +143,7 @@ end
     @test [yscale_types(p) for p in odd["vconcat"]] == [["log"], ["log"], ["linear"]]
 end
 
-@testitem "Per-panel Y scales keep the column form and refuse figures without a row or column" setup=[AoVPerRowYFixtures] tags=[:translation, :regression] begin
+@testitem "Per-panel Y scales keep the column form, wrap a layout= facet and refuse figures without a facet" setup=[AoVPerRowYFixtures] tags=[:translation, :regression] begin
     # With a column facet the `Dict` keys the columns, as before.
     grid = data(exposure) * mapping(:dose, :q50; col=:panel, row=:percentile) * visual(Scatter) *
         config(scales=scales(Y=(; scale=LOG)))
@@ -152,8 +152,9 @@ end
     @test [yscale_types(c) for c in vg["hconcat"]] == [["log"], ["log"], ["linear"]]
     flat = data(exposure) * mapping(:dose, :q50) * visual(Scatter) * config(scales=scales(Y=(; scale=LOG)))
     @test_throws "has no facet" to_vegalite(flat)
+    # A wrap keys its panels (test/per_wrap_y.jl).
     wrap = data(exposure) * mapping(:dose, :q50; layout=:panel) * visual(Scatter) * config(scales=scales(Y=(; scale=LOG)))
-    @test_throws "wrapped `layout=` facet" to_vegalite(wrap)
+    @test [yscale_types(p) for p in to_vegalite(wrap)["concat"]] == [["log"], ["log"], ["linear"]]
     @test_throws "static Makie path" sdraw_file(exposure_figure(), joinpath(mktempdir(), "x.png"))
 end
 

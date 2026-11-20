@@ -604,8 +604,9 @@ function _scrub_independent_resolve_if_unfaceted!(vl::Dict)
     _is_faceted(vl) && return
     # A per-column-Y concat (`hconcat` of per-column facet views) is faceted by
     # construction — every child carries its own facet + resolve. Don't strip.
-    # A per-row-Y stack's top `resolve` holds its x linkage. Keep both.
-    (haskey(vl, "hconcat") || _is_panel_stack(vl)) && return
+    # A per-row-Y stack's or per-wrap-Y concat's top `resolve` holds its x
+    # linkage. Keep both.
+    (haskey(vl, "hconcat") || _is_panel_concat(vl)) && return
     resolve = _as_dict(get(vl, "resolve", nothing))
     isnothing(resolve) && return
     scale = _as_dict(get(resolve, "scale", nothing))
@@ -645,9 +646,10 @@ function _tag_keep_color_layers!(vl::Dict, keep_color_fields::Set{String})
         end
         return
     end
-    if _is_panel_stack(vl)
-        # A per-row-Y stack: each panel holds its layers itself.
-        for child in vl["vconcat"], l in something(_as_vec(get(child, "layer", nothing)), Any[])
+    kids = _panel_kids(vl)
+    if !isnothing(kids)
+        # A per-row-Y stack or per-wrap-Y concat: each panel holds its layers itself.
+        for child in kids, l in something(_as_vec(get(child, "layer", nothing)), Any[])
             _tag_keep_color_layer!(l, keep_color_fields)
         end
         return

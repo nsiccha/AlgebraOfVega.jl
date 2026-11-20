@@ -188,6 +188,28 @@ function plot_size(spec::AbstractDict)
         height = sum(s.height for s in sizes) + (length(sizes) - 1) * sp + (haskey(top, "title") ? _SIZE_TITLE_OVERHEAD : 0.0)
         return (; width = Float64(maximum(s.width for s in sizes)), height = Float64(height))
     end
+    # A wrapped `concat` (per-panel Y scales on a `layout=` facet): `columns`
+    # panels to a row, every cell as large as the largest panel (Vega-Lite's
+    # `align: "all"`), each panel with its own axes and title (counted in its
+    # own size).
+    wrapped = get(top, "concat", nothing)
+    if wrapped isa AbstractVector && !isempty(wrapped)
+        sizes = [plot_size(c) for c in wrapped if c isa AbstractDict]
+        isempty(sizes) && return (width = _VL_CONTINUOUS_LEN, height = _VL_CONTINUOUS_LEN)
+        n = length(sizes)
+        c = _as_number(get(top, "columns", nothing))
+        ncols = isnothing(c) ? n : clamp(round(Int, c), 1, n)
+        nrows = cld(n, ncols)
+        sp = get(top, "spacing", nothing)
+        sp = sp isa AbstractDict ? (_as_number(get(sp, "row", nothing)), _as_number(get(sp, "column", nothing))) :
+            (_as_number(sp), _as_number(sp))
+        fallback = _size_cfg(top, ("config", "concat", "spacing"), _VL_FACET_SPACING)
+        rsp, csp = something(sp[1], fallback), something(sp[2], fallback)
+        cellw, cellh = maximum(s.width for s in sizes), maximum(s.height for s in sizes)
+        width = ncols * cellw + (ncols - 1) * csp
+        height = nrows * cellh + (nrows - 1) * rsp + (haskey(top, "title") ? _SIZE_TITLE_OVERHEAD : 0.0)
+        return (; width = Float64(width), height = Float64(height))
+    end
     rows    = _size_collect_rows(top)
     step    = _size_cfg(top, ("config", "view", "step"), _VL_DISCRETE_STEP)
     spacing = _size_cfg(top, ("config", "facet", "spacing"), _VL_FACET_SPACING)

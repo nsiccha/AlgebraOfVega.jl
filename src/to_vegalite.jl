@@ -1613,19 +1613,21 @@ _independent_y(_) = false
 _independent_y_scale(scale::Dict) = get(scale, "y", nothing) == "independent"
 _independent_y_scale(_) = false
 
-# Single-view `col=`/`row=` specs carry the facet at the encoding level:
-# rebuild them in the operator form (`facet` + `spec.layer`), which the
+# Single-view `col=`/`row=`/`layout=` specs carry the facet at the encoding
+# level: rebuild them in the operator form (`facet` + `spec.layer`), which the
 # per-panel Y lowerings take. Every view-level key moves into the view: the
 # concat they build keeps only figure-level keys, so one left on top is
 # silently dropped. `_aovLegend` is the legend pass's undo record; without it
 # a re-run (the positional `Scales` form) could not clear its first pass.
-# Per-cell width/height belong on the operator's inner spec. Returns the
-# facet, or `nothing` for a spec with neither form.
+# Per-cell width/height belong on the operator's inner spec. A wrap
+# (`encoding.facet`) becomes the operator's `facet` itself, its `columns`
+# kept on it (`_wrap_columns` reads either place). Returns the facet, or
+# `nothing` for a spec with neither form.
 function _operator_facet_form!(spec::Dict)
     facet = _as_dict(get(spec, "facet", nothing))
     isnothing(facet) || return facet
     enc = _as_dict(get(spec, "encoding", nothing))
-    (isnothing(enc) || !(haskey(enc, "column") || haskey(enc, "row"))) && return nothing
+    (isnothing(enc) || !any(ch -> haskey(enc, ch), ("column", "row", "facet"))) && return nothing
     unit = Dict{String,Any}()
     for k in ("mark", "encoding", "transform", "params", "projection", "_aovLegend")
         haskey(spec, k) && (unit[k] = pop!(spec, k))
@@ -1639,6 +1641,7 @@ function _operator_facet_form!(spec::Dict)
     for ch in ("column", "row")
         haskey(uenc, ch) && (facet[ch] = pop!(uenc, ch))
     end
+    haskey(uenc, "facet") && (facet = _as_dict(pop!(uenc, "facet")))
     spec["facet"] = facet
     spec["spec"] = inner
     haskey(spec, "data") || (spec["data"] = Dict{String,Any}("values" => Any[]))
@@ -1869,17 +1872,136 @@ end
 """Give each facet panel the Y scale type `scales(Y=(; scale=Dict(<panel value>
 => log10, …)))` lists for it: keyed by the column facet's values when the
 figure has one (`_per_column_y_hconcat!`), else by the row facet's
-(`_per_row_y_vconcat!`). Unlisted panels keep the shared Y scale."""
+(`_per_row_y_vconcat!`), else by the wrap facet's (`layout=`,
+`_per_wrap_y_concat!`). Unlisted panels keep the shared Y scale."""
 function _per_panel_y_concat!(spec::Dict, yscales::Dict)
     ch = _per_panel_y_channel(spec)
     ch === :column && return _per_column_y_hconcat!(spec, yscales)
     ch === :row && return _per_row_y_vconcat!(spec, yscales)
-    ch === :wrap && throw(ArgumentError("AlgebraOfVega: a per-panel Y scale " *
-        "(`scales(Y=(; scale=Dict(...)))`) is not available on a wrapped `layout=` facet yet. " *
-        "Facet the panels with `row=` (one panel per row, on a shared x) or `col=` instead."))
+    ch === :wrap && return _per_wrap_y_concat!(spec, yscales)
     throw(ArgumentError("AlgebraOfVega: a per-panel Y scale (`scales(Y=(; scale=Dict(<panel> => log10)))`) " *
-        "keys the scale by the value of a facet (`row=` or `col=`), and this figure has no facet. " *
+        "keys the scale by the value of a facet (`row=`, `col=` or `layout=`), and this figure has no facet. " *
         "For one Y scale write `scales(Y=(; scale=log10))`."))
+end
+
+# The facet chrome a per-panel lowering keeps from the facet channel `def`
+# (as for the column lowering): whether the panel titles (header labels) and
+# the facet field's title are drawn, that title's text, and the header
+# configs that style them (the spec's `config.header`, then the channel's own
+# `header`, which wins). `header: null` drops both, `labels: false` the panel
+# titles, a null or empty channel/header title the field title.
+function _panel_chrome(spec::Dict, def::Dict, field::AbstractString)
+    header_raw = get(def, "header", :absent)
+    header_off = header_raw === nothing
+    header = header_off ? nothing : _as_dict(header_raw)
+    labels_off = header_off || (!isnothing(header) && get(header, "labels", true) === false)
+    htitle_raw = isnothing(header) ? :absent : get(header, "title", :absent)
+    dtitle_raw = get(def, "title", :absent)
+    field_title = htitle_raw isa AbstractString ? string(htitle_raw) :
+        dtitle_raw isa AbstractString ? string(dtitle_raw) : field
+    title_off = header_off || htitle_raw === nothing || dtitle_raw === nothing || isempty(field_title)
+    cfg = _as_dict(get(spec, "config", nothing))
+    cfg_header = isnothing(cfg) ? nothing : _as_dict(get(cfg, "header", nothing))
+    (; header, labels_off, title_off, field_title, cfg_header)
+end
+
+# A facet-header-styled title: a panel's value (`part = "label"`, 10 px
+# regular) or the facet field's title (`"title"`, 11 px bold), the header
+# configs applied; `props` places it (a row header sits on the left).
+function _panel_header_title(text, chrome, part::AbstractString, props::Pair...)
+    t = Dict{String,Any}("text" => text, props...,
+        "fontSize" => part == "label" ? 10 : 11, "fontWeight" => part == "label" ? "normal" : "bold")
+    _map_header_props!(t, chrome.cfg_header, part)
+    _map_header_props!(t, chrome.header, part)
+    t
+end
+
+# One panel of a per-panel lowering: a deepcopy of the facet's inner layers
+# filtered to the panel's value `v` of `field`, with that panel's Y scale
+# (`nothing`: the shared one) and its value recorded as `_aovPanel`. A row
+# without the field (a reference layer that lacks it) is kept in every panel,
+# as the facet broadcasts it; the figure's select filters follow the panel
+# filter, the layers' own transforms after them.
+function _facet_panel(inner::Dict, field::AbstractString, v, select_transforms, yscale)
+    access = "datum[$(_vl_json(field))]"
+    child = deepcopy(inner)
+    ts = Any[Dict{String,Any}("filter" => "!isDefined($access) || $access === $(_vl_filter_literal(v))")]
+    isnothing(select_transforms) || append!(ts, deepcopy(select_transforms))
+    own = _as_vec(get(child, "transform", nothing))
+    isnothing(own) || append!(ts, own)
+    child["transform"] = ts
+    isnothing(yscale) || _merge_column_y_scale!(child, yscale)
+    child["_aovPanel"] = Dict{String,Any}(field => v)
+    child
+end
+
+# The facet's inner layers, its field and its panel values in facet order;
+# loud when the facet is not the layered operator form or has no values.
+function _facet_panel_parts(spec::Dict, def::Dict, what::AbstractString)
+    inner = _as_dict(get(spec, "spec", nothing))
+    (isnothing(inner) || !haskey(inner, "layer")) && error(
+        "AlgebraOfVega: per-$what Y scales need the layered facet form (`facet` + `spec.layer`).")
+    field = string(def["field"])
+    vals = _facet_column_values(spec, def)
+    isempty(vals) && error("AlgebraOfVega: per-$what Y scales found no values for $what facet field `$field`.")
+    (; inner, field, vals)
+end
+
+# Whether the facet unlinked its panels' x scales (`linkxaxes=:none`).
+function _facet_x_independent(spec::Dict)
+    resolve = _as_dict(get(spec, "resolve", nothing))
+    rscale = isnothing(resolve) ? nothing : _as_dict(get(resolve, "scale", nothing))
+    !isnothing(rscale) && get(rscale, "x", nothing) == "independent"
+end
+
+# The facet's spacing, else `config.facet.spacing`, else Vega-Lite's 20 px.
+# `pick` reads one direction of a `{row, column}` spacing; without it such a
+# spacing is kept whole (a wrap's concat takes the same form).
+function _facet_spacing(spec::Dict, pick=nothing)
+    spacing = get(spec, "spacing", nothing)
+    if spacing isa AbstractDict
+        isnothing(pick) && return spacing
+        spacing = get(spacing, pick, nothing)
+    end
+    spacing isa Real && return spacing
+    cfg = _as_dict(get(spec, "config", nothing))
+    fcfg = isnothing(cfg) ? nothing : _as_dict(get(cfg, "facet", nothing))
+    spacing = isnothing(fcfg) ? nothing : get(fcfg, "spacing", nothing)
+    spacing isa Real ? spacing : 20
+end
+
+# Replace a facet `spec` by the concat `newspec` of its panels: the figure-
+# level keys move over, the facet field's title becomes the figure title (or
+# its subtitle under an authored one, which is never clobbered; an explicit
+# subtitle, even null, wins), and `_aov` gains a readout entry per panel
+# (`_aov.panels`) plus `aov`'s keys.
+function _finish_panel_concat!(spec::Dict, newspec::Dict, chrome, npanels::Integer, title_props::Pair...; aov=())
+    for keep in ("data", "params", "config", "usermeta")
+        haskey(spec, keep) && (newspec[keep] = spec[keep])
+    end
+    if chrome.title_off
+        haskey(spec, "title") && (newspec["title"] = spec["title"])
+    else
+        ft = _panel_header_title(chrome.field_title, chrome, "title", title_props...)
+        if !haskey(spec, "title") || spec["title"] === nothing
+            newspec["title"] = ft
+        else
+            ut = spec["title"]
+            ud = _as_dict(ut)
+            newspec["title"] = isnothing(ud) ?
+                Dict{String,Any}("text" => ut isa AbstractString ? ut : string(ut), "subtitle" => ft["text"]) :
+                haskey(ud, "subtitle") ? ut : merge(deepcopy(ud), Dict{String,Any}("subtitle" => ft["text"]))
+        end
+    end
+    meta = deepcopy(something(_as_dict(get(spec, "_aov", nothing)), Dict{String,Any}()))
+    meta["panels"] = Any[Dict{String,Any}("readout" => nothing) for _ in 1:npanels]
+    for (k, v) in aov
+        meta[k] = v
+    end
+    newspec["_aov"] = meta
+    empty!(spec)
+    merge!(spec, newspec)
+    spec
 end
 
 """Re-lower a figure faceted by `row=` alone into a `vconcat` of one panel per
@@ -1894,14 +2016,14 @@ under the bottom panel only, and the facet's row spacing (20 px by default)
 between them. The runtime sizes every panel to the container and reads the
 stack as one readout (`_aov.panels`).
 
-Each panel is the facet's inner layers filtered to its row value. A row
-without the row field (a reference layer that lacks it) is kept in every
-panel, as the facet broadcasts it. The panel's row header becomes its title,
-on the left as the facet draws it (header label config applies), and the row
-field's title sits once on the stack (or as a subtitle under a figure title).
-`header: null` drops both, `labels: false` the panel titles. `_aovPanel`
-records the panel's row value for the per-panel axis titles
-(`_apply_panel_labels!`).
+Each panel is the facet's inner layers filtered to its row value
+(`_facet_panel`). A row without the row field (a reference layer that lacks
+it) is kept in every panel, as the facet broadcasts it. The panel's row header
+becomes its title, on the left as the facet draws it (header label config
+applies), and the row field's title sits once on the stack (or as a subtitle
+under a figure title). `header: null` drops both, `labels: false` the panel
+titles. `_aovPanel` records the panel's row value for the per-panel axis
+titles (`_apply_panel_labels!`).
 
 `yrows` maps row VALUES (as they appear in the data) to VL `scale` dicts
 (from `_scales_column_y_scales`); unlisted rows keep the shared Y scale, and a
@@ -1911,91 +2033,70 @@ function _per_row_y_vconcat!(spec::Dict, yrows::Dict)
     rowdef = isnothing(facet) ? nothing : _as_dict(get(facet, "row", nothing))
     (isnothing(rowdef) || !haskey(rowdef, "field")) && error(
         "AlgebraOfVega: per-row Y scales need a row facet (mapping row=...).")
-    inner = _as_dict(get(spec, "spec", nothing))
-    (isnothing(inner) || !haskey(inner, "layer")) && error(
-        "AlgebraOfVega: per-row Y scales need the layered facet form (`facet` + `spec.layer`).")
-    rowfield = string(rowdef["field"])
-    rowvals = _facet_column_values(spec, rowdef)
-    isempty(rowvals) && error("AlgebraOfVega: per-row Y scales found no values for row facet field `$rowfield`.")
-
-    # Row chrome the facet drew and the stack must keep (as for columns).
-    rheader_raw = get(rowdef, "header", :absent)
-    header_off = rheader_raw === nothing
-    rheader = header_off ? nothing : _as_dict(rheader_raw)
-    labels_off = header_off || (!isnothing(rheader) && get(rheader, "labels", true) === false)
-    htitle_raw = isnothing(rheader) ? :absent : get(rheader, "title", :absent)
-    rtitle_raw = get(rowdef, "title", :absent)
-    field_title = htitle_raw isa AbstractString ? string(htitle_raw) :
-        rtitle_raw isa AbstractString ? string(rtitle_raw) : rowfield
-    # An empty field title (`row = :panel => ""`) draws nothing, as on the facet.
-    title_off = header_off || htitle_raw === nothing || rtitle_raw === nothing || isempty(field_title)
-    cfg = _as_dict(get(spec, "config", nothing))
-    cfg_header = isnothing(cfg) ? nothing : _as_dict(get(cfg, "header", nothing))
-
-    # The x scale stays shared unless the facet unlinked it.
-    resolve = _as_dict(get(spec, "resolve", nothing))
-    rscale = isnothing(resolve) ? nothing : _as_dict(get(resolve, "scale", nothing))
-    x_independent = !isnothing(rscale) && get(rscale, "x", nothing) == "independent"
+    (; inner, field, vals) = _facet_panel_parts(spec, rowdef, "row")
+    chrome = _panel_chrome(spec, rowdef, field)
+    x_independent = _facet_x_independent(spec)
     select_transforms = _as_vec(get(spec, "transform", nothing))
-    access = "datum[$(_vl_json(rowfield))]"
+    left = ("orient" => "left", "anchor" => "middle")
     children = Any[]
-    for (i, v) in enumerate(rowvals)
-        child = deepcopy(inner)
-        ts = Any[Dict{String,Any}("filter" => "!isDefined($access) || $access === $(_vl_filter_literal(v))")]
-        isnothing(select_transforms) || append!(ts, deepcopy(select_transforms))
-        own = _as_vec(get(child, "transform", nothing))
-        isnothing(own) || append!(ts, own)
-        child["transform"] = ts
-        yscale = get(yrows, v, nothing)
-        isnothing(yscale) || _merge_column_y_scale!(child, yscale)
-        if !labels_off
-            ct = Dict{String,Any}("text" => _vl_header_label(v), "orient" => "left", "anchor" => "middle",
-                                  "fontSize" => 10, "fontWeight" => "normal")
-            _map_header_props!(ct, cfg_header, "label")
-            _map_header_props!(ct, rheader, "label")
-            child["title"] = ct
-        end
-        child["_aovPanel"] = Dict{String,Any}(rowfield => v)
-        i < length(rowvals) && !x_independent && _vconcat_hide_x_labels!(child)
+    for (i, v) in enumerate(vals)
+        child = _facet_panel(inner, field, v, select_transforms, get(yrows, v, nothing))
+        chrome.labels_off || (child["title"] = _panel_header_title(_vl_header_label(v), chrome, "label", left...))
+        i < length(vals) && !x_independent && _vconcat_hide_x_labels!(child)
         push!(children, child)
     end
-
-    spacing = get(spec, "spacing", nothing)
-    spacing = spacing isa Real ? spacing : spacing isa AbstractDict ? get(spacing, "row", nothing) : nothing
-    if !(spacing isa Real)
-        fcfg = isnothing(cfg) ? nothing : _as_dict(get(cfg, "facet", nothing))
-        spacing = isnothing(fcfg) ? nothing : get(fcfg, "spacing", nothing)
-        spacing isa Real || (spacing = 20)
-    end
-    newspec = Dict{String,Any}("\$schema" => VL_SCHEMA, "vconcat" => children, "spacing" => spacing,
-        "bounds" => "flush",
+    newspec = Dict{String,Any}("\$schema" => VL_SCHEMA, "vconcat" => children,
+        "spacing" => _facet_spacing(spec, "row"), "bounds" => "flush",
         "resolve" => Dict{String,Any}("scale" => Dict{String,Any}("x" => x_independent ? "independent" : "shared")))
-    for keep in ("data", "params", "config", "usermeta")
-        haskey(spec, keep) && (newspec[keep] = spec[keep])
+    _finish_panel_concat!(spec, newspec, chrome, length(children), left...)
+end
+
+"""Re-lower a wrapped `layout=` facet into a `concat` of one panel per wrap
+value, laid out `columns` to a row, so each panel can carry its own Y scale
+type.
+
+Vega-Lite's facet operator shares one encoding across its cells, so its scale
+TYPE cannot differ per panel; a `concat` with `columns` wraps its views as the
+facet wraps its cells. Each panel is the facet's inner layers filtered to its
+value (`_facet_panel`; rows without the wrap field draw in every panel, as the
+facet broadcasts them) and keeps its own x and y axes: a wrap facet draws an x
+axis under every occupied panel (`_apply_wrap_default!`), and the panels' y
+scales differ. The x scale stays shared unless the facet unlinked it
+(`linkxaxes=:none`); each panel's y scale is its own, as in the column and row
+lowerings. The panel's value is its title, styled as the wrap facet's header
+(on top), and the wrap field's title sits once over the figure.
+
+The column count is the facet's authored one (`config(columns=N)`,
+`scales(Layout=(; palette=wrapped(cols=N)))`), else AoG's near-square default
+(`_aog_wrap_columns`, as `_apply_wrap_default!` gives a facet), marked
+`_aov.autoColumns` so the browser re-wraps the panels to the plot's width
+(`_wrapColumns` counts the panels). `_aov.panels` marks the concat for the
+runtime's sizing, readout and picker; `_aovPanel` records each panel's value.
+
+`ypanels` maps wrap VALUES (as they appear in the data) to VL `scale` dicts;
+unlisted panels keep the shared Y scale, and a key no panel has does nothing."""
+function _per_wrap_y_concat!(spec::Dict, ypanels::Dict)
+    facet = _operator_facet_form!(spec)
+    (isnothing(facet) || !haskey(facet, "field")) && error(
+        "AlgebraOfVega: per-panel Y scales on a wrap need a `layout=` facet.")
+    (; inner, field, vals) = _facet_panel_parts(spec, facet, "panel")
+    chrome = _panel_chrome(spec, facet, field)
+    select_transforms = _as_vec(get(spec, "transform", nothing))
+    children = Any[]
+    for v in vals
+        child = _facet_panel(inner, field, v, select_transforms, get(ypanels, v, nothing))
+        chrome.labels_off || (child["title"] = _panel_header_title(_vl_header_label(v), chrome, "label"))
+        push!(children, child)
     end
-    if title_off
-        haskey(spec, "title") && (newspec["title"] = spec["title"])
-    else
-        ft = Dict{String,Any}("text" => field_title, "orient" => "left", "anchor" => "middle",
-                              "fontSize" => 11, "fontWeight" => "bold")
-        _map_header_props!(ft, cfg_header, "title")
-        _map_header_props!(ft, rheader, "title")
-        if !haskey(spec, "title") || spec["title"] === nothing
-            newspec["title"] = ft
-        else
-            ut = spec["title"]
-            ud = _as_dict(ut)
-            newspec["title"] = isnothing(ud) ?
-                Dict{String,Any}("text" => ut isa AbstractString ? ut : string(ut), "subtitle" => ft["text"]) :
-                haskey(ud, "subtitle") ? ut : merge(deepcopy(ud), Dict{String,Any}("subtitle" => ft["text"]))
-        end
-    end
-    aov = something(_as_dict(get(spec, "_aov", nothing)), Dict{String,Any}())
-    newspec["_aov"] = merge!(deepcopy(aov), Dict{String,Any}(
-        "panels" => Any[Dict{String,Any}("readout" => nothing) for _ in children]))
-    empty!(spec)
-    merge!(spec, newspec)
-    spec
+    columns = _wrap_columns(spec, facet)
+    auto = isnothing(columns)
+    auto && (columns = _aog_wrap_columns(length(children),
+        _panel_aspect(get(inner, "width", nothing), get(inner, "height", nothing))))
+    newspec = Dict{String,Any}("\$schema" => VL_SCHEMA, "concat" => children, "columns" => columns,
+        "spacing" => _facet_spacing(spec),
+        "resolve" => Dict{String,Any}("scale" => Dict{String,Any}(
+            "x" => _facet_x_independent(spec) ? "independent" : "shared")))
+    _finish_panel_concat!(spec, newspec, chrome, length(children); aov=auto ? ("autoColumns" => true,) : ())
 end
 
 # The attributes AlgebraOfGraphics accepts on a `Color` scale: categorical

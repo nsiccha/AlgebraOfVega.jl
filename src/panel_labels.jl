@@ -232,7 +232,7 @@ function _apply_panel_labels!(vl::Dict, v::VegaSpec)
     isempty(opts) && return vl
     tables = _panel_label_tables(v)
     row_sets = _inline_row_sets!(Any[], vl)
-    _is_panel_stack(vl) && return _panel_labels_stack!(vl, opts, tables, row_sets)
+    _is_panel_concat(vl) && return _panel_labels_stack!(vl, opts, tables, row_sets)
     children = get(vl, "hconcat", nothing)
     views = children isa AbstractVector ?
         [(c, "concat_$(k - 1)_facet") for (k, c) in enumerate(children) if c isa Dict] : [(vl, "facet")]
@@ -263,10 +263,10 @@ function _apply_panel_labels!(vl::Dict, v::VegaSpec)
     vl
 end
 
-# The stack's panels are not facet cells, so each one's axis takes its title as
-# text: the panel's row value, or its value of another column, written as the
-# encodings' title (an authored axis title is kept). The panel title (its row
-# header) leaves when the axis already says it.
+# The panels of a per-row-Y stack or per-wrap-Y concat are not facet cells, so
+# each one's axis takes its title as text: the panel's facet value, or its value
+# of another column, written as the encodings' title (an authored axis title is
+# kept). The panel title (its facet header) leaves when the axis already says it.
 function _panel_labels_stack!(vl::Dict, opts, tables, row_sets)
     meta = Dict{String,Any}()
     for ch in sort!(collect(keys(opts)))
@@ -277,7 +277,7 @@ function _panel_labels_stack!(vl::Dict, opts, tables, row_sets)
             "Name a column that holds each panel's $ch-axis title, such as the facet column itself."))
         titles, titled, facets = String[], String[], String[]
         labels = nothing    # read once, for the first panel that needs it
-        for view in vl["vconcat"]
+        for view in _panel_kids(vl)
             panel = view["_aovPanel"]
             fields = collect(String, keys(panel))
             label = if col in fields
