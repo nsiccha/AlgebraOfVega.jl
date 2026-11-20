@@ -31,11 +31,13 @@ reader's drawing, which the fresh embed reset to the starting one).
     import HTMX
 
     ladder = [10.0, 20.0, 40.0, 60.0]
+    # A ladder with other gaps: the interval drawing's dodge step changes.
+    other_ladder = [10.0, 20.0, 40.0, 80.0, 160.0]
     quantities = ["AUC", "Maximum", "Time of maximum"]
-    function rows()
+    function rows(doses=ladder)
         r = (; dose=Float64[], scenario=String[], quantity=String[], q50=Float64[], lo=Float64[],
             hi=Float64[], lo50=Float64[], hi50=Float64[])
-        for (qi, q) in enumerate(quantities), (si, s) in enumerate(["Daily", "Twice daily"]), d in ladder
+        for (qi, q) in enumerate(quantities), (si, s) in enumerate(["Daily", "Twice daily"]), d in doses
             m = d * 1000 * qi * (si == 1 ? 1.0 : 0.85)
             push!(r.dose, d); push!(r.scenario, s); push!(r.quantity, q); push!(r.q50, m)
             push!(r.lo, 0.2m); push!(r.hi, 3m); push!(r.lo50, 0.7m); push!(r.hi50, 1.5m)
@@ -43,8 +45,8 @@ reader's drawing, which the fresh embed reset to the starting one).
         r
     end
     # web-sim's `dose_figure`, reduced: the ticks are the doses drawn plus the marked dose.
-    function dose_spec(marker; xtitle="Dose (mg)", log_y=false)
-        r = rows()
+    function dose_spec(marker; doses=ladder, xtitle="Dose (mg)", log_y=false)
+        r = rows(doses)
         ticks = sort!(unique!(vcat(r.dose, marker)))
         marks = (; dose=fill(marker, length(quantities)), quantity=quantities)
         facet = (; layout=:quantity => sorter(quantities) => "")
@@ -69,13 +71,15 @@ reader's drawing, which the fresh embed reset to the starting one).
         "b_again" => figure(dose_spec(85.0), "dr-plot", "Dose 85 mg again"),
         "back" => figure(dose_spec(40.0), "dr-plot", "Dose 40 mg"),
         "update_c" => html(update_spec("dr-plot", dose_spec(30.0))),
-        "title" => figure(dose_spec(30.0; xtitle="Dose (mg/day)"), "dr-plot", "Other title"),
+        "ladder" => figure(dose_spec(30.0; doses=other_ladder), "dr-plot", "Other ladder"),
+        "title" => figure(dose_spec(30.0; doses=other_ladder, xtitle="Dose (mg/day)"), "dr-plot", "Other title"),
         "time_a" => figure(time_spec([6, 12, 18]), "time-plot", "Hours a"),
         "time_b" => figure(time_spec([3, 9, 15, 21]), "time-plot", "Hours b"),
         "panel_a" => figure(dose_spec(60.0; log_y=true), "panel-plot", "Panels 60 mg"),
         "panel_b" => figure(dose_spec(85.0; log_y=true), "panel-plot", "Panels 85 mg"))
-    ticks(marker) = sort!(unique!(vcat(ladder, marker)))
+    ticks(marker, l=ladder) = sort!(unique!(vcat(l, marker)))
     expected = Dict("a" => ticks(60.0), "b" => ticks(85.0), "back" => ticks(40.0), "c" => ticks(30.0),
+        "ladder" => ticks(30.0, other_ladder),
         "time_a" => string.(hours([6, 12, 18])), "time_b" => string.(hours([3, 9, 15, 21])))
     driver = read(joinpath(@__DIR__, "axis_values_swap.js"), String)
 

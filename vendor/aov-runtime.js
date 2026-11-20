@@ -1288,7 +1288,7 @@ window.AoV = window.AoV || {
             // Superseded by a newer embed of this id, or disposed: a resize or
             // fit re-embed scheduled earlier must not resurrect the old spec.
             if (self._embedTok[id] !== tok) return Promise.resolve();
-            var s = self._capTicks(id, self._withHighlight(id, self._applyResponsiveWidth(id, JSON.parse(JSON.stringify(cur.spec)), budget)));
+            var s = self._bindDodge(self._capTicks(id, self._withHighlight(id, self._applyResponsiveWidth(id, JSON.parse(JSON.stringify(cur.spec)), budget))));
             // Host theme, read now: a theme change re-runs this embed.
             var embedOpts = self._withFrame(id, self._themedOpts(id, s, opts), plan);
             var fonts = self._fontsPending((s.config && s.config.font) || (embedOpts.config && embedOpts.config.font));
@@ -2622,12 +2622,13 @@ window.AoV = window.AoV || {
             this._structureKey(prepared) === this._structureKey(cur.spec);
     },
 
-    // A spec's JSON with its inline data rows and its listed tick values
-    // blanked: equal keys mean two specs compile to the same dataflow,
-    // differing only in the rows and in tick lists, which the view holds in
-    // signals (_bindTicks).
+    // A spec's JSON with its inline data rows, its listed tick values and
+    // its interval dodge's step blanked: equal keys mean two specs compile to
+    // the same dataflow, differing only in the rows, in tick lists and in the
+    // dodge step, which the view holds in signals (_bindTicks, _bindDodge).
     _structureKey: function(spec) {
-        var self = this;
+        var self = this, dx = spec && spec._aov && spec._aov.dodgeX;
+        var dodged = self._dodgeStep(dx) !== undefined;
         return JSON.stringify(spec, function(k, v) {
             if (k === 'data' && v && typeof v === 'object' && Array.isArray(v.values)) {
                 var shape = Object.assign({}, v);
@@ -2636,6 +2637,12 @@ window.AoV = window.AoV || {
             }
             if (k === 'datasets' && v && typeof v === 'object') return Object.keys(v).sort();
             if (k === 'encoding' && v && typeof v === 'object' && !Array.isArray(v)) return self._ticksBlanked(v);
+            // The recipe's field, groups and scale stay: with them, the
+            // expression depends on the step alone.
+            if (dodged && v === dx) return Object.assign({}, v, {span: null});
+            if (dodged && v && typeof v === 'object' && v.as === dx.as && typeof v.calculate === 'string') {
+                return Object.assign({}, v, {calculate: null});
+            }
             return v;
         });
     },
@@ -2780,6 +2787,11 @@ window.AoV = window.AoV || {
         if (self._emptyLegends(vg).length) return false;
         var ticks = self._swappedTicks(id, view, vg);
         if (!ticks) return false;
+        var step = self._dodgeStep(spec._aov && spec._aov.dodgeX);
+        if (step !== undefined) {
+            try { view.signal(self._DODGE_STEP); } catch (e) { return false; }
+            ticks.push([self._DODGE_STEP, step]);
+        }
         var sources = (vg.data || []).filter(function(d) { return Array.isArray(d.values); });
         try { sources.forEach(function(d) { view.data(d.name); }); } catch (e) { return false; }
         ticks.forEach(function(t) { view.signal(t[0], t[1]); });
@@ -6193,14 +6205,49 @@ window.AoV = window.AoV || {
     // `by` group in `domain`, added on a linear axis, multiplied in as
     // `exp` of a log step on a log one. The same formula as
     // `_ribbon_dodge_expr` (src/ribbon_view.jl); a row outside `domain`
-    // stays at its x.
-    _dodgeXExpr: function(field, by, domain, span, scale) {
+    // stays at its x. With `stepSignal`, the step between groups (span / n)
+    // is read from that signal (_bindDodge).
+    _dodgeXExpr: function(field, by, domain, span, scale, stepSignal) {
         var f = 'datum[' + JSON.stringify(field) + ']';
         var n = domain.length;
         if (!by || n < 2) return 'isValid(' + f + ') ? ' + f + ' : null';
         var k = 'indexof(' + JSON.stringify(domain) + ', datum[' + JSON.stringify(by) + '])';
-        var d = '(' + k + ' < 0 ? 0 : (' + k + ' - ' + (n - 1) / 2 + ') * ' + span / n + ')';
+        var d = '(' + k + ' < 0 ? 0 : (' + k + ' - ' + (n - 1) / 2 + ') * ' + (stepSignal || span / n) + ')';
         return 'isValid(' + f + ') ? ' + (scale === 'log' ? f + ' * exp(' + d + ')' : f + ' + ' + d) + ' : null';
+    },
+
+    // The dodge of a ribbon's interval drawing follows its x values too: its
+    // step is a share of the smallest gap between them (`_aov.dodgeX.span`),
+    // so a new dose ladder brings another step. Each embed reads the step
+    // from a signal (a top-level param of the spec it compiles), which a
+    // swap of rows sets (_swapData), and the structure key leaves the span
+    // and the expression built from it out (_structureKey).
+    _DODGE_STEP: 'aov_dodge_step',
+    // The step between dodged groups of a dodge recipe; undefined when the
+    // recipe dodges nothing (no colour, or one group).
+    _dodgeStep: function(dx) {
+        return dx && typeof dx === 'object' && dx.by && Array.isArray(dx.domain) && dx.domain.length >= 2 &&
+            typeof dx.span === 'number' ? dx.span / dx.domain.length : undefined;
+    },
+    // The spec an embed compiles (a copy), with its dodge expressions reading
+    // the step from the signal.
+    _bindDodge: function(s) {
+        var self = this, dx = s && s._aov && s._aov.dodgeX, step = self._dodgeStep(dx), found = false;
+        if (step === undefined) return s;
+        (function walk(node) {
+            if (!node || typeof node !== 'object') return;
+            (Array.isArray(node.transform) ? node.transform : []).forEach(function(t) {
+                if (!t || t.as !== dx.as || typeof t.calculate !== 'string') return;
+                t.calculate = self._dodgeXExpr(dx.field, dx.by, dx.domain, dx.span, dx.scale, self._DODGE_STEP);
+                found = true;
+            });
+            ['layer', 'hconcat', 'vconcat', 'concat'].forEach(function(key) {
+                if (Array.isArray(node[key])) node[key].forEach(walk);
+            });
+            walk(node.spec);
+        })(s);
+        if (found) s.params = (Array.isArray(s.params) ? s.params : []).concat([{name: self._DODGE_STEP, value: step}]);
+        return s;
     },
 
     // Whether a layer was given a fixed colour (`visual(...; color=...)`):

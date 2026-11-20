@@ -123,11 +123,46 @@
     state = await settled(ID, 're-embed');
     ticksAre(ID, 'c', 're-embed');
 
+    // Another dose ladder, read in the Intervals drawing: the ticks change,
+    // and so does the dodge step between the scenarios' intervals (a share
+    // of the smallest gap between doses). The positions drawn are those a
+    // fresh embed of the new figure draws.
+    if (AoV._ribbonViews[ID].view !== 'intervals') {
+        const iv = Array.from(buttons()).find(b => b.dataset.view === 'intervals');
+        check(!!iv, 'intervals: the switch offers the Intervals drawing');
+        const was = view(ID);
+        if (iv) iv.click();
+        await until(() => ownView(ID) && view(ID) !== was && !AoV._inFlight[ID], 'intervals: the drawing draws');
+        state = await settled(ID, 'intervals');
+    }
+    check(AoV._ribbonViews[ID].view === 'intervals', 'intervals: the Intervals drawing is shown');
+    const dodged = async v => {
+        const out = [];
+        (function walk(it) {
+            if (!it) return;
+            if (it.datum && it.datum.__aov_x !== undefined && it.datum.__aov_x !== null) out.push(+(+it.datum.__aov_x).toPrecision(12));
+            (it.items || []).forEach(walk);
+        })(v.scenegraph().root);
+        return out.sort((a, b) => a - b);
+    };
+    swap(result, answer(FIX.ladder, 'Other ladder'));
+    state = await kept(ID, 'other ladder', state, 'Other ladder');
+    ticksAre(ID, 'ladder', 'other ladder');
+    check(AoV._ribbonViews[ID].view === 'intervals', 'other ladder: the Intervals drawing is kept');
+    const fresh = new vega.View(vega.parse(vegaLite.compile(JSON.parse(JSON.stringify(AoV._cur[ID].spec))).spec),
+        {renderer: 'none'});
+    await fresh.runAsync();
+    const got = await dodged(view(ID)), wantX = await dodged(fresh);
+    fresh.finalize();
+    check(got.length > 0 && JSON.stringify(got) === JSON.stringify(wantX),
+        'other ladder: the intervals sit where a fresh embed puts them (' + got.length + ' dodged marks; ' +
+        JSON.stringify(got.slice(0, 4)) + ' vs ' + JSON.stringify(wantX.slice(0, 4)) + ')');
+
     // Control: a changed axis title is structural and embeds afresh.
     swap(result, answer(FIX.title, 'Other title'));
     const now = await settled(ID, 'changed title');
     check(now.view !== state.view && now.el !== state.el, 'changed title: a new embed in the new element');
-    ticksAre(ID, 'c', 'changed title');
+    ticksAre(ID, 'ladder', 'changed title');
 
     // --- A temporal axis listing hours ---
     const time = document.getElementById('time');
