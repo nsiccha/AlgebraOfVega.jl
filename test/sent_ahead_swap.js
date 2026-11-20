@@ -72,9 +72,9 @@
     htmx.swap(inner, window.AOV_PARTS.final, {swapStyle: 'outerHTML', settleDelay: 20},
         {select: '.treebar-terminal-content', contextElement: inner});
     const v3 = await complete('finished answer');
-    // A fifth dose moves the interval dodge offsets, which the spec's
-    // transforms carry: a changed structure, so a fresh embed.
-    check(v3 !== v2, 'finished answer: the figure with one more dose embeds afresh');
+    // The answer names its y axis differently: a changed structure, so a
+    // fresh embed while the parts are still in the page.
+    check(v3 !== v2, 'finished answer: the figure with another y title embeds afresh');
     check(sharing[2] === 2, 'finished answer: its embed ran while the parts were in the page (' + sharing[2] + ')');
     check(document.querySelectorAll('.htmxo-sent-ahead').length === 0, 'finished answer: the parts are gone');
     check(!!document.querySelector('.treebar-terminal-content #' + ID), 'finished answer: the figure is the answer\'s');

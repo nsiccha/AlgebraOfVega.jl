@@ -23,8 +23,9 @@ still in the page:
 An answer within the grace period (a cached one) sends no parts and looked right,
 in either colour scheme. A part of the same structure as the one
 it replaces updates that figure in place (its view stays; `test/same_id_swap.jl`),
-as the second part here does; the finished answer, with one more dose, moves the
-interval dodge offsets and embeds afresh. The item lands parts through HTMXObjects' own
+as the second part here does; the finished answer names its y axis differently, a
+changed structure, and embeds afresh (one more dose alone would now be kept in place:
+the interval dodge step is a view signal, `test/axis_values_swap.jl`). The item lands parts through HTMXObjects' own
 `sent_ahead_script()` and swaps the finished answer as Treebars does (outerHTML
 of the polling inner, `select` of `.treebar-terminal-content`), with the
 vendored htmx 2.
@@ -35,7 +36,7 @@ vendored htmx 2.
 
     doses = [5.0, 10.0, 20.0, 40.0, 60.0]
     quantities = ["AUC", "Maximum", "Time of maximum", "Minimum", "Average"]
-    function figure(n)
+    function figure(n; ylabel="Median")
         rows = (; dose=Float64[], scenario=String[], quantity=String[], q50=Float64[], lo=Float64[],
             hi=Float64[], lo50=Float64[], hi50=Float64[])
         for (qi, q) in enumerate(quantities), (si, s) in enumerate(["Daily", "Twice daily"]), d in doses[1:n]
@@ -43,7 +44,7 @@ vendored htmx 2.
             push!(rows.dose, d); push!(rows.scenario, s); push!(rows.quantity, q); push!(rows.q50, m)
             push!(rows.lo, 0.2m); push!(rows.hi, 3m); push!(rows.lo50, 0.7m); push!(rows.hi50, 1.5m)
         end
-        spec = data(rows) * mapping(:dose => "Dose (mg)", :q50 => "Median"; color=:scenario => "Scenario",
+        spec = data(rows) * mapping(:dose => "Dose (mg)", :q50 => ylabel; color=:scenario => "Scenario",
                    layout=:quantity => sorter(quantities) => "") *
                lineribbon(bands=[:lo => :hi, :lo50 => :hi50]) *
                config(scales=scales(X=(; scale=log10, nice=false))) * config(facet=(; linkyaxes=:none))
@@ -67,7 +68,7 @@ vendored htmx 2.
                    join(html.(vega_head(; source=:vendor, base="/vendor"))) * html(HTMXObjects.sent_ahead_script())
             parts = (; part1="<div id=\"dr-ahead\">$(figure(3))</div>",
                 part2="<div id=\"dr-ahead\" hx-swap-oob=\"true\">$(figure(4))</div>",
-                final="<div class=\"treebar-terminal-content\">$(figure(5))</div>")
+                final="<div class=\"treebar-terminal-content\">$(figure(5; ylabel="Posterior median"))</div>")
             # 1040 px: an app's content column at a 1440 px window.
             write(joinpath(dir, "page.html"), """
                 <!DOCTYPE html>
