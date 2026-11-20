@@ -863,6 +863,187 @@ function _key_run_starts(rows)
     starts
 end
 
+# The wire read back in Julia (`embedded_spec`): `_rows_from_wire` expands it
+# to the rows `AoV._rowsFromColumns` does, a sequence with the same Float64
+# operations, and `_expand_spec_data!` walks a spec as `AoV._expandSpecData`
+# does. A change to the wire changes the encoder above, the runtime and this
+# reading together: `test/columnar_wire.jl` checks this reading against the
+# row-wise JSON of every case it sends, `test/embedded_spec.jl` whole specs.
+_wire_count(n) = n isa Real && !(n isa Bool)
+_is_wire(x) = false
+_is_wire(d::AbstractDict) = _wire_count(get(d, "n", nothing)) &&
+    (get(d, "parts", nothing) isa AbstractVector || get(d, "columns", nothing) isa AbstractDict)
+
+_rows_from_wire(x) = x
+function _rows_from_wire(d::AbstractDict)
+    _is_wire(d) || return d
+    n = Int(d["n"])
+    parts = get(d, "parts", nothing)
+    if parts isa AbstractVector
+        rows = Any[]
+        for part in parts
+            r = _rows_from_wire(part)
+            r isa AbstractVector || throw(ArgumentError("a part of a $n-row dataset is not a row table"))
+            append!(rows, r)
+        end
+        length(rows) == n ||
+            throw(ArgumentError("a dataset of $n rows arrived in parts holding $(length(rows))"))
+        return rows
+    end
+    cols = d["columns"]
+    names = collect(keys(cols))
+    colvals = [_wire_values(string(k), cols[k], n) for k in names]
+    rows = Vector{Any}(undef, n)
+    for i in 1:n
+        row = JSON.Object{String,Any}()
+        for (k, v) in zip(names, colvals)
+            row[string(k)] = v[i]
+        end
+        rows[i] = row
+    end
+    rows
+end
+
+function _wire_values(name, c, n)
+    if c isa AbstractVector
+        length(c) == n || throw(ArgumentError("column \"$name\" holds $(length(c)) values for $n rows"))
+        return c
+    end
+    c isa AbstractDict || return fill(c, n)
+    runs = get(c, "runs", nothing)
+    if runs isa AbstractVector
+        out = Vector{Any}(undef, n)
+        k = 0
+        for (v, m) in zip(runs, c["lengths"]), _ in 1:m
+            k += 1
+            k <= n && (out[k] = v)
+        end
+        k == n || throw(ArgumentError("column \"$name\" holds runs of $k values for $n rows"))
+        return out
+    end
+    a, b = get(c, "start", nothing), get(c, "step", nothing)
+    if _wire_count(a) && _wire_count(b)
+        p = get(c, "period", nothing)
+        p = isnothing(p) || p == 0 ? n : Int(p)
+        scale, den = get(c, "scale", nothing), get(c, "den", nothing)
+        return [_wire_term(Float64(a), Float64(b), (i - 1) % p, scale, den) for i in 1:n]
+    end
+    throw(ArgumentError("column \"$name\" has an unknown encoding with keys " * join(keys(c), ", ")))
+end
+
+function _wire_term(a, b, j, scale, den)
+    v = a + j * b
+    isnothing(scale) || (v *= Float64(scale))
+    isnothing(den) || (v /= Float64(den))
+    v
+end
+
+function _expand_spec_data!(v)
+    if v isa AbstractVector
+        foreach(_expand_spec_data!, v)
+    elseif v isa AbstractDict
+        for k in collect(keys(v))
+            x = v[k]
+            if k == "data" && x isa AbstractDict
+                rows = get(x, "values", nothing)
+                if _is_wire(rows)
+                    x["values"] = _rows_from_wire(rows)
+                elseif !(rows isa AbstractVector)
+                    _expand_spec_data!(x)
+                end
+            elseif k == "datasets" && x isa AbstractDict
+                for name in collect(keys(x))
+                    _is_wire(x[name]) && (x[name] = _rows_from_wire(x[name]))
+                end
+            else
+                _expand_spec_data!(x)
+            end
+        end
+    end
+    v
+end
+
+# Each `AoV.embed(id, spec, …)` / `AoV.updateSpec(id, spec, …)` call in `html`
+# whose spec is written inline, as `id => spec JSON text`, in page order.
+const _SPEC_CALL = r"AoV\.(?:embed|updateSpec)\('([^']*)',\s*\{"
+function _embedded_spec_texts(html::String)
+    found = Pair{String,String}[]
+    for m in eachmatch(_SPEC_CALL, html)
+        i = m.offset + ncodeunits(m.match) - 1      # the spec's opening brace
+        push!(found, String(m.captures[1]) => html[i:_json_value_end(html, i)])
+    end
+    found
+end
+
+# Index of the brace or bracket that closes the JSON value opening at `i`.
+function _json_value_end(s::String, i::Int)
+    depth, in_string, escaped = 0, false, false
+    for j in i:ncodeunits(s)
+        c = codeunit(s, j)
+        if in_string
+            if escaped
+                escaped = false
+            elseif c == UInt8('\\')
+                escaped = true
+            elseif c == UInt8('"')
+                in_string = false
+            end
+        elseif c == UInt8('"')
+            in_string = true
+        elseif c == UInt8('{') || c == UInt8('[')
+            depth += 1
+        elseif c == UInt8('}') || c == UInt8(']')
+            depth -= 1
+            depth == 0 && return j
+        end
+    end
+    throw(ArgumentError("an AoV plot spec in the HTML is not terminated"))
+end
+
+"""
+    embedded_spec(html, plot_id=nothing)
+
+The Vega-Lite spec that `html` hands AlgebraOfVega's browser runtime for the
+plot `plot_id`, with every inline dataset (`data.values` and `datasets`
+entries) as the row objects the runtime draws from: what the browser receives.
+
+`html` is an HTML string, or any value with a `text/html` `show` (a
+`vdraw`/`to_node` node, a `with_plot_caption` figure, an `update_spec`
+fragment, a page), which is rendered first. `plot_id` is the id the plot was
+given (`id=`, `plot_id=`); leave it out when `html` holds a single AoV plot.
+
+The spec is the one `to_node` or `update_spec` wrote into the page. Its rows
+equal the rows of `to_json` for the same figure and `auto_remap` options,
+parsed with `JSON.parse`; the rest of it also carries the page's sizing and
+runtime keys. The page sends inline rows in a compact column form that is
+internal and may change, so read them through this function rather than from
+the page text. Numbers that a column sends as a regular sequence come back as
+`Float64`, as the browser reads them: compare rows with `==`.
+
+Throws an `ArgumentError` when `html` holds no spec for `plot_id`, or more
+than one (a plot and an `update_spec` for it in one string).
+
+```julia
+fig = with_plot_caption(spec, "Predictions"; plot_id="ppc", auto_remap=remap)
+rows = embedded_spec(fig, "ppc")["data"]["values"]
+@test rows == JSON.parse(to_json(spec; auto_remap=remap))["data"]["values"]
+```
+"""
+embedded_spec(x, plot_id=nothing) = embedded_spec(repr(MIME"text/html"(), x), plot_id)
+function embedded_spec(html::AbstractString, plot_id=nothing)
+    texts = _embedded_spec_texts(String(html))
+    id = isnothing(plot_id) ? nothing : _sanitize_id(plot_id)
+    hits = isnothing(id) ? texts : filter(t -> first(t) == id, texts)
+    if length(hits) != 1
+        held = isempty(texts) ? "no AoV plot spec" :
+            join(("$(count(t -> first(t) == i, texts)) for $(repr(i))" for i in unique(first.(texts))), ", ")
+        target = isnothing(id) ? "a single AoV plot spec" : "one spec for plot id $(repr(id))"
+        hint = isnothing(id) && length(unique(first.(texts))) > 1 ? "; pass the plot id" : ""
+        throw(ArgumentError("embedded_spec: expected $target, but the HTML holds $held$hint."))
+    end
+    _expand_spec_data!(JSON.parse(last(only(hits))))
+end
+
 # The rows of `table` as the runtime's data operations receive them.
 _rows_payload(table) = _vl_json(_wire_table(table))
 

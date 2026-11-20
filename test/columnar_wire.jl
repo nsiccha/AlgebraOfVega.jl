@@ -104,6 +104,16 @@ replaced, windowed and embedded data reach live views unchanged.
     @test occursin("\"parts\":", html(vdraw(two_tables(1.0); id="two")))
     @test occursin("\"parts\":", script(update_spec("two", two_tables(1.5))))
 
+    # The Julia reading of the wire (`embedded_spec`) gives every case's rows,
+    # value for value as the browser does (Object.is: numbers by their Float64).
+    same(a, b) = a isa Number && b isa Number && !(a isa Bool) && !(b isa Bool) ?
+        Float64(a) === Float64(b) : isequal(a, b)
+    same_row(x, y) = Set(keys(x)) == Set(keys(y)) && all(k -> same(x[k], y[k]), keys(x))
+    for k in sort!(collect(keys(wire)))
+        got, want = AlgebraOfVega._rows_from_wire(JSON.parse(wire[k])), JSON.parse(reference[k])
+        @test length(got) == length(want) && all(splat(same_row), zip(got, want))
+    end
+
     plain = data((; x=Float64[], y=Float64[], scenario=String[])) *
         mapping(:x, :y; color=:scenario) * visual(Lines) * config(height=200)
     updates = Dict(

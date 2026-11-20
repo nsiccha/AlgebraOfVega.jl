@@ -57,6 +57,7 @@ append_data
 replace_data
 remove_data
 update_spec
+embedded_spec
 ```
 
 ## Channel controls
