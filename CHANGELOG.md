@@ -15,6 +15,20 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
+## 0.2.72
+
+- **`embedded_spec(html, plot_id)` reads the spec a page hands the browser
+  for a plot, with its rows.** It takes an HTML string or anything with a
+  `text/html` `show` (a `vdraw`/`to_node` node, a `with_plot_caption`
+  figure, an `update_spec` fragment) and returns the Vega-Lite spec AoV's
+  runtime receives for that plot id, every inline dataset expanded to row
+  objects as the runtime expands it. Its rows equal those of `to_json` for
+  the same figure and `auto_remap` options. Use it in a test that checks
+  what the browser receives: the page sends rows in an internal column form
+  (since commit `b4e6407` also a faceted figure's merged tables, as parts),
+  which a test reading `data.values` from the page text cannot compare. Throws an
+  `ArgumentError` when the HTML holds no spec, or several, for the id.
+
 ## 0.2.71
 
 - **A figure swapped in under the same plot id with the same structure is
