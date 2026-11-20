@@ -15,7 +15,7 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
-## 0.2.75
+## 0.2.76
 
 - **`using AlgebraOfVega` no longer loads Makie or AlgebraOfGraphics.**
   AlgebraOfGraphics cannot load without Makie, and the two were most of the
@@ -49,6 +49,33 @@ failing at run time with a `MethodError`.
   qualify the names (`CairoMakie.Figure`).
 - New dependencies: Colors (colour values read as Makie reads them) and
   Dictionaries (the algebra's keyword tables, as in AlgebraOfGraphics).
+
+## 0.2.75
+
+- **Listed axis tick values follow the rows in place.** A figure whose axis
+  lists its tick values, such as
+  `config(encoding=(; x=(; axis=(; values=ticks))))` with `ticks` the doses
+  drawn plus the dose a marker shows, or the 1-2-5 values AoV lists on a log
+  axis, is now updated in place when a same-id swap or `update_spec` brings
+  other rows and another tick list: the plot keeps its element and Vega view,
+  zoom and pan, the legend selection and the reader's Ribbons | Intervals
+  choice, and the axis shows the new ticks, every one of them (the tick count
+  beside them follows too). Each embed holds a scale's listed values in a view
+  signal its axes read, and the swap sets it with the rows. Lists of numbers,
+  strings, booleans and dates (`DateTime` values on a time axis) are covered.
+  Before, a new tick list made the change structural: the figure embedded
+  afresh, the zoom was reset and the reader's drawing went back to the
+  starting one, although only data had changed (snag `same-id-figure-w-ca30c584`).
+  A changed axis title, format or other axis property still embeds afresh.
+- **A new dose ladder keeps a ribbon's interval drawing in place.** The
+  intervals of a coloured ribbon's point-interval drawing are dodged by a step
+  that is a share of the smallest gap between x values, so another set of
+  doses brings another step. That step is now held in a view signal too, so a
+  same-id swap or `update_spec` with a new ladder keeps the Intervals drawing,
+  its view and the reader's zoom, and draws each interval where a fresh embed
+  would. An authored x domain, which the dodge widens by half the step, still
+  makes a new step structural.
+
 
 ## 0.2.74
 
