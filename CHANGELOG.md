@@ -15,6 +15,25 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
+## 0.2.73
+
+- **Each panel of a wrapped `layout=` facet can take its own Y scale type.**
+  `config(scales=scales(Y=(; scale=Dict("Cmax (ng/mL)" => log10, "AUC₂₄ (ng/mL·h)" => log10))))`
+  on a figure faceted by `layout=` draws the listed panels on a log y axis
+  and the others on a linear one, as the same `Dict` does for the rows of a
+  `row=` facet and the columns of a `col=` facet. Before, a wrapped facet
+  given the `Dict` was an `ArgumentError`. The panels become a Vega-Lite
+  `concat` wrapped `columns` to a row: each panel keeps its own x axis on the
+  shared x scale (its own x scale with `linkxaxes=:none`) and its own y axis,
+  its value is its title, and the figure keeps its Ribbons | Intervals
+  switch, legend, caption, CSV, link group, `ylabels` axis titles and picker
+  colour remaps. The column count is the authored one (`config(columns=N)`,
+  `scales(Layout=(; palette=wrapped(cols=N)))`), else AoG's near-square
+  grid, which the browser replaces with as many panels as fit the plot's
+  width and re-wraps when the width changes, as for a facet. Its readout
+  follows the hovered panel, as a facet's does. A figure without a facet
+  given a `Dict` is still an `ArgumentError`, now naming `layout=` too.
+
 ## 0.2.72
 
 - **`embedded_spec(html, plot_id)` reads the spec a page hands the browser

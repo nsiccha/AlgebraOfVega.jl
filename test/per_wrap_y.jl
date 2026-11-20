@@ -122,6 +122,8 @@ end
     # A key no panel has does nothing.
     odd = to_vegalite(exposure_figure(yscale=merge(LOG, Dict("Cmin" => log10))))
     @test [yscale_types(p) for p in odd["concat"]] == [["log"], ["log"], ["linear"]]
+    # The static Makie path refuses it loudly, naming the wrapped panels.
+    @test_throws "wrapped panel" sdraw_file(exposure_figure(), joinpath(mktempdir(), "x.png"))
 end
 
 @testitem "Each wrapped panel's axis takes its title; the ribbon switch keeps each panel's scale" setup=[AoVPerWrapYFixtures] tags=[:translation, :regression] begin
@@ -226,7 +228,7 @@ end
                 "</div><div id='pw-bare-box' style='width:700px'>" * html(vdraw(exposure_figure(extra=link); id="pw-bare")) * "</div>" *
                 "<div style='width:700px'>" * html(vdraw(rule; id="pw-rule")) * "</div>" *
                 "<div style='width:900px'>" * html(auto_remap_node("pw-picker", picker;
-                    dims=["percentile" => "Percentile"], fixed=Dict(:layout => "panel"), pinned=:detail)) * "</div>"
+                    dims=["percentile" => "Percentile"], pinned=:detail)) * "</div>"
             head = join(html(n) for n in vega_head(; source=:inline))
             driver = read(joinpath(@__DIR__, "per_wrap_y_browser.js"), String)
             write(joinpath(dir, "page.html"), "<!doctype html><meta charset='utf-8'>" * capture * head * "<body>" * page *
