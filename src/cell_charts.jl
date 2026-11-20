@@ -41,20 +41,20 @@ _cell_chrome(width, height) = config(; width, height, padding=0, config=Dict{Str
     "legend" => Dict{String,Any}("disable" => true),
     "view" => Dict{String,Any}("stroke" => nothing)))
 
-_cell_layers(l::AlgebraOfGraphics.Layer) = [l]
-_cell_layers(ls::AlgebraOfGraphics.Layers) = ls.layers
+_cell_layers(l::Layer) = [l]
+_cell_layers(ls::Layers) = ls.layers
 _cell_layers(x) = throw(ArgumentError(
     "cell_charts: expected a figure (`data(...) * mapping(...) * visual(...)`, optionally `* config(...)`); got $(typeof(x))."))
 
-_cell_drawable(l::AlgebraOfGraphics.Layer, layers) = only(layers)
-_cell_drawable(::AlgebraOfGraphics.Layers, layers) = AlgebraOfGraphics.Layers(layers)
+_cell_drawable(l::Layer, layers) = only(layers)
+_cell_drawable(::Layers, layers) = Layers(layers)
 
 # `layer` without its `layout=` mapping (the table's row key).
-function _cell_unfacet(layer::AlgebraOfGraphics.Layer)
+function _cell_unfacet(layer::Layer)
     haskey(layer.named, :layout) || return layer
     named = [k => v for (k, v) in pairs(layer.named) if k !== :layout]
-    m = AlgebraOfGraphics.mapping(layer.positional...; named...)
-    AlgebraOfGraphics.Layer(layer.transformation, layer.data, m.positional, m.named)
+    m = AlgebraOfVega.mapping(layer.positional...; named...)
+    Layer(layer.transformation, layer.data, m.positional, m.named)
 end
 
 # The key column: the `layout=` mapping, the same in every layer that has one.

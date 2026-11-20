@@ -15,6 +15,41 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
+## 0.2.76
+
+- **`using AlgebraOfVega` no longer loads Makie or AlgebraOfGraphics.**
+  AlgebraOfGraphics cannot load without Makie, and the two were most of the
+  load time of a consumer that only draws in the browser. AlgebraOfVega now
+  defines the algebra itself (`data`, `mapping`, `visual`, `dims`, the selector
+  helpers `renamer`, `sorter`, `nonnumeric`, `verbatim`, `presorted`,
+  `direct`, `scale`, `scales`, `pregrouped`, `wrapped`, the analyses
+  `density`, `histogram`, `linear`, `smooth`, `expectation`, `frequency`, and
+  the plot-type names `Scatter`, `Lines`, `Band`, … and the unexported
+  `Text`), with AlgebraOfGraphics 0.13's spelling, fields and defaults.
+  Vega-Lite output is unchanged. `AlgebraOfVega.Makie` is now an alias of these plot-type names
+  (`AlgebraOfVega.PlotTypes`), so `visual(AlgebraOfVega.Makie.Text)` keeps
+  working; it is no longer the Makie package.
+- **`sdraw`, `sdraw!` and `sdraw_file` need AlgebraOfGraphics and a Makie
+  backend loaded**, for example `import AlgebraOfGraphics, CairoMakie`. They
+  are the new `AlgebraOfVegaMakieExt` extension, and their drawings are
+  unchanged. Without it, calling one is a `MethodError` that names what to
+  load. With the extension, AlgebraOfGraphics' own `sorter`, `nonnumeric`,
+  `wrapped`, … keep their meaning inside an AoV spec, and
+  `AlgebraOfGraphics.draw`/`draw!` accept an AoV spec.
+- **Makie alone is enough for Makie's own names in a spec:** with Makie (or
+  CairoMakie) loaded, `visual(Makie.Text)` and `visual(Makie.Scatter)` read as
+  AoV's plot types, `Makie.automatic` as `automatic` and
+  `scale=Makie.pseudolog10` as `symlog` (the `AlgebraOfVegaMakiePlotTypesExt`
+  extension).
+- **Breaking:** code that writes `using CairoMakie`, `using Makie` or
+  `using AlgebraOfGraphics` next to `using AlgebraOfVega` now gets ambiguous
+  names (`Scatter`, `Lines`, `data`, `mapping`, …), because both packages
+  export their own. Import them instead:
+  `import AlgebraOfGraphics` and `using CairoMakie: Figure, save`, or
+  qualify the names (`CairoMakie.Figure`).
+- New dependencies: Colors (colour values read as Makie reads them) and
+  Dictionaries (the algebra's keyword tables, as in AlgebraOfGraphics).
+
 ## 0.2.75
 
 - **Listed axis tick values follow the rows in place.** A figure whose axis

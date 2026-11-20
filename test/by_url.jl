@@ -5,7 +5,8 @@
 # although its fragments drew only 13 different tables.
 
 @testsnippet AoVByURLFixtures begin
-    using AlgebraOfVega, AlgebraOfGraphics, JSON, Tables, Dates
+    using AlgebraOfVega, JSON, Tables, Dates
+    import AlgebraOfGraphics
 
     district(x0) = Dict{String,Any}("type" => "Polygon", "coordinates" =>
         [[[x0, 54.0], [x0, 55.0], [x0 + 1, 55.0], [x0 + 1, 54.0], [x0, 54.0]]])

@@ -4,7 +4,8 @@ using TestItemRunner
 # browser: `data(bound(p; columns))` inside an `@htmx` struct whose property
 # `p` has a browser twin (`@browser`). See src/bound_columns.jl.
 @testmodule AoVBoundFixtures begin
-    using HTMXObjects, AlgebraOfVega, AlgebraOfGraphics
+    using HTMXObjects, AlgebraOfVega
+    import AlgebraOfGraphics
     export BoundLines, LINE_JS, OBS, bound_html, bound_marker
 
     # A module in the contract `ReactiveKernels.js_source` emits: positional
@@ -86,7 +87,8 @@ using TestItemRunner
 end
 
 @testitem "a plot drawn from bound(p; columns) marks its plot area, and lowered rows are refused" setup=[AoVBoundFixtures] tags=[:unit, :semantic] begin
-    using AlgebraOfVega, AlgebraOfGraphics, HTMXObjects
+    using AlgebraOfVega, HTMXObjects
+    import AlgebraOfGraphics
 
     obj = BoundLines()
     rows = obj.rows

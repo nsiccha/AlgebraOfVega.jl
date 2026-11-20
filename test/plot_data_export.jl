@@ -5,7 +5,8 @@ using TestItemRunner
 # without facets gave only its first layer's rows and omitted later layers.
 # Several datasets get a CSV entry each, and each click starts one download.
 @testitem "a figure's CSV and data preview in the browser" tags=[:caption, :browser] begin
-    using AlgebraOfVega, AlgebraOfGraphics, HTMXObjects, JSON
+    using AlgebraOfVega, HTMXObjects, JSON
+    import AlgebraOfGraphics
     Text = AlgebraOfVega.Makie.Text
     chrome = something(Sys.which("google-chrome"), Sys.which("chromium"), "")
     if isempty(chrome)

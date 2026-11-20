@@ -229,6 +229,7 @@ pressed button as a stray `Übersicht (pressed)` line in every captioned figure
 with a summary, including a report figure's PDF.
 """
 @testitem "data preview toggle stays out of the markdown view" tags=[:caption, :markdown, :regression] begin
+    import AlgebraOfGraphics   # with Makie, loads the static path (AlgebraOfVegaMakieExt)
     using AlgebraOfVega, HTMXObjects
     using HTMX: h
     md(x) = HTMXObjects.to_markdown_string(x)

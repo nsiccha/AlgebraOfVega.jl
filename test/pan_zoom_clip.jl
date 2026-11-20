@@ -9,7 +9,8 @@ using TestItemRunner
 # such marks whole until the reader zooms or pans, and then cuts them at the
 # frame only along the zoomed axes. A layer that authors `clip=true` keeps it.
 @testsnippet AoVPanZoomClipFixtures begin
-    using AlgebraOfVega, AlgebraOfGraphics, JSON
+    using AlgebraOfVega, JSON
+    import AlgebraOfGraphics
     const Mk = AlgebraOfVega.Makie
     rows = ["a", "b", "c"]
     bars = data((; row=rows, s=[0.0, 1, 2], e=[2.0, 3, 4])) *

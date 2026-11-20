@@ -18,7 +18,8 @@ intervals), and three sigmoids that meet only near 0 and 1, where their bands
 are thin (stays a ribbon).
 """
 @testsnippet AoVRibbonViewFixtures begin
-    using AlgebraOfVega, AlgebraOfGraphics
+    using AlgebraOfVega
+    import AlgebraOfGraphics
     AoV = AlgebraOfVega
     DOSES = [5, 10, 20, 40, 80, 160, 320]
     BANDS = [:q025 => :q975, :q10 => :q90, :q25 => :q75]

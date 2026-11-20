@@ -8,7 +8,7 @@ using TestItemRunner
 # (snag `per-layer-toolti-162cb718`).
 @testsnippet AoVLayerEncodingFixtures begin
     using AlgebraOfVega
-    using AlgebraOfGraphics
+    import AlgebraOfGraphics
 
     # Every Vega-Lite unit (a dict with a `mark`), in emission order.
     function units(node, out=Dict{String,Any}[])

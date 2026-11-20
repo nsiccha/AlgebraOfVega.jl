@@ -8,7 +8,7 @@ using TestItemRunner
 # and the median line painted nothing (snag `a-posterior-band-e1686463`).
 @testsnippet AoVRibbonTemporalFixtures begin
     using AlgebraOfVega
-    using AlgebraOfGraphics
+    import AlgebraOfGraphics
     using Dates
 
     # Every Vega-Lite unit (a dict with a `mark`), in emission order.

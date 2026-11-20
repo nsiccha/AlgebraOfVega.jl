@@ -55,9 +55,11 @@ println() # hide
 | Task | Function | Runtime requirement |
 | --- | --- | --- |
 | Save the Vega-rendered figure as SVG, PNG, or PDF | `vsave(plot, path)` | The vl-convert command-line tool on `PATH`, or `AOV_VL_CONVERT` |
-| Save with Makie and return an image node | `sdraw(plot, path)` | A loaded Makie backend |
-| Add to a Makie layout | `sdraw!(position, plot)` | A loaded Makie backend |
-| Save through Makie | `sdraw_file(plot, path)` | A loaded Makie backend |
+| Save with Makie and return an image node | `sdraw(plot, path)` | AlgebraOfGraphics and a Makie backend loaded |
+| Add to a Makie layout | `sdraw!(position, plot)` | AlgebraOfGraphics and a Makie backend loaded |
+| Save through Makie | `sdraw_file(plot, path)` | AlgebraOfGraphics and a Makie backend loaded |
+
+The Makie functions come from the `AlgebraOfVegaMakieExt` extension, which loads once AlgebraOfGraphics and Makie are loaded: `import AlgebraOfGraphics, CairoMakie`. Import them rather than `using` them, because both export names that AlgebraOfVega also exports (`data`, `mapping`, `Scatter`, …); `using CairoMakie: Figure, save` brings in what a script needs.
 
 These tools are separate rendering paths. The Makie path supports line and precomputed ribbons, but does not support point, gradient, or dot intervals or geographic marks. The documentation environment does not install a static backend or vl-convert, so this guide demonstrates browser and JSON exports and lists image calls without an unevaluated code block.
 

@@ -7,7 +7,8 @@ using TestItemRunner
 # dragged, under the finger. A tap now opens the mark's tooltip above the
 # finger and hovers its row until a tap elsewhere; a long press is its click.
 @testitem "touch input in the browser: a tap opens the tooltip and hovers, a long press clicks" tags=[:regression, :browser, :interactivity] begin
-    using AlgebraOfVega, AlgebraOfGraphics, JSON
+    using AlgebraOfVega, JSON
+    import AlgebraOfGraphics
     html(x) = sprint(show, MIME"text/html"(), x)
 
     ags = ["01001", "01002", "01003"]

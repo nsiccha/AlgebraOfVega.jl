@@ -12,7 +12,7 @@ _MARK_MAP = [
     VSpan => "rect", HSpan => "rect",
     Hist => "bar", MakieDensity => "area", Errorbars => "errorbar",
     Stairs => "line", ECDFPlot => "line", Contour => "rect",
-    Rangebars => "errorbar", CrossBar => "errorbar", Makie.Text => "text",
+    Rangebars => "errorbar", CrossBar => "errorbar", PlotTypes.Text => "text",
 ]
 
 function plottype_to_mark(T::Type)
@@ -111,7 +111,7 @@ selector_to_field(sel::Int) = Dict{String,Any}("field" => "column_$sel")
 # AoG's direct scalar is data repeated for every table row, not a pixel or
 # fixed mark property. A datum encoding keeps scales and survives row updates
 # without adding a synthetic column to a bound or addressed table.
-selector_to_field(sel::AlgebraOfGraphics.DirectData{<:Union{Number,AbstractString,Symbol,TimeType}}) =
+selector_to_field(sel::DirectData{<:Union{Number,AbstractString,Symbol,TimeType}}) =
     Dict{String,Any}("datum" => sel.data, "type" => vl_type((sel.data,)))
 function selector_to_field(sel::Pair)
     src, dst = sel
@@ -130,14 +130,14 @@ _apply_selector_modifier!(field::Dict{String,Any}, dst::AbstractString) = (field
 # nonnumeric: force categorical. Without this, an Int column used for
 # color ends up as quantitative, which won't merge with sibling layers
 # (e.g. ECDFPlot) that hardcode nominal → dual color legends.
-_apply_selector_modifier!(field::Dict{String,Any}, ::typeof(AlgebraOfGraphics.nonnumeric)) = (field["type"] = "nominal"; field)
+_apply_selector_modifier!(field::Dict{String,Any}, ::typeof(nonnumeric)) = (field["type"] = "nominal"; field)
 # sorter(ks) / renamer(ks => …) → AoG `Renamer` whose `uniquevalues` is the
 # explicit data-domain order. On a facet channel (row/col) this becomes a
 # Vega-Lite `sort` array so the facet headers follow the requested order.
 # `data_to_vl` emits raw column values (no relabeling on the VL path), so the
 # sort domain must be the raw `uniquevalues`, not the display `labels`.
 # A keyless `renamer([...])` has `uniquevalues === nothing` → no sort to apply.
-function _apply_selector_modifier!(field::Dict{String,Any}, r::AlgebraOfGraphics.Renamer)
+function _apply_selector_modifier!(field::Dict{String,Any}, r::Renamer)
     r.uniquevalues !== nothing && (field["sort"] = collect(r.uniquevalues))
     field
 end
@@ -169,7 +169,7 @@ _selector_label(_) = nothing
 # Mirrors `_apply_selector_modifier!`'s `Renamer` branch so analyses that rebuild
 # encodings from field names still order colour/group exactly like plain layers do.
 _selector_sort(sel) = nothing
-_selector_sort(r::AlgebraOfGraphics.Renamer) =
+_selector_sort(r::Renamer) =
     r.uniquevalues === nothing ? nothing : collect(r.uniquevalues)
 function _selector_sort(sel::Pair)
     s = _selector_sort(first(sel))

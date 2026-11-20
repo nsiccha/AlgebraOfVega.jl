@@ -9,7 +9,8 @@ using TestItemRunner
 # re-embedded the plot, replacing its view and dropping the legend selection
 # (todo `0dp0do2`: the flaky `legend_interaction` caption fixture).
 @testsnippet AoVFitWidthFixtures begin
-    using AlgebraOfVega, AlgebraOfGraphics
+    using AlgebraOfVega
+    import AlgebraOfGraphics
     rows = (; x=repeat([1.0, 2.0, 3.0], 4), y=collect(1.0:12.0),
         group=repeat(["A", "B"], inner=3, outer=2), panel=repeat(["P", "Q"], inner=6),
         row=repeat(["R", "S"], inner=3, outer=2))
@@ -54,7 +55,8 @@ end
 # headless Chrome, opened with the URL `query`, and checks the
 # `{checks, failures}` report it writes to `<pre id=result_id>`.
 @testsnippet AoVFitWidthBrowser begin
-    using AlgebraOfVega, AlgebraOfGraphics, JSON
+    using AlgebraOfVega, JSON
+    import AlgebraOfGraphics
     html(x) = sprint(show, MIME"text/html"(), x)
     rows = (; x=repeat([1.0, 2.0, 3.0], 4), y=collect(1.0:12.0),
         group=repeat(["A", "B"], inner=3, outer=2), panel=repeat(["P", "Q"], inner=6))

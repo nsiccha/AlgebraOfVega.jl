@@ -5,7 +5,8 @@ using TestItemRunner
 # 0.4 to 7.1 GiB and 20 s (snag large-captioned-ce633d40, design decision
 # 2026-11-17T00-15-59-118-05b00qc, option 1).
 @testitem "a long data preview shows a page at a time, sorts and reaches every row" tags=[:regression, :browser, :caption, :texts] begin
-    using AlgebraOfVega, AlgebraOfGraphics, HTMXObjects, JSON
+    using AlgebraOfVega, HTMXObjects, JSON
+    import AlgebraOfGraphics
     html(x) = sprint(show, MIME"text/html"(), x)
 
     # The words: English and German defaults, an override, and the placeholders

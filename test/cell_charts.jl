@@ -15,7 +15,8 @@ using TestItemRunner
 end
 
 @testitem "cell charts: one lowered column, a <td> per key, Markdown text" setup=[AoVCellFixtures] tags=[:cells] begin
-    using AlgebraOfVega, AlgebraOfGraphics, HTMXObjects, HTMX, JSON
+    using AlgebraOfVega, HTMXObjects, HTMX, JSON
+    import AlgebraOfGraphics
 
     cells = cell_charts(cell_spec(); texts=table_texts(:de))
     col = cells.column
@@ -82,7 +83,8 @@ end
 end
 
 @testitem "cell charts refuse what has no cell" setup=[AoVCellFixtures] tags=[:cells] begin
-    using AlgebraOfVega, AlgebraOfGraphics, HTMXObjects
+    using AlgebraOfVega, HTMXObjects
+    import AlgebraOfGraphics
 
     msg(f) = try f(); "" catch e; e isa ArgumentError ? e.msg : rethrow() end
     @test occursin("layout=", msg(() -> cell_charts(data(cell_rows) * mapping(:klasse, :n) * visual(BarPlot))))
@@ -94,7 +96,8 @@ end
 end
 
 @testitem "cell charts in the browser: shared scales, drawn near the viewport, released" setup=[AoVCellFixtures] tags=[:cells, :browser, :regression] begin
-    using AlgebraOfVega, AlgebraOfGraphics, HTMXObjects, HTMX, JSON
+    using AlgebraOfVega, HTMXObjects, HTMX, JSON
+    import AlgebraOfGraphics
 
     chrome = something(Sys.which("google-chrome"), Sys.which("chromium"), "")
     if isempty(chrome)

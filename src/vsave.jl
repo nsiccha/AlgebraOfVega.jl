@@ -29,7 +29,7 @@ function vsave(spec, path::AbstractString; auto_remap::Union{Nothing,NamedTuple}
     _vsave_render(_with_rows_inline(() -> to_vegalite(spec; interactive=false, auto_remap)), path, cmd)
 end
 
-function vsave(spec, sc::AlgebraOfGraphics.Scales, path::AbstractString;
+function vsave(spec, sc::Scales, path::AbstractString;
                auto_remap::Union{Nothing,NamedTuple}=nothing, kwargs...)
     cmd = _vsave_command(path; kwargs...)
     _vsave_render(_with_rows_inline(() -> to_vegalite(spec, sc; interactive=false, auto_remap)), path, cmd)

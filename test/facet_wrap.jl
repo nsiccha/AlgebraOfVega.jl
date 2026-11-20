@@ -7,7 +7,8 @@ using TestItemRunner
 # the plot's width (user pick on
 # `AlgebraOfVega:snag.aov-layout-facet-e1179109/decisions/2026-10-25T09-18-44-857-1r4o8ot`).
 @testsnippet AoVFacetWrapFixtures begin
-    using AlgebraOfVega, AlgebraOfGraphics
+    using AlgebraOfVega
+    import AlgebraOfGraphics
     const AoG = AlgebraOfGraphics
     regions = ["Region " * lpad(g, 2, '0') for g in 1:17]
     rows = [(; region, year, q50=g + 0.1 * (year - 2000), lo=g - 1.0, hi=g + 1.0)
@@ -110,7 +111,7 @@ end
     cols(w) = w.size_restriction.n
     for spec in (sized, sized * config(width=400, height=100), sized * config(columns=6))
         sc = AlgebraOfVega._sdraw_scales(nothing, spec.drawable, spec.config)
-        @test palette(sc) isa AoG.Wrap && !palette(sc).by_col
+        @test palette(sc) isa AlgebraOfVega.Wrap && !palette(sc).by_col
         @test cols(palette(sc)) == columns(to_vegalite(spec))
     end
     # Other scales survive; an authored Layout palette is AoG's own and wins; a

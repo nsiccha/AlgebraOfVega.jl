@@ -6,7 +6,8 @@ using TestItemRunner
 # wherever a key wrapped onto a second line, and a dark page without Pico got a
 # white box.
 @testitem "tooltips in the browser: one surface in the page's colours" tags=[:regression, :browser, :interactivity] begin
-    using AlgebraOfVega, AlgebraOfGraphics, HTMXObjects, JSON
+    using AlgebraOfVega, HTMXObjects, JSON
+    import AlgebraOfGraphics
     html(x) = sprint(show, MIME"text/html"(), x)
 
     rows = (; k=["a", "b", "c"], v=[1.0, 2.0, 4.0], title=["first", "second", "third"])

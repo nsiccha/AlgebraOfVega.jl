@@ -11,8 +11,8 @@ using TestItemRunner
 # (snag `gave-two-layers-0c054233`).
 @testsnippet AoVLayerTransformFixtures begin
     using AlgebraOfVega
-    using AlgebraOfGraphics
-    const Makie = AlgebraOfVega.Makie
+    import AlgebraOfGraphics
+    import Makie   # the Makie package: these tests draw into a Makie.Figure
 
     # Every Vega-Lite unit (a dict with a `mark`), in emission order.
     function units(node, out=Dict{String,Any}[])
@@ -97,7 +97,7 @@ end
     @test filters(geo) == ["datum.v > 0"]
     @test haskey(geo["transform"][2], "lookup")
 
-    dens = to_vegalite(data(rows) * mapping(:a) * AlgebraOfGraphics.density() *
+    dens = to_vegalite(data(rows) * mapping(:a) * AlgebraOfVega.density() *
         config(transform=drop("datum.x > 1")))
     @test filters(dens) == ["datum.x > 1"]
     @test haskey(dens["transform"][2], "density")
@@ -210,8 +210,9 @@ end
 end
 
 @testitem "per-layer and whole-figure transforms draw the right rows in the browser" tags=[:regression, :browser, :config] begin
-    using AlgebraOfVega, AlgebraOfGraphics, HTMXObjects, JSON
-    const Makie = AlgebraOfVega.Makie
+    using AlgebraOfVega, HTMXObjects, JSON
+    import AlgebraOfGraphics
+    import Makie   # the Makie package: these tests draw into a Makie.Figure
     html(x) = sprint(show, MIME"text/html"(), x)
     drop(cond) = Any[Dict("filter" => cond)]
     rows = (; a=[1.0, 2.0, 3.0], b=[4.0, 5.0, 6.0], x=[1, 2, 3], t=["p", "q", "r"])

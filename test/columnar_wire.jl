@@ -16,7 +16,8 @@ half checks that equivalence value by value (`Object.is`), and that streamed,
 replaced, windowed and embedded data reach live views unchanged.
 """
 @testitem "columnar wire round-trips rows exactly" tags=[:incremental, :browser, :regression] begin
-    using AlgebraOfVega, AlgebraOfGraphics, Tables, JSON, FillArrays, Dates
+    using AlgebraOfVega, Tables, JSON, FillArrays, Dates
+    import AlgebraOfGraphics
     html(x) = sprint(show, MIME"text/html"(), x)
     script(x) = match(r"^<script>(.*)</script>$"s, html(x)).captures[1]
     payload(s) = match(r"^AoV\.\w+\('[^']*', (.*), '[^']*'(?:, [^,)]*)?\);$"s, s).captures[1]

@@ -144,6 +144,7 @@ end
 end
 
 @testitem "Per-panel Y scales keep the column form, wrap a layout= facet and refuse figures without a facet" setup=[AoVPerRowYFixtures] tags=[:translation, :regression] begin
+    import AlgebraOfGraphics   # with Makie, loads the static path (AlgebraOfVegaMakieExt)
     # With a column facet the `Dict` keys the columns, as before.
     grid = data(exposure) * mapping(:dose, :q50; col=:panel, row=:percentile) * visual(Scatter) *
         config(scales=scales(Y=(; scale=LOG)))

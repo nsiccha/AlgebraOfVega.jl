@@ -2,7 +2,7 @@
 
 ## Algebra and mappings
 
-These names are re-exported from AlgebraOfGraphics and retain its meaning.
+AlgebraOfVega provides these names itself, with AlgebraOfGraphics' spelling and meaning, so the browser path loads neither AlgebraOfGraphics nor Makie.
 
 | Names | Task |
 | --- | --- |
@@ -24,7 +24,7 @@ The [composition guide](../guides/composition.md) demonstrates the algebra. The 
 | `HLines`, `VLines`, `HSpan`, `VSpan` | Reference rules and shaded ranges. |
 | `Contour` | Contours. |
 
-These are re-exported Makie plot types used as arguments to `visual`; browser rendering does not require a Makie backend. See [coordinates](../guides/composition.md#Coordinates) for positional-mapping exceptions.
+These are AlgebraOfVega's plot-type names (`AlgebraOfVega.PlotTypes`), spelled like Makie's plot types and used as arguments to `visual`; browser rendering loads no Makie. With Makie loaded, `visual` also accepts Makie's own plot types, such as `Makie.Text`. See [coordinates](../guides/composition.md#Coordinates) for positional-mapping exceptions.
 
 ## Stacked panels
 

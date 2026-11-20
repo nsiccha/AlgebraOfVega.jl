@@ -6,7 +6,8 @@ using TestItemRunner
 # lon/lat marks drawn through its projection, ignored the wheel and the drag.
 
 @testsnippet AoVMapZoomFixtures begin
-    using AlgebraOfVega, AlgebraOfGraphics, JSON
+    using AlgebraOfVega, JSON
+    import AlgebraOfGraphics
     # Clockwise rings: d3-geo reads a counter-clockwise ring as the whole
     # globe minus the square.
     square(k, x0, y0, d) = Dict{String,Any}("type" => "Feature", "properties" => Dict{String,Any}("k" => k),

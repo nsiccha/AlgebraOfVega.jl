@@ -7,7 +7,7 @@ using TestItemRunner
 # Vega's default blue (snag `lineribbon-fixed-fcf78a96`).
 @testsnippet AoVRibbonColorFixtures begin
     using AlgebraOfVega
-    using AlgebraOfGraphics
+    import AlgebraOfGraphics
     import Makie
 
     # Every Vega-Lite unit (a dict with a `mark`), in emission order.
@@ -32,7 +32,7 @@ using TestItemRunner
     precomputed = (lineribbon(bands=[:q025 => :q975, :q25 => :q75]),
         ribbon(bands=[:q025 => :q975, :q25 => :q75]))
     static_layers(spec) = let c = AlgebraOfVega._convert_drawable(first(AlgebraOfVega._extract_drawable(spec)))
-        c isa AlgebraOfGraphics.Layers ? c.layers : [c]
+        c isa AlgebraOfVega.Layers ? c.layers : [c]
     end
     static_color(l) = get(AlgebraOfVega.extract_visual(l).attributes, :color, nothing)
 end

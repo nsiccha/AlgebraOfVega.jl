@@ -1409,11 +1409,11 @@ _wrap_with_config(spec::VegaSpec, drawable) =
     VegaSpec(drawable, spec.config, spec.layer_encodings, spec.layer_transforms)
 _wrap_with_config(_, drawable) = drawable
 
-_layer_iter(d::AlgebraOfGraphics.Layers) = d.layers
-_layer_iter(d::AlgebraOfGraphics.Layer) = (d,)
+_layer_iter(d::Layers) = d.layers
+_layer_iter(d::Layer) = (d,)
 _layer_iter(_) = ()
 
-_drop_pregrouped(::AlgebraOfGraphics.Pregrouped) = nothing
+_drop_pregrouped(::Pregrouped) = nothing
 _drop_pregrouped(t) = t
 
 _source_tables_from_spec(::Nothing) = Any[]

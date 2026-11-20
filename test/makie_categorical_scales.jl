@@ -7,7 +7,7 @@
 
 @testsnippet AoVLineStyleRows begin
     using AlgebraOfVega
-    using AlgebraOfGraphics
+    import AlgebraOfGraphics
 
     # Four two-point segments along one latitude; odd segments carry the flag.
     rows = [(; lon=13.0 + i / 100, lat=52.0, g=string(i ÷ 2),

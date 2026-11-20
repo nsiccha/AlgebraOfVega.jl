@@ -25,8 +25,8 @@ end
 # --- helpers ---
 
 # Walk a spec down to the list of AoG Layers it contains.
-_spec_layers_or_nothing(d::AlgebraOfGraphics.Layers) = collect(d.layers)
-_spec_layers_or_nothing(d::AlgebraOfGraphics.Layer) = [d]
+_spec_layers_or_nothing(d::Layers) = collect(d.layers)
+_spec_layers_or_nothing(d::Layer) = [d]
 _spec_layers_or_nothing(_) = nothing
 
 function _spec_layers(spec)
@@ -289,7 +289,7 @@ _patch_detail(t, _) = t
 # data-driven encodings from the resolved channel kws — e.g. a scatter
 # layer with `visual(Scatter; color="black")` keeps its black points
 # regardless of the picker's color channel.
-_visual_static_channels(t::AlgebraOfGraphics.Visual) = Set{Symbol}(keys(t.attributes))
+_visual_static_channels(t::Visual) = Set{Symbol}(keys(t.attributes))
 _visual_static_channels(t::ComposedFunction) =
     union(_visual_static_channels(t.outer), _visual_static_channels(t.inner))
 _visual_static_channels(_) = Set{Symbol}()
@@ -369,9 +369,9 @@ function _rebuild_layer(layer, new_df, resolved, dim_fields::Set{String}; source
     # Compose a fresh layer using AoG operators (so .data, .positional, .named
     # are constructed in the AoG-native shapes), then swap in the patched
     # transformation.
-    composed = AlgebraOfGraphics.data(source) *
-        AlgebraOfGraphics.mapping(layer.positional...; new_named...)
-    new_layer = AlgebraOfGraphics.Layer(new_t, composed.data, composed.positional, composed.named)
+    composed = AlgebraOfVega.data(source) *
+        AlgebraOfVega.mapping(layer.positional...; new_named...)
+    new_layer = Layer(new_t, composed.data, composed.positional, composed.named)
     (new_layer, keep_color_field)
 end
 
@@ -388,7 +388,7 @@ _selector_scale_modifier_dst(src, dst::Function) = dst
 # `_attach_modifier` path re-attaches it to the resolved selector, and
 # `_apply_selector_modifier!(::Renamer)` re-translates it into VL `sort` after
 # the auto-remap picker rebuilds the layer.
-_selector_scale_modifier_dst(src, dst::AlgebraOfGraphics.Renamer) = dst
+_selector_scale_modifier_dst(src, dst::Renamer) = dst
 _selector_scale_modifier_dst(src, dst::Pair) = _selector_scale_modifier(Pair(src, first(dst)))
 _selector_scale_modifier_dst(args...) = nothing
 

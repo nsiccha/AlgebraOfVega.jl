@@ -102,13 +102,13 @@ function _ribbon_intervals_spec(v, src)
     # groups were sampled at different x values. Request that explicitly:
     # standalone pointinterval only auto-dodges colours sharing a position.
     isnothing(src.color_field) || get!(named, :dodge_x, l.named[:color])
-    m = AlgebraOfGraphics.mapping(l.positional...; named...)
-    intervals = AlgebraOfGraphics.Layer(_interval_view_analysis(src.analysis), l.data, m.positional, m.named)
+    m = AlgebraOfVega.mapping(l.positional...; named...)
+    intervals = Layer(_interval_view_analysis(src.analysis), l.data, m.positional, m.named)
     vis = extract_visual(l)
     kept = isnothing(vis) ? Symbol[] : [k for k in (:color, :inspectable) if haskey(vis.attributes, k) &&
                                         (k === :inspectable ? vis.attributes[k] === false : isnothing(src.color_field))]
     layers[src.index] = isempty(kept) ? intervals :
-        intervals * AlgebraOfGraphics.visual(; (k => vis.attributes[k] for k in kept)...)
+        intervals * AlgebraOfVega.visual(; (k => vis.attributes[k] for k in kept)...)
     drawable = length(layers) == 1 ? only(layers) : reduce(+, layers)
     isnothing(src.color_field) || return _wrap_with_config(v, drawable)
     encs = _layer_encodings(v)
@@ -129,7 +129,7 @@ function _vegaspec_views(v::VegaSpec; interactive::Bool=true)
     get!(Dict{String,Any}, vl, "_aov")["ribbonView"] = Dict{String,Any}("pending" => alt, "source" => src)
     vl
 end
-_vegaspec_views(v::Union{AlgebraOfGraphics.Layer,AlgebraOfGraphics.Layers}; interactive::Bool=true) =
+_vegaspec_views(v::Union{Layer,Layers}; interactive::Bool=true) =
     _vegaspec_views(vlspec(v); interactive)
 
 _ribbon_view_meta(vl::Dict) = let aov = _as_dict(get(vl, "_aov", nothing))
@@ -729,10 +729,10 @@ picker). Returns `(; offered, why_not, start, score, threshold)`:
 
 `start`, `score` and `threshold` are `nothing` when the switch is not offered.
 """
-ribbon_view(spec::Union{AlgebraOfGraphics.Layer,AlgebraOfGraphics.Layers,VegaSpec};
+ribbon_view(spec::Union{Layer,Layers,VegaSpec};
             auto_remap::Union{Nothing,NamedTuple}=nothing) =
     _ribbon_view_facts(to_vegalite(spec; auto_remap), spec, auto_remap)
-ribbon_view(spec::Union{AlgebraOfGraphics.Layer,AlgebraOfGraphics.Layers,VegaSpec}, sc::AlgebraOfGraphics.Scales;
+ribbon_view(spec::Union{Layer,Layers,VegaSpec}, sc::Scales;
             auto_remap::Union{Nothing,NamedTuple}=nothing) =
     _ribbon_view_facts(to_vegalite(spec, sc; auto_remap), spec, auto_remap)
 

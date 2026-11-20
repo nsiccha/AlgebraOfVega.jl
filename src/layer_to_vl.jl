@@ -3,18 +3,18 @@
 """Analysis types to check in `_layer_handler`, in priority order."""
 _ANALYSIS_TYPES = Type[
     TidybayesAnalysis,
-    AlgebraOfGraphics.DensityAnalysis,
-    AlgebraOfGraphics.FrequencyAnalysis,
-    AlgebraOfGraphics.ExpectationAnalysis,
-    AlgebraOfGraphics.LinearAnalysis,
-    AlgebraOfGraphics.SmoothAnalysis,
-    AlgebraOfGraphics.HistogramAnalysis,
+    DensityAnalysis,
+    FrequencyAnalysis,
+    ExpectationAnalysis,
+    LinearAnalysis,
+    SmoothAnalysis,
+    HistogramAnalysis,
     GeoShapeAnalysis,
     GeoBoxAnalysis,
 ]
 
 """Find the dispatch key for a layer: an analysis object, Val(:ecdf), or nothing (plain layer)."""
-function _layer_handler(layer::AlgebraOfGraphics.Layer)
+function _layer_handler(layer::Layer)
     for T in _ANALYSIS_TYPES
         a = extract_transformation(layer, T)
         !isnothing(a) && return a
@@ -26,18 +26,18 @@ end
 _layer_to_vl(a::TidybayesAnalysis, layer; kw...) =
     (_refuse_by_url(extract_data(layer), "$(_tidybayes_name(a)) computes the rows it draws in Julia");
      analysis_to_vl(a, layer; kw...))
-_layer_to_vl(::AlgebraOfGraphics.DensityAnalysis, layer; kw...) = density_to_vl(layer; kw...)
-_layer_to_vl(::AlgebraOfGraphics.FrequencyAnalysis, layer; kw...) = frequency_to_vl(layer; kw...)
-_layer_to_vl(::AlgebraOfGraphics.ExpectationAnalysis, layer; kw...) = expectation_to_vl(layer; kw...)
-_layer_to_vl(::AlgebraOfGraphics.LinearAnalysis, layer; kw...) = linear_to_vl(layer; kw...)
-_layer_to_vl(::AlgebraOfGraphics.SmoothAnalysis, layer; kw...) = smooth_to_vl(layer; kw...)
-_layer_to_vl(::AlgebraOfGraphics.HistogramAnalysis, layer; kw...) = histogram_to_vl(layer; kw...)
+_layer_to_vl(::DensityAnalysis, layer; kw...) = density_to_vl(layer; kw...)
+_layer_to_vl(::FrequencyAnalysis, layer; kw...) = frequency_to_vl(layer; kw...)
+_layer_to_vl(::ExpectationAnalysis, layer; kw...) = expectation_to_vl(layer; kw...)
+_layer_to_vl(::LinearAnalysis, layer; kw...) = linear_to_vl(layer; kw...)
+_layer_to_vl(::SmoothAnalysis, layer; kw...) = smooth_to_vl(layer; kw...)
+_layer_to_vl(::HistogramAnalysis, layer; kw...) = histogram_to_vl(layer; kw...)
 _layer_to_vl(::Val{:ecdf}, layer; kw...) = ecdf_to_vl(layer; kw...)
 _layer_to_vl(::GeoShapeAnalysis, layer; kw...) = geoshape_to_vl(layer; kw...)
 _layer_to_vl(::GeoBoxAnalysis, layer; kw...) = geobox_to_vl(layer; kw...)
 _layer_to_vl(::Nothing, layer; kw...) = _plain_layer_to_vl(layer; kw...)
 
-function layer_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false)
+function layer_to_vl(layer::Layer; is_sublayer=false)
     if is_pregrouped(layer)
         spec = pregrouped_to_vl(layer; is_sublayer)
     else
@@ -53,7 +53,7 @@ end
 `positional_channels` names the channels the layer's positionals lower to;
 by default they follow the plot type (`x`/`y`, `y` for `HLines`, …). A layer
 drawn on a map passes `["longitude", "latitude"]` (`_map_layer_to_vl`)."""
-function _plain_layer_to_vl(layer::AlgebraOfGraphics.Layer; is_sublayer=false,
+function _plain_layer_to_vl(layer::Layer; is_sublayer=false,
         positional_channels=nothing)
     spec = Dict{String,Any}()
 
@@ -237,11 +237,11 @@ end
 # `direction` places the positionals (and the mark's `orient`), `fillto` the
 # base, and Makie's `width` and `gap` the edges (`_bar_edges!`). A `width` that
 # is not Makie's (a Vega-Lite `{band: …}` object) stays the mark's.
-_bar_encoded_attrs(vis::AlgebraOfGraphics.Visual) =
-    _makie_bar_width(get(vis.attributes, :width, Makie.automatic)) ?
+_bar_encoded_attrs(vis::Visual) =
+    _makie_bar_width(get(vis.attributes, :width, automatic)) ?
         (:direction, :fillto, :width, :gap) : (:direction, :fillto, :gap)
 
-_makie_bar_width(w) = w === Makie.automatic || w isa Real || w isa Dates.Period
+_makie_bar_width(w) = w === automatic || w isa Real || w isa Dates.Period
 
 # Makie's `barplot` draws each bar `width * (1 - gap)` wide, centred on its
 # position, in data units: `width` defaults to the smallest gap between the
@@ -250,8 +250,8 @@ _makie_bar_width(w) = w === Makie.automatic || w isa Real || w isa Dates.Period
 # 0.2. `width` is `nothing` here for that default, else the authored width (a
 # `Dates.Period` for a time axis, as milliseconds). An authored Vega-Lite
 # `width` object is `vl_width=true`: the author sized the bars in pixels.
-function _bar_size(vis::AlgebraOfGraphics.Visual)
-    w = get(vis.attributes, :width, Makie.automatic)
+function _bar_size(vis::Visual)
+    w = get(vis.attributes, :width, automatic)
     g = get(vis.attributes, :gap, 0.2)
     authored = haskey(vis.attributes, :width) || haskey(vis.attributes, :gap)
     g isa Real && isfinite(g) && 0 <= g < 1 || throw(ArgumentError(
@@ -263,9 +263,9 @@ function _bar_size(vis::AlgebraOfGraphics.Visual)
             "visual(BarPlot): width=$(repr(w)) has no fixed length; give a time span such as `Hour(1)` or `Day(1)`."))
         w = Dates.toms(w)
     end
-    w === Makie.automatic || (w isa Real && isfinite(w) && w > 0) || throw(ArgumentError(
+    w === automatic || (w isa Real && isfinite(w) && w > 0) || throw(ArgumentError(
         "visual(BarPlot): width=$(repr(w)) is not a bar width; give a positive number in the position axis's data units (a time span such as `Hour(1)` on a time axis), as in Makie."))
-    (; width=w === Makie.automatic ? nothing : Float64(w), gap=Float64(g), period, authored, vl_width=false)
+    (; width=w === automatic ? nothing : Float64(w), gap=Float64(g), period, authored, vl_width=false)
 end
 
 # A Vega-Lite bar on a continuous position axis is `continuousBandSize` (5 px)
@@ -344,7 +344,7 @@ end
 
 # Makie's `barplot` reads `direction` as `:y` (vertical bars, the default) or
 # `:x` (horizontal) and refuses anything else.
-function _bar_direction(vis::AlgebraOfGraphics.Visual)
+function _bar_direction(vis::Visual)
     d = get(vis.attributes, :direction, :y)
     d === :x || d === :y || throw(ArgumentError(
         "visual(BarPlot): invalid direction $(repr(d)); the options are :x (horizontal bars) and :y (vertical bars), as in Makie."))
@@ -352,10 +352,10 @@ function _bar_direction(vis::AlgebraOfGraphics.Visual)
 end
 
 # `vis` without the attributes `ks`; `vis` itself when it sets none of them.
-function _without_attributes(vis::AlgebraOfGraphics.Visual, ks)
+function _without_attributes(vis::Visual, ks)
     any(k -> haskey(vis.attributes, k), ks) || return vis
     attrs = Dict(k => v for (k, v) in pairs(vis.attributes) if !(k in ks))
-    AlgebraOfGraphics.Visual(vis.plottype, AlgebraOfGraphics.NamedArguments(attrs), vis.target)
+    Visual(vis.plottype, NamedArguments(attrs), vis.target)
 end
 
 # How far a horizontal bar reaches (its second positional) is a number. Text
@@ -382,10 +382,10 @@ _with_mark_property(mark::AbstractDict, k, v) = (haskey(mark, k) || (mark[k] = v
 # the value axis), as Makie's `barplot` does: Vega-Lite's `x2`/`y2` datum. A
 # mapped `fillto=` wins, as a mapping wins over a fixed colour. Makie also takes
 # a vector, one base per bar; that has no spelling here, so it is reported.
-function _bar_fixed_base!(encoding::Dict, vis::AlgebraOfGraphics.Visual, channel)
+function _bar_fixed_base!(encoding::Dict, vis::Visual, channel)
     haskey(vis.attributes, :fillto) || return encoding
     v = vis.attributes[:fillto]
-    (v === Makie.automatic || haskey(encoding, channel)) && return encoding
+    (v === automatic || haskey(encoding, channel)) && return encoding
     if v isa Real && isfinite(v)
         encoding[channel] = Dict{String,Any}("datum" => v)
     else
@@ -412,7 +412,7 @@ its two positionals are longitude and latitude, and they lower to Vega-Lite's
 `longitude`/`latitude` channels instead of Cartesian `x`/`y`, which a map does
 not have. Only plain marks that can stand at a point qualify.
 """
-function _map_layer_to_vl(layer::AlgebraOfGraphics.Layer)
+function _map_layer_to_vl(layer::Layer)
     is_pregrouped(layer) && throw(ArgumentError(
         "geoshape: a layer drawn on a map needs a `data(...)` table with longitude/latitude columns; pregrouped data has none."))
     handler = _layer_handler(layer)
@@ -464,10 +464,10 @@ end
 
 # Whether a layer sets the map's projection: an area layer given `projection=`
 # (`nothing` included, which emits none).
-_sets_projection(layer::AlgebraOfGraphics.Layer) =
+_sets_projection(layer::Layer) =
     _sets_projection(extract_transformation(layer, MapAreaAnalysis))
 _sets_projection(::Nothing) = false
-_sets_projection(a::MapAreaAnalysis) = !(a.projection isa Makie.Automatic)
+_sets_projection(a::MapAreaAnalysis) = !(a.projection isa Automatic)
 
 # Names the projection properties two area layers disagree on, then each
 # layer's projection, so that two projections of one type read apart.
@@ -648,7 +648,7 @@ function _mark_with_style(mark, name)
     _style_composite_parts(m)
 end
 
-function layers_to_vl(layers::AlgebraOfGraphics.Layers; layer_encodings::AbstractVector=Any[],
+function layers_to_vl(layers::Layers; layer_encodings::AbstractVector=Any[],
         layer_transforms::AbstractVector=Any[])
     # Check if any layer is faceted density (density with y group) — needs special handling
     has_faceted_density = false
@@ -663,7 +663,7 @@ function layers_to_vl(layers::AlgebraOfGraphics.Layers; layer_encodings::Abstrac
             shared_data = data_to_vl(table)
             shared_table = table
         end
-        dens = extract_transformation(l, AlgebraOfGraphics.DensityAnalysis)
+        dens = extract_transformation(l, DensityAnalysis)
         if !isnothing(dens) && haskey(l.named, :y)
             has_faceted_density = true
             facet_field = string(l.named[:y])
@@ -966,12 +966,12 @@ function _faceted_layers_to_vl(layers, facet_field, shared_table, shared_data;
 
     # Check if we have visual layers alongside density (raincloud-style) — need range scaling
     has_visual_layers = any(l -> begin
-        isnothing(extract_transformation(l, AlgebraOfGraphics.DensityAnalysis)) && isnothing(extract_transformation(l, TidybayesAnalysis)) && !isnothing(extract_visual(l))
+        isnothing(extract_transformation(l, DensityAnalysis)) && isnothing(extract_transformation(l, TidybayesAnalysis)) && !isnothing(extract_visual(l))
     end, layers.layers)
 
     for layer in layers.layers
         n_before = length(inner_layers)
-        dens = extract_transformation(layer, AlgebraOfGraphics.DensityAnalysis)
+        dens = extract_transformation(layer, DensityAnalysis)
         if !isnothing(dens)
             # Density sublayer (unfaceted version)
             x_field = length(layer.positional) >= 1 ? _field_name(layer.positional[1]) : "value"

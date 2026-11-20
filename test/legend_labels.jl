@@ -10,7 +10,7 @@ using TestItemRunner
 # filled it (snag `horizontal-gradi-806cacbf`).
 @testsnippet AoVLegendLabelFixtures begin
     using AlgebraOfVega
-    using AlgebraOfGraphics
+    import AlgebraOfGraphics
 
     region(i) = Dict{String,Any}("type" => "Feature", "properties" => Dict{String,Any}("k" => "k$i"),
         "geometry" => Dict{String,Any}("type" => "Polygon", "coordinates" =>

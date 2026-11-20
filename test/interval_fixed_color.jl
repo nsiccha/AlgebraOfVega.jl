@@ -9,7 +9,7 @@ using TestItemRunner
 # snag `lineribbon-fixed-fcf78a96`).
 @testsnippet AoVIntervalColorFixtures begin
     using AlgebraOfVega
-    using AlgebraOfGraphics
+    import AlgebraOfGraphics
 
     # Every Vega-Lite unit (a dict with a `mark`), in emission order.
     function units(node, out=Dict{String,Any}[])

@@ -129,6 +129,7 @@ end
 end
 
 @testitem "Per-panel Y keys: what is refused" setup=[AoVPerPanelYKeysFixtures] tags=[:translation, :regression] begin
+    import AlgebraOfGraphics   # with Makie, loads the static path (AlgebraOfVegaMakieExt)
     flat = data(exposure) * mapping(:dose, :q50) * visual(Scatter)
     @test_throws "has no facet" to_vegalite(flat * config(scales=scales(Y=(; domain=CUT))))
     # Only the Y scale is per panel: the panels share their x scale.

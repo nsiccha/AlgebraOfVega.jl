@@ -10,7 +10,8 @@ handler of `caption_share_button` read a bare `URL` as `document.URL` and
 threw "URL is not a constructor" (snag `caption-share-ur-6256f7c2`).
 """
 @testitem "caption share buttons in the browser" setup=[AoVBrowserServer] tags=[:caption, :browser] begin
-    using AlgebraOfVega, AlgebraOfGraphics, HTMXObjects, JSON
+    using AlgebraOfVega, HTMXObjects, JSON
+    import AlgebraOfGraphics
     rows = (; x=[1.0, 2.0, 3.0], y=[1.0, 4.0, 9.0])
     spec = data(rows) * mapping(:x, :y) * visual(Scatter) * config(width=300, height=160)
     cards = h.div(

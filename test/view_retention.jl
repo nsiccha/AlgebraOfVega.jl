@@ -14,7 +14,8 @@ using TestItemRunner
 #   `dispose` now swaps the drawing for a static copy and drops the menu.
 # One page per renderer × actions-menu case.
 @testitem "view retention in the browser: re-embeds and in-place disposal release views" tags=[:regression, :browser] begin
-    using AlgebraOfVega, AlgebraOfGraphics, JSON
+    using AlgebraOfVega, JSON
+    import AlgebraOfGraphics
     html(x) = sprint(show, MIME"text/html"(), x)
 
     n = 400

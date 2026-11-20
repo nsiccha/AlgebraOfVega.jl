@@ -1,7 +1,8 @@
 using TestItemRunner
 
 @testsnippet AoVRibbonAxisSpacing begin
-    using AlgebraOfVega, AlgebraOfGraphics
+    using AlgebraOfVega
+    import AlgebraOfGraphics
     AoV = AlgebraOfVega
     # The reported figure's exact time grid, two channels sampled at different
     # times, twelve panels, and an observation over each predicted interval.

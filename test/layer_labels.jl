@@ -7,7 +7,8 @@ using TestItemRunner
 # points and reference curves had no legend entry and the readout named them by
 # the y title.
 @testitem "visual(...; label) gives a legend entry in the layer's style" tags=[:labels] begin
-    using AlgebraOfVega, AlgebraOfGraphics
+    using AlgebraOfVega
+    import AlgebraOfGraphics
     t = collect(1.0:5)
     obs = data((; t, y=[1.0, 2, 1.5, 3, 2.5])) * mapping(:t, :y) * visual(Scatter; color=:ink, markersize=6, label="Observed")
     ref = data((; t, y=[1.2, 1.8, 2.0, 2.6, 2.9])) * mapping(:t, :y) * visual(Lines; color=:gray, linestyle=:dash, linewidth=1.5, label="Reference")
@@ -70,7 +71,8 @@ using TestItemRunner
 end
 
 @testitem "label legends and readout names in the browser" tags=[:labels, :browser] begin
-    using AlgebraOfVega, AlgebraOfGraphics, JSON
+    using AlgebraOfVega, JSON
+    import AlgebraOfGraphics
     html(x) = sprint(show, MIME"text/html"(), x)
     chrome = something(Sys.which("google-chrome"), Sys.which("chromium"), "")
     if isempty(chrome)

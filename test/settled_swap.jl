@@ -22,7 +22,8 @@ after the embeds (the order the reporter measured), once with htmx's default
 settle delay, and checks each against a freshly loaded page.
 """
 @testitem "a figure htmx swaps in under the same id keeps what its embed gave its element" tags=[:browser, :regression, :geoshape] begin
-    using AlgebraOfVega, AlgebraOfGraphics, HTMXObjects, JSON
+    using AlgebraOfVega, HTMXObjects, JSON
+    import AlgebraOfGraphics
 
     square(k, x0, y0, d) = Dict{String,Any}("type" => "Feature", "properties" => Dict{String,Any}("k" => k),
         "geometry" => Dict{String,Any}("type" => "Polygon",

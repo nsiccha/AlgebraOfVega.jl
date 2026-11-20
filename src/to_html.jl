@@ -164,7 +164,7 @@ vdraw(; kwargs...) = spec -> vdraw(spec; kwargs...)
 Apply an AlgebraOfGraphics `scales(...)` object while lowering the figure,
 then return its browser node. Other keyword arguments pass to `to_node`.
 """
-vdraw(spec, sc::AlgebraOfGraphics.Scales; width=nothing, height=nothing, kwargs...) =
+vdraw(spec, sc::Scales; width=nothing, height=nothing, kwargs...) =
     _to_node(to_vegalite(spec, sc),
         _FigureSource(() -> _report_size!(_with_rows_inline(() -> to_vegalite(spec, sc; interactive=false)), width, height)),
         _bound_tables(spec); width, height, kwargs...)

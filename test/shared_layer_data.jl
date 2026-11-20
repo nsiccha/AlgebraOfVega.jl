@@ -9,7 +9,7 @@ using TestItemRunner
 # `data`, which those layers inherit, as when the ribbon is drawn alone.
 @testsnippet AoVSharedLayerDataFixtures begin
     using AlgebraOfVega
-    using AlgebraOfGraphics
+    import AlgebraOfGraphics
     using JSON
 
     # Every Vega-Lite unit (a dict with a `mark`), in emission order.

@@ -3,7 +3,8 @@ using TestItemRunner
 # A captioned plot's downloads share one "⬇ Export ▾" menu, so they leave the
 # caption's title its room.
 @testsnippet AoVCaptionMenuFixtures begin
-    using AlgebraOfVega, AlgebraOfGraphics, HTMXObjects
+    using AlgebraOfVega, HTMXObjects
+    import AlgebraOfGraphics
     # HTMX escapes the quotes of an attribute value; the browser decodes them.
     html(x) = replace(sprint(show, MIME"text/html"(), x), "&#39;" => "'")
     count_of(needle, text) = length(findall(needle, text))

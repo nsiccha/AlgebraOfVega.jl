@@ -9,7 +9,8 @@ using TestItemRunner
 # Before it, the only route was a hand-attached Vega listener on
 # `AoV.views[id]`, which every re-embed drops.
 @testitem "config(link=…) lowers to _aov.link and refuses malformed links" tags=[:interactivity] begin
-    using AlgebraOfVega, AlgebraOfGraphics
+    using AlgebraOfVega
+    import AlgebraOfGraphics
     rows = (; x=[1.0, 2.0, 3.0], y=[1.0, 4.0, 9.0], kenn=["a", "b", "c"])
     scatter = data(rows) * mapping(:x, :y) * visual(Scatter)
 
@@ -55,7 +56,8 @@ using TestItemRunner
 end
 
 @testitem "hover events, keyed highlight and link groups in the browser" tags=[:regression, :browser, :interactivity] begin
-    using AlgebraOfVega, AlgebraOfGraphics, JSON
+    using AlgebraOfVega, JSON
+    import AlgebraOfGraphics
     html(x) = sprint(show, MIME"text/html"(), x)
     link = config(link=(; group="probes", key=:kenn))
     size = config(width=240, height=160)

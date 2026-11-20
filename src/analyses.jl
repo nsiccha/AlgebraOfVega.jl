@@ -250,7 +250,7 @@ This is a browser/Vega-Lite analysis. `vsave` can export it; the Makie `sdraw`
 path does not implement it. Use `visual(; fill=nothing, stroke=:ink)` when
 only a theme-aware boundary should be drawn.
 """
-function geoshape(geometry; key=nothing, projection=Makie.automatic)
+function geoshape(geometry; key=nothing, projection=automatic)
     _check_geoshape_geometry(geometry)
     _check_map_key(key, "geoshape", "geo_property")
     _check_projection(projection, "geoshape")
@@ -279,7 +279,7 @@ _check_map_key(k::Pair, term, side) =
 _check_map_key(k, term, side) = throw(ArgumentError(
     "$term: `key` must be a column name, a `data_column => $side` pair, or omitted; got $(typeof(k))."))
 
-_check_projection(::Union{Nothing,Makie.Automatic}, _) = nothing
+_check_projection(::Union{Nothing,Automatic}, _) = nothing
 _check_projection(::Union{Symbol,AbstractString,AbstractDict,NamedTuple}, _) = nothing
 _check_projection(p, term) = throw(ArgumentError(
     "$term: `projection` must be a projection type name, a Dict/NamedTuple of Vega-Lite projection properties, or `nothing`; got $(typeof(p))."))
@@ -318,7 +318,7 @@ draw such cells as polygons with `geoshape`.
 This is a browser/Vega-Lite analysis. `vsave` can export it; the Makie `sdraw`
 path does not implement it.
 """
-function geobox(boxes; key=nothing, projection=Makie.automatic)
+function geobox(boxes; key=nothing, projection=automatic)
     _check_geobox_boxes(boxes)
     _check_map_key(key, "geobox", "box_column")
     _check_projection(projection, "geobox")
@@ -363,7 +363,7 @@ end
 _resolved_band_interval(::Nothing) = nothing
 _resolved_band_interval(analysis) = _resolved_interval_value(analysis.interval)
 _resolved_interval_value(::Nothing) = nothing
-_resolved_interval_value(::Makie.Automatic) = nothing
+_resolved_interval_value(::Automatic) = nothing
 _resolved_interval_value(x) = x
 
 _analysis_probs(a::Union{PointIntervalAnalysis,GradientIntervalAnalysis,DotIntervalAnalysis}) = a.probs
@@ -382,7 +382,7 @@ _apply_opacity!(_enc, ::Nothing) = nothing
 _apply_opacity!(enc, op) = (enc["opacity"] = Dict{String,Any}("value" => op); nothing)
 
 """Extract a transformation of type `T` from a layer's transformation chain."""
-function extract_transformation(layer::AlgebraOfGraphics.Layer, T::Type)
+function extract_transformation(layer::Layer, T::Type)
     t = layer.transformation
     t === identity && return nothing
     r = _find_part(T, t)

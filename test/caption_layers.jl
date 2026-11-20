@@ -2,7 +2,7 @@ using TestItemRunner
 
 @testitem "captioned layers use the spec path without config" tags=[:caption, :regression] begin
     using AlgebraOfVega, HTMXObjects
-    using AlgebraOfGraphics: Layer, Layers
+    using AlgebraOfVega: Layer, Layers
 
     rows = (; x=[0.0, 1.0], y=[0.0, 1.0], group=["a", "b"])
     layer = data(rows) * mapping(:x, :y) * visual(Lines)

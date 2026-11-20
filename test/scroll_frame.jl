@@ -4,7 +4,8 @@ using TestItemRunner
 # A canvas holds nothing that takes the focus, so the frame
 # is itself a named tab stop while it scrolls, and only then.
 @testitem "a plot that scrolls in its frame is a named tab stop, and only then" tags=[:regression, :browser, :caption, :texts] begin
-    using AlgebraOfVega, AlgebraOfGraphics, HTMXObjects, JSON
+    using AlgebraOfVega, HTMXObjects, JSON
+    import AlgebraOfGraphics
     html(x) = sprint(show, MIME"text/html"(), x)
 
     rows = (; x=string.('a':'z'), y=collect(1.0:26.0))

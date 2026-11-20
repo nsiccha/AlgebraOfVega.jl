@@ -14,7 +14,7 @@ page's text colour in every scale with that range, so marks and legend symbol fo
 """
 @testsnippet AoVPaletteInkFixtures begin
     using AlgebraOfVega
-    using AlgebraOfGraphics
+    import AlgebraOfGraphics
     series = ["reference", "other"]
     rows = (; x=[1.0, 2.0, 1.0, 2.0], y=[1.0, 2.0, 2.0, 3.0], s=repeat(series; inner=2),
               g=["a", "b", "a", "b"])

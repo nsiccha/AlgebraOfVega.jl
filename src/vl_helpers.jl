@@ -248,10 +248,10 @@ const _MERGED_CONFIG_PROPS = (_VL_OBJECT_PROPS..., :facet, :axis, :scales)
 _merge_config_value(_, b) = b  # not two objects of one kind: the later term wins
 _merge_config_value(a::Dict, b::Dict) = _merge_vl_objects(a, b)
 _merge_config_value(a::NamedTuple, b::NamedTuple) = merge(a, b)
-function _merge_config_value(a::AlgebraOfGraphics.Scales, b::AlgebraOfGraphics.Scales)
+function _merge_config_value(a::Scales, b::Scales)
     scale_props(s, id) = haskey(s.dict, id) ? NamedTuple(pairs(s.dict[id])) : (;)
     ids = unique!(Symbol[keys(a.dict)..., keys(b.dict)...])
-    AlgebraOfGraphics.scales(; (id => merge(scale_props(a, id), scale_props(b, id)) for id in ids)...)
+    AlgebraOfVega.scales(; (id => merge(scale_props(a, id), scale_props(b, id)) for id in ids)...)
 end
 
 # Merge two configs, later-wins on key conflict. Shared by `*` and `+` so config
@@ -272,8 +272,8 @@ function _merge_configs(a::Union{Config,Nothing}, b::Union{Config,Nothing})
 end
 
 # Composition: AoG drawable * Config → VegaSpec
-Base.:*(a::AlgebraOfGraphics.AbstractAlgebraic, c::Config) = VegaSpec(a, c)
-Base.:*(c::Config, a::AlgebraOfGraphics.AbstractAlgebraic) = VegaSpec(a, c)
+Base.:*(a::AbstractAlgebraic, c::Config) = VegaSpec(a, c)
+Base.:*(c::Config, a::AbstractAlgebraic) = VegaSpec(a, c)
 # A second `* config(...)` MERGES into the config already on the spec rather than
 # replacing it — an app helper appending e.g. `config(width=…, height=…)` after a
 # caller's `config(facet=…, title=…)` used to silently drop every earlier prop,
@@ -294,8 +294,8 @@ Base.:*(a::Config, b::Config) = _merge_configs(a, b)
 const _FACET_ENCODING_CHANNELS = ("row", "column", "facet")
 _summand_scoped_channel(ch::AbstractString) = !(ch in _FACET_ENCODING_CHANNELS)
 
-_n_layers(::AlgebraOfGraphics.Layer) = 1
-_n_layers(l::AlgebraOfGraphics.Layers) = length(l.layers)
+_n_layers(::Layer) = 1
+_n_layers(l::Layers) = length(l.layers)
 
 _layer_encodings(v::VegaSpec) = isempty(v.layer_encodings) ?
     Any[nothing for _ in 1:_n_layers(v.drawable)] : copy(v.layer_encodings)
@@ -358,8 +358,8 @@ end
 # Combine VegaSpecs: unwrap drawables, merge view-level configs, keep each
 # summand's encoding and transform overrides on its own layers.
 Base.:+(a::VegaSpec, b::VegaSpec) = _sum_specs(a, b)
-Base.:+(a::VegaSpec, b::AlgebraOfGraphics.AbstractAlgebraic) = _sum_specs(a, b)
-Base.:+(a::AlgebraOfGraphics.AbstractAlgebraic, b::VegaSpec) = _sum_specs(a, b)
+Base.:+(a::VegaSpec, b::AbstractAlgebraic) = _sum_specs(a, b)
+Base.:+(a::AbstractAlgebraic, b::VegaSpec) = _sum_specs(a, b)
 
 # A further algebra term reaches a configured spec's layers as an unconfigured
 # one's: AoG distributes `*` over `+`, so `(a * config(encoding=E) + b) * v`
@@ -383,8 +383,8 @@ function _mul_specs(a, b)
 end
 
 Base.:*(a::VegaSpec, b::VegaSpec) = _mul_specs(a, b)
-Base.:*(a::VegaSpec, b::AlgebraOfGraphics.AbstractAlgebraic) = _mul_specs(a, b)
-Base.:*(a::AlgebraOfGraphics.AbstractAlgebraic, b::VegaSpec) = _mul_specs(a, b)
+Base.:*(a::VegaSpec, b::AbstractAlgebraic) = _mul_specs(a, b)
+Base.:*(a::AbstractAlgebraic, b::VegaSpec) = _mul_specs(a, b)
 
 # A facet given per-panel Y scales is a concat of panels, each recording the facet
 # value it was filtered to (`_aovPanel`): a `vconcat` stack for a row facet
