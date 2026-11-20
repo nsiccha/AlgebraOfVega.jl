@@ -8,7 +8,16 @@
 | `frequency`, `expectation` | Count rows or summarize conditional values. |
 | `linear`, `smooth` | Fit a trend. |
 
-These functions are re-exported from AlgebraOfGraphics. The [interval example](../examples/intervals.md) uses empirical quantiles and checks their interpretation against the source values.
+AlgebraOfVega provides these analyses itself, with AlgebraOfGraphics' names and options; with AlgebraOfGraphics and Makie loaded, `sdraw` hands them to AlgebraOfGraphics. The [interval example](../examples/intervals.md) uses empirical quantiles and checks their interpretation against the source values.
+
+```@docs
+density
+histogram
+frequency
+expectation
+linear
+smooth
+```
 
 ## Intervals
 
