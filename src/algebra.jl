@@ -483,6 +483,11 @@ function wrapped(;
     end
 end
 
+struct SymLog end
+(::SymLog)(x) = sign(x) * log10(abs(x) + 1)
+
+# The docstring belongs to the exported `symlog` binding, not to `SymLog`:
+# Documenter's `@docs symlog` and `?symlog` look it up there.
 """
     symlog
 
@@ -497,8 +502,6 @@ only. As a function, `symlog(x) = sign(x) * log10(abs(x) + 1)`, the forward map
 of `Makie.pseudolog10`; with Makie loaded, `scale=Makie.pseudolog10` is read as
 `symlog`.
 """
-struct SymLog end
-(::SymLog)(x) = sign(x) * log10(abs(x) + 1)
 const symlog = SymLog()
 
 # --- Analyses (AoG's statistical transformations, as values) ---

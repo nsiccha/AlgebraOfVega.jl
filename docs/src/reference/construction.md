@@ -13,6 +13,25 @@ AlgebraOfVega provides these names itself, with AlgebraOfGraphics' spelling and 
 
 The [composition guide](../guides/composition.md) demonstrates the algebra. The [scale guide](../guides/scales.md) shows the supported scale-configuration path.
 
+```@docs
+data
+mapping
+visual
+dims
+AlgebraOfVega.Layer
+AlgebraOfVega.Layers
+renamer
+sorter
+nonnumeric
+verbatim
+presorted
+direct
+scale
+scales
+pregrouped
+wrapped
+```
+
 ## Marks
 
 | Names | Graphic |
@@ -25,6 +44,10 @@ The [composition guide](../guides/composition.md) demonstrates the algebra. The 
 | `Contour` | Contours. |
 
 These are AlgebraOfVega's plot-type names (`AlgebraOfVega.PlotTypes`), spelled like Makie's plot types and used as arguments to `visual`; browser rendering loads no Makie. With Makie loaded, `visual` also accepts Makie's own plot types, such as `Makie.Text`. See [coordinates](../guides/composition.md#Coordinates) for positional-mapping exceptions.
+
+```@docs
+AlgebraOfVega.PlotTypes
+```
 
 ## Stacked panels
 
