@@ -112,12 +112,8 @@ function _plain_layer_to_vl(layer::Layer; is_sublayer=false,
     # A bar reaches from its base (`fillto`, AoG's AesY or AesX by direction)
     # to its value: Vega-Lite's secondary channel on the value axis.
     base_channel = horizontal ? "x2" : "y2"
-    for (name, sel) in pairs(layer.named)
-        ch = bar && name === :fillto ? base_channel : aog_named_to_vl_channel(name)
-        isnothing(ch) && continue
-        encoding[ch] = selector_to_field(sel)
-    end
-    !isnothing(table) && infer_types!(encoding, table)
+    _named_encodings!(encoding, layer.named, plot_type, spec["mark"], table;
+        base_channel=bar ? base_channel : nothing)
     horizontal && length(layer.positional) >= 2 && haskey(encoding, "x") &&
         _check_bar_length(encoding["x"], layer.positional)
     bar && _bar_fixed_base!(encoding, vis, base_channel)

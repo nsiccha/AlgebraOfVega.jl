@@ -1269,12 +1269,7 @@ function histogram_to_vl(layer::Layer; is_sublayer=false)
             "x2" => Dict{String,Any}("field" => "__bin_hi__"),
             "y" => Dict{String,Any}("field" => "__count__", "type" => "quantitative"),
         )
-        for (name, sel) in other_named
-            ch = aog_named_to_vl_channel(name)
-            isnothing(ch) && continue
-            encoding[ch] = selector_to_field(sel)
-        end
-        !isnothing(table) && infer_types!(encoding, table)
+        _named_encodings!(encoding, other_named, BarPlot, "bar", table)
         spec = Dict{String,Any}(
             "transform" => transforms,
             "mark" => "bar",
@@ -1294,12 +1289,7 @@ function histogram_to_vl(layer::Layer; is_sublayer=false)
         "x" => x_enc,
         "y" => Dict{String,Any}("aggregate" => count_op, "type" => "quantitative"),
     )
-    for (name, sel) in other_named
-        ch = aog_named_to_vl_channel(name)
-        isnothing(ch) && continue
-        encoding[ch] = selector_to_field(sel)
-    end
-    !isnothing(table) && infer_types!(encoding, table)
+    _named_encodings!(encoding, other_named, BarPlot, "bar", table)
 
     spec = Dict{String,Any}(
         "mark" => "bar",
@@ -1363,15 +1353,7 @@ function frequency_to_vl(layer::Layer; is_sublayer=false)
         "y" => Dict{String,Any}("aggregate" => "count", "type" => "quantitative"),
     )
 
-    for (name, sel) in pairs(layer.named)
-        ch = aog_named_to_vl_channel(name)
-        isnothing(ch) && continue
-        encoding[ch] = selector_to_field(sel)
-    end
-
-    if !isnothing(table)
-        infer_types!(encoding, table)
-    end
+    _named_encodings!(encoding, layer.named, BarPlot, "bar", table)
 
     spec = Dict{String,Any}("mark" => "bar", "encoding" => encoding)
     if !isnothing(table)
@@ -1398,15 +1380,7 @@ function expectation_to_vl(layer::Layer; is_sublayer=false)
     y_label != y_field && (y_enc["title"] = y_label)
     encoding = Dict{String,Any}("x" => x_enc, "y" => y_enc)
 
-    for (name, sel) in pairs(layer.named)
-        ch = aog_named_to_vl_channel(name)
-        isnothing(ch) && continue
-        encoding[ch] = selector_to_field(sel)
-    end
-
-    if !isnothing(table)
-        infer_types!(encoding, table)
-    end
+    _named_encodings!(encoding, layer.named, BarPlot, "bar", table)
 
     spec = Dict{String,Any}("mark" => "bar", "encoding" => encoding)
     if !isnothing(table)

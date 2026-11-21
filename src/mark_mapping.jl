@@ -104,6 +104,93 @@ _CHANNEL_MAP = Dict{Symbol,Union{String,Nothing}}(
 
 aog_named_to_vl_channel(name::Symbol) = get(_CHANNEL_MAP, name, string(name))
 
+# Vega-Lite's encoding channels: the names the vendored vega-lite 5.23.0 does
+# not drop as "not a valid encoding channel" (checked by compiling one encoding
+# per name). Vega-Lite drops any other encoding key with only a console warning,
+# so a mapping keyword that lowered to one would draw the figure without it: a
+# `dodge=` mapping drew stacked bars where AlgebraOfGraphics draws grouped ones
+# (snag `aov-emits-aog-do-6019d128`).
+const _VL_ENCODING_CHANNELS = Set{String}([
+    "x", "y", "x2", "y2", "xOffset", "yOffset", "xError", "xError2", "yError", "yError2",
+    "longitude", "latitude", "longitude2", "latitude2", "theta", "theta2", "radius", "radius2",
+    "color", "fill", "stroke", "opacity", "fillOpacity", "strokeOpacity", "strokeWidth",
+    "strokeDash", "size", "angle", "shape", "text", "tooltip", "href", "url", "description",
+    "detail", "key", "order", "row", "column", "facet",
+])
+
+# The plot types with AlgebraOfGraphics' own `dodge` mapping (its
+# `aesthetic_mapping`): a bar dodges along the axis it stands on (`direction`),
+# a box plot, violin or crossbar along its category axis (`orientation`). On
+# every other plot type AoG's dodge is `dodge_x`/`dodge_y`.
+const _NativeDodge = Union{BarPlot, BoxPlot, Violin, CrossBar}
+_native_dodge(plot_type) = plot_type isa Type && plot_type <: _NativeDodge
+
+# A layer without a plot type of its own draws AoG's default, a scatter.
+_layer_type_name(plot_type) =
+    plot_type isa Type && plot_type <: Plot && plot_type !== Plot{:plot} ? string(_plotsym(plot_type)) : "Scatter"
+
+"""
+    _named_vl_channel(name, plot_type) -> Union{String,Nothing}
+
+The Vega-Lite channel the `mapping(...)` keyword `name` lowers to on a layer of
+`plot_type` (`_CHANNEL_MAP`, else a Vega-Lite channel name as written), or
+`nothing` for one lowered elsewhere (`stack`). A keyword that lowers to no
+Vega-Lite channel is an `ArgumentError` naming it, as AlgebraOfGraphics refuses
+a mapped attribute outside the plot type's aesthetic mapping.
+"""
+function _named_vl_channel(name::Symbol, plot_type)
+    ch = aog_named_to_vl_channel(name)
+    (isnothing(ch) || ch in _VL_ENCODING_CHANNELS) && return ch
+    type = _layer_type_name(plot_type)
+    if name === :dodge
+        throw(ArgumentError("mapping(...; dodge=…) on a $type layer: AlgebraOfGraphics has `dodge` only on " *
+            "BarPlot, BoxPlot, Violin and CrossBar. Dodge a $type layer with `dodge_x=` (along x) or `dodge_y=` (along y)."))
+    end
+    throw(ArgumentError("mapping(...; $name=…) on a $type layer lowers to no Vega-Lite encoding channel, " *
+        "so the figure would be drawn without it. AlgebraOfVega lowers the AlgebraOfGraphics keywords " *
+        join(sort!(string.(collect(keys(_CHANNEL_MAP)))), ", ") * ", `dodge` on BarPlot, BoxPlot, Violin and CrossBar, " *
+        "`fillto` on BarPlot, and passes a Vega-Lite channel name (x2, y2, size, opacity, order, tooltip, …) as written."))
+end
+
+"""
+    _named_encodings!(encoding, named, plot_type, mark, table; base_channel=nothing)
+
+Write a layer's `mapping(...)` keywords `named` into `encoding` as their
+Vega-Lite channels (`_named_vl_channel`) and type them from `table`.
+`base_channel` is where a bar's `fillto` goes (its `x2` or `y2`).
+
+AlgebraOfGraphics' `dodge` on a plot type that dodges natively (`_NativeDodge`)
+lowers once the positions are typed, to the offset channel of the axis the marks
+stand on: `xOffset` for vertical bars and boxes, `yOffset` for horizontal ones
+(`direction=:x`, or a value-first mapping Vega-Lite draws horizontally). Those
+are the channels `dodge_x` and `dodge_y` lower to, so `dodge` draws as they do,
+and as in AoG a layer may not dodge one axis twice.
+"""
+function _named_encodings!(encoding::Dict, named, plot_type, mark, table; base_channel=nothing)
+    dodge = nothing
+    for (name, sel) in pairs(named)
+        if name === :dodge && _native_dodge(plot_type)
+            dodge = sel
+            continue
+        end
+        ch = name === :fillto && !isnothing(base_channel) ? base_channel : _named_vl_channel(name, plot_type)
+        isnothing(ch) && continue
+        encoding[ch] = selector_to_field(sel)
+    end
+    infer_types!(encoding, table)
+    isnothing(dodge) && return encoding
+    ch = _vl_bar_orient(mark, encoding) == "horizontal" ? "yOffset" : "xOffset"
+    if haskey(encoding, ch)
+        same = Symbol[n for n in keys(named) if n !== :dodge && aog_named_to_vl_channel(n) == ch]
+        other = isempty(same) ? ch : string(first(same))
+        throw(ArgumentError("mapping(...): `dodge` and `$other` both dodge this $(_layer_type_name(plot_type)) layer along " *
+            "$(ch[1]); use only one, as AlgebraOfGraphics requires."))
+    end
+    encoding[ch] = selector_to_field(dodge)
+    infer_types!(encoding, table)
+    encoding
+end
+
 # --- Column selector → Vega-Lite field spec ---
 
 selector_to_field(sel::Symbol) = Dict{String,Any}("field" => string(sel))
