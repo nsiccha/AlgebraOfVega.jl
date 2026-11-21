@@ -67,8 +67,19 @@ function _base_vegalite(layers::Layers, layer_encodings::AbstractVector=Any[],
 end
 
 # AoV default: don't auto-include zero on quantitative x/y axes (overrides VL's
-# default `scale.zero=true`). Users opt back in via
+# default `scale.zero=true`), as Makie/`sdraw` puts no zero into the limits of
+# points, lines or bands. Users opt back in via
 # `config(scales=scales(Y=(; zero=true)))` or `encoding=Dict("y"=>Dict("scale"=>Dict("zero"=>true)))`.
+#
+# Bars are the exception, as in Makie: `barplot` draws each bar from its
+# `fillto`, 0 on any axis but a log one, and its limits take that base in. So
+# the scale of a bar's value axis takes `zero=true` (with every encoding that
+# shares it) when the bar has no base of its own there (`x2`/`y2`: `fillto`, a
+# range, the log base). Vega-Lite brings 0 in only through a bar's stack, and it
+# stacks no aggregated bar that lacks a stack-by field: `frequency()` and
+# `expectation()` without a colour or dodged by it, and `histogram()`. Fitted to
+# their tops, the smallest such bar had no length, and equal counts drew no bars
+# at all, with no error (snag `drew-counts-with-18a45731`).
 #
 # It runs once, on the finished spec (`to_vegalite`'s last pass), because it
 # depends on each scale's final type: Vega-Lite drops `zero` from a scale type
@@ -76,18 +87,48 @@ end
 # "zero" is dropped as it does not work with log scale.`). Units that share a
 # scale share its type, so a layer whose own `y` sets no type still gets no
 # default when a sibling layer makes the shared `y` scale log (snag
-# `log-scale-zero-w-7b997a94`). A `zero` the caller wrote is never touched.
+# `log-scale-zero-w-7b997a94`). A `zero` the caller wrote is never touched; on a
+# bar's scale it is also what the scale's other encodings take, so that
+# Vega-Lite never merges two different values.
 _apply_no_zero_default!(spec) = spec
 function _apply_no_zero_default!(spec::Dict)
+    bar_values = IdDict{Any,Bool}()
+    _each_frame_unit(spec) do unit
+        e = _bar_zero_value(unit)
+        isnothing(e) || (bar_values[e] = true)
+    end
     for ch in ("x", "y"), group in _shared_scale_groups(spec, ch)
         all(_scale_takes_zero, group) || continue
+        zero = any(e -> haskey(bar_values, e), group) ? something(_authored_zero(group), true) : false
         for enc in group
             scale = get!(enc, "scale", Dict{String,Any}())
             scale isa Dict || continue
-            haskey(scale, "zero") || (scale["zero"] = false)
+            haskey(scale, "zero") || (scale["zero"] = zero)
         end
     end
     spec
+end
+
+# The value encoding of a bar drawn from zero: the quantitative channel a bar
+# mark's length runs along (Vega-Lite's orientation rule, `_vl_bar_orient`),
+# aggregated or not, when the bar has no base of its own on that channel.
+function _bar_zero_value(unit::AbstractDict)
+    mark = get(unit, "mark", nothing)
+    _mark_type(mark) == "bar" || return nothing
+    enc = get(unit, "encoding", nothing)
+    enc isa Dict || return nothing
+    ch = _vl_bar_orient(mark, enc) == "horizontal" ? "x" : "y"
+    e = get(enc, ch, nothing)
+    _vl_measure(e) && !haskey(enc, ch * "2") ? e : nothing
+end
+
+# The first `zero` a caller wrote on one of a shared scale's encodings.
+function _authored_zero(group)
+    for e in group
+        scale = get(e, "scale", nothing)
+        scale isa Dict && haskey(scale, "zero") && return scale["zero"]
+    end
+    nothing
 end
 
 # The Vega-Lite scale types that take `zero` (vega-lite 5.23

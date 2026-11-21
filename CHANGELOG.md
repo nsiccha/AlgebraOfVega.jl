@@ -15,6 +15,25 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
+## 0.2.77
+
+- **Bars start at zero, as in Makie.** `frequency()`, `expectation()` and
+  `histogram()` now draw every bar from 0 on a linear value axis, as
+  AlgebraOfGraphics' `barplot` draws it (`fillto` 0) on `sdraw`. Before, AoV's
+  no-zero default fitted such an axis to the bar tops: the smallest bar had no
+  length, and bars of equal height (three groups of 40 counts) drew an empty
+  plot with no error. Vega-Lite brings 0 into a bar's axis only through its
+  stack, and it stacks no aggregated bar without a colour, or whose colour is
+  also its `dodge_x`; the stacked and raw `visual(BarPlot)` bars drew from 0
+  already and draw exactly as before (snag `drew-counts-with-18a45731`).
+  `to_vegalite` now writes `scale.zero: true` on the value axis of every bar
+  that has no base of its own (`fillto`, a range, a log axis), and on every
+  layer sharing that scale, where it wrote `false`: a test that pins a bar
+  figure's spec sees the new value. Points, lines and the axis bars stand on
+  keep the no-zero default, a `zero` the caller writes is kept (and on a bar's
+  scale, its other layers take it), and `config(scales=scales(Y=(; zero=true)))`
+  added only to make bars start at zero can be deleted.
+
 ## 0.2.76
 
 - **`using AlgebraOfVega` no longer loads Makie or AlgebraOfGraphics.**
