@@ -15,6 +15,36 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
+## 0.2.77
+
+- **AlgebraOfGraphics' `dodge` mapping draws grouped bars.**
+  `mapping(:cap, :share; color=:scheme, dodge=:scheme) * visual(BarPlot)` now
+  dodges the bars along the axis they stand on, as AlgebraOfGraphics does:
+  `xOffset` for vertical bars, `yOffset` for `direction=:x` or a value-first
+  mapping drawn horizontally. That is the channel `dodge_x`/`dodge_y` lower to,
+  so the figure is the one `dodge_x=:scheme` gives. `frequency()` and
+  `expectation()` bars dodge the same way, and `visual(BoxPlot)`, `Violin` and
+  `CrossBar`, the other plot types with AoG's own `dodge`, take it on their
+  category axis. Before, the spec carried an encoding channel named `dodge`,
+  which Vega-Lite drops without an error, so the bars were stacked (snag
+  `aov-emits-aog-do-6019d128`). Bars on a continuous axis, a `histogram()`'s
+  bins among them, still lose the offset in Vega-Lite, as with `dodge_x` (todo
+  `0bpqsx8`).
+- **A mapping keyword that lowers to no Vega-Lite channel is an
+  `ArgumentError`**, as AlgebraOfGraphics refuses a mapped attribute outside a
+  plot type's aesthetic mapping. Such a keyword used to reach the spec under its
+  own name, and the figure was drawn without it. The message names the keyword,
+  the layer's plot type and the keywords AlgebraOfVega lowers. `dodge` on a plot
+  type AoG gives none (`Scatter`, `Lines`, …) names `dodge_x`/`dodge_y`, and
+  `dodge` together with the `dodge_x` (or `dodge_y`) of the same axis is
+  refused, as in AoG. Vega-Lite channel names (`x2`, `y2`, `size`, `opacity`,
+  `order`, `tooltip`, …) still pass as written. Upgrading: a figure that wrote
+  such a keyword now raises; remove it or spell what it meant.
+- **A column mapped twice is listed in the automatic tooltip under its label**,
+  whichever mapping gives it: `color=:g => "Group", dodge_x=:g` reads "Group",
+  where the unlabelled offset channel, which the tooltip lists first, used to
+  leave the raw column name.
+
 ## 0.2.76
 
 - **`using AlgebraOfVega` no longer loads Makie or AlgebraOfGraphics.**

@@ -87,12 +87,8 @@ function pregrouped_to_vl(layer::Layer; is_sublayer=false)
         encoding["y"] = Dict{String,Any}("field" => "y", "type" => "quantitative")
     end
 
-    # Named mappings (color, etc.)
-    for (name, sel) in pairs(layer.named)
-        ch = aog_named_to_vl_channel(name)
-        isnothing(ch) && continue
-        encoding[ch] = selector_to_field(sel)
-    end
+    # Named mappings (color, etc.); without a `visual`, pregrouped data draws box plots.
+    _named_encodings!(encoding, layer.named, isnothing(vis) ? BoxPlot : vis.plottype, mark, nothing)
 
     # Auto tooltip
     tt = vl_tooltips(encoding)

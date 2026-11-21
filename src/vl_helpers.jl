@@ -109,8 +109,15 @@ end
 _vl_tooltip_entry!(args...) = nothing
 function _vl_tooltip_entry!(tt, enc::Dict)
     haskey(enc, "field") || return
-    # One row per column: `color=:g, strokecolor=:g` maps one column twice.
-    any(t -> t["field"] == enc["field"], tt) && return
+    # One row per column: `color=:g, strokecolor=:g` maps one column twice. The
+    # row takes the label of whichever mapping gives one, so `color=:g => "Group",
+    # dodge=:g` reads "Group" although the offset channel comes first.
+    i = findfirst(t -> t["field"] == enc["field"], tt)
+    if !isnothing(i)
+        label = get(enc, "title", nothing)
+        !haskey(tt[i], "title") && _is_tooltip_label(label, enc["field"]) && (tt[i]["title"] = label)
+        return
+    end
     push!(tt, _tooltip_entry(enc["field"], get(enc, "type", nothing), get(enc, "title", nothing)))
 end
 
