@@ -485,6 +485,15 @@ end
 # whole sequence from 1e-15 to 1e15 (Vega draws those inside the scale's
 # domain), so zooming, streamed rows and a data-only `update_spec` keep them:
 # only a span that crosses two decades changes the spec.
+#
+# A scale that clamps is the exception. Vega keeps a listed value whose
+# position lies on the axis, and a clamped scale puts every value outside its
+# domain on the domain's edge, so all 31 values were drawn and the edges were
+# labelled with the outermost ones ("1e-15" where a y axis cut at 1 starts;
+# snag `clamped-per-pane-8f68fecd`). A clamped scale with a fixed domain (on x
+# too) therefore lists only the values inside that domain, widened to whole
+# powers of ten when the scale is `nice`. When fewer than two lie inside, it
+# lists none and Vega's own ticks, which stay inside the domain, label it.
 _apply_log_ticks!(spec) = spec
 function _apply_log_ticks!(spec::Dict)
     # A ribbon's interval drawing places its marks at a computed, dodged x
@@ -498,8 +507,10 @@ function _apply_log_ticks!(spec::Dict)
         # On y only: a ribbon's interval drawing widens an authored x domain by
         # its dodge, which could move one drawing's span across two decades.
         fixed = ch == "y" ? _fixed_log_domain(group) : nothing
+        cut = _clamped_log_domain(group)
         if !isnothing(fixed)
-            _set_log_tick_values!(group, _log_tick_values(fixed...))
+            values = _log_tick_values(fixed...)
+            isnothing(cut) ? _set_log_tick_values!(group, values) : _set_clamped_log_ticks!(group, values, cut)
             continue
         end
         any(((_, _, rows),) -> isnothing(rows), group) && continue
@@ -512,10 +523,35 @@ function _apply_log_ticks!(spec::Dict)
                 lo = min(lo, v); hi = max(hi, v)
             end
         end
+        if !isnothing(cut)
+            _set_clamped_log_ticks!(group, _log_tick_values((isfinite(lo) ? (lo, hi) : cut)...), cut)
+            continue
+        end
         isfinite(lo) || continue
         _set_log_tick_values!(group, _log_tick_values(lo, hi))
     end
     spec
+end
+
+# The values of `values` a clamped scale's domain `(lo, hi)` holds (a relative
+# 1e-9 either way, so a domain end computed in floating point keeps its own
+# value), or none when fewer than two do.
+function _set_clamped_log_ticks!(group, values, (lo, hi))
+    inside = filter(v -> lo * (1 - 1e-9) <= v <= hi * (1 + 1e-9), values)
+    length(inside) >= 2 && _set_log_tick_values!(group, inside)
+end
+
+# The `(lo, hi)` a clamped log scale group draws, or `nothing` when it does not
+# clamp or has no fixed two-number positive domain: that domain, out to whole
+# powers of ten when the scale is `nice` (a log scale's nice rounds to them).
+function _clamped_log_domain(group)
+    any(((enc, _, _),) -> (s = get(enc, "scale", nothing); s isa AbstractDict && get(s, "clamp", false) === true), group) || return nothing
+    fixed = _fixed_log_domain(group)
+    isnothing(fixed) && return nothing
+    nice = any(((enc, _, _),) -> (s = get(enc, "scale", nothing); s isa AbstractDict &&
+        (n = get(s, "nice", false); n === true || (n isa Real && !(n isa Bool) && n > 0))), group)
+    lo, hi = fixed
+    nice ? (exp10(floor(log10(lo))), exp10(ceil(log10(hi)))) : (lo, hi)
 end
 
 function _set_log_tick_values!(group, values)

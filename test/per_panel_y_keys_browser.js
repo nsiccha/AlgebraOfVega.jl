@@ -5,8 +5,9 @@
 // authored domain and clamps, the other panels fit their own domains and do
 // not clamp, every band and line of the Ctrough panel lies inside its plot
 // area (unclamped, its 1e-12 values would fall far below it), some of it on
-// the bottom edge, and the interval drawing keeps all of this. No console
-// error or warning is logged.
+// the bottom edge, and the interval drawing keeps all of this. Every panel's
+// y tick labels name values inside its domain (snag `clamped-per-pane-8f68fecd`).
+// No console error or warning is logged.
 (async function () {
     const failures = [], samples = {};
     let checks = 0;
@@ -70,6 +71,32 @@
         check(ys.every(y => y >= lo - 1 && y <= hi + 1), id + ' ' + what + ': Ctrough marks outside its plot area ' +
             JSON.stringify([Math.min(...ys), Math.max(...ys), lo, hi]));
         check(ys.some(y => Math.abs(y - hi) <= 1), id + ' ' + what + ': nothing drawn at the bottom edge');
+        // Every tick label of the Ctrough axis, hidden ones included, names a
+        // value inside its domain (snag `clamped-per-pane-8f68fecd`: the
+        // clamped scale put all 31 listed log values on its edges and labelled
+        // the bottom one "1e-15"). The other panels label only what they show.
+        for (let k = 0; k < PANELS.length; k++) {
+            const sk = yScale(view, k);
+            if (!sk) continue;
+            const [d0, d1] = sk.domain(), labels = axisLabels(view, 'concat_' + k + '_y');
+            samples[id + ' ' + what + ' y labels ' + k] = labels;
+            check(labels.length >= 2, id + ' ' + what + ': panel ' + k + ' has ' + labels.length + ' y labels');
+            const outside = labels.filter(t => { const v = Number(t.replace(/,/g, ''));
+                return !(v >= d0 * (1 - 1e-9) && v <= d1 * (1 + 1e-9)); });
+            check(outside.length === 0, id + ' ' + what + ': panel ' + k + ' labels outside its domain ' +
+                JSON.stringify([outside, d0, d1]));
+        }
+    }
+    // The label texts of the axis on `scale`, in scenegraph order.
+    function axisLabels(view, scale) {
+        const out = [];
+        (function walk(item, inAxis) {
+            const m = item.mark;
+            const here = inAxis || (!!m && m.role === 'axis' && !!item.datum && item.datum.scale === scale);
+            if (here && m && m.role === 'axis-label') out.push(String(item.text));
+            (item.items || []).forEach(c => walk(c, here));
+        })(view.scenegraph().root, false);
+        return out;
     }
 
     try {
