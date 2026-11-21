@@ -110,3 +110,52 @@ end
     vl = to_vegalite(raw, scales(X=(; scale=sqrt)))
     @test vl["encoding"]["x"]["scale"] == Dict("type" => "sqrt") && !haskey(vl["encoding"]["y"], "scale")
 end
+
+# Makie's `barplot` draws each bar from `fillto` (0 off a log axis) and its axis
+# limits take that base in. Vega-Lite brings 0 into a bar's axis only through
+# its stack, and it stacks no aggregated bar without a stack-by field, so with
+# AoV's `zero=false` such bars were fitted to their tops: the smallest bar had
+# no length and equal counts drew no bars at all (snag `drew-counts-with-18a45731`).
+@testitem "a bar's value axis starts at zero, as Makie's barplot does" setup=[AoVNoZeroFixtures] tags=[:translation, :config, :regression] begin
+    yzero(vl) = [get(scale(u, "y"), "zero", nothing) for u in units(vl)]
+    eq = (; g=repeat(["a", "b", "c"]; inner=4), h=repeat(["u", "v"], 6), v=collect(1.0:12.0))
+    # The reported shapes (uncoloured, and coloured on the dodge), their stacked
+    # twin, the other aggregated bars and plain bars.
+    for spec in (data(eq) * mapping(:g) * frequency(),
+                 data(eq) * mapping(:g; color=:h, dodge_x=:h) * frequency(),
+                 data(eq) * mapping(:g; color=:h) * frequency(),
+                 data(eq) * mapping(:g, :v) * expectation(),
+                 data(eq) * mapping(:v) * histogram(),
+                 data(eq) * mapping(:v; col=:h) * histogram(),
+                 data(eq) * mapping(:g, :v) * visual(BarPlot),
+                 data(eq) * mapping(:v, :v) * visual(BarPlot)),
+        interactive in (true, false)
+        @test yzero(to_vegalite(spec; interactive)) == [true]
+    end
+    # Horizontal bars run along x; the axis where bars stand keeps the default.
+    u = only(units(to_vegalite(data(eq) * mapping(:v, :v) * visual(BarPlot; direction=:x))))
+    @test scale(u, "x")["zero"] === true && scale(u, "y")["zero"] === false
+    u = only(units(to_vegalite(data(eq) * mapping(:v, :v) * visual(BarPlot))))
+    @test scale(u, "x")["zero"] === false
+
+    # Layers sharing the bar's scale take its zero; an independent one keeps the default.
+    bars = data(eq) * mapping(:g; color=:h, dodge_x=:h) * frequency()
+    rule = data((; level=[2.5])) * mapping(:level) * visual(HLines)
+    @test yzero(to_vegalite(bars + rule)) == [true, true]
+    num = data(eq) * mapping(:v, :v)
+    @test yzero(to_vegalite(num * visual(BarPlot) + num * visual(Scatter))) == [true, true]
+    @test yzero(to_vegalite((num * visual(BarPlot) + num * visual(Scatter)) *
+        config(resolve=Dict("scale" => Dict("y" => "independent"))))) == [true, false]
+
+    # A bar with a base of its own starts there, as with Makie's `fillto`.
+    @test yzero(to_vegalite(num * visual(BarPlot; fillto=2))) == [false]
+    # A log axis takes no zero; its bars start at Makie's log base.
+    @test yzero(to_vegalite(data(eq) * mapping(:g, :v) * visual(BarPlot) *
+        config(scales=scales(Y=(; scale=log10))))) == [nothing]
+    # A caller's zero is kept, and the encodings sharing its scale follow it.
+    @test yzero(to_vegalite(data(eq) * mapping(:g) * frequency() * config(scales=scales(Y=(; zero=false))))) == [false]
+    @test yzero(to_vegalite((bars + rule) *
+        config(encoding=Dict("y" => Dict("scale" => Dict("zero" => false)))))) == [false, false]
+    # Points and lines keep AoV's no-zero default.
+    @test yzero(to_vegalite(scatter)) == [false]
+end

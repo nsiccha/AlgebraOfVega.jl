@@ -1,7 +1,7 @@
 name = "AlgebraOfVega"
 uuid = "a2420894-485a-4f42-a4fc-c4323ec6fb2b"
 authors = ["Nikolas Siccha <nikolassiccha@gmail.com>"]
-version = "0.2.77"
+version = "0.2.78"
 
 [deps]
 Base64 = "2a0f44e3-6c83-55bd-87e4-b1978d98bd5f"
