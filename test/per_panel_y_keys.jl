@@ -176,6 +176,42 @@ end
     @test !(2.0 in only(filter(!isnothing, ytickvalues(narrow["vconcat"][1]))))
 end
 
+@testitem "A clamped log axis lists only the tick values inside its domain" setup=[AoVPerPanelYKeysFixtures] tags=[:translation, :regression] begin
+    # Snag `clamped-per-pane-8f68fecd`: a log axis lists every power of ten
+    # from 1e-15 to 1e15, and Vega draws a listed value whose position lies on
+    # the axis. A clamped scale puts every value outside its domain on the
+    # domain's edge, so the cut Ctrough panel drew all 31 ticks and labelled
+    # its bottom edge "1e-15".
+    vl = to_vegalite(exposure_figure())
+    ps = panels(vl)
+    @test only(ytickvalues(ps[3])) == [1.0, 10.0, 100.0, 1e3, 1e4, 1e5]
+    # The panels that do not clamp keep the whole sequence: Vega draws only
+    # the values inside their domains, and zooming out keeps the rest.
+    @test only(ytickvalues(ps[1])) == AoV._LOG_TICKS_10 && only(ytickvalues(ps[2])) == AoV._LOG_TICKS_10
+    # Two decades or less: 1, 2 and 5 times each power of ten, inside the cut.
+    narrow = to_vegalite(exposure_figure(y=(; scale=ALL_LOG, domain=Dict(PANELS[3] => (1.0, 50.0)), clamp=CLAMP)))
+    @test only(ytickvalues(panels(narrow)[3])) == [1.0, 2.0, 5.0, 10.0, 20.0, 50.0]
+    # A cut that does not clamp draws nothing outside it, so it keeps the list.
+    open_cut = to_vegalite(exposure_figure(y=(; scale=ALL_LOG, domain=CUT)))
+    @test only(ytickvalues(panels(open_cut)[3])) == AoV._LOG_TICKS_10
+    # `nice` rounds a log domain out to powers of ten, and the list follows.
+    rounded = to_vegalite(exposure_figure(y=(; scale=ALL_LOG, domain=CUT, clamp=CLAMP, nice=Dict(PANELS[3] => true))))
+    @test only(ytickvalues(panels(rounded)[3])) == [0.1, 1.0, 10.0, 100.0, 1e3, 1e4, 1e5, 1e6]
+    # Fewer than two listed values inside: no list, so Vega's own ticks
+    # (which stay inside the domain) label it.
+    tight = to_vegalite(exposure_figure(y=(; scale=ALL_LOG, domain=Dict(PANELS[3] => (6.0, 9.0)), clamp=CLAMP)))
+    @test only(ytickvalues(panels(tight)[3])) === nothing
+    # The same holds for one shared clamped domain without panels, and on x.
+    lines(sc) = to_vegalite(data(exposure) * mapping(:dose, :q50; color=:panel) * visual(Lines) * config(scales=sc))
+    shared = lines(scales(Y=(; scale=log10, domain=(1.0, 1e5), clamp=true)))
+    @test only(ytickvalues(shared)) == [1.0, 10.0, 100.0, 1e3, 1e4, 1e5]
+    xtickvalues(v) = unique([get(get(u["encoding"]["x"], "axis", Dict()), "values", nothing)
+        for u in units(v) if haskey(get(u, "encoding", Dict()), "x") && haskey(u["encoding"]["x"], "field")])
+    # The doses span 5 to 320, under two decades: 1-2-5 values from 10 to 100.
+    @test only(xtickvalues(lines(scales(X=(; scale=log10, domain=(10.0, 100.0), clamp=true))))) == [10.0, 20.0, 50.0, 100.0]
+    @test only(xtickvalues(lines(scales(X=(; scale=log10, domain=(10.0, 100.0)))))) == AoV._LOG_TICKS_125
+end
+
 @testitem "vsave draws the cut-off panel on its own clamped domain" setup=[AoVPerPanelYKeysFixtures] tags=[:static, :regression] begin
     if !have_vl_convert()
         @test_skip "vl-convert is not installed"
