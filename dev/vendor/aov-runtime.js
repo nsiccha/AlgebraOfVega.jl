@@ -6107,6 +6107,16 @@ window.AoV = window.AoV || {
         return enc;
     },
 
+    // `color` with the legend look AoV gave its layer (`swatch`, the layer's
+    // `_aovSwatch`: src/to_vegalite.jl `_apply_legend_swatches!`), so a
+    // coloured ribbon's swatch stays drawn like its median line whatever
+    // field the picker colours it by. Keys the colour's own legend sets win;
+    // `legend: null` stays.
+    _swatchColor: function(swatch, color) {
+        if (!swatch || !color || color.legend === null) return color;
+        return Object.assign({}, color, {legend: Object.assign({}, swatch, color.legend || {})});
+    },
+
     // Explicit domains and category orders belong to the authored field.
     // Each remap starts from the original spec, so choosing that field again
     // restores them. Keep other scale settings and non-array sort policies.
@@ -6321,7 +6331,8 @@ window.AoV = window.AoV || {
                     layersC.forEach(function(l) {
                         if (!l || !l.encoding || l._keep_color || self._fixedMarkColor(l)) return;
                         if (cfC) {
-                            l.encoding.color = self._remappedColor(l.encoding.color, cfC, _fieldTitleC(cfC));
+                            l.encoding.color = self._swatchColor(l._aovSwatch,
+                                self._remappedColor(l.encoding.color, cfC, _fieldTitleC(cfC)));
                         } else {
                             delete l.encoding.color;
                         }
@@ -6472,11 +6483,20 @@ window.AoV = window.AoV || {
                     }
                 }
                 if (cf) {
+                    // The legend look the group layers carry (`_aovSwatch`),
+                    // which the template layers, lowered before any colour,
+                    // lack.
+                    var swatch = null;
+                    layers.forEach(function(l) {
+                        if (!swatch && l && l._lr_layer && l._aovSwatch) swatch = l._aovSwatch;
+                    });
                     // One group's layers per value of the new color field in the data
                     var proto = tmpl.map(function(tl) {
                         var gl = JSON.parse(JSON.stringify(tl));
                         gl.transform = srcFilter ? [srcFilter] : [];
-                        gl.encoding.color = {field: cf, type: 'nominal', title: _fieldTitle(cf)};
+                        gl.encoding.color = self._swatchColor(swatch,
+                            {field: cf, type: 'nominal', title: _fieldTitle(cf)});
+                        if (swatch) gl._aovSwatch = swatch;
                         return gl;
                     });
                     var groups = self._rowGroups(spec.data && spec.data.values || [], cf);
@@ -6567,7 +6587,8 @@ window.AoV = window.AoV || {
                     if (l._keep_color) return;  // layer-fixed color (field outside remappable dims)
                     if (self._fixedMarkColor(l)) return;
                     if (cf) {
-                        l.encoding.color = self._remappedColor(l.encoding.color, cf, _fieldTitle(cf));
+                        l.encoding.color = self._swatchColor(l._aovSwatch,
+                            self._remappedColor(l.encoding.color, cf, _fieldTitle(cf)));
                     } else {
                         delete l.encoding.color;
                     }
