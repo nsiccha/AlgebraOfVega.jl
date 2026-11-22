@@ -132,7 +132,7 @@ end
 @testitem "only a ribbon over a few numeric x values gets a point-interval view" setup=[AoVRibbonViewFixtures] tags=[:translation, :ribbon] begin
     using Dates
     # The plain lowering plus the last passes every figure gets.
-    plain(spec) = AoV._record_summary!(AoV._apply_no_zero_default!(AoV._lower_vegaspec(AoV.vlspec(spec))), spec)
+    plain(spec) = AoV._record_summary!(AoV._apply_legend_swatches!(AoV._apply_no_zero_default!(AoV._lower_vegaspec(AoV.vlspec(spec)))), spec)
     unoffered(spec) = (vl = to_vegalite(spec); isnothing(view_meta(vl)) && vl == plain(spec))
     # Without colour groups too (the next item).
     @test !isnothing(view_meta(to_vegalite(data(overlapping(; groups=("A",))) * mapping(:dose, :med) *
@@ -263,8 +263,8 @@ one colour, and it starts as ribbons: one group has no bands to overlap.
     @test single["pairs"] === false && single["start"] == "ribbons"
     @test !haskey(view_meta(to_vegalite(ribbon_fig(overlapping()))), "pairs")
     # The ribbon drawing is the figure's plain lowering, as before.
-    @test AoV._without_ribbon_view(vl) == AoV._record_summary!(AoV._apply_finish_defaults!(
-        AoV._lower_vegaspec(fig * logx)), fig * logx)
+    @test AoV._without_ribbon_view(vl) == AoV._record_summary!(AoV._apply_legend_swatches!(AoV._apply_finish_defaults!(
+        AoV._lower_vegaspec(fig * logx))), fig * logx)
 end
 
 @testitem "on a log x the intervals keep true positions, dodged around each dose" setup=[AoVRibbonViewFixtures] tags=[:translation, :ribbon] begin

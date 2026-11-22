@@ -15,6 +15,30 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
+## 0.2.79
+
+- **A colour legend over a band and a line draws its swatch like the line.**
+  Vega-Lite draws a merged colour legend's swatch like the first layer coloured
+  by it, and for a coloured `lineribbon()` that is the outer band at 20 %
+  opacity: every swatch was a pale tint of its median line, neighbouring palette
+  colours were hard to tell apart (10, 50 and 60 mg in a five-dose figure), and
+  on a dark page each was a dark dot on dark. Clicking an entry also dimmed the
+  legend backwards: the chosen entry stayed at 0.2 while the others rose to 0.35.
+  Now, when a legend's first layer is fainter than another layer under it, each
+  swatch is drawn like the strongest line among them, a full-strength stroke with
+  the line's width and dash (as a `visual(...; label=…)` entry is drawn like its
+  line), or else at the strongest layer's opacity (a `ribbon()` without a line:
+  its 60 % band). This covers `lineribbon()` and `ribbon()` with raw draws or
+  `bands=`, and a band layered under a line such as
+  `visual(Band; alpha=0.3) + visual(Lines)`, in light and dark mode, on `vdraw`
+  and `vsave`; a click now keeps the chosen entry at full strength and dims the
+  others. The channel picker keeps the look on the colour it moves in, also onto
+  an uncoloured ribbon. A legend key the figure sets
+  (`config(encoding=Dict("color" => Dict("legend" => …)))`) wins. Legends whose
+  first layer is already the strongest (lines, scatter, `linear()`, the
+  Intervals drawing of a ribbon) are unchanged, and so are the bands themselves
+  (snag `color-legend-swa-8625457a`).
+
 ## 0.2.78
 
 - **Bars start at zero, as in Makie.** `frequency()`, `expectation()` and

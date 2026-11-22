@@ -828,16 +828,8 @@ function _label_encoding(label, ch, mark, labels, marks)
         return Dict{String,Any}("datum" => label, "type" => "ordinal", "legend" => legend,
             "scale" => Dict{String,Any}("type" => "ordinal", "domain" => labels, "range" => op.(marks)))
     end
-    if t in ("line", "rule", "trail")
-        legend["symbolType"] = "stroke"
-        sw = get(m, "strokeWidth", nothing)
-        sw isa Real && (legend["symbolStrokeWidth"] = sw)
-        # A stroke symbol is √size px long: long enough for its dash to show
-        # (`:dash` is 21 px; Vega-Lite's 10 px showed one dash).
-        d = get(m, "strokeDash", nothing)
-        if d isa AbstractVector && all(x -> x isa Real, d) && sum(d) > 0
-            legend["symbolSize"] = min(900, round(Int, max(10, 1.75 * sum(d))^2))
-        end
+    if t in _STROKE_MARKS
+        _stroke_symbol!(legend, m)
     else
         sz = get(m, "size", nothing)
         sz isa Real && (legend["symbolSize"] = sz)
@@ -845,6 +837,124 @@ function _label_encoding(label, ch, mark, labels, marks)
     dash(x) = (d = get(_mark_dict(x), "strokeDash", nothing); d isa AbstractVector ? d : [1, 0])
     Dict{String,Any}("datum" => label, "type" => "nominal", "legend" => legend,
         "scale" => Dict{String,Any}("domain" => labels, "range" => dash.(marks)))
+end
+const _STROKE_MARKS = ("line", "rule", "trail")
+# Legend keys that draw a symbol like the stroke mark `m`: its width, and room
+# for its dash. A stroke symbol is √size px long: long enough for its dash to
+# show (`:dash` is 21 px; Vega-Lite's 10 px showed one dash).
+function _stroke_symbol!(legend, m)
+    legend["symbolType"] = "stroke"
+    sw = get(m, "strokeWidth", nothing)
+    sw isa Real && (legend["symbolStrokeWidth"] = sw)
+    d = _stroke_dash(m)
+    isnothing(d) || (legend["symbolSize"] = min(900, round(Int, max(10, 1.75 * sum(d))^2)))
+    legend
+end
+_stroke_dash(m) = (d = get(m, "strokeDash", nothing);
+    d isa AbstractVector && all(x -> x isa Real, d) && sum(d) > 0 ? d : nothing)
+
+# A mapped colour legend's swatch. Vega-Lite merges the colour legends of a
+# figure's layers into one and draws its swatch like the first layer coloured by
+# it. For a coloured ribbon that is the outer band at 20 %, so every swatch was a
+# pale tint of its median line, hard to tell from its neighbours, and on a dark
+# page a dark dot on dark; and the legend's selection dimmed backwards (the
+# chosen entry stayed at 0.2, the others rose to Vega-Lite's 0.35). So when that
+# first layer is fainter than another under the same legend, the swatch is drawn
+# like the strongest line among them (`symbolType: "stroke"`, its width and
+# dash), as a `visual(...; label=…)` entry is drawn like its line
+# (`_label_rank`), or else at the strongest layer's opacity. A legend whose
+# first layer is already the strongest is left alone, and so is one whose
+# layers' opacity is data-driven. Legend keys the figure sets win. Each unit
+# keeps the look as `_aovSwatch`, so the runtime's channel picker gives it to
+# the colour it moves in (`_swatchColor`, vendor/aov-runtime.js); in a legend
+# scope no field colours yet, the layers the picker can colour record the look
+# they would take (snag `color-legend-swa-8625457a`, design `0uvo5tt`).
+_apply_legend_swatches!(spec) = spec
+function _apply_legend_swatches!(spec::Dict)
+    scopes = Dict{Int,Vector{Any}}()
+    order = Int[]
+    for info in _legend_units!(Any[], spec)
+        haskey(scopes, info.scope) || push!(order, info.scope)
+        push!(get!(Vector{Any}, scopes, info.scope), info)
+    end
+    for s in order
+        coloured = [i for i in scopes[s] if !isnothing(_legend_color_field(i))]
+        if isempty(coloured)
+            free = [i for i in scopes[s] if _recolourable(i.unit)]
+            look = _legend_swatch(free)
+            isnothing(look) || foreach(i -> i.unit["_aovSwatch"] = deepcopy(look), free)
+            continue
+        end
+        look = _legend_swatch(coloured)
+        isnothing(look) && continue
+        for i in coloured
+            color = Dict{String,Any}(i.encoding["color"])
+            legend = get(color, "legend", nothing)
+            legend = legend isa AbstractDict ? Dict{String,Any}(legend) : Dict{String,Any}()
+            for (k, v) in look
+                haskey(legend, k) || (legend[k] = deepcopy(v))
+            end
+            color["legend"] = legend
+            enc = Dict{String,Any}(something(_as_dict(get(i.unit, "encoding", nothing)), Dict{String,Any}()))
+            enc["color"] = color
+            i.unit["encoding"] = enc
+            i.unit["_aovSwatch"] = deepcopy(look)
+        end
+    end
+    spec
+end
+# The look for a legend over `infos` (in Vega-Lite's merge order), or `nothing`
+# when its first layer already draws the swatch at full strength.
+function _legend_swatch(infos)
+    length(infos) < 2 && return nothing
+    ops = [_unit_opacity(i.unit, i.encoding) for i in infos]
+    any(isnothing, ops) && return nothing
+    strongest = maximum(ops)
+    first(ops) < strongest || return nothing
+    look = Dict{String,Any}("symbolOpacity" => strongest)
+    k = findfirst(j -> ops[j] == strongest &&
+        _mark_type(get(infos[j].unit, "mark", nothing)) in _STROKE_MARKS, eachindex(infos))
+    if !isnothing(k)
+        m = _mark_dict(get(infos[k].unit, "mark", nothing))
+        _stroke_symbol!(look, m)
+        d = _stroke_dash(m)
+        isnothing(d) || (look["symbolDash"] = d)
+    end
+    look
+end
+# A unit's constant opacity: its opacity encoding's value (the selected value
+# under the legend-selection condition), else its mark's, else Vega-Lite's
+# default (0.7 for an unaggregated point, as the runtime's hover highlight
+# reads it); `nothing` when it is data-driven.
+function _unit_opacity(unit, enc)
+    op = get(enc, "opacity", nothing)
+    if op isa AbstractDict
+        c = get(op, "condition", nothing)
+        v = c isa AbstractDict ? get(c, "value", nothing) :
+            isnothing(c) && !haskey(op, "field") && !haskey(op, "datum") ? get(op, "value", nothing) : nothing
+        return v isa Real ? v : nothing
+    end
+    isnothing(op) || return nothing
+    mark = get(unit, "mark", nothing)
+    o = get(_mark_dict(mark), "opacity", nothing)
+    isnothing(o) || return o isa Real ? o : nothing
+    _mark_type(mark) in ("point", "tick", "circle", "square") &&
+        !any(e -> e isa AbstractDict && haskey(e, "aggregate"), values(enc)) ? 0.7 : 1
+end
+# A unit the runtime's channel picker colours when it moves a colour in: one
+# with an encoding and no fixed colour of its own (`_fixedMarkColor` and
+# `_keep_color` in vendor/aov-runtime.js).
+function _recolourable(unit)
+    haskey(unit, "encoding") && get(unit, "_keep_color", false) !== true || return false
+    _is_composite_mark(unit) && return false
+    mark = _as_dict(get(unit, "mark", nothing))
+    isnothing(mark) && return true
+    ink(m) = (st = m isa AbstractDict ? get(m, "style", nothing) : nothing;
+        st in ("aov-ink", "aov-background") ||
+        st isa AbstractVector && any(x -> x in ("aov-ink", "aov-background"), st))
+    c = get(mark, "color", nothing)
+    fixed = !(isnothing(c) || c === false || c == "")
+    !(fixed || ink(mark) || any(ink, values(mark)))
 end
 # Each unit with a label (its own `_aov_label`, or a labelled layer group's), the
 # layer nodes above it up to the nearest concatenation, and whether it is inside a
@@ -3017,7 +3127,7 @@ _finish_vegalite!(spec, v) = _record_summary!(_each_ribbon_view!(s -> _apply_pan
     _each_ribbon_view!(_apply_axis_defaults!, _finish_ribbon_views!(_each_ribbon_view!(_apply_finish_defaults!, spec)))), v)
 # Log tick values and tick counts, again once a ribbon's interval drawing is
 # built (it gets x encodings of its own); every pass keeps what is set.
-_apply_axis_defaults!(spec) = _apply_ref_labels!(_apply_label_legends!(_apply_tooltip_time!(_apply_tick_cap!(_apply_listed_ticks!(_apply_log_ticks!(spec))))))
+_apply_axis_defaults!(spec) = _apply_ref_labels!(_apply_label_legends!(_apply_legend_swatches!(_apply_tooltip_time!(_apply_tick_cap!(_apply_listed_ticks!(_apply_log_ticks!(spec)))))))
 _apply_finish_defaults!(spec) = _apply_tooltip_time!(_apply_finish_defaults_inner!(spec))
 _apply_finish_defaults_inner!(spec) = _apply_ink_paint!(_fit_gradient_labels!(_one_colour_bar!(_heatmap_seams!(_apply_tick_cap!(_apply_listed_ticks!(_apply_log_ticks!(_apply_log_bar_base!(_apply_no_zero_default!(_apply_wrap_default!(spec))))))))))
 
