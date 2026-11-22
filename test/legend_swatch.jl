@@ -8,7 +8,6 @@ using TestItemRunner
 # is fainter than another is drawn like its strongest line.
 @testsnippet AoVLegendSwatchFixtures begin
     using AlgebraOfVega
-    import AlgebraOfGraphics
     t = collect(1.0:5)
     rows = (; t=repeat(t, 3), g=repeat(["a", "b", "c"], inner=5), h=repeat(["u", "v"], 8)[1:15],
         q50=collect(1.0:15), lo=collect(0.0:14), hi=collect(2.0:16), lo50=collect(0.5:14.5),
