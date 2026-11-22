@@ -622,15 +622,49 @@ function _apply_layer_labels!(units::AbstractVector, layers::AbstractVector)
         foreach(u -> u isa AbstractDict && (u["_aov_label"] = label), us)
     end
 end
-
-_mark_passive!(x) = nothing
-_mark_passive!(v::AbstractVector) = foreach(_mark_passive!, v)
-function _mark_passive!(d::AbstractDict)
-    haskey(d, "mark") && (d["mark"] = _passive_mark(d["mark"]))
-    for k in ("layer", "spec", "hconcat", "vconcat", "concat")
-        haskey(d, k) && _mark_passive!(d[k])
+# `visual(...; clip=true)` cuts every mark the layer draws at the frame,
+# analyses included: an interval's rules and median point, a ribbon's bands and
+# line, a density's area. A plain layer's mark already carries it
+# (`visual_attrs_to_mark_props`); an analysis builds its marks from scratch, so
+# without this pass the attribute reached none of them and the page drew a
+# zoomed forest's intervals whole (snag `pointinterval-ma-10864d08`). Under
+# pan/zoom, `_keep_own_clips!` then styles each clipped mark `aov-own-clip`, so
+# the page keeps it cut before the reader zooms, as `vsave` does. The authored
+# value is copied as written, so `clip=false` keeps the marks whole even once
+# zoomed, as on a plain layer. Reference labels are added later
+# (`_apply_ref_labels!`) and keep their own `clip: false`.
+_layer_clip(layer) = (vis = extract_visual(layer);
+    isnothing(vis) ? nothing : get(vis.attributes, :clip, nothing))
+function _apply_layer_clip!(units::AbstractVector, layers::AbstractVector)
+    for (us, layer) in zip(units, layers)
+        clip = _layer_clip(layer)
+        isnothing(clip) && continue
+        foreach(u -> _map_marks!(m -> _mark_with_clip(m, clip), u), us)
     end
 end
+_mark_with_clip(mark::AbstractString, clip) = Dict{String,Any}("type" => mark, "clip" => clip)
+_mark_with_clip(mark::AbstractDict, clip) = get(mark, "clip", nothing) == clip ? mark :
+    merge(Dict{String,Any}(string(k) => v for (k, v) in pairs(mark)), Dict{String,Any}("clip" => clip))
+_mark_with_clip(mark, clip) = mark
+# The `visual(...)` attributes that apply to every mark a layer draws, analyses
+# included, rather than to one mark property: `inspectable`, `label` and `clip`.
+function _apply_layer_visuals!(units::AbstractVector, layers::AbstractVector)
+    _apply_layer_passive!(units, layers)
+    _apply_layer_labels!(units, layers)
+    _apply_layer_clip!(units, layers)
+end
+
+# `d["mark"] = f(d["mark"])` for every mark of a lowered unit, through its
+# layers, facet spec and concatenated panels.
+_map_marks!(f, x) = nothing
+_map_marks!(f, v::AbstractVector) = foreach(u -> _map_marks!(f, u), v)
+function _map_marks!(f, d::AbstractDict)
+    haskey(d, "mark") && (d["mark"] = f(d["mark"]))
+    for k in ("layer", "spec", "hconcat", "vconcat", "concat")
+        haskey(d, k) && _map_marks!(f, d[k])
+    end
+end
+_mark_passive!(x) = _map_marks!(_passive_mark, x)
 # A mark with the passive style added after its own.
 _passive_mark(mark) = _mark_with_style(mark, _AOV_PASSIVE)
 # A copy of `mark` with the style `name` added after its own; a composite mark's
@@ -730,8 +764,7 @@ function layers_to_vl(layers::Layers; layer_encodings::AbstractVector=Any[],
     end
     map_figure && _share_map_projection!(layers.layers, units)
     _apply_layer_transforms!(units, layer_transforms)
-    _apply_layer_passive!(units, layers.layers)
-    _apply_layer_labels!(units, layers.layers)
+    _apply_layer_visuals!(units, layers.layers)
 
     # Also collect facet from regular layer encodings (col=/row= → column/row channels,
     # layout= → the single-field `facet` wrap channel). VL compiles a `facet` channel
@@ -1066,8 +1099,7 @@ function _faceted_layers_to_vl(layers, facet_field, shared_table, shared_data;
     end
     _apply_layer_encodings!(units, layer_encodings)
     _apply_layer_transforms!(units, layer_transforms)
-    _apply_layer_passive!(units, layers.layers)
-    _apply_layer_labels!(units, layers.layers)
+    _apply_layer_visuals!(units, layers.layers)
 
     spec = Dict{String,Any}(
         "\$schema" => VL_SCHEMA,
