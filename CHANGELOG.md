@@ -15,6 +15,23 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
+## 0.2.83
+
+- **A click on blank plot space clears a legend selection on facet panels and
+  tooltip scatters too.** With a colour legend's entries selected, a click on
+  an empty part of a facet panel, or anywhere on a scatter with tooltips away
+  from the points, now clears the selection, and with `config(legend_zoom=true)`
+  brings back the full view, as the documentation said. Before, Vega-Lite read
+  such a click as a click on a mark (the panel's background, or the
+  nearest-point overlay that answers the tooltips) and set the selection to the
+  last clicked legend entry again: nothing cleared, and a selection of several
+  entries shrank to that one entry, zoom included. A click on a mark's own
+  shape, a pan, and a click with Shift held now leave the selection as it is
+  (Shift with a click there used to drop the last clicked entry). This holds on
+  every figure with legend selection, with or without `legend_zoom`; a click
+  outside the plot areas and a click on an entry still work as before. Static
+  output (`vsave`, `sdraw`) is unchanged.
+
 ## 0.2.82
 
 - **A "Show intervals" switch on every figure with interval marks.** A figure

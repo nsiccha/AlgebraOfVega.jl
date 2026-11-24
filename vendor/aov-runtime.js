@@ -3130,6 +3130,78 @@ window.AoV = window.AoV || {
         return vg;
     },
 
+    // --- Clearing a legend selection: a click on blank plot space ---
+    // Vega-Lite follows every click in the view with its legend selection's
+    // "clear" handler, `!event.item || !datum ? null : <last entry>`, forced.
+    // Blank space it recognises only where no item is picked, so a click on
+    // a facet cell (a group whose datum is the cell's facet values), on a
+    // tooltip scatter's nearest-point overlay (its datum is the nearest
+    // point), on a data mark or at the end of a pan set the selection to the
+    // last clicked entry again: the click cleared nothing, and a selection
+    // of several entries shrank to that one (with Shift, that entry was
+    // dropped). On each legend selection AoV adds, the patch fires that
+    // handler only when `aovLegendClear(event)` holds (_legendClears): a
+    // click without Shift whose press did not move more than _CLICK_SLOP px
+    // (`aov_legend_press`; `aov:click` tells a drag the same way,
+    // _attachClick) and which lands on blank space: no item, a group's
+    // background (the view, a facet cell, a concat panel), or the
+    // nearest-point overlay away from the point's own shape. It then clears
+    // the selection; any other click leaves the selection as it is. The test
+    // is a function because a stream filter does not see a signal's current
+    // value (the press of this click), while `view.signal` does.
+    _LEGEND_PRESS: 'aov_legend_press',
+    _legendClearOn: function(spec) {
+        return !!(spec && spec._aov && spec._aov.legendInteraction);
+    },
+    _legendClears: function(event) {
+        if (!event || event.shiftKey) return false;
+        var view = event.vega && event.vega.view && event.vega.view(), press = null;
+        try { press = view ? view.signal(this._LEGEND_PRESS) : null; } catch (err) { /* not patched */ }
+        if (press && (Math.abs(event.clientX - press[0]) > this._CLICK_SLOP ||
+            Math.abs(event.clientY - press[1]) > this._CLICK_SLOP)) return false;
+        var item = event.item;
+        if (!item || !item.mark || item.mark.marktype === 'group') return true;
+        if (!item.isVoronoi) return !item.datum;
+        // The overlay's datum is the nearest point's scenegraph item, its
+        // bounds in the coordinates of its group.
+        var point = item.datum, group = point && point.mark && point.mark.group;
+        if (!point || !point.bounds || !group || !event.vega.xy) return true;
+        var xy = event.vega.xy(group);
+        return !point.bounds.contains(xy[0], xy[1]);
+    },
+    _registerLegendClear: function() {
+        if (this._legendClearRegistered || typeof vega === 'undefined' || !vega.expressionFunction) return;
+        var self = this;
+        vega.expressionFunction('aovLegendClear', function(event) { return self._legendClears(event); });
+        this._legendClearRegistered = true;
+    },
+    _legendClearPatch: function(vg, spec) {
+        var self = this;
+        var names = self._legendGroups(self._legendUnits(spec)).map(function(l) { return l.name + '_'; });
+        if (!names.length || !vg) return vg;
+        var clear = /^!event\.item \|\| !datum \? null : /, found = false;
+        (vg.signals || []).forEach(function(s) {
+            if (!names.some(function(n) { return s.name.indexOf(n) === 0; })) return;
+            (s.on || []).forEach(function(h) {
+                if (typeof h.update !== 'string' || !clear.test(h.update)) return;
+                // Vega-Lite shares these stream objects with the selection's
+                // toggle signal, which must still see every click: copy them.
+                var events = h.events && h.events.merge ? h.events.merge : [].concat(h.events || []);
+                h.events = events.map(function(e) {
+                    return Object.assign({}, e, {filter: [].concat(e.filter || [], ['aovLegendClear(event)'])});
+                });
+                h.update = 'null';
+                h.force = true;
+                found = true;
+            });
+        });
+        if (!found) return vg;
+        self._registerLegendClear();
+        vg.signals.push({name:self._LEGEND_PRESS, value:null,
+            on:[{events:{source:'view', type:'pointerdown'}, update:'[event.clientX, event.clientY]'}]});
+        return vg;
+    },
+
     // --- Legend zoom: config(legend_zoom=true) (src/link.jl) ---
     // Selecting colour legend entries zooms each panel's continuous x and y
     // axes to the marks of the selected entries; clearing the selection
@@ -3150,11 +3222,8 @@ window.AoV = window.AoV || {
     //   domains from the scenegraph (_legendZoomExtents), with a 5 % margin,
     //   and clears the reader's pan/zoom so the new zoom shows. A data
     //   change re-fits an active zoom to the new rows (_dataChanged).
-    // - Vega follows the release of a pan with a click, and Vega-Lite clears
-    //   a legend selection on a click on blank space, so a pan would drop the
-    //   selection and snap back to the full view. The patch makes that clear
-    //   skip a click whose press moved more than _CLICK_SLOP px
-    //   (`aov_legend_zoom_press`), as `aov:click` does (_attachClick).
+    // - A click on blank plot space clears the selection, and with it the
+    //   zoom; a pan keeps it (_legendClearPatch, on every legend selection).
     _LEGEND_ZOOM: 'aov_legend_zoom',
     _LEGEND_ZOOM_SCALES: ['linear', 'log', 'pow', 'sqrt', 'symlog', 'time', 'utc'],
     _legendZoomOn: function(spec) {
@@ -3242,18 +3311,9 @@ window.AoV = window.AoV || {
         })).join(' + ');
     },
     _legendZoomPatch: function(vg) {
-        var self = this, plan = self._legendZoomPlan(vg), Z = self._LEGEND_ZOOM, P = Z + '_press';
+        var self = this, plan = self._legendZoomPlan(vg), Z = self._LEGEND_ZOOM;
         if (!Object.keys(plan.scales).length) return vg;
-        vg.signals = (vg.signals || []).concat([{name:Z, value:null},
-            {name:P, value:null, on:[{events:{source:'view', type:'pointerdown'}, update:'[event.clientX, event.clientY]'}]}]);
-        var dragged = P + ' && (abs(event.clientX - ' + P + '[0]) > ' + self._CLICK_SLOP +
-            ' || abs(event.clientY - ' + P + '[1]) > ' + self._CLICK_SLOP + ')';
-        (vg.signals || []).forEach(function(s) {
-            (s.on || []).forEach(function(h) {
-                if (typeof h.update === 'string' && /^!event\.item \|\| !datum \? null : /.test(h.update))
-                    h.update = '(' + dragged + ') ? ' + s.name + ' : (' + h.update + ')';
-            });
-        });
+        vg.signals = (vg.signals || []).concat([{name:Z, value:null}]);
         (function walk(g) {
             (g.scales || []).forEach(function(s) {
                 var d = plan.scales[s.name];
@@ -3374,9 +3434,7 @@ window.AoV = window.AoV || {
     },
     // Re-fit the zoom to the current selection. `reset` (a selection
     // change) also clears the reader's pan/zoom, so a new selection shows
-    // whole. Vega-Lite re-sets the selection on every click, even to the
-    // same entries (a click on a mark, the release of a pan), which changes
-    // nothing here.
+    // whole. A selection set again to the same entries changes nothing here.
     _legendZoomApply: function(id, reset) {
         var self = this, view = self.views[id], st = self._legendZooms[id];
         if (!view || !st) return Promise.resolve();
@@ -3398,6 +3456,7 @@ window.AoV = window.AoV || {
             if (typeof patch === 'function') vg = patch(vg);
             self._passiveMarks(vg);
             self._panZoomClip(vg);
+            if (self._legendClearOn(spec)) self._legendClearPatch(vg, spec);
             if (self._legendZoomOn(spec)) self._legendZoomPatch(vg);
             self._bindTicks(vg);
             // An embed superseded or disposed while compiling still compiles;
