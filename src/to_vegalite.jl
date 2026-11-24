@@ -2231,6 +2231,12 @@ _is_auto_zoom_name(n) = n == _AUTO_ZOOM || (n isa AbstractString && occursin(r"^
 _is_auto_zoom(p) = p isa AbstractDict && get(p, "name", nothing) == _AUTO_ZOOM &&
     get(p, "bind", nothing) == "scales"
 
+_has_auto_zoom(_) = false
+_has_auto_zoom(d::AbstractDict) = any(p -> p isa AbstractDict && _is_auto_zoom_name(get(p, "name", nothing)) &&
+        get(p, "bind", nothing) == "scales", something(_as_vec(get(d, "params", nothing)), Any[])) ||
+    any(l -> _has_auto_zoom(l), something(_as_vec(get(d, "layer", nothing)), Any[])) ||
+    _has_auto_zoom(get(d, "spec", nothing))
+
 function _name_panel_zooms!(kids::AbstractVector, shared)
     for (i, kid) in enumerate(kids)
         _name_panel_zoom!(kid, i - 1, shared)
@@ -3725,6 +3731,10 @@ function add_auto_interactivity!(spec::Dict{String,Any})
     # A map has no x/y axes: it zooms through its projection, and its one
     # unit is a geoshape, so no nearest-point hover applies either.
     _add_map_zoom!(spec) && return spec
+    # An AoV figure lowered again (`VegaSpec(to_vegalite(…), nothing)`, as a
+    # consumer that edits the lowered Dict passes it on) already carries its
+    # zoom in a sublayer: a second one would sit beside it in the same unit.
+    _has_auto_zoom(spec) && return spec
     # Don't add interactivity if user already defined params (via config)
     has_user_params = haskey(spec, "params")
 

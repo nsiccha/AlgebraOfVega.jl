@@ -104,7 +104,9 @@ end
     st2 = to_vegalite(vconcat(AlgebraOfVega.VegaSpec(raw, nothing),
         AlgebraOfVega.VegaSpec(to_vegalite(forest(coef)), nothing); linkxaxes=:none, spacing=20))
     @test raw == kept
-    @test [collect(keys(z)) for z in zooms.(st2["vconcat"])] == [["grid_p0"], ["grid_p1"]]
+    @test zooms.(st2["vconcat"]) == [Dict("grid_p0" => ["x"]), Dict("grid_p1" => ["x"])]
+    # A lowered figure lowered again keeps its one zoom (it used to gain a second).
+    @test zooms(to_vegalite(AlgebraOfVega.VegaSpec(to_vegalite(forest(qt)), nothing))) == Dict("grid" => ["x"])
 
     # Row and wrap per-panel-Y stacks: one x zoom, each panel's y its own (todo `04imxgm`).
     rows = (; dose=repeat([1.0, 2, 3], 2), q50=[1.0, 2, 3, 100, 200, 300], panel=repeat(["Cmax", "AUC"], inner=3))
