@@ -56,8 +56,16 @@ function _vendor_asset(file)
     lock(_VENDOR_CACHE_LOCK) do
         hit = get(_VENDOR_CACHE, path, nothing)
         !isnothing(hit) && hit[1] == mt && return hit
-        bytes = read(path, String)
-        _VENDOR_CACHE[path] = (mt, bytes, bytes2hex(sha256(bytes))[1:16], _inline_text(bytes))
+        # Hash the bytes, never the String: `sha256(::String)` hashes its
+        # `codeunits`, and SHA copies those into its block buffer one
+        # 64-byte block at a time through `copyto!`, whose aliasing check
+        # (`objectid` of the String) re-hashes the whole file per block.
+        # For this directory that cost ~0.5 s on a fresh process's first page
+        # instead of ~5 ms (snag vega-head-vendor-272ecd34).
+        data = read(path)
+        version = bytes2hex(sha256(data))[1:16]
+        text = String(data)  # takes over `data`'s memory; `data` is not used again
+        _VENDOR_CACHE[path] = (mt, text, version, _inline_text(text))
     end
 end
 
