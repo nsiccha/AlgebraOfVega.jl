@@ -652,6 +652,9 @@ function _apply_layer_visuals!(units::AbstractVector, layers::AbstractVector)
     _apply_layer_passive!(units, layers)
     _apply_layer_labels!(units, layers)
     _apply_layer_clip!(units, layers)
+    # Not an attribute: a plain Rangebars/Errorbars/Band layer's units are its
+    # interval marks (src/interval_switch.jl).
+    _apply_layer_intervals!(units, layers)
 end
 
 # `d["mark"] = f(d["mark"])` for every mark of a lowered unit, through its

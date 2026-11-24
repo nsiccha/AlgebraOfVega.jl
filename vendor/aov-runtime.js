@@ -58,6 +58,9 @@ window.AoV = window.AoV || {
     // A config(legend_zoom=true) plot's zoom plan and colour legends (see
     // _legendZoomWatch).
     _legendZooms: {},
+    // Plots whose reader turned their "Show intervals" switch off (see
+    // _withIntervals).
+    _intervalsHidden: {},
     // A figure an htmx swap brought under the id of the plot on the page,
     // waiting for the swap to end to take that plot's drawing over (see
     // _adoptAfterSwap).
@@ -70,7 +73,7 @@ window.AoV = window.AoV || {
         '_embedOpts', '_observers', '_computedWidths', '_corrections', '_correctedRegime',
         '_cur', '_pickers', '_mappings', '_themeKeys', '_reembeds', '_frames',
         '_highlights', '_hovers', '_touches', '_unmeasured', '_ribbonViews', '_scrollFrames',
-        '_mapZooms', '_mapPinches', '_readouts', '_refPending', '_adopting', '_legendZooms'],
+        '_mapZooms', '_mapPinches', '_readouts', '_refPending', '_adopting', '_legendZooms', '_intervalsHidden'],
 
     // Whether the runtime sizes this spec to its container: Julia's
     // `_embed_spec` marks a responsive layered/faceted/per-column spec with
@@ -619,6 +622,7 @@ window.AoV = window.AoV || {
             cur.spec = p.prepared;
             delete self._liveRows[id];
             self._ribbonViewControls(id, old);
+            self._intervalControls(id, old, cur.spec);
             // The plot sits in the new figure's area now.
             self._observeResize(id, cur.spec);
             self._watchScrollFrame(id);
@@ -670,6 +674,8 @@ window.AoV = window.AoV || {
     // update_spec), the one the reader chose. The drawings are stored without
     // that metadata, so an update that changes only data still swaps in place.
     _takeRibbonViews: function(id, spec, keep) {
+        // A new figure also starts with its intervals shown (_withIntervals).
+        if (!keep) delete this._intervalsHidden[id];
         var rv = spec && spec._aov && spec._aov.ribbonView;
         var prev = this._ribbonViews[id];
         if (!rv || !rv.alt) {
@@ -786,6 +792,125 @@ window.AoV = window.AoV || {
             b.setAttribute('aria-pressed', String(b.dataset.view === st.view));
         });
     },
+    // --- The "Show intervals" switch (src/interval_switch.jl) ---
+    // A figure Julia marks `_aov.intervals` draws interval marks beside other
+    // marks, each interval unit tagged `_aovInterval`. The copy an embed
+    // draws gets a top-level param `aov_intervals` and a filter on every
+    // tagged unit, so the switch only sets that signal: the intervals'
+    // rows leave their marks and Vega-Lite's own scale domains, which fit
+    // the marks still drawn (an authored domain stays), and the zoom, the
+    // legend selection and the rest of the view stay as they are. The
+    // reader's choice lives in `_intervalsHidden` and carries into every
+    // re-embed of the plot (resize, theme, picker, Ribbons | Intervals,
+    // update_spec); a new figure starts shown (_takeRibbonViews).
+    _INTERVALS: 'aov_intervals',
+    _intervalsOffered: function(spec) { return !!(spec && spec._aov && spec._aov.intervals === true); },
+    _withIntervals: function(id, s) {
+        if (!this._intervalsOffered(s)) return s;
+        var name = this._INTERVALS, found = false;
+        (function walk(node) {
+            if (!node || typeof node !== 'object') return;
+            if (Array.isArray(node)) return node.forEach(walk);
+            if (node.mark && node._aovInterval === true) {
+                node.transform = (node.transform || []).concat([{filter: name}]);
+                found = true;
+            }
+            ['layer', 'hconcat', 'vconcat', 'concat'].forEach(function(k) { if (node[k]) walk(node[k]); });
+            if (node.spec) walk(node.spec);
+        })(s);
+        if (found) s.params = (s.params || []).concat([{name: name, value: !this._intervalsHidden[id]}]);
+        return s;
+    },
+    // Public: show (`true`) or hide (`false`) the interval marks of plot
+    // `id`, as its "Show intervals" switch does. Returns whether the plot
+    // offers the switch.
+    setIntervals: function(id, shown) {
+        this._settleWaiting(id);
+        var cur = this._cur[id];
+        if (!cur || !this._intervalsOffered(cur.spec)) return false;
+        if (shown === false) this._intervalsHidden[id] = true; else delete this._intervalsHidden[id];
+        this._intervalControls(id, this._elOf(id), cur.spec);
+        var self = this, view = this.views[id];
+        if (!view) return true;
+        try { view.signal(this._INTERVALS); } catch (err) { return true; }
+        view.signal(this._INTERVALS, shown !== false);
+        // The axes refit, so their labels can change width: lay the plot
+        // out again, as a data change does.
+        this._runRelayout(view);
+        this._refLabelsSoon(id);
+        if (this._legendZooms[id]) view.runAsync().then(function() {
+            if (self.views[id] === view) self._legendZoomApply(id, false);
+        });
+        return true;
+    },
+    // The switch: one pressed/unpressed button ("Show intervals"), in its
+    // captioned figure's action row after any Ribbons | Intervals buttons
+    // (HTMXObjects' caption styles give it the row's look), else in a group
+    // after the plot and its ribbon switch. Removed when a new spec no
+    // longer offers it.
+    _intervalControls: function(id, el, spec) {
+        var self = this, sel = '[data-aov-intervals-for="' + id + '"]';
+        var buttons = this._ownIntervalButtons(el, sel);
+        if (!this._intervalsOffered(spec)) {
+            buttons.forEach(function(b) {
+                var group = b.parentElement;
+                b.remove();
+                if (group && group.classList.contains('aov-intervals') && !group.children.length) group.remove();
+            });
+            return;
+        }
+        if (!buttons.length && el && el.parentNode) {
+            var fig = el.closest('figure.captioned');
+            var acts = fig && fig.querySelector('.caption-actions');
+            var header = fig && fig.querySelector('.caption-header');
+            if (!acts && header) {
+                acts = document.createElement('span');
+                acts.className = 'caption-actions';
+                header.appendChild(acts);
+            }
+            var b = document.createElement('button');
+            b.type = 'button';
+            b.className = acts ? 'outline caption-action' : 'outline';
+            b.setAttribute('data-aov-intervals-for', id);
+            b.addEventListener('click', function() {
+                self.setIntervals(id, b.getAttribute('aria-pressed') !== 'true');
+            });
+            if (acts) {
+                var ribbon = acts.querySelectorAll('[data-aov-ribbon-view-for="' + id + '"]');
+                var after = ribbon.length ? ribbon[ribbon.length - 1] : null;
+                acts.insertBefore(b, after ? after.nextSibling : acts.firstChild);
+            } else {
+                var group = document.createElement('div');
+                group.className = 'aov-intervals';
+                group.appendChild(b);
+                var anchor = el.parentElement && el.parentElement.classList.contains('aov-plot-area') ? el.parentElement : el;
+                var next = anchor.nextElementSibling;
+                if (next && next.classList.contains('aov-ribbon-view')) anchor = next;
+                anchor.insertAdjacentElement('afterend', group);
+            }
+            buttons = [b];
+        }
+        var text = this._texts(buttons[0]);
+        buttons.forEach(function(b) {
+            b.textContent = text('show_intervals');
+            b.setAttribute('aria-pressed', String(!self._intervalsHidden[id]));
+        });
+    },
+    // The switch button of the plot drawn in `el`: in its captioned figure,
+    // else in the group after it (and after its ribbon switch).
+    _ownIntervalButtons: function(el, sel) {
+        if (!el) return [];
+        var fig = el.closest('figure.captioned');
+        if (fig) return Array.prototype.slice.call(fig.querySelectorAll(sel));
+        var next = el.parentElement && el.parentElement.classList.contains('aov-plot-area') ? el.parentElement : el;
+        for (var i = 0; i < 2 && next; i++) {
+            next = next.nextElementSibling;
+            if (next && next.classList.contains('aov-intervals')) return Array.prototype.slice.call(next.querySelectorAll(sel));
+            if (!next || !next.classList.contains('aov-ribbon-view')) break;
+        }
+        return [];
+    },
+
     // The switch buttons (`sel`) of the plot drawn in `el`: those in its
     // captioned figure, else those in the group right after it.
     _ownRibbonButtons: function(el, sel) {
@@ -1292,6 +1417,7 @@ window.AoV = window.AoV || {
         // every frame shares, computed once per spec before the first embed.
         var framePlan = self._frameSetup(id, el, origSpec, opts);
         self._ribbonViewControls(id, el);
+        self._intervalControls(id, el, origSpec);
 
         self._styleElement(el, spec);
 
@@ -1304,7 +1430,7 @@ window.AoV = window.AoV || {
             // Superseded by a newer embed of this id, or disposed: a resize or
             // fit re-embed scheduled earlier must not resurrect the old spec.
             if (self._embedTok[id] !== tok) return Promise.resolve();
-            var s = self._bindDodge(self._capTicks(id, self._withHighlight(id, self._applyResponsiveWidth(id, JSON.parse(JSON.stringify(cur.spec)), budget))));
+            var s = self._bindDodge(self._capTicks(id, self._withHighlight(id, self._withIntervals(id, self._applyResponsiveWidth(id, JSON.parse(JSON.stringify(cur.spec)), budget)))));
             // Host theme, read now: a theme change re-runs this embed.
             var embedOpts = self._withFrame(id, self._themedOpts(id, s, opts), plan);
             var fonts = self._fontsPending((s.config && s.config.font) || (embedOpts.config && embedOpts.config.font));
@@ -2599,6 +2725,7 @@ window.AoV = window.AoV || {
                 cur.spec = p.prepared;
                 delete self._liveRows[id];
                 self._ribbonViewControls(id, el);
+                self._intervalControls(id, el, cur.spec);
             } else {
                 self._embed(id, p.shown, opts, false);
             }
@@ -2797,7 +2924,9 @@ window.AoV = window.AoV || {
         try {
             // Each listing axis states its tick count, as the embed's spec
             // does (_capTicks).
-            vg = vegaLite.compile(self._listedTicks(JSON.parse(JSON.stringify(spec))),
+            // With the intervals filter the embed added, which can number
+            // the datasets differently (_withIntervals).
+            vg = vegaLite.compile(self._listedTicks(self._withIntervals(id, JSON.parse(JSON.stringify(spec)))),
                 {logger: vega.logger(vega.None)}).spec;
             if (typeof opts.patch === 'function') vg = opts.patch(vg);
         } catch (e) { return false; }
@@ -5718,7 +5847,7 @@ window.AoV = window.AoV || {
         }
         // Frame players and ribbon switches: the fresh page's embed builds
         // its own controls.
-        clone.querySelectorAll('[data-aov-frame-for], [data-aov-ribbon-view-for], .aov-ribbon-view, .aov-zoom-reset').forEach(function(c) { c.remove(); });
+        clone.querySelectorAll('[data-aov-frame-for], [data-aov-ribbon-view-for], .aov-ribbon-view, [data-aov-intervals-for], .aov-intervals, .aov-zoom-reset').forEach(function(c) { c.remove(); });
         // A download menu's place is set whenever it opens.
         clone.querySelectorAll('.aov-download-menu').forEach(function(m) { m.removeAttribute('style'); });
         // Lazy data shells: drop rendered bodies; the fresh page re-renders lazily.
@@ -5816,7 +5945,7 @@ window.AoV = window.AoV || {
     // (`plot_texts`, src/plot_texts.jl); without that attribute they are
     // English. LOCKSTEP: `_TEXTS_EN` is the English set of
     // `_RUNTIME_TEXT_NAMES` in src/plot_texts.jl; test/plot_texts.jl pins them.
-    _TEXTS_EN: {"no_data": "(no data available)", "no_summary": "(no summary data available)", "median": "Median", "mean": "Mean", "interval": "{point} [{width} credible interval]", "value": "value", "untitled": "AoV plot", "lang": "en", "play": "Play", "pause": "Pause", "ribbons": "Ribbons", "intervals": "Intervals", "ribbon_view": "Drawing", "overlap": "Bands overlap {score} of the y range", "overlap_auto": "Bands overlap {score} of the y range; intervals above {threshold}", "scrollable": "Scrollable plot", "scrollable_table": "Scrollable table", "reset_zoom": "Reset zoom", "table_rows": "Rows {from}–{to} of {total}", "table_pages": "Table pages", "previous_page": "Previous", "next_page": "Next", "table_page": "Page {page}", "table_sorts_all": "A click on a column heading sorts all {total} rows.", "table_csv": "{csv} holds every row."},
+    _TEXTS_EN: {"no_data": "(no data available)", "no_summary": "(no summary data available)", "median": "Median", "mean": "Mean", "interval": "{point} [{width} credible interval]", "value": "value", "untitled": "AoV plot", "lang": "en", "play": "Play", "pause": "Pause", "ribbons": "Ribbons", "intervals": "Intervals", "ribbon_view": "Drawing", "overlap": "Bands overlap {score} of the y range", "overlap_auto": "Bands overlap {score} of the y range; intervals above {threshold}", "show_intervals": "Show intervals", "scrollable": "Scrollable plot", "scrollable_table": "Scrollable table", "reset_zoom": "Reset zoom", "table_rows": "Rows {from}–{to} of {total}", "table_pages": "Table pages", "previous_page": "Previous", "next_page": "Next", "table_page": "Page {page}", "table_sorts_all": "A click on a column heading sorts all {total} rows.", "table_csv": "{csv} holds every row."},
     _texts: function(el) {
         var host = el && el.closest ? el.closest('[data-aov-texts]') : null;
         var texts = host ? JSON.parse(host.dataset.aovTexts) : {};

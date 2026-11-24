@@ -3130,7 +3130,7 @@ _finish_vegalite!(spec, v) = _record_summary!(_each_ribbon_view!(s -> _apply_pan
     _each_ribbon_view!(_apply_axis_defaults!, _finish_ribbon_views!(_each_ribbon_view!(_apply_finish_defaults!, spec)))), v)
 # Log tick values and tick counts, again once a ribbon's interval drawing is
 # built (it gets x encodings of its own); every pass keeps what is set.
-_apply_axis_defaults!(spec) = _apply_ref_labels!(_apply_label_legends!(_apply_legend_swatches!(_apply_tooltip_time!(_apply_tick_cap!(_apply_listed_ticks!(_apply_log_ticks!(spec)))))))
+_apply_axis_defaults!(spec) = _apply_interval_switch!(_apply_ref_labels!(_apply_label_legends!(_apply_legend_swatches!(_apply_tooltip_time!(_apply_tick_cap!(_apply_listed_ticks!(_apply_log_ticks!(spec))))))))
 _apply_finish_defaults!(spec) = _apply_tooltip_time!(_apply_finish_defaults_inner!(spec))
 _apply_finish_defaults_inner!(spec) = _apply_ink_paint!(_fit_gradient_labels!(_one_colour_bar!(_heatmap_seams!(_apply_tick_cap!(_apply_listed_ticks!(_apply_log_ticks!(_apply_log_bar_base!(_apply_no_zero_default!(_apply_wrap_default!(spec))))))))))
 

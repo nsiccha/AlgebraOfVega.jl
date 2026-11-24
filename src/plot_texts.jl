@@ -53,6 +53,7 @@ struct PlotTexts
     ribbon_view::String     # ribbon switch: the group's accessible name
     overlap::String         # ribbon switch tooltip: the measured band overlap
     overlap_auto::String    # the same, when `intervals=:auto` picked the start
+    show_intervals::String  # the "Show intervals" switch: the pressed button that shows a figure's interval marks
     scrollable::String      # accessible name of a plot that scrolls in its frame; its title follows after ": "
     scrollable_table::String # the same for a data table that scrolls in its frame
     table_rows::String      # a long data table's pager: the rows the page shows, `{from}`–`{to}` of `{total}`
@@ -106,6 +107,7 @@ const _PLOT_TEXT_LOCALES = (
         ribbon_view = "Drawing",
         overlap = "Bands overlap {score} of the y range",
         overlap_auto = "Bands overlap {score} of the y range; intervals above {threshold}",
+        show_intervals = "Show intervals",
         scrollable = "Scrollable plot",
         scrollable_table = "Scrollable table",
         table_rows = "Rows {from}–{to} of {total}",
@@ -153,6 +155,7 @@ const _PLOT_TEXT_LOCALES = (
         ribbon_view = "Darstellung",
         overlap = "Die Bänder überlappen sich auf {score} des y-Bereichs",
         overlap_auto = "Die Bänder überlappen sich auf {score} des y-Bereichs; Intervalle ab {threshold}",
+        show_intervals = "Intervalle zeigen",
         scrollable = "Scrollbare Grafik",
         scrollable_table = "Scrollbare Tabelle",
         table_rows = "Zeilen {from}–{to} von {total}",
@@ -208,7 +211,7 @@ _plot_text(texts::PlotTexts, name::Symbol; values...) =
 # pager, the frame player, the ribbon switch, a scroll frame's name, a map's reset button, the HTML export). LOCKSTEP: `_TEXTS_EN` in `vendor/aov-runtime.js` holds their
 # English values; `test/plot_texts.jl` pins the two together.
 const _RUNTIME_TEXT_NAMES = (:no_data, :no_summary, :median, :mean, :interval, :value, :untitled, :lang, :play, :pause,
-    :ribbons, :intervals, :ribbon_view, :overlap, :overlap_auto, :scrollable, :scrollable_table, :reset_zoom,
+    :ribbons, :intervals, :ribbon_view, :overlap, :overlap_auto, :show_intervals, :scrollable, :scrollable_table, :reset_zoom,
     :table_rows, :table_pages, :previous_page, :next_page, :table_page, :table_sorts_all, :table_csv)
 
 _runtime_texts_json(texts::PlotTexts) =

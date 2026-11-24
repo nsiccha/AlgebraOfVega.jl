@@ -15,6 +15,28 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
+## 0.2.82
+
+- **A "Show intervals" switch on every figure with interval marks.** A figure
+  that draws `Rangebars`, `Errorbars`, `Band`, the rules of `pointinterval`,
+  `gradient_interval` or `dotinterval`, the bands of `lineribbon`/`ribbon` (in
+  both drawings of its Ribbons | Intervals switch) or the `interval=` bands of
+  `linear()`/`smooth()`, beside other marks, now gets a pressed button that
+  hides and shows them; they are shown by default. While they are hidden, an
+  axis whose range they set refits to the marks still drawn, so wide intervals
+  no longer flatten the estimates; an authored domain or axis `limits` stays.
+  Hiding changes nothing else in the view (zoom, legend selection), and the
+  reader's choice survives a resize, a theme switch, a picker change, the
+  Ribbons | Intervals switch, `update_spec` and `replace_data`. The button sits
+  in a captioned figure's action row, else after the plot; its text is
+  `plot_texts(...).show_intervals` ("Show intervals", German "Intervalle
+  zeigen"). It works through `vdraw`/`to_node`, `with_plot_caption`,
+  `to_html(spec, caption; …)` and saved HTML cards; `vsave`, `sdraw` and
+  report images draw every interval, as before. `AoV.setIntervals(id, shown)`
+  sets it from page code, and the new `intervals_switch(spec)` says from Julia
+  whether a figure offers it (`:no_intervals`, `:only_intervals` otherwise).
+  `PlotTexts` gains the field `show_intervals`.
+
 ## 0.2.81
 
 - **`config(legend_zoom=true)`: a legend selection zooms the axes to it.**

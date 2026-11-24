@@ -247,7 +247,7 @@ function analysis_to_vl(a::PointIntervalAnalysis, layer::Layer; is_sublayer=fals
                                     group_color=isempty(fixed_mark))
         push!(layers, Dict{String,Any}(
             "mark" => merge(Dict{String,Any}("type" => "rule", "strokeWidth" => stroke_widths[i]), fixed_mark),
-            "encoding" => enc,
+            "encoding" => enc, _AOV_INTERVAL => true,
         ))
     end
 
@@ -299,7 +299,7 @@ function analysis_to_vl(a::PrecomputedIntervalAnalysis, layer::Layer; is_sublaye
                                     group_color=isempty(fixed_mark))
         push!(layers, Dict{String,Any}(
             "mark" => merge(Dict{String,Any}("type" => "rule", "strokeWidth" => stroke_widths[i]), fixed_mark),
-            "encoding" => enc,
+            "encoding" => enc, _AOV_INTERVAL => true,
         ))
     end
 
@@ -355,7 +355,7 @@ function analysis_to_vl(a::GradientIntervalAnalysis, layer::Layer; is_sublayer=f
                                     group_color=isempty(fixed_mark))
         push!(layers, Dict{String,Any}(
             "mark" => merge(Dict{String,Any}("type" => "rule", "strokeWidth" => 14), fixed_mark),
-            "encoding" => enc,
+            "encoding" => enc, _AOV_INTERVAL => true,
         ))
     end
 
@@ -437,7 +437,7 @@ function _ribbon_glyph_layers(x_field, x_label, y_label, median_col, band_cols;
             enc["xOffset"] = Dict{String,Any}("field" => color_field, "type" => "nominal")
         end
         mark = merge(Dict{String,Any}("type" => "rule", "strokeWidth" => stroke_widths[i]), fixed_mark)
-        l = Dict{String,Any}("mark" => mark, "encoding" => enc)
+        l = Dict{String,Any}("mark" => mark, "encoding" => enc, _AOV_INTERVAL => true)
         isnothing(filter_expr) || (l["transform"] = _ft())
         push!(layers, l)
     end
@@ -528,7 +528,8 @@ function _ribbon_to_vl(
         )
         !isnothing(detail_enc) && (enc["detail"] = deepcopy(detail_enc))
         mark = merge(Dict{String,Any}("type" => "area", "opacity" => opacities[i], "line" => false), fixed_mark)
-        push!(template_layers, Dict{String,Any}("mark" => mark, "encoding" => enc, "_lr_layer" => true))
+        push!(template_layers, Dict{String,Any}("mark" => mark, "encoding" => enc, "_lr_layer" => true,
+            _AOV_INTERVAL => true))
     end
     if show_line
         line_x_enc = Dict{String,Any}("field" => x_field, "type" => x_type)
@@ -768,7 +769,7 @@ function analysis_to_vl(a::DotIntervalAnalysis, layer::Layer; is_sublayer=false)
         rule_color = isempty(fixed_mark) ? Dict{String,Any}("style" => _AOV_INK) : fixed_mark
         push!(interval_layers, Dict{String,Any}(
             "mark" => merge(Dict{String,Any}("type" => "rule", "strokeWidth" => stroke_widths[i]), rule_color),
-            "encoding" => enc,
+            "encoding" => enc, _AOV_INTERVAL => true,
         ))
     end
 
@@ -1063,6 +1064,7 @@ function linear_to_vl(layer::Layer; is_sublayer=false)
             "mark" => band_mark,
             "encoding" => band_enc,
             "data" => Dict{String,Any}("values" => ci_rows),
+            _AOV_INTERVAL => true,
         )
         spec = Dict{String,Any}("layer" => [band_layer, line_layer])
     else
@@ -1201,6 +1203,7 @@ function smooth_to_vl(layer::Layer; is_sublayer=false)
             "mark" => band_mark,
             "encoding" => band_enc,
             "data" => Dict{String,Any}("values" => ci_rows),
+            _AOV_INTERVAL => true,
         )
         spec = Dict{String,Any}("layer" => [band_layer, line_layer])
     else
