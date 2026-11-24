@@ -15,6 +15,26 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
+## 0.2.80
+
+- **`visual(...; clip=true)` cuts an analysis's marks at the frame.** The
+  attribute reached a plain mark only: an analysis builds its marks itself, so
+  `pointinterval()`, `pointinterval(bands=…)`, `gradient_interval()`,
+  `dotinterval()`, `lineribbon()`, `ribbon()`, `density()`, `histogram()`,
+  `linear()`, `smooth()`, `frequency()` and `expectation()` drew every mark
+  unclipped. The interval and ribbon analyses logged "ignoring `clip`" once a
+  session, and the others said nothing. On an interactive page, pan and zoom
+  then drew each mark whole until the reader zoomed, so a forest of
+  `pointinterval(bands=…)` with an x domain narrower than its intervals grew a
+  canvas wide enough to hold them (23,612 px on a report, with the plot pushed
+  out of sight). Now every mark such a layer draws carries the authored
+  `clip`, and the page keeps it cut from the start, as `vsave` does: the
+  intervals end at the frame and the figure keeps its width. `clip=false` is
+  written as authored and keeps the marks whole even once zoomed. On `sdraw`,
+  Makie cuts every plot at its axis anyway, so `clip=true` holds there and
+  `clip=false` on a ribbon logs a warning that it is ignored (snag
+  `pointinterval-ma-10864d08`).
+
 ## 0.2.79
 
 - **A colour legend over a band and a line draws its swatch like the line.**

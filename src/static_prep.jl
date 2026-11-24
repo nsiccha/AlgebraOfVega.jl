@@ -293,7 +293,7 @@ function _lineribbon_to_aog(a::LineRibbonAnalysis, layer::Layer)
 
     _ribbon_to_aog(summary_nt, Symbol(x_field), Symbol("__median__"), band_syms;
         show_line=a.show_line, color_kw, facet_kw, x_label, y_label,
-        fixed_color=_analysis_fixed_color(layer, _ribbon_name(a)))
+        fixed_color=_analysis_fixed_color(layer, _ribbon_name(a); static=true))
 end
 
 function _precomputed_ribbon_to_aog(a::PrecomputedRibbonAnalysis, layer::Layer)
@@ -309,7 +309,7 @@ function _precomputed_ribbon_to_aog(a::PrecomputedRibbonAnalysis, layer::Layer)
 
     _ribbon_to_aog(summary_nt, Symbol(x_field), Symbol(median_col), band_syms;
         show_line=a.show_line, color_kw, facet_kw, x_label, y_label,
-        fixed_color=_analysis_fixed_color(layer, _ribbon_name(a)))
+        fixed_color=_analysis_fixed_color(layer, _ribbon_name(a); static=true))
 end
 
 """

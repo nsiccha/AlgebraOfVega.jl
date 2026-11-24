@@ -524,14 +524,20 @@ end
 # opacities, line and rule widths), so any other visual attribute is reported
 # rather than silently dropped. `point_size=true` (the analyses whose only point
 # is the median, `pointinterval` and `gradient_interval`) also accepts the
-# `markersize` that `_interval_point_size` reads.
-function _analysis_fixed_color(layer::Layer, analysis::AbstractString; point_size::Bool=false)
+# `markersize` that `_interval_point_size` reads. `static=true` is `sdraw`'s
+# lowering, where Makie cuts every plot at its axis: `clip=true` holds there
+# by itself, and `clip=false` cannot, so it is reported.
+function _analysis_fixed_color(layer::Layer, analysis::AbstractString; point_size::Bool=false,
+                               static::Bool=false)
     vis = extract_visual(layer)
     isnothing(vis) && return nothing
-    # `inspectable` applies to every mark of the layer (`_apply_layer_passive!`), and
-    # `label` names it (`_apply_layer_labels!`).
+    # `inspectable` applies to every mark of the layer (`_apply_layer_passive!`),
+    # `label` names it (`_apply_layer_labels!`), and `clip` cuts every mark at the
+    # frame (`_apply_layer_clip!`).
     applied = point_size ? (:color, :markersize) : (:color,)
-    ignored = [k for k in keys(vis.attributes) if !(k in applied) && k !== :inspectable && k !== :label]
+    layer_wide(k) = k === :inspectable || k === :label ||
+        (k === :clip && !(static && vis.attributes[:clip] === false))
+    ignored = [k for k in keys(vis.attributes) if !(k in applied) && !layer_wide(k)]
     isempty(ignored) || @warn "AlgebraOfVega: $analysis applies only a fixed $(join(("`$k`" for k in applied), " and ")) from `visual(...)`; ignoring $(join(("`$k`" for k in ignored), ", "))." maxlog=1
     haskey(vis.attributes, :color) ? vis.attributes[:color] : nothing
 end

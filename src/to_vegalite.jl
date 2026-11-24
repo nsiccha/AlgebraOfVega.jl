@@ -47,8 +47,7 @@ function _base_vegalite(layer::Layer, layer_encodings::AbstractVector=Any[],
     # One layer: its units are the whole spec.
     _apply_layer_encodings!([[spec]], layer_encodings)
     _apply_layer_transforms!([[spec]], layer_transforms)
-    _apply_layer_passive!([[spec]], [layer])
-    _apply_layer_labels!([[spec]], [layer])
+    _apply_layer_visuals!([[spec]], [layer])
     _apply_no_truncate_default!(spec)
     _apply_type_default!(spec)
     _apply_ink_default!(spec)
