@@ -32,7 +32,9 @@ const _PASSIVE_PATCH_JS = "function (vg) { (function walk(marks) { (marks || [])
 # A spec with AoV's automatic pan/zoom gets the patch that draws its marks whole
 # until the reader zooms, then cuts them at the frame along the zoomed axes only
 # (`_AOV_OWN_CLIP`); a map's marks are cut at their whole frame once it is zoomed
-# or moved (`_AOV_ZOOM`). LOCKSTEP: `_panZoomClip` (vendor/aov-runtime.js).
+# or moved (`_AOV_ZOOM`). A composition panel's own zoom `grid_p<k>`
+# (`_name_panel_zooms!`) counts like `grid`. LOCKSTEP: `_panZoomClip`
+# (vendor/aov-runtime.js).
 const _PAN_ZOOM_CLIP_JS = "function (vg) { " *
     "if (vg && (vg.signals || []).some(function (s) { return s.name === 'aov_zoom'; })) { " *
     "var moved = 'aov_zoom.k !== 1 || aov_zoom.x !== 0 || aov_zoom.y !== 0'; " *
@@ -41,17 +43,22 @@ const _PAN_ZOOM_CLIP_JS = "function (vg) { " *
     "marks.forEach(function (m) { if (m.type === 'group') return walk(m); " *
     "if (!map || m.clip) return; " *
     "m.clip = {signal: moved}; }); })(vg); } " *
-    "if (!vg || !(vg.signals || []).some(function (s) { return s.name === 'grid'; })) return vg; " *
+    "var zoom = function (n) { return /^grid(_p\\d+)?\$/.test(n || ''); }; " *
+    "if (!vg || !(vg.signals || []).some(function (s) { return zoom(s.name); })) return vg; " *
     "function size(v) { return v && typeof v.signal === 'string' ? '(' + v.signal + ')' : typeof v === 'number' ? String(v) : null; } " *
     "(function walk(group, w, h, fields) { " *
-    "(group.signals || []).forEach(function (s) { if (s.name === 'grid_tuple_fields' && Array.isArray(s.value)) fields = s.value; }); " *
+    "var own = []; (group.signals || []).forEach(function (s) { " *
+    "var sel = /_tuple_fields\$/.test(s.name) ? s.name.replace(/_tuple_fields\$/, '') : null; " *
+    "if (!sel || !zoom(sel) || !Array.isArray(s.value)) return; " *
+    "s.value.forEach(function (f) { own.push({sel: sel, field: f.field, channel: f.channel}); }); }); " *
+    "if (own.length) fields = own; " *
     "(group.marks || []).forEach(function (m) { " *
     "if (m.type === 'group') { var u = (m.encode && m.encode.update) || {}; walk(m, size(u.width), size(u.height), fields); return; } " *
     "if (m.clip !== true || !fields || !fields.length) return; " *
     "if ([].concat(m.style || []).indexOf('aov-own-clip') !== -1) return; " *
     "var channels = fields.map(function (f) { return f.channel; }); " *
     "var x = channels.indexOf('x') !== -1, y = channels.indexOf('y') !== -1; " *
-    "var zoomed = fields.map(function (f) { return 'isValid(grid[' + JSON.stringify(f.field) + '])'; }).join(' || '); " *
+    "var zoomed = fields.map(function (f) { return 'isValid(' + f.sel + '[' + JSON.stringify(f.field) + '])'; }).join(' || '); " *
     "var cut = x && !y && w ? \"pathShape('M0,-100000H' + \" + w + \" + 'V100000H0Z')\" : " *
     "y && !x && h ? \"pathShape('M-100000,0H100000V' + \" + h + \" + 'H-100000Z')\" : 'true'; " *
     "m.clip = {signal: '(' + zoomed + ') ? ' + cut + ' : false'}; }); " *
@@ -62,7 +69,7 @@ _uses_pan_zoom(_) = false
 _uses_pan_zoom(v::AbstractVector) = any(_uses_pan_zoom, v)
 function _uses_pan_zoom(d::AbstractDict)
     ps = get(d, "params", nothing)
-    ps isa AbstractVector && any(p -> p isa AbstractDict && ((get(p, "name", nothing) == "grid" &&
+    ps isa AbstractVector && any(p -> p isa AbstractDict && ((_is_auto_zoom_name(get(p, "name", nothing)) &&
         get(p, "bind", nothing) == "scales") || get(p, "name", nothing) == _AOV_ZOOM), ps) && return true
     any(k -> haskey(d, k) && _uses_pan_zoom(d[k]), ("layer", "spec", "hconcat", "vconcat", "concat"))
 end

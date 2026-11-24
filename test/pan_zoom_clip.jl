@@ -59,11 +59,12 @@ end
         visual(BarPlot; direction=:x) * visual(; clip=true)) * config(height=40)
     @test any(m -> "aov-own-clip" in styles(m), marks_of(to_vegalite(facet_own)))
 
-    # The bare `to_html(spec)` embed carries the same patch, only with pan/zoom.
-    @test occursin("grid_tuple_fields", to_html(gantt; id="bare"))
+    # The bare `to_html(spec)` embed carries the same patch, only with pan/zoom
+    # (it reads every zoom selection's `<name>_tuple_fields`).
+    @test occursin("_tuple_fields", to_html(gantt; id="bare"))
     @test occursin("m.interactive = false", to_html(gantt; id="bare"))  # still passive
     no_zoom = data((; k=["a", "b"], v=["x", "y"])) * mapping(:k, :v) * visual(Scatter)
-    @test !occursin("grid_tuple_fields", to_html(no_zoom; id="bare"))
+    @test !occursin("_tuple_fields", to_html(no_zoom; id="bare"))
 end
 
 @testitem "pan/zoom clip in the browser: marks drawn whole until the reader zooms" setup=[AoVPanZoomClipFixtures] tags=[:regression, :browser, :interactivity] begin
