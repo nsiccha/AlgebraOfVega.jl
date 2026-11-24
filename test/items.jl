@@ -2523,7 +2523,7 @@ embedding across re-embeds and replaces, rather than leaks, a re-embedded view.
     @test occursin("appendData: function", rt)
     @test occursin("updateSpec: function", rt)
     @test occursin("whenReady: function", rt)
-    @test occursin("_withLiveRows(id, embedOpts, gen)", rt)
+    @test occursin("_withLiveRows(id, embedOpts, gen, s)", rt)
     @test occursin(".finalize()", rt)
 end
 
