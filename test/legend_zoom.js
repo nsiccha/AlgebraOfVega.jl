@@ -6,7 +6,10 @@
 // reader's own zoom is replaced by a new selection; a panel without selected
 // marks keeps its range; shared scales take the extent over every panel; the
 // picker's colour remap and an in-place data update keep working; a figure
-// without the setting only dims.
+// without the setting only dims. A click inside the plot area clears only on
+// blank space, on facet panels and tooltip scatters too, and leaves a
+// selection of several entries whole otherwise (snag
+// `legend-zoom-blan-90471a09`).
 (async function () {
     const failures = [];
     let checks = 0;
@@ -70,6 +73,42 @@
         canvas.dispatchEvent(new MouseEvent('click', at(to, 0)));
         await settle(view);
     }
+    // On a canvas plot: the page position of a scenegraph item's bounds, and
+    // a press and release in place at view coordinates (x, y), as a reader
+    // clicks (`mark_click.js` clickAt). `hits[id]` records what Vega picked.
+    const hits = {};
+    function viewBounds(item) {
+        let x = 0, y = 0, g = item.mark && item.mark.group;
+        while (g) { x += g.x || 0; y += g.y || 0; g = g.mark && g.mark.group; }
+        return {x1: item.bounds.x1 + x, y1: item.bounds.y1 + y, x2: item.bounds.x2 + x, y2: item.bounds.y2 + y};
+    }
+    function sceneItems(view, pred) {
+        const out = [];
+        (function walk(item) { if (pred(item)) out.push(item); (item.items || []).forEach(walk); })(view.scenegraph().root);
+        return out;
+    }
+    async function clickAt(id, x, y, shift = false) {
+        const view = AoV.views[id];
+        const canvas = document.querySelector('#' + id + ' canvas');
+        const rect = canvas.getBoundingClientRect(), origin = view.origin(), pad = view.padding();
+        const opts = {bubbles: true, cancelable: true, shiftKey: shift, pointerId: 1, isPrimary: true, pointerType: 'mouse',
+            clientX: rect.left + origin[0] + pad.left + x, clientY: rect.top + origin[1] + pad.top + y};
+        hits[id] = undefined;
+        canvas.dispatchEvent(new PointerEvent('pointermove', opts));
+        canvas.dispatchEvent(new PointerEvent('pointerdown', Object.assign({}, opts, {buttons: 1})));
+        canvas.dispatchEvent(new PointerEvent('pointerup', opts));
+        canvas.dispatchEvent(new MouseEvent('click', opts));
+        await settle(view);
+    }
+    async function canvasLegend(id, label, shift = false) {
+        const view = AoV.views[id];
+        const item = sceneItems(view, i => i.mark && i.mark.role === 'legend-label' && i.text === label)[0];
+        check(!!item, id + ': missing legend label ' + label);
+        if (!item) return;
+        const b = viewBounds(item);
+        await clickAt(id, (b.x1 + b.x2) / 2, (b.y1 + b.y2) / 2, shift);
+    }
+    const selected = view => [...new Set(view.data('legend_selection_store').map(t => t.values[0]))].sort();
     const domain = (view, ch) => view.scale(ch).domain();
     const zoomValue = view => view.signal('aov_legend_zoom');
     // Every drawn point with its group, its panel and its position inside
@@ -114,7 +153,8 @@
 
     try {
         const views = {};
-        for (const id of ['lz-plain', 'lz-canvas', 'lz-off', 'lz-limits', 'lz-facet', 'lz-shared', 'lz-picker', 'lz-caption'])
+        for (const id of ['lz-plain', 'lz-canvas', 'lz-off', 'lz-limits', 'lz-facet', 'lz-shared', 'lz-picker', 'lz-caption',
+            'lz-facet-canvas', 'lz-scatter-canvas', 'lz-off-facet-canvas'])
             views[id] = await ready(id);
 
         // --- One view: zoom, add, add the outlier's group, clear. ---
@@ -191,6 +231,77 @@
         check(view.data('legend_selection_store').length === 1, id + ' pan: the selection was cleared');
         check(!nearDomain(panned, [0.8, 5.2]) && near(panned[1] - panned[0], 4.4, 1e-3),
             id + ' pan: x domain ' + show(panned) + ' did not move by the drag, at the zoomed span 4.4');
+
+        // --- A click inside the plot area (snag `legend-zoom-blan-90471a09`):
+        // Vega-Lite took a click on a facet panel (a group with a datum) or on
+        // a tooltip scatter's nearest-point overlay for a click on a mark and
+        // set the selection to the last clicked entry again: nothing cleared,
+        // and A + B shrank to B. Now blank space clears, and a click on a
+        // point, a pan or Shift with a click leave A + B whole. ---
+        for (id of ['lz-facet-canvas', 'lz-scatter-canvas', 'lz-off-facet-canvas']) {
+            view = views[id];
+            const zoomed = id !== 'lz-off-facet-canvas', overlay = id === 'lz-scatter-canvas';
+            view.addEventListener('click', (event, item) => { hits[id] = item || null; });
+            const symbols = () => sceneItems(view, i => i.mark && i.mark.marktype === 'symbol' && i.mark.role === 'mark' &&
+                i.datum && i.datum.g !== undefined);
+            const at = () => symbols().map(i => [i.x, i.y].map(Math.round).join(',')).join(' ');
+            const start = at();
+            // The first panel's frame in view coordinates, and the spot in it
+            // farthest from every point.
+            const cell = sceneItems(view, i => i.mark && i.mark.marktype === 'group' && i.mark.name === 'cell')[0];
+            check(overlay === !cell, id + ': ' + (cell ? 'a facet cell' : 'no facet cell'));
+            let fx = 0, fy = 0, fw = view.width(), fh = view.height();
+            if (cell) {
+                // The cell's own origin, not its bounds: those take in its axes.
+                let g = cell.mark.group;
+                fx = cell.x; fy = cell.y; fw = cell.width; fh = cell.height;
+                while (g) { fx += g.x || 0; fy += g.y || 0; g = g.mark && g.mark.group; }
+            }
+            // In the view as it is drawn now: the points move with a zoom.
+            function blankSpot(label) {
+                let best = null;
+                const pts = symbols().map(viewBounds);
+                for (let u = 0.05; u < 0.96; u += 0.05) for (let v = 0.05; v < 0.96; v += 0.05) {
+                    const x = fx + fw * u, y = fy + fh * v;
+                    const d = Math.min(...pts.map(b => Math.hypot(Math.min(Math.max(x, b.x1), b.x2) - x, Math.min(Math.max(y, b.y1), b.y2) - y)));
+                    if (!best || d > best.d) best = {x, y, d};
+                }
+                check(best.d > 8, id + ' ' + label + ': no blank spot in the plot area');
+                return best;
+            }
+            const pick = () => hits[id] ? (hits[id].isVoronoi ? 'overlay' : hits[id].mark.marktype + ':' + hits[id].mark.role) : 'nothing';
+            async function selectAB(label) {
+                await canvasLegend(id, 'A');
+                await canvasLegend(id, 'B', true);
+                check(JSON.stringify(selected(view)) === '["A","B"]', id + ' ' + label + ': A + B selected ' + JSON.stringify(selected(view)));
+            }
+            await selectAB('blank');
+            check(!zoomed || zoomValue(view) !== null, id + ': A + B did not zoom');
+            let blank = blankSpot('blank click');
+            await clickAt(id, blank.x, blank.y);
+            check(pick() === (overlay ? 'overlay' : 'group:scope'), id + ' blank click picked ' + pick());
+            check(selected(view).length === 0, id + ' blank click: the selection stayed ' + JSON.stringify(selected(view)));
+            check(!zoomed || zoomValue(view) === null, id + ' blank click: still zoomed');
+            check(at() === start, id + ' blank click: the points did not return to the full view');
+            // A click on an unselected C point's own shape.
+            await selectAB('point');
+            const zoom = JSON.stringify(zoomed ? zoomValue(view) : null);
+            const c = symbols().find(i => i.datum.g === 'C');
+            const cb = viewBounds(c);
+            await clickAt(id, (cb.x1 + cb.x2) / 2, (cb.y1 + cb.y2) / 2);
+            check(pick() === (overlay ? 'overlay' : 'symbol:mark'), id + ' point click picked ' + pick());
+            check(JSON.stringify(selected(view)) === '["A","B"]', id + ' point click: the selection became ' + JSON.stringify(selected(view)));
+            check(JSON.stringify(zoomed ? zoomValue(view) : null) === zoom, id + ' point click: the zoom changed');
+            // Shift with a click on blank space, then a pan from blank space.
+            blank = blankSpot('shift-click');
+            await clickAt(id, blank.x, blank.y, true);
+            check(JSON.stringify(selected(view)) === '["A","B"]', id + ' shift-click on blank space: the selection became ' + JSON.stringify(selected(view)));
+            await drag(id, {x: blank.x, y: blank.y}, {x: blank.x + 30, y: blank.y + 12});
+            check(JSON.stringify(selected(view)) === '["A","B"]', id + ' pan: the selection became ' + JSON.stringify(selected(view)));
+            blank = blankSpot('blank click after a pan');
+            await clickAt(id, blank.x, blank.y);
+            check(selected(view).length === 0, id + ' blank click after a pan: the selection stayed ' + JSON.stringify(selected(view)));
+        }
 
         // --- Without the setting a selection only dims. ---
         id = 'lz-off'; view = views[id];

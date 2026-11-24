@@ -90,7 +90,13 @@ end
         vdraw(faceted * zoom; id="lz-shared"),
         auto_remap_node("lz-picker", (scatter(prow) + identity_layer) * sz * zoom;
             dims=["g" => "Group", "h" => "Half"], pinned=:detail),
-        with_plot_caption(faceted * zoom * independent, "Predicted against observed"; plot_id="lz-caption")]
+        with_plot_caption(faceted * zoom * independent, "Predicted against observed"; plot_id="lz-caption"),
+        # Canvas, for clicks at a position inside the plot area: the
+        # reporter's facet panels, a tooltip scatter (its nearest-point
+        # overlay covers the plot area) and facet panels without the setting.
+        vdraw(faceted * zoom * independent; id="lz-facet-canvas"),
+        vdraw(scatter(prow) * sz * zoom; id="lz-scatter-canvas"),
+        vdraw(faceted * independent; id="lz-off-facet-canvas")]
     chrome = something(Sys.which("google-chrome"), Sys.which("chromium"), "")
     if isempty(chrome)
         @test_skip "headless Chrome is not installed"
