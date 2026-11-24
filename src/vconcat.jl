@@ -72,7 +72,7 @@ function to_vegalite(s::VConcat; interactive::Bool=true, auto_remap::Union{Nothi
         meta = meta isa Dict ? meta : Dict{String,Any}()
         push!(readouts, get(meta, "readout", nothing))
         haskey(meta, "link") && push!(links, meta["link"])
-        for key in ("legendInteraction", "theme", "inkPalette", "maxWidth")
+        for key in ("legendInteraction", "legendZoom", "theme", "inkPalette", "maxWidth")
             haskey(meta, key) && !haskey(aov, key) && (aov[key] = meta[key])
         end
         summary = get(kid, "_aovSummary", nothing)

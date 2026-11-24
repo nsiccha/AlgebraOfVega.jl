@@ -15,6 +15,28 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
+## 0.2.81
+
+- **`config(legend_zoom=true)`: a legend selection zooms the axes to it.**
+  Opt-in. Selecting entries of a categorical colour legend (click, shift-click)
+  then also zooms each panel's x and y axes to the marks of the selected
+  entries, with a 5 % margin so edge points are drawn whole; clicking blank
+  plot space brings back the full view, and a double-click reset behaves as
+  before. Only layers coloured by the legend's field count: an uncoloured
+  layer (a dashed identity line, `HLines`/`VLines` rules, a reference band)
+  does not hold the range and is cut at the frame, as during a zoom. In a
+  facet with independent scales (`config(facet=(; linkxaxes=:none,
+  linkyaxes=:none))`) each panel zooms to its own selected marks; with shared
+  scales every panel takes their common extent; a panel with no selected marks
+  keeps its range. An authored domain or axis `limits` is kept. A new
+  selection replaces the reader's own pan/zoom, a wheel zoom then starts from
+  the zoomed view, and panning keeps the selection (the click that ends a drag
+  no longer clears it on these figures). It works through `vdraw`/`to_node`,
+  `with_plot_caption`, the channel picker, `update_spec` (an active zoom
+  re-fits to the new rows) and saved HTML cards. `vsave`, `sdraw` and report
+  images are unchanged, and so is every figure without the setting: a legend
+  selection there only dims.
+
 ## 0.2.80
 
 - **`visual(...; clip=true)` cuts an analysis's marks at the frame.** The
