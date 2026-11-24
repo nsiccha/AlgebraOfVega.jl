@@ -55,6 +55,9 @@ window.AoV = window.AoV || {
     _mapZooms: {},
     // A two-finger gesture on a map in progress (see _mapPinchStart).
     _mapPinches: {},
+    // A config(legend_zoom=true) plot's zoom plan and colour legends (see
+    // _legendZoomWatch).
+    _legendZooms: {},
     // A figure an htmx swap brought under the id of the plot on the page,
     // waiting for the swap to end to take that plot's drawing over (see
     // _adoptAfterSwap).
@@ -67,7 +70,7 @@ window.AoV = window.AoV || {
         '_embedOpts', '_observers', '_computedWidths', '_corrections', '_correctedRegime',
         '_cur', '_pickers', '_mappings', '_themeKeys', '_reembeds', '_frames',
         '_highlights', '_hovers', '_touches', '_unmeasured', '_ribbonViews', '_scrollFrames',
-        '_mapZooms', '_mapPinches', '_readouts', '_refPending', '_adopting'],
+        '_mapZooms', '_mapPinches', '_readouts', '_refPending', '_adopting', '_legendZooms'],
 
     // Whether the runtime sizes this spec to its container: Julia's
     // `_embed_spec` marks a responsive layered/faceted/per-column spec with
@@ -1092,36 +1095,49 @@ window.AoV = window.AoV || {
     // lowering. Restore their recorded opacity/filter before electing one
     // owner per colour legend; explicit user params and encodings survive
     // unchanged. Mirrors `_add_auto_legend_interactivity!` (to_vegalite.jl).
+    _compositeUnit: function(u) {
+        var m = typeof u.mark === 'string' ? u.mark : u.mark.type;
+        return ['boxplot', 'errorbar', 'errorband'].indexOf(m) !== -1;
+    },
+    // The categorical field a unit draws a colour legend for, or null.
+    // Mirrors `_legend_color_field` (to_vegalite.jl).
+    _legendField: function(info) {
+        var c = info.encoding.color;
+        if (this._compositeUnit(info.unit) || !c || !c.field ||
+            ['nominal', 'ordinal'].indexOf(c.type) === -1 || c.legend === null || c.scale === null ||
+            c.aggregate || c.bin || c.timeUnit) return null;
+        return String(c.field);
+    },
+    // A spec's colour legends, in Vega-Lite's order: each one's scope, its
+    // first unit, the fields its units colour by and the name of the
+    // selection it binds. Vega-Lite names a merged legend after its first
+    // field, so each legend's selection projects that field, owned by its
+    // first unit. Mirrors `_add_auto_legend_interactivity!`.
+    _legendGroups: function(units) {
+        var self = this, legends = Object.create(null), order = [];
+        units.forEach(function(info) {
+            var f = self._legendField(info);
+            if (f === null) return;
+            var legend = legends[info.scope];
+            if (!legend) { legend = legends[info.scope] = {scope:info.scope, owner:info.unit, fields:[]}; order.push(legend); }
+            if (legend.fields.indexOf(f) === -1) legend.fields.push(f);
+        });
+        order.forEach(function(legend, i) { legend.name = i ? 'legend_selection_' + (i+1) : 'legend_selection'; });
+        return order;
+    },
     _refreshLegendSelections: function(spec) {
         var mode = spec._aov && spec._aov.legendInteraction;
         if (!mode) return;
         this._stripLegendSelections(spec);
-        var units = this._legendUnits(spec);
+        var self = this, units = this._legendUnits(spec);
         var legends = Object.create(null), order = [];
-        function composite(u) {
-            var m = typeof u.mark === 'string' ? u.mark : u.mark.type;
-            return ['boxplot', 'errorbar', 'errorband'].indexOf(m) !== -1;
-        }
-        function legendField(info) {
-            var c = info.encoding.color;
-            if (composite(info.unit) || !c || !c.field ||
-                ['nominal', 'ordinal'].indexOf(c.type) === -1 || c.legend === null || c.scale === null ||
-                c.aggregate || c.bin || c.timeUnit) return null;
-            return String(c.field);
-        }
-        // Vega-Lite names a merged legend after its first field, so each
-        // legend's selection projects that field, owned by its first unit.
-        units.forEach(function(info) {
-            var f = legendField(info);
-            if (f === null) return;
-            var legend = legends[info.scope];
-            if (!legend) { legend = legends[info.scope] = {owner:info.unit, fields:[]}; order.push(info.scope); }
-            if (legend.fields.indexOf(f) === -1) legend.fields.push(f);
+        var composite = function(u) { return self._compositeUnit(u); };
+        var legendField = function(info) { return self._legendField(info); };
+        this._legendGroups(units).forEach(function(legend) {
+            legends[legend.scope] = legend;
+            order.push(legend.scope);
         });
-        function selName(s) {
-            var i = order.indexOf(s);
-            return i ? 'legend_selection_' + (i+1) : 'legend_selection';
-        }
+        function selName(s) { return legends[s].name; }
         // Clicked entries are stored under the legend's bound field; another
         // field of a merged legend uses Vega-Lite's own legend-entry test.
         function legendTest(s, tested) {
@@ -1325,7 +1341,7 @@ window.AoV = window.AoV || {
             // expect. vega-embed resolves it only after its own awaits, by
             // which time a swap that briefly gave two elements this id
             // (_plotElement) has removed the old one.
-            return vegaEmbed('#' + id, s, self._withViewLog(id, self._withLiveRows(id, embedOpts, gen))).then(function(result) {
+            return vegaEmbed('#' + id, s, self._withViewLog(id, self._withLiveRows(id, embedOpts, gen, s))).then(function(result) {
                 settle();
                 if (self._gens[id] !== gen) {
                     result.finalize();
@@ -1344,6 +1360,7 @@ window.AoV = window.AoV || {
                 self._attachHover(id, view);
                 self._attachTouch(id, view);
                 self._attachReadout(id);
+                self._legendZoomWatch(id, view, s, result.vgSpec);
                 self._refLabelsWatch(id, view);
                 self._mapZoom(id, view, result.vgSpec);
                 self._frameSync(id, view);
@@ -2811,6 +2828,11 @@ window.AoV = window.AoV || {
     _dataChanged: function(id) {
         var self = this;
         self._refLabelsSoon(id);
+        // An active legend zoom re-fits to the new rows; the reader's own
+        // pan/zoom stays.
+        if (self._legendZooms[id]) self.whenReady(id, function(view) {
+            view.runAsync().then(function() { if (self.views[id] === view) self._legendZoomApply(id, false); });
+        });
         self.whenReady(id, function() {
             self._syncCsvEntries(id);
             var sel = '[data-aov-plot-id="' + id + '"]';
@@ -2979,14 +3001,275 @@ window.AoV = window.AoV || {
         return vg;
     },
 
+    // --- Legend zoom: config(legend_zoom=true) (src/link.jl) ---
+    // Selecting colour legend entries zooms each panel's continuous x and y
+    // axes to the marks of the selected entries; clearing the selection
+    // brings back the full view. Only marks coloured by a legend's field
+    // count, so an uncoloured identity line, a reference rule or band never
+    // holds the range: it is cut at the frame, as during a zoom.
+    // - The compile patch (_legendZoomPatch) adds the top-level signal
+    //   `aov_legend_zoom`, an object of domains keyed by scale and panel, or
+    //   null. Every continuous position scale with a data-driven domain
+    //   falls back to it after the reader's pan/zoom (`grid`), so a wheel
+    //   zoom still starts from the zoomed view. A scale defined in a facet
+    //   cell is keyed by the cell's facet values (`parent[...]` in its
+    //   `domainRaw`), so each panel of independent scales zooms to its own
+    //   marks, and a shared scale takes the extent over every panel. A
+    //   panel with no selected marks keeps its full range. An authored
+    //   domain (a literal list) is kept.
+    // - A listener on each legend selection (_legendZoomWatch) computes the
+    //   domains from the scenegraph (_legendZoomExtents), with a 5 % margin,
+    //   and clears the reader's pan/zoom so the new zoom shows. A data
+    //   change re-fits an active zoom to the new rows (_dataChanged).
+    // - Vega follows the release of a pan with a click, and Vega-Lite clears
+    //   a legend selection on a click on blank space, so a pan would drop the
+    //   selection and snap back to the full view. The patch makes that clear
+    //   skip a click whose press moved more than _CLICK_SLOP px
+    //   (`aov_legend_zoom_press`), as `aov:click` does (_attachClick).
+    _LEGEND_ZOOM: 'aov_legend_zoom',
+    _LEGEND_ZOOM_SCALES: ['linear', 'log', 'pow', 'sqrt', 'symlog', 'time', 'utc'],
+    _legendZoomOn: function(spec) {
+        return !!(spec && spec._aov && spec._aov.legendZoom === true && spec._aov.legendInteraction);
+    },
+    // What the zoom reads from a compiled Vega spec: the zoomable scales by
+    // name (type, the facet fields of the group defining them), the groups
+    // that define them, every data mark that positions on one of them (its
+    // position channels and the fields its fill/stroke colour by), and the
+    // reader's pan/zoom signals (the top-level `grid` signal's fields).
+    _legendZoomPlan: function(vg) {
+        var self = this, defs = {}, groups = {}, marks = {}, used = {};
+        var POS = ['x', 'x2', 'xc', 'y', 'y2', 'yc'];
+        function facetOf(m) {
+            var f = m.from && m.from.facet;
+            var by = f && f.groupby ? [].concat(f.groupby) : [];
+            return by.length && by.every(function(g) { return typeof g === 'string'; }) ? by : null;
+        }
+        (function walk(g, gname, facet) {
+            (g.scales || []).forEach(function(s) {
+                if (self._LEGEND_ZOOM_SCALES.indexOf(s.type || 'linear') === -1 || Array.isArray(s.domain)) return;
+                if (s.domainRaw && typeof s.domainRaw.signal !== 'string') return;
+                defs[s.name] = {type:s.type || 'linear', group:gname, facet:facet};
+            });
+            (g.marks || []).forEach(function(m) {
+                if (m.type === 'group') return walk(m, m.name, facetOf(m));
+                var u = (m.encode && m.encode.update) || {}, chans = [], colors = [];
+                POS.forEach(function(p) {
+                    [].concat(u[p] || []).forEach(function(e) {
+                        if (!e || e.test || typeof e.scale !== 'string') return;
+                        if (typeof e.field === 'string') chans.push({scale:e.scale, get:vega.field(e.field)});
+                        else if (typeof e.value === 'number') chans.push({scale:e.scale, value:e.value});
+                    });
+                });
+                ['fill', 'stroke'].forEach(function(p) {
+                    [].concat(u[p] || []).forEach(function(e) {
+                        if (e && typeof e.field === 'string' && colors.indexOf(e.field) === -1) colors.push(e.field);
+                    });
+                });
+                if (!m.name || !chans.length) return;
+                chans.forEach(function(c) { used[c.scale] = true; });
+                marks[m.name] = {chans:chans, colors:colors};
+            });
+        })(vg, null, null);
+        var scales = {};
+        Object.keys(defs).forEach(function(n) {
+            if (!used[n]) return;
+            scales[n] = defs[n];
+            if (defs[n].group) (groups[defs[n].group] = groups[defs[n].group] || []).push(n);
+        });
+        Object.keys(marks).forEach(function(n) {
+            marks[n].chans = marks[n].chans.filter(function(c) { return scales[c.scale]; });
+            if (!marks[n].chans.length) delete marks[n];
+        });
+        // The reader's pan/zoom: one signal per zoomed field, the ones
+        // `grid_tuple` follows (`grid_x || grid_y`), at the top level in a
+        // single view and pushed there from a facet's cells.
+        var grid = [];
+        (function walk(g) {
+            (g.signals || []).forEach(function(s) {
+                if (s.name !== 'grid_tuple') return;
+                (s.on || []).forEach(function(h) {
+                    [].concat(h.events || []).forEach(function(e) {
+                        if (!e || typeof e.signal !== 'string') return;
+                        (e.signal.match(/\bgrid_[A-Za-z_$][\w$]*/g) || []).forEach(function(n) {
+                            if (grid.indexOf(n) === -1) grid.push(n);
+                        });
+                    });
+                });
+            });
+            (g.marks || []).forEach(function(m) { if (m.type === 'group') walk(m); });
+        })(vg);
+        return {scales:scales, groups:groups, marks:marks, grid:grid};
+    },
+    // A panel's key for scale `name`: its name, then each facet value of
+    // the cell that defines it. LOCKSTEP: _legendZoomKeyExpr.
+    _legendZoomKey: function(name, facet, datum) {
+        var key = name;
+        (facet || []).forEach(function(f) { key += '|' + (datum ? datum[f] : undefined); });
+        return key;
+    },
+    _legendZoomKeyExpr: function(name, facet) {
+        return [JSON.stringify(name)].concat((facet || []).map(function(f) {
+            return '"|" + parent[' + JSON.stringify(f) + ']';
+        })).join(' + ');
+    },
+    _legendZoomPatch: function(vg) {
+        var self = this, plan = self._legendZoomPlan(vg), Z = self._LEGEND_ZOOM, P = Z + '_press';
+        if (!Object.keys(plan.scales).length) return vg;
+        vg.signals = (vg.signals || []).concat([{name:Z, value:null},
+            {name:P, value:null, on:[{events:{source:'view', type:'pointerdown'}, update:'[event.clientX, event.clientY]'}]}]);
+        var dragged = P + ' && (abs(event.clientX - ' + P + '[0]) > ' + self._CLICK_SLOP +
+            ' || abs(event.clientY - ' + P + '[1]) > ' + self._CLICK_SLOP + ')';
+        (vg.signals || []).forEach(function(s) {
+            (s.on || []).forEach(function(h) {
+                if (typeof h.update === 'string' && /^!event\.item \|\| !datum \? null : /.test(h.update))
+                    h.update = '(' + dragged + ') ? ' + s.name + ' : (' + h.update + ')';
+            });
+        });
+        (function walk(g) {
+            (g.scales || []).forEach(function(s) {
+                var d = plan.scales[s.name];
+                if (!d) return;
+                var zoom = Z + ' ? ' + Z + '[' + self._legendZoomKeyExpr(s.name, d.facet) + '] : null';
+                s.domainRaw = {signal: s.domainRaw ? '(' + s.domainRaw.signal + ') || (' + zoom + ')' : zoom};
+            });
+            (g.marks || []).forEach(function(m) {
+                if (m.type === 'group') return walk(m);
+                // Cut at the frame while zoomed, as a pan/zoom cuts
+                // (_panZoomClip); an authored clip stays.
+                if (!plan.marks[m.name] || m.clip === true) return;
+                var own = m.clip && typeof m.clip.signal === 'string' ? '(' + m.clip.signal + ')' : 'false';
+                m.clip = {signal: Z + ' ? true : ' + own};
+            });
+        })(vg);
+        return vg;
+    },
+    // The selected values of each colour field, from the legends' selection
+    // stores: {field: [values]}, an empty list for a legend with nothing
+    // selected; null when no legend has a selection.
+    _legendZoomSelection: function(view, legends) {
+        var out = {}, any = false;
+        legends.forEach(function(legend) {
+            var values = [];
+            try {
+                (view.data(legend.name + '_store') || []).forEach(function(t) {
+                    if (t && t.values && t.values.length) values.push(t.values[0]);
+                });
+            } catch (err) { return; }
+            if (values.length) any = true;
+            legend.fields.forEach(function(f) { if (!(f in out)) out[f] = values; });
+        });
+        return any ? out : null;
+    },
+    // Each zoomed scale's domain over the selected marks, by panel key:
+    // {key: [lo, hi]}, or null when no selected mark is drawn.
+    _legendZoomExtents: function(view, plan, sel) {
+        var self = this, ext = {}, roots = {};
+        Object.keys(plan.scales).forEach(function(n) { if (!plan.scales[n].group) roots[n] = n; });
+        (function walk(mark, keys) {
+            if (/^(axis|legend|title)/.test(mark.role || '')) return;
+            if (mark.marktype === 'group') {
+                var own = plan.groups[mark.name];
+                (mark.items || []).forEach(function(item) {
+                    var k = keys;
+                    if (own) {
+                        k = Object.assign({}, keys);
+                        own.forEach(function(n) { k[n] = self._legendZoomKey(n, plan.scales[n].facet, item.datum); });
+                    }
+                    (item.items || []).forEach(function(m) { walk(m, k); });
+                });
+                return;
+            }
+            var mp = plan.marks[mark.name];
+            if (!mp) return;
+            var field = null;
+            mp.colors.forEach(function(f) { if (field === null && sel[f]) field = f; });
+            if (field === null) return;
+            var chosen = sel[field];
+            (mark.items || []).forEach(function(item) {
+                var d = item.datum;
+                if (!d || (chosen.length && chosen.indexOf(d[field]) === -1)) return;
+                mp.chans.forEach(function(c) {
+                    var key = keys[c.scale];
+                    if (key === undefined) return;
+                    var v = c.get ? c.get(d) : c.value;
+                    v = v instanceof Date ? +v : v;
+                    if (typeof v !== 'number' || !isFinite(v)) return;
+                    if (plan.scales[c.scale].type === 'log' && !(v > 0)) return;
+                    var e = ext[key] = ext[key] || {scale:c.scale, lo:v, hi:v};
+                    if (v < e.lo) e.lo = v;
+                    if (v > e.hi) e.hi = v;
+                });
+            });
+        })(view.scenegraph().root, roots);
+        var keys = Object.keys(ext);
+        if (!keys.length) return null;
+        var out = {};
+        keys.forEach(function(key) {
+            var e = ext[key], type = plan.scales[e.scale].type;
+            out[key] = self._legendZoomMargin(type, e.lo, e.hi);
+        });
+        return out;
+    },
+    // A domain around [lo, hi] with 5 % of its span on each side, so marks
+    // at the edge are drawn whole: in decades on a log scale; a single value
+    // gets ±5 % of itself (±1 at zero, ±12 hours on a time scale).
+    _legendZoomMargin: function(type, lo, hi) {
+        if (type === 'log') {
+            var a = Math.log(lo), b = Math.log(hi), m = b > a ? (b - a) * 0.05 : Math.log(1.05);
+            return [Math.exp(a - m), Math.exp(b + m)];
+        }
+        var span = hi - lo;
+        var pad = span > 0 ? span * 0.05 : (type === 'time' || type === 'utc') ? 43200000 : (Math.abs(lo) * 0.05 || 1);
+        return [lo - pad, hi + pad];
+    },
+    // Called once per settled embed: follow each legend selection. The
+    // listener is the view's own, so it goes with the view (§R3).
+    _legendZoomWatch: function(id, view, spec, vg) {
+        var self = this;
+        delete self._legendZooms[id];
+        if (!self._legendZoomOn(spec) || !vg) return;
+        var plan = self._legendZoomPlan(vg);
+        var legends = self._legendGroups(self._legendUnits(spec));
+        if (!legends.length || !Object.keys(plan.scales).length) return;
+        try { view.signal(self._LEGEND_ZOOM); } catch (err) { return; }
+        self._legendZooms[id] = {plan:plan, legends:legends, selected:JSON.stringify(null)};
+        legends.forEach(function(legend) {
+            try {
+                view.addSignalListener(legend.name, function() {
+                    Promise.resolve().then(function() {
+                        if (self.views[id] === view) self._legendZoomApply(id, true);
+                    });
+                });
+            } catch (err) { /* no such selection: nothing to follow */ }
+        });
+    },
+    // Re-fit the zoom to the current selection. `reset` (a selection
+    // change) also clears the reader's pan/zoom, so a new selection shows
+    // whole. Vega-Lite re-sets the selection on every click, even to the
+    // same entries (a click on a mark, the release of a pan), which changes
+    // nothing here.
+    _legendZoomApply: function(id, reset) {
+        var self = this, view = self.views[id], st = self._legendZooms[id];
+        if (!view || !st) return Promise.resolve();
+        var sel = self._legendZoomSelection(view, st.legends), was = st.selected;
+        st.selected = JSON.stringify(sel);
+        if (reset && st.selected === was) return Promise.resolve();
+        var value = sel ? self._legendZoomExtents(view, st.plan, sel) : null;
+        if (!reset && value === null && view.signal(self._LEGEND_ZOOM) === null) return Promise.resolve();
+        if (reset) st.plan.grid.forEach(function(n) { try { view.signal(n, null); } catch (err) { /* not settable */ } });
+        view.signal(self._LEGEND_ZOOM, value);
+        return view.runAsync();
+    },
+
     // The raw rows of datasets changed via updateData/appendData are kept per plot, and
     // re-embeds (resize, remapEncoding) compile the spec with them in place of its own.
-    _withLiveRows: function(id, opts, gen) {
+    _withLiveRows: function(id, opts, gen, spec) {
         var self = this, patch = opts.patch;
         return Object.assign({}, opts, {patch: function(vg) {
             if (typeof patch === 'function') vg = patch(vg);
             self._passiveMarks(vg);
             self._panZoomClip(vg);
+            if (self._legendZoomOn(spec)) self._legendZoomPatch(vg);
             self._bindTicks(vg);
             // An embed superseded or disposed while compiling still compiles;
             // it must not re-create the plot's state.
@@ -4592,7 +4875,7 @@ window.AoV = window.AoV || {
         var names = ['width', 'height'];
         try {
             Object.keys(view.getState({signals: vega.truthy, data: vega.falsy}).signals || {}).forEach(function(n) {
-                if (/^grid(_|$)/.test(n)) names.push(n);
+                if (/^grid(_|$)/.test(n) || n === self._LEGEND_ZOOM) names.push(n);
             });
         } catch (err) { /* no state: size changes only */ }
         names.forEach(function(name) {

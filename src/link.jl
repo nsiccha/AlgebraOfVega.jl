@@ -76,3 +76,14 @@ end
 _readout_option(b::Bool) = b
 _readout_option(x) = throw(ArgumentError(
     "config(readout=…) is `true` (a readout for any figure with a continuous x) or `false` (none); got $(repr(x))."))
+
+# --- Legend zoom: config(legend_zoom=true) ---
+#
+# Opt-in: selecting entries of a categorical colour legend also zooms each
+# panel's continuous x and y axes to the marks of the selected entries
+# (`_legendZoom*` in vendor/aov-runtime.js); clearing the selection brings
+# back the full view. Off (the default), a legend selection only dims, and
+# the spec is unchanged. The lowering is `_aov.legendZoom = true`.
+_legend_zoom_option(b::Bool) = b
+_legend_zoom_option(x) = throw(ArgumentError(
+    "config(legend_zoom=…) is `true` (selecting colour legend entries zooms each panel's axes to their marks) or `false` (the default: a selection only dims); got $(repr(x))."))

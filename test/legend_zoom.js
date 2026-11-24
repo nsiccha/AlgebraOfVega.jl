@@ -1,0 +1,300 @@
+// config(legend_zoom=true) browser checks (todo `0b9v7xy`): selecting colour
+// legend entries zooms each panel's x and y axes to the selected entries'
+// marks, with a 5 % margin; the uncoloured identity line does not hold the
+// range and is cut at the frame; shift-click adds entries; a click on blank
+// plot space brings back the full view, as does a double-click reset; the
+// reader's own zoom is replaced by a new selection; a panel without selected
+// marks keeps its range; shared scales take the extent over every panel; the
+// picker's colour remap and an in-place data update keep working; a figure
+// without the setting only dims.
+(async function () {
+    const failures = [];
+    let checks = 0;
+    const check = (ok, message) => { checks++; if (!ok) failures.push(message); };
+    const pause = () => new Promise(resolve => setTimeout(resolve, 10));
+    const near = (a, b, tol = 1e-6) => Math.abs(a - b) <= tol * Math.max(1, Math.abs(b));
+    const nearDomain = (d, want) => d.length === 2 && near(+d[0], want[0]) && near(+d[1], want[1]);
+    const show = d => JSON.stringify(d.map(v => Math.round(+v * 1000) / 1000));
+    async function ready(id, previous) {
+        for (let i = 0; i < 400; i++) {
+            const view = AoV.views[id];
+            if (view && view !== previous && !AoV._inFlight[id]) return view;
+            await pause();
+        }
+        throw new Error(id + ': embed did not complete');
+    }
+    async function settle(view) {
+        for (let i = 0; i < 3; i++) { await pause(); await view.runAsync(); }
+    }
+    async function click(id, label, shift = false) {
+        const view = AoV.views[id];
+        const node = [...document.getElementById(id).querySelectorAll('.role-legend-label text')]
+            .find(n => n.textContent === label);
+        check(!!node, id + ': missing legend label ' + label);
+        if (!node) return;
+        node.dispatchEvent(new MouseEvent('click', {bubbles: true, shiftKey: shift}));
+        await settle(view);
+    }
+    // A click on blank plot space, as a reader clears the selection: each
+    // click is a press and a release in place.
+    async function clear(id, events = ['click']) {
+        const view = AoV.views[id];
+        const svg = document.getElementById(id).querySelector('svg');
+        const opts = {bubbles: true, cancelable: true, pointerId: 1, isPrimary: true, pointerType: 'mouse'};
+        for (const type of events) {
+            if (type === 'click') {
+                svg.dispatchEvent(new PointerEvent('pointerdown', opts));
+                svg.dispatchEvent(new PointerEvent('pointerup', opts));
+            }
+            svg.dispatchEvent(new MouseEvent(type, opts));
+        }
+        await settle(view);
+    }
+    // A pan on a canvas plot: a press at `from`, the pointer moving to `to`
+    // and the release there (view coordinates), as `mark_click.js` drags;
+    // Vega follows the release with a click.
+    async function drag(id, from, to) {
+        const view = AoV.views[id];
+        const canvas = document.querySelector('#' + id + ' canvas');
+        const rect = canvas.getBoundingClientRect(), origin = view.origin(), pad = view.padding();
+        const at = (p, buttons) => ({bubbles: true, cancelable: true, buttons, pointerId: 1, isPrimary: true,
+            pointerType: 'mouse', clientX: rect.left + origin[0] + pad.left + p.x, clientY: rect.top + origin[1] + pad.top + p.y});
+        canvas.dispatchEvent(new PointerEvent('pointermove', at(from, 0)));
+        canvas.dispatchEvent(new PointerEvent('pointerdown', at(from, 1)));
+        for (let i = 1; i <= 8; i++) {
+            canvas.dispatchEvent(new PointerEvent('pointermove',
+                at({x: from.x + (to.x - from.x) * i / 8, y: from.y + (to.y - from.y) * i / 8}, 1)));
+            await view.runAsync();
+        }
+        canvas.dispatchEvent(new PointerEvent('pointerup', at(to, 0)));
+        canvas.dispatchEvent(new MouseEvent('click', at(to, 0)));
+        await settle(view);
+    }
+    const domain = (view, ch) => view.scale(ch).domain();
+    const zoomValue = view => view.signal('aov_legend_zoom');
+    // Every drawn point with its group, its panel and its position inside
+    // that panel's frame.
+    function points(view) {
+        const out = [];
+        (function walk(item) {
+            if (item.mark && item.mark.marktype === 'symbol' && item.datum && item.datum.g !== undefined &&
+                /layer_0_marks$/.test(item.mark.name || '')) {
+                const cell = item.mark.group;
+                out.push({g: item.datum.g, h: item.datum.h, panel: cell && cell.datum ? cell.datum.kind : undefined,
+                    x: item.x, y: item.y, w: cell ? cell.width : view.width(), hgt: cell ? cell.height : view.height()});
+            }
+            (item.items || []).forEach(walk);
+        })(view.scenegraph().root);
+        return out;
+    }
+    // The identity line's marks: whether each is cut at the frame now.
+    function lineClips(view) {
+        const out = [];
+        (function walk(item) {
+            if (item.marktype === 'line' && /layer_1_marks$/.test(item.name || '')) out.push(item.clip === true);
+            (item.items || []).forEach(walk);
+        })(view.scenegraph().root);
+        return out;
+    }
+    // The selected points of each panel fill its frame up to the 5 % margin
+    // (on a span of 1.1) along both axes.
+    const EDGE = 0.05 / 1.1;
+    function fills(id, pts, label) {
+        const byPanel = {};
+        pts.forEach(p => { (byPanel[p.panel] = byPanel[p.panel] || []).push(p); });
+        Object.keys(byPanel).forEach(panel => {
+            const ps = byPanel[panel], w = ps[0].w, h = ps[0].hgt;
+            const xs = ps.map(p => p.x), ys = ps.map(p => p.y);
+            const ok = near(Math.min(...xs), w * EDGE, 1.5 / w) && near(Math.max(...xs), w * (1 - EDGE), 1.5 / w) &&
+                near(Math.min(...ys), h * EDGE, 1.5 / h) && near(Math.max(...ys), h * (1 - EDGE), 1.5 / h);
+            check(ok, id + ' ' + label + ' panel ' + panel + ': selected marks do not fill the frame: x ' +
+                show([Math.min(...xs), Math.max(...xs)]) + ' of ' + w + ', y ' + show([Math.min(...ys), Math.max(...ys)]) + ' of ' + h);
+        });
+    }
+
+    try {
+        const views = {};
+        for (const id of ['lz-plain', 'lz-canvas', 'lz-off', 'lz-limits', 'lz-facet', 'lz-shared', 'lz-picker', 'lz-caption'])
+            views[id] = await ready(id);
+
+        // --- One view: zoom, add, add the outlier's group, clear. ---
+        let id = 'lz-plain', view = views[id];
+        const fullX = domain(view, 'x').slice(), fullY = domain(view, 'y').slice();
+        check(+fullY[1] >= 60, id + ': the outlier is outside the initial y domain ' + show(fullY));
+        check(zoomValue(view) === null, id + ': zoomed before any selection');
+        check(lineClips(view).every(c => !c), id + ': the identity line is cut before any zoom');
+        await click(id, 'A');
+        check(nearDomain(domain(view, 'y'), [0.8, 5.2]), id + ' A: y domain ' + show(domain(view, 'y')) + ', expected [0.8, 5.2]');
+        check(nearDomain(domain(view, 'x'), [0.8, 5.2]), id + ' A: x domain ' + show(domain(view, 'x')) + ', expected [0.8, 5.2]');
+        fills(id, points(view).filter(p => p.g === 'A'), 'A');
+        check(points(view).some(p => p.g === 'B' && p.y < 0), id + ' A: the outlier is not above the frame');
+        check(lineClips(view).length && lineClips(view).every(c => c), id + ' A: the identity line is not cut at the frame');
+        // The selection still dims the other groups.
+        check(view.data('legend_selection_store').length === 1, id + ' A: selection store');
+        await click(id, 'C', true);
+        check(nearDomain(domain(view, 'y'), [0.7, 7.3]), id + ' A+C: y domain ' + show(domain(view, 'y')) + ', expected [0.7, 7.3]');
+        check(nearDomain(domain(view, 'x'), [0.8, 5.2]), id + ' A+C: x domain ' + show(domain(view, 'x')));
+        await click(id, 'B', true);
+        check(nearDomain(domain(view, 'y'), [1 - 2.95, 60 + 2.95]), id + ' A+B+C: y domain ' + show(domain(view, 'y')) + ', expected the outlier inside');
+        await clear(id);
+        check(view.data('legend_selection_store').length === 0, id + ' clear: the selection stayed');
+        check(zoomValue(view) === null, id + ' clear: still zoomed');
+        check(nearDomain(domain(view, 'y'), fullY.map(Number)) && nearDomain(domain(view, 'x'), fullX.map(Number)),
+            id + ' clear: domains ' + show(domain(view, 'x')) + ' ' + show(domain(view, 'y')) + ' are not the full ' + show(fullX) + ' ' + show(fullY));
+        check(lineClips(view).every(c => !c), id + ' clear: the identity line is still cut');
+
+        // A new selection replaces the reader's own zoom; a wheel zoom after
+        // it starts from the zoomed view; a double-click resets everything.
+        view.signal('grid_x', [2, 3]).signal('grid_y', [2, 3]);
+        await settle(view);
+        check(nearDomain(domain(view, 'x'), [2, 3]), id + ' reader zoom: x domain ' + show(domain(view, 'x')));
+        await click(id, 'A');
+        check(nearDomain(domain(view, 'x'), [0.8, 5.2]) && nearDomain(domain(view, 'y'), [0.8, 5.2]),
+            id + ' A after a reader zoom: domains ' + show(domain(view, 'x')) + ' ' + show(domain(view, 'y')));
+        check(view.signal('grid_x') == null && view.signal('grid_y') == null, id + ' A after a reader zoom: the reader zoom stayed');
+        view.signal('grid_x', [1, 2]).signal('grid_y', [1, 2]);
+        await settle(view);
+        check(nearDomain(domain(view, 'y'), [1, 2]), id + ' a reader zoom while legend-zoomed wins: ' + show(domain(view, 'y')));
+        await clear(id, ['click', 'click', 'dblclick']);
+        check(zoomValue(view) === null && nearDomain(domain(view, 'y'), fullY.map(Number)) && nearDomain(domain(view, 'x'), fullX.map(Number)),
+            id + ' double-click: domains ' + show(domain(view, 'x')) + ' ' + show(domain(view, 'y')) + ' are not the full view');
+
+        // An in-place data update re-fits an active zoom to the new rows.
+        await click(id, 'A');
+        const before = view;
+        const next = JSON.parse(JSON.stringify(AoV._origSpecs[id]));
+        (function walk(node) {
+            if (!node || typeof node !== 'object') return;
+            if (node.data && node.data.values) {
+                node.data.values = AoV._rowsFromColumns(node.data.values).map(r =>
+                    r.g === 'A' ? Object.assign({}, r, {y: r.y * 2}) : r);
+            }
+            ['layer', 'hconcat', 'vconcat', 'concat'].forEach(k => (node[k] || []).forEach(walk));
+            if (node.spec) walk(node.spec);
+        })(next);
+        AoV.updateSpec(id, next);
+        await settle(view);
+        await settle(view);
+        check(AoV.views[id] === before, id + ' update: the view was replaced (the selection would be lost)');
+        check(nearDomain(domain(view, 'y'), [1.6, 10.4]), id + ' update: y domain ' + show(domain(view, 'y')) + ', expected [1.6, 10.4]');
+        await clear(id);
+
+        // --- A pan while legend-zoomed moves the zoomed view, and the click
+        // Vega sends with the release keeps the selection. ---
+        id = 'lz-canvas'; view = views[id];
+        view.signal('legend_selection_g_legend', 'A');
+        await settle(view);
+        check(view.data('legend_selection_store').length === 1 && nearDomain(domain(view, 'x'), [0.8, 5.2]),
+            id + ' A: x domain ' + show(domain(view, 'x')));
+        await drag(id, {x: 6, y: 6}, {x: 46, y: 36});
+        const panned = domain(view, 'x').slice();
+        check(view.data('legend_selection_store').length === 1, id + ' pan: the selection was cleared');
+        check(!nearDomain(panned, [0.8, 5.2]) && near(panned[1] - panned[0], 4.4, 1e-3),
+            id + ' pan: x domain ' + show(panned) + ' did not move by the drag, at the zoomed span 4.4');
+
+        // --- Without the setting a selection only dims. ---
+        id = 'lz-off'; view = views[id];
+        const offY = domain(view, 'y').slice();
+        await click(id, 'A');
+        check(view.data('legend_selection_store').length === 1, id + ': selection store');
+        check(nearDomain(domain(view, 'y'), offY.map(Number)), id + ': the y domain changed without legend_zoom ' + show(domain(view, 'y')));
+        let threw = false;
+        try { view.signal('aov_legend_zoom'); } catch (e) { threw = true; }
+        check(threw, id + ': the zoom signal is defined without legend_zoom');
+        check(points(view).filter(p => p.g === 'B').every(p => p.y >= 0), id + ': the outlier left the frame');
+
+        // --- An authored domain (axis limits) is kept; the other axis zooms. ---
+        id = 'lz-limits'; view = views[id];
+        check(nearDomain(domain(view, 'y'), [-5, 70]), id + ': authored y domain ' + show(domain(view, 'y')));
+        await click(id, 'A');
+        check(nearDomain(domain(view, 'y'), [-5, 70]), id + ' A: the authored y domain changed ' + show(domain(view, 'y')));
+        check(nearDomain(domain(view, 'x'), [0.8, 5.2]), id + ' A: x domain ' + show(domain(view, 'x')));
+        await clear(id);
+
+        // --- Faceted, independent scales: each panel zooms to its own marks. ---
+        for (id of ['lz-facet', 'lz-caption']) {
+            view = views[id];
+            const start = points(view);
+            await click(id, 'A');
+            const pts = points(view);
+            const panels = new Set(pts.filter(p => p.g === 'A').map(p => p.panel));
+            check(panels.size === 2, id + ' A: panels ' + JSON.stringify([...panels]));
+            fills(id, pts.filter(p => p.g === 'A'), 'A');
+            check(pts.some(p => p.g === 'B' && p.panel === 'P' && p.y < 0), id + ' A: the outlier is not above panel P');
+            check(lineClips(view).length && lineClips(view).every(c => c), id + ' A: the identity line is not cut at the frame');
+            const z = zoomValue(view);
+            check(z && Object.keys(z).some(k => /\|P$/.test(k)) && Object.keys(z).some(k => /\|Q$/.test(k)),
+                id + ' A: zoom keys ' + JSON.stringify(z && Object.keys(z)));
+            // C is drawn in panel P only: Q keeps its full range.
+            await click(id, 'C');
+            const c = points(view);
+            fills(id, c.filter(p => p.g === 'C'), 'C');
+            const qNow = c.filter(p => p.panel === 'Q'), qStart = start.filter(p => p.panel === 'Q');
+            check(qNow.length && qNow.every((p, i) => Math.abs(p.x - qStart[i].x) < 0.5 && Math.abs(p.y - qStart[i].y) < 0.5),
+                id + ' C: panel Q, which has no C, did not keep its full range');
+            await clear(id);
+            const back = points(view);
+            check(back.every((p, i) => Math.abs(p.x - start[i].x) < 0.5 && Math.abs(p.y - start[i].y) < 0.5),
+                id + ' clear: the panels did not return to their full range');
+        }
+
+        // --- The saved "⬇ HTML" card zooms too: the runtime it carries does it.
+        let saved = null;
+        const trigger = AoV._triggerDownload;
+        AoV._triggerDownload = function (page) { saved = page; };
+        try { await AoV.downloadPlotHtml('lz-caption', 'lz-caption'); } finally { AoV._triggerDownload = trigger; }
+        check(!!saved, 'lz-caption: nothing saved');
+        if (saved) {
+            const frame = document.createElement('iframe');
+            frame.style.width = '900px'; frame.style.height = '600px';
+            frame.srcdoc = saved;
+            document.body.append(frame);
+            let inner = null;
+            for (let i = 0; i < 400 && !inner; i++) {
+                await pause();
+                const w = frame.contentWindow;
+                inner = w && w.AoV && w.AoV.views && w.AoV.views['lz-caption'] && !w.AoV._inFlight['lz-caption'] ?
+                    w.AoV.views['lz-caption'] : null;
+            }
+            check(!!inner, 'saved card: the plot did not embed');
+            if (inner) {
+                inner.signal('legend_selection_g_legend', 'A');
+                await settle(inner);
+                const z = inner.signal('aov_legend_zoom');
+                check(z && Object.keys(z).some(k => /\|P$/.test(k)) && Object.keys(z).some(k => /\|Q$/.test(k)),
+                    'saved card A: zoom keys ' + JSON.stringify(z && Object.keys(z)));
+                fills('saved card', points(inner).filter(p => p.g === 'A'), 'A');
+            }
+            frame.remove();
+        }
+
+        // --- Faceted, shared scales: every panel takes the shared extent. ---
+        id = 'lz-shared'; view = views[id];
+        await click(id, 'A');
+        // A spans x 1..50 and y 1..50 over both panels (Q is scaled by 10).
+        check(nearDomain(domain(view, 'y'), [1 - 2.45, 50 + 2.45]), id + ' A: shared y domain ' + show(domain(view, 'y')));
+        check(nearDomain(domain(view, 'x'), [1 - 2.45, 50 + 2.45]), id + ' A: shared x domain ' + show(domain(view, 'x')));
+        await clear(id);
+
+        // --- The picker: the zoom follows the colour it moves in. ---
+        id = 'lz-picker';
+        const old = views[id];
+        AoV.remapEncoding(id, {color: 'h'});
+        view = views[id] = await ready(id, old);
+        await click(id, 'u');
+        // u is every odd x (1, 3, 5) of every group, the outlier (x 3, y 60) too.
+        check(nearDomain(domain(view, 'x'), [0.8, 5.2]), id + ' u: x domain ' + show(domain(view, 'x')));
+        check(nearDomain(domain(view, 'y'), [1 - 2.95, 60 + 2.95]), id + ' u: y domain ' + show(domain(view, 'y')));
+        await click(id, 'v');
+        // v is x 2 and 4: y from 2 (A) to 4 + 2 (C).
+        check(nearDomain(domain(view, 'x'), [1.9, 4.1]) && nearDomain(domain(view, 'y'), [1.8, 6.2]),
+            id + ' v: domains ' + show(domain(view, 'x')) + ' ' + show(domain(view, 'y')));
+    } catch (error) {
+        failures.push(error.stack || String(error));
+    }
+    const result = document.createElement('pre');
+    result.id = 'aov-legend-zoom-results';
+    result.textContent = JSON.stringify({checks, failures});
+    document.body.append(result);
+    document.title = failures.length ? 'FAIL' : 'PASS';
+})();

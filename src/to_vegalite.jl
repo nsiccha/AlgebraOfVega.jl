@@ -3037,6 +3037,10 @@ function _lower_vegaspec(v::VegaSpec; interactive::Bool=true)
             elseif sk == "readout"
                 # Runtime metadata only: the readout's on/off (src/link.jl)
                 get!(spec, "_aov", Dict{String,Any}())["readout"] = val
+            elseif sk == "legend_zoom"
+                # Runtime metadata only: legend selections zoom the axes
+                # (src/link.jl). `false` is the default and writes nothing.
+                val && (get!(spec, "_aov", Dict{String,Any}())["legendZoom"] = true)
             elseif sk == "config" && !isnothing(_as_dict(val))
                 # Deep-merge a user `config(config=…)` Dict into the base config
                 # rather than replacing it. The base config now carries the

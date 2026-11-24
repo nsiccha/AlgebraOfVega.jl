@@ -163,7 +163,9 @@ names. The same `scales(...)` object can be the second argument to `vdraw` or
 
 `params`, `transform`, and other Vega-Lite properties provide an escape hatch.
 `select` adds filter controls; `frame` selects an animation coordinate; `link`
-connects hover identity across figures. Per-layer configuration stays with its
+connects hover identity across figures; `legend_zoom=true` makes a colour
+legend selection also zoom each panel's axes to the selected entries' marks.
+Per-layer configuration stays with its
 layer. Configuration applied to a combined figure applies to the combined result.
 
 Use a configured drawable with `vdraw` for a browser or `sdraw` for Makie.
@@ -178,6 +180,7 @@ function config(; kwargs...)
     haskey(props, :frame) && (props[:frame] = _frame_options(props[:frame]))
     haskey(props, :link) && (props[:link] = _link_options(props[:link]))
     haskey(props, :readout) && (props[:readout] = _readout_option(props[:readout]))
+    haskey(props, :legend_zoom) && (props[:legend_zoom] = _legend_zoom_option(props[:legend_zoom]))
     Config(props)
 end
 
