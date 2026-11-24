@@ -28,6 +28,7 @@ dotinterval
 lineribbon
 ribbon
 ribbon_view
+intervals_switch
 ```
 
 ## Geography and comparisons
