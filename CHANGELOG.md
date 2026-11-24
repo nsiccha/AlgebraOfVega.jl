@@ -39,6 +39,11 @@ failing at run time with a `MethodError`.
   zoom across its panels: write `vconcat(…; linkxaxes=:none)` instead.
 - **A `vconcat` stack offers the "Show intervals" switch** when a panel draws
   interval marks beside other marks, as each panel does alone.
+- **A lowered figure lowered again keeps its one zoom.** Passing an edited
+  `to_vegalite` Dict on as `VegaSpec(dict, nothing)` (also as a `vconcat`
+  panel) used to add a second zoom selection beside the first; Vega-Lite
+  merged them, so only the emitted spec showed it. `vconcat` also lowers such
+  a panel from a copy, leaving the caller's Dict as it was.
 
 ## 0.2.83
 
