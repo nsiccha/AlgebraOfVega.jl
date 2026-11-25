@@ -4,6 +4,8 @@
 # one figure: Vega-Lite's `vconcat` with the x scale shared, so the panels'
 # plot areas line up to the pixel (`bounds: "flush"` lays them out by their plot
 # areas, not by their axes) and one x zoom and one readout run across them.
+# `linkxaxes=:none` stacks panels that each keep their own x scale, x axis and
+# zoom instead (panels in different units, snag `vconcat-panels-w-4a6f3581`).
 # AlgebraOfGraphics composes figures through Makie's layout, which the browser
 # figure has no counterpart for, so this is AoV's own spelling. Each panel lowers
 # as it would alone (`to_vegalite`); the stack keeps its marks, data, height,
@@ -20,10 +22,11 @@ Figures stacked top to bottom on one shared x scale; see [`vconcat`](@ref).
 struct VConcat
     panels::Vector{Any}
     spacing::Int
+    linkxaxes::Symbol
 end
 
 """
-    vconcat(panels...; spacing=8) -> VConcat
+    vconcat(panels...; spacing=8, linkxaxes=:all) -> VConcat
 
 Stack figures top to bottom on one shared x scale, as one plot: a main panel with
 a bar panel under it, such as a forecast over the hourly precipitation. Each
@@ -34,13 +37,22 @@ and the readout (§11g) and an x zoom run across all panels. `spacing` is the ga
 between the panels' plot areas in pixels.
 
 Use it wherever a figure goes: `vdraw`, `to_node`, `with_plot_caption`, `vsave`,
-`to_vegalite`. A panel cannot be faceted, a frame animation or a cell column, and
+`to_vegalite`.
+
+`linkxaxes=:none` (AlgebraOfGraphics' name, as in `config(facet=(; linkxaxes=:none))`)
+stacks panels that each keep their own x scale instead: every panel draws its own x
+axis and pans and zooms on its own, and the readout follows the panel under the
+pointer. Use it for panels in different units, such as a forest of parameters near
+400 ms above one of coefficients near 0. The colour legend and its selection stay
+one for the stack.
+
+A panel cannot be faceted, a frame animation or a cell column, and
 the channel picker works on one figure only (`ArgumentError`). The panels share
 one link group (`config(link=…)`) if any has one. A ribbon panel draws the
 drawing it starts in, without the Ribbons | Intervals switch. `sdraw` composes
 Makie panels with `sdraw!` and `Makie.linkxaxes!` instead.
 """
-function vconcat(panels...; spacing::Integer=8)
+function vconcat(panels...; spacing::Integer=8, linkxaxes::Symbol=:all)
     length(panels) >= 2 || throw(ArgumentError(
         "vconcat: stack two or more figures, e.g. `vconcat(level, rain)`; got $(length(panels))."))
     for (k, p) in enumerate(panels)
@@ -48,15 +60,30 @@ function vconcat(panels...; spacing::Integer=8)
             "vconcat: panel $k is a $(typeof(p)), not a figure (`data(...) * mapping(...) * visual(...)`)."))
     end
     spacing >= 0 || throw(ArgumentError("vconcat: `spacing` is a gap in pixels, ≥ 0; got $spacing."))
-    VConcat(collect(Any, panels), Int(spacing))
+    # AlgebraOfGraphics' values: in one column of panels `:colwise` links them
+    # all, as `:all` does, and `:minimal` links none, as `:none` does.
+    link = linkxaxes in (:all, :colwise) ? :all : linkxaxes in (:none, :minimal) ? :none : throw(ArgumentError(
+        "vconcat: `linkxaxes` is `:all` (one x scale and zoom for every panel, the default) " *
+        "or `:none` (each panel its own x scale, axis and zoom); got $(repr(linkxaxes))."))
+    VConcat(collect(Any, panels), Int(spacing), link)
 end
 
 function to_vegalite(s::VConcat; interactive::Bool=true, auto_remap::Union{Nothing,NamedTuple}=nothing)
     isnothing(auto_remap) || throw(ArgumentError(
         "vconcat: the channel picker (`auto_remap`) rearranges one figure; stack the figures it would show instead."))
-    kids = [to_vegalite(p; interactive) for p in s.panels]
+    # A panel given as an already-lowered Vega-Lite Dict (`VegaSpec(dict, nothing)`)
+    # lowers in place, and the stack renames its zoom: lower a copy, so the
+    # caller's Dict is left as it was.
+    kids = [to_vegalite(p isa VegaSpec && p.drawable isa AbstractDict ? deepcopy(p) : p; interactive)
+        for p in s.panels]
+    linked = s.linkxaxes === :all
+    # Panels with their own x label it each: laid out by their whole bounds, a
+    # panel's x axis takes room above the next panel instead of reaching into
+    # it, and the plot areas still line up (measured with "-1.0" and "-10,000"
+    # y labels).
     top = Dict{String,Any}("\$schema" => VL_SCHEMA, "vconcat" => Any[], "spacing" => s.spacing,
-        "bounds" => "flush", "resolve" => Dict{String,Any}("scale" => Dict{String,Any}("x" => "shared")))
+        "bounds" => linked ? "flush" : "full",
+        "resolve" => Dict{String,Any}("scale" => Dict{String,Any}("x" => linked ? "shared" : "independent")))
     config = Dict{String,Any}()
     aov = Dict{String,Any}()
     readouts = Any[]
@@ -97,9 +124,11 @@ function to_vegalite(s::VConcat; interactive::Bool=true, auto_remap::Union{Nothi
                 isempty(rest) ? delete!(panel, "params") : (panel["params"] = rest)
             end
         end
-        k < length(kids) && _vconcat_hide_x_labels!(panel)
+        linked && k < length(kids) && _vconcat_hide_x_labels!(panel)
         push!(top["vconcat"], panel)
     end
+    # One x zoom across linked panels; every other zoomed axis is the panel's own.
+    _name_panel_zooms!(top["vconcat"], linked ? ("x",) : ())
     isempty(config) || (top["config"] = config)
     # One link group for the stack: a hovered mark of any panel announces its key.
     if !isempty(links)
@@ -116,7 +145,9 @@ function to_vegalite(s::VConcat; interactive::Bool=true, auto_remap::Union{Nothi
     top["_aov"] = aov
     # An authored width (`config(width=…)` on a panel) sizes every panel, the widest.
     isempty(widths) || foreach(p -> p["width"] = maximum(widths), top["vconcat"])
-    top
+    # The "Show intervals" switch, when a panel draws interval marks beside
+    # others (src/interval_switch.jl): the panels' own `_aov` stays behind.
+    _apply_interval_switch!(top)
 end
 
 # A panel the stack cannot hold, said in terms of the figure.

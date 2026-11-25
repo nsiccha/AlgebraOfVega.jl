@@ -3074,7 +3074,10 @@ window.AoV = window.AoV || {
     // projected field, which is exactly what the zoomed scale's domain reads
     // (`grid["<field>"]`, in layered, faceted and concatenated views alike; a
     // facet's store stays empty). A double-click reset clears it and draws
-    // everything again. The size of a mark's frame is its group's (`width` at
+    // everything again. A panel of a composition can also zoom through its
+    // own selection, `grid_p<k>` (`_name_panel_zooms!`, src/to_vegalite.jl),
+    // beside or instead of the shared `grid`: a mark is cut once any selection
+    // of its unit holds a domain. The size of a mark's frame is its group's (`width` at
     // the top, `child_width` in a facet cell, ...); a mark in a group whose
     // size is not a signal or a number is cut at the whole frame once zoomed.
     // A layer that authors `clip: true` keeps it: its marks carry
@@ -3088,6 +3091,9 @@ window.AoV = window.AoV || {
     // cut at the group's frame from then until the reset. Vega-Lite clips no
     // map mark of its own, so a mark already clipped was authored so (a
     // framed RegionExplorer map clips every layer) and stays cut throughout.
+    // AoV's automatic zoom selections: the figure's `grid`, and a composition
+    // panel's own `grid_p<k>`. LOCKSTEP: `_is_auto_zoom_name` (src/to_vegalite.jl).
+    _isZoomSignal: function(name) { return /^grid(_p\d+)?$/.test(name || ''); },
     _panZoomClip: function(vg) {
         if (vg && (vg.signals || []).some(function(s) { return s.name === 'aov_zoom'; })) {
             var moved = 'aov_zoom.k !== 1 || aov_zoom.x !== 0 || aov_zoom.y !== 0';
@@ -3103,14 +3109,20 @@ window.AoV = window.AoV || {
                 });
             })(vg);
         }
-        if (!vg || !(vg.signals || []).some(function(s) { return s.name === 'grid'; })) return vg;
+        var self = this;
+        if (!vg || !(vg.signals || []).some(function(s) { return self._isZoomSignal(s.name); })) return vg;
         function size(v) {
             return v && typeof v.signal === 'string' ? '(' + v.signal + ')' : typeof v === 'number' ? String(v) : null;
         }
+        // A unit's zoomed fields: one entry per selection and projected field.
         (function walk(group, w, h, fields) {
+            var own = [];
             (group.signals || []).forEach(function(s) {
-                if (s.name === 'grid_tuple_fields' && Array.isArray(s.value)) fields = s.value;
+                var sel = /_tuple_fields$/.test(s.name) ? s.name.replace(/_tuple_fields$/, '') : null;
+                if (!sel || !self._isZoomSignal(sel) || !Array.isArray(s.value)) return;
+                s.value.forEach(function(f) { own.push({sel: sel, field: f.field, channel: f.channel}); });
             });
+            if (own.length) fields = own;
             (group.marks || []).forEach(function(m) {
                 if (m.type === 'group') {
                     var u = (m.encode && m.encode.update) || {};
@@ -3121,7 +3133,7 @@ window.AoV = window.AoV || {
                 if ([].concat(m.style || []).indexOf('aov-own-clip') !== -1) return;
                 var channels = fields.map(function(f) { return f.channel; });
                 var x = channels.indexOf('x') !== -1, y = channels.indexOf('y') !== -1;
-                var zoomed = fields.map(function(f) { return 'isValid(grid[' + JSON.stringify(f.field) + '])'; }).join(' || ');
+                var zoomed = fields.map(function(f) { return 'isValid(' + f.sel + '[' + JSON.stringify(f.field) + '])'; }).join(' || ');
                 var cut = x && !y && w ? "pathShape('M0,-100000H' + " + w + " + 'V100000H0Z')" :
                     y && !x && h ? "pathShape('M-100000,0H100000V' + " + h + " + 'H-100000Z')" : 'true';
                 m.clip = {signal: '(' + zoomed + ') ? ' + cut + ' : false'};
@@ -3280,11 +3292,12 @@ window.AoV = window.AoV || {
         });
         // The reader's pan/zoom: one signal per zoomed field, the ones
         // `grid_tuple` follows (`grid_x || grid_y`), at the top level in a
-        // single view and pushed there from a facet's cells.
+        // single view and pushed there from a facet's cells; a composition
+        // panel's own selection `grid_p<k>` likewise (`grid_p<k>_tuple`).
         var grid = [];
         (function walk(g) {
             (g.signals || []).forEach(function(s) {
-                if (s.name !== 'grid_tuple') return;
+                if (!/_tuple$/.test(s.name) || !self._isZoomSignal(s.name.replace(/_tuple$/, ''))) return;
                 (s.on || []).forEach(function(h) {
                     [].concat(h.events || []).forEach(function(e) {
                         if (!e || typeof e.signal !== 'string') return;
@@ -5199,12 +5212,16 @@ window.AoV = window.AoV || {
     // same way, but its panels sit side by side in rows, so its readout
     // follows the hovered panel as a wrap facet's does (`wrapped`): one rule
     // through that panel and its series only, without a panel heading (its
-    // title above the panel names it).
+    // title above the panel names it). So does a stack whose panels keep
+    // their own x (`vconcat(…; linkxaxes=:none)`, a row stack of
+    // `linkxaxes=:none`): one x under the pointer means nothing in the
+    // other panels.
     _readoutStackPlan: function(spec, aov) {
-        var self = this, panels = aov.panels || [], paths = false, wrapped = !!spec.concat;
+        var ownX = !!(spec.resolve && spec.resolve.scale && spec.resolve.scale.x === 'independent');
+        var self = this, panels = aov.panels || [], paths = false, wrapped = !!spec.concat || ownX;
         var plan = {units: {}, order: [], x: null, xType: null, xTitle: null, faceted: false, stacked: !wrapped,
             wrapped: wrapped, series: null, panelTitles: {}};
-        (wrapped ? spec.concat : spec.vconcat).forEach(function(child, k) {
+        (spec.concat || spec.vconcat).forEach(function(child, k) {
             if ((panels[k] || {}).readout === false) return;
             var sub = self._readoutPlan(Object.assign({}, child, {_aov: {readout: true}}), 'concat_' + k + '_');
             if (!sub) return;
@@ -5216,7 +5233,8 @@ window.AoV = window.AoV || {
             sub.order.forEach(function(name) {
                 var t = String(sub.units[name].title);
                 if (titles.indexOf(t) < 0) titles.push(t);
-                plan.units[name] = Object.assign({}, sub.units[name], {index: plan.order.length, panel: k, series: sub.series});
+                plan.units[name] = Object.assign({}, sub.units[name], {index: plan.order.length, panel: k, series: sub.series,
+                    xTitle: sub.xTitle, xType: sub.xType});
                 plan.order.push(name);
             });
             if (!wrapped) plan.panelTitles[k] = titles.join(', ');
@@ -5482,7 +5500,11 @@ window.AoV = window.AoV || {
         var link = self._link(id), DAY = 86400000;
         var dateOnly = link && link.key === st.plan.x && link.temporal ? link.temporal === 'date' :
             all.every(function(c) { return c.value % DAY === 0; });
-        head.textContent = self._readoutHeading(view, st.plan, at[0].value, dateOnly, at[0].datum);
+        // A readout that follows the hovered panel heads it with that panel's
+        // own x title (its x may be its own: `vconcat(…; linkxaxes=:none)`).
+        var u0 = at[0].unit, hplan = st.plan.wrapped && u0 && u0.xTitle !== undefined ?
+            Object.assign({}, st.plan, {xTitle: u0.xTitle, xType: u0.xType}) : st.plan;
+        head.textContent = self._readoutHeading(view, hplan, at[0].value, dateOnly, at[0].datum);
         box.appendChild(head);
         // A stack's panels, top to bottom: a panel's rows sit indented under
         // its y title, unless that title already names every row (one

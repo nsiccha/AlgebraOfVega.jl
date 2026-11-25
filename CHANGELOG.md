@@ -15,6 +15,36 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
+## 0.2.84
+
+- **`vconcat(a, b; linkxaxes=:none)` stacks panels that each keep their own x.**
+  Every panel keeps its own x scale, draws its own x axis and pans and zooms on
+  its own, and the readout follows the panel under the pointer. The colour
+  legend and its selection stay one for the stack. Use it for panels in
+  different units, such as a forest of QT parameters near 400 ms over one of
+  coefficients near 0. `linkxaxes` is AlgebraOfGraphics' keyword: `:all` (the
+  default) keeps one x scale and zoom for every panel, as before, and
+  `:colwise`/`:minimal` read as `:all`/`:none` for one column of panels.
+- **A zoom in one panel of a composition moves only that panel's own axes.**
+  AoV's automatic pan/zoom was one selection named `grid` in every panel, and
+  Vega-Lite merges same-named selections across the panels of a composition,
+  so every panel's scale read one selection. A zoom in one panel then moved:
+  - the y of the other panels of a `vconcat` stack that plot the same y column;
+  - the y of every panel of a row, wrap or column figure with per-panel Y
+    scales (`scales(Y=(; scale=Dict(...)))`).
+
+  An axis the panels share still zooms in every panel. Each panel's own axes
+  zoom through its own selection, `grid_p<k>`. A stack hand-built from
+  `to_vegalite` figures (`VegaSpec(Dict("vconcat" => …))`) still shares one
+  zoom across its panels: write `vconcat(…; linkxaxes=:none)` instead.
+- **A `vconcat` stack offers the "Show intervals" switch** when a panel draws
+  interval marks beside other marks, as each panel does alone.
+- **A lowered figure lowered again keeps its one zoom.** Passing an edited
+  `to_vegalite` Dict on as `VegaSpec(dict, nothing)` (also as a `vconcat`
+  panel) used to add a second zoom selection beside the first; Vega-Lite
+  merged them, so only the emitted spec showed it. `vconcat` also lowers such
+  a panel from a copy, leaving the caller's Dict as it was.
+
 ## 0.2.83
 
 - **A click on blank plot space clears a legend selection on facet panels and

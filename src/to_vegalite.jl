@@ -2066,6 +2066,9 @@ function _per_column_y_hconcat!(spec::Dict, ycols::Dict)
         push!(children, child)
     end
 
+    # The columns keep one x zoom unless the facet unlinked x; each column's
+    # own y scale zooms on its own.
+    _name_panel_zooms!(children, _facet_x_independent(spec) ? () : ("x",))
     newspec = Dict{String,Any}(
         "\$schema" => VL_SCHEMA,
         "hconcat" => children,
@@ -2208,6 +2211,66 @@ function _facet_panel_parts(spec::Dict, def::Dict, what::AbstractString)
     (; inner, field, vals)
 end
 
+# The automatic pan/zoom of a panel composition (snag `vconcat-panels-w-4a6f3581`).
+# Every figure's zoom is the interval selection `grid` bound to its scales
+# (`add_auto_interactivity!`), and a composition's panels each carry a copy.
+# Vega-Lite merges same-named selections across the views of a composition into
+# one, and every panel's scale reads that one selection (`grid["<field>"]`), so
+# a zoom in one panel re-domained every panel that plots the same field, even on
+# an axis the panels do not share. So the panels keep one `grid` on the axes they
+# share (`shared`: "x" when the x scale is shared) and each gets its own
+# selection, `grid_p<k>` (`k` its 0-based index), on every other zoomed axis. A
+# panel with both keeps both selections in one unit: the wheel zooms the shared
+# x through `grid` and its own y through `grid_p<k>`. The runtime follows every
+# such selection (`_isZoomSignal`, vendor/aov-runtime.js; `_is_auto_zoom_name`,
+# src/to_html.jl). LOCKSTEP: `_panZoomClip`, `_legendZoomPlan` and
+# `_PAN_ZOOM_CLIP_JS`.
+const _AUTO_ZOOM = "grid"
+_panel_zoom_name(k::Integer) = "$(_AUTO_ZOOM)_p$k"
+_is_auto_zoom_name(n) = n == _AUTO_ZOOM || (n isa AbstractString && occursin(r"^grid_p\d+$", n))
+_is_auto_zoom(p) = p isa AbstractDict && get(p, "name", nothing) == _AUTO_ZOOM &&
+    get(p, "bind", nothing) == "scales"
+
+_has_auto_zoom(_) = false
+_has_auto_zoom(d::AbstractDict) = any(p -> p isa AbstractDict && _is_auto_zoom_name(get(p, "name", nothing)) &&
+        get(p, "bind", nothing) == "scales", something(_as_vec(get(d, "params", nothing)), Any[])) ||
+    any(l -> _has_auto_zoom(l), something(_as_vec(get(d, "layer", nothing)), Any[])) ||
+    _has_auto_zoom(get(d, "spec", nothing))
+
+function _name_panel_zooms!(kids::AbstractVector, shared)
+    for (i, kid) in enumerate(kids)
+        _name_panel_zoom!(kid, i - 1, shared)
+    end
+    kids
+end
+_name_panel_zoom!(_, k, shared) = nothing
+function _name_panel_zoom!(node::AbstractDict, k, shared)
+    ps = get(node, "params", nothing)
+    if ps isa AbstractVector
+        out = Any[]
+        for p in ps
+            sel = _is_auto_zoom(p) ? _as_dict(get(p, "select", nothing)) : nothing
+            encs = isnothing(sel) ? nothing : get(sel, "encodings", nothing)
+            if !(encs isa AbstractVector)
+                push!(out, p)
+                continue
+            end
+            common = [e for e in encs if e in shared]
+            own = [e for e in encs if !(e in shared)]
+            isempty(common) || push!(out, merge(p, Dict{String,Any}(
+                "select" => merge(sel, Dict{String,Any}("encodings" => common)))))
+            isempty(own) || push!(out, merge(p, Dict{String,Any}("name" => _panel_zoom_name(k),
+                "select" => merge(sel, Dict{String,Any}("encodings" => own)))))
+        end
+        node["params"] = out
+    end
+    sub = get(node, "layer", nothing)
+    sub isa AbstractVector && foreach(l -> _name_panel_zoom!(l, k, shared), sub)
+    inner = get(node, "spec", nothing)
+    inner isa AbstractDict && _name_panel_zoom!(inner, k, shared)
+    nothing
+end
+
 # Whether the facet unlinked its panels' x scales (`linkxaxes=:none`).
 function _facet_x_independent(spec::Dict)
     resolve = _as_dict(get(spec, "resolve", nothing))
@@ -2306,6 +2369,7 @@ function _per_row_y_vconcat!(spec::Dict, yrows::Dict)
         i < length(vals) && !x_independent && _vconcat_hide_x_labels!(child)
         push!(children, child)
     end
+    _name_panel_zooms!(children, x_independent ? () : ("x",))
     newspec = Dict{String,Any}("\$schema" => VL_SCHEMA, "vconcat" => children,
         "spacing" => _facet_spacing(spec, "row"), "bounds" => "flush",
         "resolve" => Dict{String,Any}("scale" => Dict{String,Any}("x" => x_independent ? "independent" : "shared")))
@@ -2349,6 +2413,8 @@ function _per_wrap_y_concat!(spec::Dict, ypanels::Dict)
         chrome.labels_off || (child["title"] = _panel_header_title(_vl_header_label(v), chrome, "label"))
         push!(children, child)
     end
+    x_independent = _facet_x_independent(spec)
+    _name_panel_zooms!(children, x_independent ? () : ("x",))
     columns = _wrap_columns(spec, facet)
     auto = isnothing(columns)
     auto && (columns = _aog_wrap_columns(length(children),
@@ -2356,7 +2422,7 @@ function _per_wrap_y_concat!(spec::Dict, ypanels::Dict)
     newspec = Dict{String,Any}("\$schema" => VL_SCHEMA, "concat" => children, "columns" => columns,
         "spacing" => _facet_spacing(spec),
         "resolve" => Dict{String,Any}("scale" => Dict{String,Any}(
-            "x" => _facet_x_independent(spec) ? "independent" : "shared")))
+            "x" => x_independent ? "independent" : "shared")))
     _finish_panel_concat!(spec, newspec, chrome, length(children); aov=auto ? ("autoColumns" => true,) : ())
 end
 
@@ -3665,6 +3731,10 @@ function add_auto_interactivity!(spec::Dict{String,Any})
     # A map has no x/y axes: it zooms through its projection, and its one
     # unit is a geoshape, so no nearest-point hover applies either.
     _add_map_zoom!(spec) && return spec
+    # An AoV figure lowered again (`VegaSpec(to_vegalite(…), nothing)`, as a
+    # consumer that edits the lowered Dict passes it on) already carries its
+    # zoom in a sublayer: a second one would sit beside it in the same unit.
+    _has_auto_zoom(spec) && return spec
     # Don't add interactivity if user already defined params (via config)
     has_user_params = haskey(spec, "params")
 
@@ -3694,7 +3764,7 @@ function add_auto_interactivity!(spec::Dict{String,Any})
             end
             if !isempty(zoom_ch)
                 grid_param = Dict{String,Any}(
-                    "name" => "grid",
+                    "name" => _AUTO_ZOOM,
                     "select" => Dict{String,Any}("type" => "interval", "encodings" => zoom_ch),
                     "bind" => "scales",
                 )
@@ -3755,7 +3825,7 @@ function add_auto_interactivity!(spec::Dict{String,Any})
     end
     if !isempty(zoom_encodings)
         grid_param = Dict{String,Any}(
-            "name" => "grid",
+            "name" => _AUTO_ZOOM,
             "select" => Dict{String,Any}("type" => "interval", "encodings" => zoom_encodings),
             "bind" => "scales",
         )
