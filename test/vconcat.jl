@@ -127,6 +127,44 @@ end
         scales(Y=(; scale=Dict("Cmax" => log10))))["vconcat"]) == zooms.(stack["vconcat"])
 end
 
+# A stack answers the MIME `show` methods a figure answers (snag
+# `vconcat-stack-ha-3bd1c655`). Bruno's reports read a figure's Vega-Lite
+# through `show(io, MIME"application/vnd.vegalite.v5+json"(), spec)` for the
+# page's Markdown, the PDF export (vl-convert) and its split pages, and a
+# `vconcat` stack raised a `MethodError` there.
+@testitem "vconcat: a stack's MIME representations" tags=[:vconcat] begin
+    using AlgebraOfVega, JSON
+    zoom_names(n) = String[]
+    zoom_names(n::AbstractDict) = vcat(
+        String[p["name"] for p in get(n, "params", Any[]) if p isa AbstractDict && get(p, "bind", nothing) == "scales"],
+        (zoom_names(l) for l in get(n, "layer", Any[]))...)
+    forest(rows) = data(rows) * mapping(:median => "Value"; y=:parameter) * pointinterval(bands=[:q025 => :q975])
+    qt = (; parameter=["QT0", "QT1"], median=[400.0, 402.0], q025=[396.0, 398.0], q975=[404.0, 406.0])
+    coef = (; parameter=["b1", "b2"], median=[0.5, -1.0], q025=[-2.0, -3.0], q975=[3.0, 1.0])
+    vl_json = MIME"application/vnd.vegalite.v5+json"()
+
+    # The reporter's stack: lowered Dicts as panels, each with its own x.
+    raw = [to_vegalite(forest(qt)), to_vegalite(forest(coef))]; kept = deepcopy(raw)
+    st = vconcat((AlgebraOfVega.VegaSpec(d, nothing) for d in raw)...; linkxaxes=:none, spacing=20)
+    @test showable(vl_json, st)
+    json = sprint(show, vl_json, st)
+    @test json == to_json(st)
+    vl = JSON.parse(json)
+    @test length(vl["vconcat"]) == 2 && vl["spacing"] == 20 && vl["resolve"]["scale"]["x"] == "independent"
+    # Each panel keeps the zoom of its own (the stack's lowering), and the
+    # caller's Dicts are left as they were.
+    @test zoom_names.(vl["vconcat"]) == [["grid_p0"], ["grid_p1"]]
+    @test raw == kept
+
+    # A stack of figures: its JSON is its lowering, its page fragment `to_html`'s
+    # and its `?plain` view the plot summary, as for one figure.
+    st2 = vconcat(forest(qt), forest(coef))
+    @test JSON.parse(sprint(show, vl_json, st2)) == JSON.parse(to_json(st2)) == JSON.parse(JSON.json(to_vegalite(st2)))
+    @test showable(MIME"text/html"(), st2) && sprint(show, MIME"text/html"(), st2) == to_html(st2)
+    md = sprint(show, MIME"text/markdown"(), st2)
+    @test md == plot_summary_md(st2) && !isempty(strip(md))
+end
+
 @testitem "vconcat in the browser: aligned panels, one readout, one x zoom" tags=[:vconcat, :browser] begin
     using AlgebraOfVega, JSON
     import AlgebraOfGraphics

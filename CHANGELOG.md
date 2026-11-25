@@ -15,6 +15,16 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
+## 0.2.85
+
+- **A `vconcat` stack answers the MIME `show` methods a figure answers.**
+  `show(io, MIME"application/vnd.vegalite.v5+json"(), stack)` writes the
+  stack's Vega-Lite JSON (`to_json(stack)`, with each panel's own zoom), and
+  `text/html` and `text/markdown` write its page fragment (`to_html`) and its
+  `?plain` summary (`plot_summary_md`), as for one figure. A report that reads
+  a figure's Vega-Lite through the MIME, for its Markdown page or a PDF export
+  through vl-convert, raised a `MethodError` on a stack before.
+
 ## 0.2.84
 
 - **`vconcat(a, b; linkxaxes=:none)` stacks panels that each keep their own x.**
