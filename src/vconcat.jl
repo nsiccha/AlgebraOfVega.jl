@@ -12,7 +12,8 @@
 # title and legends, takes the panels' config and runtime metadata (`_aov`) to
 # the top, and leaves the x axis labels and title to the bottom panel. The
 # runtime sizes every panel to the container (`_applyResponsiveWidth`, kind
-# `vconcat`) and reads the panels as one readout (`_readoutPlan`).
+# `vconcat`) and reads the panels as one readout (`_readoutPlan`). A stack
+# answers the MIME `show` methods a figure answers (src/show.jl).
 
 """
     VConcat
@@ -37,7 +38,9 @@ and the readout (§11g) and an x zoom run across all panels. `spacing` is the ga
 between the panels' plot areas in pixels.
 
 Use it wherever a figure goes: `vdraw`, `to_node`, `with_plot_caption`, `vsave`,
-`to_vegalite`.
+`to_vegalite`, `to_json`, and `show` with the MIME types a report reads a figure
+through: `application/vnd.vegalite.v5+json` (the stack's Vega-Lite JSON, for
+vl-convert), `text/html` and `text/markdown`.
 
 `linkxaxes=:none` (AlgebraOfGraphics' name, as in `config(facet=(; linkxaxes=:none))`)
 stacks panels that each keep their own x scale instead: every panel draws its own x
