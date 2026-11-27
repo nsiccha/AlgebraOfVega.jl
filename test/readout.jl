@@ -15,6 +15,12 @@ using TestItemRunner
 # series under that panel's y title. Before 0.2.67 a name shared by panels was
 # one row with the last panel's median and the widest panel's interval,
 # `S1: −50 (60–240)` (snag `vconcat-readout-7dc3b818`, decision `0lhkthg`).
+# Each layer keeps its own series: a constant colour (`color.datum`) names its
+# layer, layers of one y title that plot different columns are a row each, an
+# interval goes with the value layer drawn next after it, and a line with a
+# point overlay (`visual(ScatterLines)`) is read. Before 0.2.86 one y title was
+# one row, an interval from one layer beside another layer's value (snag
+# `embedded-hand-wr-eae60371`).
 @testitem "config(readout=…) and temporal link keys lower to _aov metadata" tags=[:interactivity] begin
     using AlgebraOfVega, Dates
     import AlgebraOfGraphics
@@ -83,6 +89,47 @@ end
         data((; day=days, dose=fill(100.0, 5), scenario=fill("S1", 5))) *
             mapping(:day => "Day", :dose => "Dose (mg)") * visual(Lines) * config(width=360, height=60))
 
+    # Hand-written Vega-Lite through `to_node(dict)`, as Portfolio's article
+    # embeds its charts: a rule from lo to hi under the binned mean's point,
+    # both one legend entry by `color.datum`, and a step line of the fitted
+    # value, all three under one y title. Before 0.2.86 the three read as one
+    # series: the line's value with the rule's interval, the mean dropped
+    # (`19.9 (17.3–23.4)`; snag `embedded-hand-wr-eae60371`).
+    vl(pairs...) = Dict{String,Any}(pairs...)
+    vq(field, title=nothing) = vl("field" => field, "type" => "quantitative", "title" => title)
+    probe = [vl("x" => x, "m" => m, "lo" => lo, "hi" => hi, "fit" => f, "n" => 200) for (x, m, lo, hi, f) in
+        zip([1.0, 2, 3, 4], [20.361, 6.52, 1.847, 0.304], [17.307, 5.698, 1.498, 0.144],
+            [23.414, 7.342, 2.196, 0.465], [19.852, 8.668, 8.265, 8.265])]
+    probe_tip = [vl("field" => f, "title" => t) for (f, t) in ["x" => "Start", "m" => "Mean change (nats)",
+        "lo" => "Lower bound", "hi" => "Upper bound", "fit" => "Fitted change (nats)", "n" => "Proposals in the bin"]]
+    probe_unit(mark, enc, name) = vl("data" => vl("values" => probe), "mark" => mark,
+        "encoding" => merge(vl("x" => vq("x", "Start"), "tooltip" => probe_tip), enc,
+            isnothing(name) ? vl() : vl("color" => vl("datum" => name, "type" => "nominal", "title" => nothing))))
+    change = "Log-density change (nats)"
+    probe_spec(mean, fit) = vl("width" => 360, "height" => 180, "layer" => [
+        probe_unit(vl("type" => "rule"), vl("y" => vq("lo", change), "y2" => vl("field" => "hi")), mean),
+        probe_unit(vl("type" => "point", "filled" => true), vl("y" => vq("m", change)), mean),
+        probe_unit(vl("type" => "line", "interpolate" => "step-after"), vl("y" => vq("fit", change)), fit)])
+    # A line with a point overlay over its 5–95% area, the y title only on
+    # the axis. Before 0.2.86 Vega-Lite's name for the overlaid line was not
+    # read, so only the area showed, as `5% quantile (nats): −1,209 – 698`.
+    path_rows = [vl("x" => x, "med" => m, "lo" => lo, "hi" => hi) for (x, m, lo, hi) in
+        zip([1.0, 2, 3], [-35080.0, -19886.8, 241.1], [-200000.0, -200000.0, -1208.7], [-8417.0, -3461.5, 698.3])]
+    path_y(field) = vl("field" => field, "type" => "quantitative", "axis" => vl("title" => "Log density (nats)"))
+    path_tip = [vl("field" => f, "title" => t) for (f, t) in
+        ["med" => "Median (nats)", "lo" => "5% quantile (nats)", "hi" => "95% quantile (nats)"]]
+    path_spec = vl("width" => 360, "height" => 180, "layer" => [
+        vl("data" => vl("values" => path_rows), "mark" => vl("type" => "area", "opacity" => 0.22),
+            "encoding" => vl("x" => vq("x", "Iteration"), "y" => path_y("lo"), "y2" => vl("field" => "hi"), "tooltip" => path_tip)),
+        vl("data" => vl("values" => path_rows), "mark" => vl("type" => "line", "point" => vl("filled" => true)),
+            "encoding" => vl("x" => vq("x", "Iteration"), "y" => path_y("med"), "tooltip" => path_tip))])
+    # The probe's shapes from the algebra, unlabelled under one label.
+    shared = data((; x=[1.0, 2, 3, 4], m=[20.361, 6.52, 1.847, 0.304], lo=[17.307, 5.698, 1.498, 0.144],
+            hi=[23.414, 7.342, 2.196, 0.465], fit=[19.852, 8.668, 8.265, 8.265])) *
+        (mapping(:x => "Start", :lo => "Change", :hi) * visual(Band) +
+         mapping(:x => "Start", :m => "Change") * visual(Scatter) +
+         mapping(:x => "Start", :fit => "Change") * visual(Stairs))
+
     chrome = something(Sys.which("google-chrome"), Sys.which("chromium"), "")
     if isempty(chrome)
         @test_skip "headless Chrome is not installed"
@@ -102,7 +149,15 @@ end
                 vdraw(vconcat(rain, washed * config(height=120)); id="ro-wash-stack"),
                 vdraw(scenarios; id="ro-stack-scenarios"),
                 vdraw(data(hours) * mapping(:hour, :added) * visual(Lines; inspectable=false) * size;
-                    id="ro-passive")]
+                    id="ro-passive"),
+                to_node(probe_spec("Binned mean (± 2 SE)", "Fit"); id="ro-datum"),
+                to_node(probe_spec(nothing, nothing); id="ro-nodatum"),
+                to_node(path_spec; id="ro-overlay"),
+                vdraw(data(hours) * mapping(:hour => "Hour", :added => "Added dose rate") * visual(ScatterLines) * size;
+                    id="ro-scatterlines"),
+                vdraw(shared * size; id="ro-shared"),
+                vdraw(data(hours) * mapping(:hour => "Hour", :added => "Added dose rate"; color=direct("Model")) *
+                    visual(Lines) * size; id="ro-direct")]
             head = join(html(n) for n in vega_head(; source=:inline))
             driver = read(joinpath(@__DIR__, "readout.js"), String)
             write(joinpath(dir, "page.html"), "<!doctype html><meta charset='utf-8'>" * head *

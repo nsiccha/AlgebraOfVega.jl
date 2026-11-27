@@ -5143,7 +5143,11 @@ window.AoV = window.AoV || {
     // its interval, and a figure whose only line is passive gets no readout
     // unless `config(readout=true)`.
     // Series are named by their colour field's value, by the layer's
-    // `visual(...; label=…)` (`_aov_label`), or by its y title. In a faceted figure the readout follows the panel under the
+    // `visual(...; label=…)` (`_aov_label`) or constant colour's legend
+    // entry (`color.datum`), or by its y title (the axis's, else the
+    // encoding's). Value layers of one name that plot different columns are
+    // a row each, and an interval goes with the value layer drawn next after
+    // it (_readoutEntries). In a faceted figure the readout follows the panel under the
     // pointer. A `vconcat` stack's box lists every panel's series, each
     // panel's under its y title (_readoutStackPlan). The box stands in for
     // the mark tooltip while it shows. When
@@ -5171,14 +5175,15 @@ window.AoV = window.AoV || {
         var prefix = (namePrefix || '') + (faceted ? 'child_' : ''), dodge = aov.dodgeX;
         var plan = {units: {}, order: [], x: null, xType: null, xTitle: null, faceted: faceted, series: null,
             panel: this._panelLabelsOf(spec)};
-        var paths = false;
+        var paths = false, config = spec.config || {};
         units.forEach(function(u, i) {
             if (!u || u.layer) return;
             var enc = layered ? Object.assign({}, top, u.encoding || {}) : (u.encoding || {});
-            var mark = typeof u.mark === 'string' ? u.mark : (u.mark && u.mark.type);
+            var markDef = typeof u.mark === 'string' ? {type: u.mark} : (u.mark || {});
+            var mark = markDef.type;
             var x = enc.x, y = enc.y;
             if (!this._READOUT_MARKS[mark] || !x || !x.field || !y || !y.field) return;
-            if (u.mark && this._isPassiveStyle(u.mark.style)) return;
+            if (this._isPassiveStyle(markDef.style)) return;
             if (x.type !== 'quantitative' && x.type !== 'temporal') return;
             // Bars on a continuous x are placed by edges AoV computes
             // (`_bar_edges!`, src/layer_to_vl.jl): their x is their own column.
@@ -5190,15 +5195,50 @@ window.AoV = window.AoV || {
             var color = enc.color && enc.color.field;
             if (color && plan.series === null) plan.series = color;
             var tip = [].concat(enc.tooltip || []).filter(function(t) { return t && t.field === y.field; })[0];
-            var name = prefix + (layered ? 'layer_' + i + '_marks' : 'marks');
+            var tipTitle = tip ? this._readoutTitleText(tip.title) : null;
+            // A unit with a point overlay (or an area with a line overlay)
+            // is drawn as a layer of its own, the mark itself first.
+            var base = prefix + (layered ? 'layer_' + i + '_' : '');
+            var name = base + (this._readoutOverlaid(markDef, enc, config) ? 'layer_0_marks' : 'marks');
             plan.units[name] = {mark: mark, x: xf, edges: edges, y: y.field, y2: enc.y2 && enc.y2.field, color: color,
-                title: y.title || (tip && tip.title) || y.field, label: typeof u._aov_label === 'string' ? u._aov_label : null,
+                title: this._readoutTitleText(y.axis && y.axis.title) || this._readoutTitleText(y.title) || tipTitle || y.field,
+                tip: tipTitle, label: typeof u._aov_label === 'string' ? u._aov_label : this._readoutDatumName(color ? {} : enc),
                 index: plan.order.length};
             plan.order.push(name);
         }, this);
         if (!plan.order.length || !(paths || dodge || aov.readout === true)) return null;
         plan.paths = paths;
         return plan;
+    },
+    // Vega-Lite draws a line, rule, trail or area with a point overlay
+    // (`mark.point`, else `config.<mark>.point` or a `shape` encoding), and an
+    // area with a line overlay (`mark.line`, else `config.area.line`), as a
+    // layer: the mark itself is then named `…layer_0_marks`, the overlays
+    // after it (its path-overlay normalizer). `visual(ScatterLines)` is such
+    // a line (`point: true`), and so is a hand-written line with points.
+    _readoutOverlaid: function(markDef, enc, config) {
+        var type = markDef.type, cfg = config[type] || {};
+        if (!{line: 1, rule: 1, trail: 1, area: 1}[type]) return false;
+        var point = markDef.point === 'transparent' || !!markDef.point ||
+            (markDef.point === undefined && !!(cfg.point || enc.shape));
+        var line = type === 'area' && (!!markDef.line || (markDef.line === undefined && !!cfg.line));
+        return point || line;
+    },
+    // A title as text: Vega-Lite writes a multi-line one as an array.
+    _readoutTitleText: function(t) {
+        if (Array.isArray(t)) t = t.join(' ');
+        return typeof t === 'string' && t ? t : null;
+    },
+    // A unit coloured by a constant (`"color": {"datum": "Observed"}`, or
+    // `fill`/`stroke`) is one entry of the colour legend, and that entry
+    // names its series, as a `label=` does.
+    _readoutDatumName: function(enc) {
+        var chans = ['color', 'fill', 'stroke'];
+        for (var i = 0; i < chans.length; i++) {
+            var e = enc[chans[i]];
+            if (e && !e.field && (typeof e.datum === 'string' || typeof e.datum === 'number')) return String(e.datum);
+        }
+        return null;
     },
     // A `vconcat` stack (src/vconcat.jl) reads as one figure: every panel's
     // units (Vega-Lite names a panel's marks `concat_<k>_…`), the panels as
@@ -5223,7 +5263,8 @@ window.AoV = window.AoV || {
             wrapped: wrapped, series: null, panelTitles: {}};
         (spec.concat || spec.vconcat).forEach(function(child, k) {
             if ((panels[k] || {}).readout === false) return;
-            var sub = self._readoutPlan(Object.assign({}, child, {_aov: {readout: true}}), 'concat_' + k + '_');
+            var sub = self._readoutPlan(Object.assign({}, child, {_aov: {readout: true}},
+                spec.config ? {config: spec.config} : {}), 'concat_' + k + '_');
             if (!sub) return;
             if (plan.x === null) { plan.x = sub.x; plan.xType = sub.xType; plan.xTitle = sub.xTitle; }
             paths = paths || sub.paths;
@@ -5387,8 +5428,15 @@ window.AoV = window.AoV || {
     // legend's), then the uncoloured layers in layer order. In a stack, one
     // entry per panel and series, panel by panel from the top: a name shared
     // by two panels (a scenario in each) is two series of two quantities.
+    // Within one name, each y field the value layers draw is a row of its
+    // own: layers of one title that plot different columns (an observed
+    // mean and a fitted curve) are two quantities, and neither value hides
+    // the other. Such rows take their fields' tooltip titles when those tell
+    // them apart. An interval layer (`y2`) belongs to the value layer drawn
+    // next after it (a band under its line, a rule under its point), else
+    // the one drawn last before it; with no value layer it is a row alone.
     _readoutEntries: function(view, plan, at) {
-        var self = this, series = {}, list = [], stacked = !!plan.stacked;
+        var self = this, groups = {}, glist = [], list = [], stacked = !!plan.stacked;
         at.forEach(function(c) {
             var u = c.unit, d = c.datum, field = stacked || plan.wrapped ? u.series : plan.series;
             // A panel with its own axis title (`config(facet=(; ylabels))`)
@@ -5398,21 +5446,57 @@ window.AoV = window.AoV || {
                 (field && d[field] !== undefined ? d[field] : title);
             name = String(name);
             var key = stacked ? u.panel + '\u0000' + name : name;
-            var s = series[key];
-            if (!s) {
-                s = series[key] = {name: name, panel: stacked ? u.panel : null, coloured: name !== String(title),
-                    first: u.index, colour: null, units: {}};
-                list.push(s);
+            var g = groups[key];
+            if (!g) { g = groups[key] = {name: name, panel: stacked ? u.panel : null, units: {}}; glist.push(g); }
+            (g.units[u.index] = g.units[u.index] || []).push(c);
+        });
+        glist.forEach(function(g) {
+            var rows = [], byField = {}, intervals = [];
+            var row = function(first) {
+                var r = {name: g.name, panel: g.panel, first: first, colour: null, indices: [], units: {}, tip: null};
+                rows.push(r);
+                return r;
+            };
+            Object.keys(g.units).map(Number).sort(function(a, b) { return a - b; }).forEach(function(k) {
+                var u = g.units[k][0].unit;
+                if (u.y2) { intervals.push(k); return; }
+                var r = byField[u.y] || (byField[u.y] = row(k));
+                r.indices.push(k);
+                r.units[k] = g.units[k];
+                if (r.tip === null) r.tip = u.tip;
+            });
+            if (!rows.length) row(intervals[0]);
+            intervals.forEach(function(k) {
+                var next = null, prev = null;
+                rows.forEach(function(r) {
+                    r.indices.forEach(function(i) {
+                        if (i > k && (next === null || i < next.i)) next = {i: i, r: r};
+                        if (i < k && (prev === null || i > prev.i)) prev = {i: i, r: r};
+                    });
+                });
+                var r = next ? next.r : prev ? prev.r : rows[0];
+                r.units[k] = g.units[k];
+                r.first = Math.min(r.first, k);
+            });
+            if (rows.length > 1) {
+                var tips = rows.map(function(r) { return r.tip; });
+                var distinct = tips.every(function(t, i) { return t && t !== g.name && tips.indexOf(t) === i; });
+                if (distinct) rows.forEach(function(r) { r.name = r.tip; });
             }
-            s.first = Math.min(s.first, u.index);
-            (s.units[u.index] = s.units[u.index] || []).push(c);
+            rows.forEach(function(r) { list.push(r); });
+        });
+        list.forEach(function(s) {
             // The series' colour: a line's or rule's stroke, an area's or
             // bar's fill, else a point's (never the white of a median dot).
-            var it = c.item, rank = {line: 0, trail: 0, rule: 0, area: 1, bar: 1}[u.mark];
-            var col = rank === 0 ? it.stroke : rank === 1 ? it.fill :
-                (it.fill && !/^(#fff(fff)?|white)$/i.test(it.fill) ? it.fill : it.stroke);
-            if (rank === undefined) rank = 2;
-            if (col && (s.rank === undefined || rank < s.rank)) { s.colour = col; s.rank = rank; }
+            Object.keys(s.units).forEach(function(k) {
+                s.units[k].forEach(function(c) {
+                    var it = c.item, rank = {line: 0, trail: 0, rule: 0, area: 1, bar: 1}[c.unit.mark];
+                    var col = rank === 0 ? it.stroke : rank === 1 ? it.fill :
+                        (it.fill && !/^(#fff(fff)?|white)$/i.test(it.fill) ? it.fill : it.stroke);
+                    if (rank === undefined) rank = 2;
+                    if (col && (s.rank === undefined || rank < s.rank)) { s.colour = col; s.rank = rank; }
+                });
+            });
         });
         list.forEach(function(s) {
             s.median = null; s.lo = null; s.hi = null; s.single = [];

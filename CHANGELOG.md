@@ -15,6 +15,24 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
+## 0.2.86
+
+- **The readout keeps each layer's series apart.** A layer coloured by a
+  constant (`mapping(...; color=direct("Fit"))`, or `"color": {"datum": "Fit"}`
+  and its `fill`/`stroke` spellings in hand-written Vega-Lite), a one-entry
+  legend, is named by that entry, as a `visual(...; label=…)` layer is. Layers of one name that plot different columns (an observed mean and a
+  fitted curve under one y title) are one row each, and an interval layer
+  (`y2`: a band, a rule) goes with the value layer drawn next after it. A
+  layer's y title is read from `axis.title` too. Before, every uncoloured
+  layer of one y title was one row: a hand-written mean ± 2 SE rule, its mean
+  point and a fitted step line read `19.9 (17.3–23.4)`, the fit's value with
+  the rule's interval, and the mean was not shown.
+- **A line with points is read.** `visual(ScatterLines)`, and any line, area,
+  trail or rule drawn with a point overlay (`mark.point`, or an area's
+  `mark.line`), is in the readout; before, Vega-Lite's name for the overlaid
+  mark was not found, so such a layer was left out, and a figure whose only
+  line had points showed no readout.
+
 ## 0.2.85
 
 - **A `vconcat` stack answers the MIME `show` methods a figure answers.**
