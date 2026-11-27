@@ -1073,7 +1073,7 @@ function _merge_pad_details!(node)
     return
 end
 
-function _unit_is_composite(unit::Dict)
+function _unit_is_composite(unit::AbstractDict)
     m = get(unit, "mark", nothing)
     m isa AbstractString && return m in _COMPOSITE_MARKS
     md = _as_dict(m)
@@ -3614,23 +3614,38 @@ function _add_auto_legend_interactivity!(spec::Dict; mode=_AUTO_LEGEND_MODE)
     spec
 end
 
-# The sublayer that carries a layered figure's zoom/pan selection: the first one
-# that encodes every zoomed channel. Vega-Lite projects a selection only on the
-# channels of the unit that defines it ("Cannot project a selection on encoding
-# channel y, which has no field"), so on a band drawn first — a `VSpan` (x only)
-# or `VLines` rule behind a scatter — the y axis lost its zoom and pan. With no
-# layer encoding them all, the one that encodes the most, the first on a tie.
+# The sublayer that carries a layered figure's zoom/pan selection, and the
+# channels it zooms: the first one that encodes every zoomed channel. Vega-Lite
+# projects a selection only on the channels of the unit that defines it
+# ("Cannot project a selection on encoding channel y, which has no field"), so
+# on a band drawn first — a `VSpan` (x only) or `VLines` rule behind a scatter —
+# the y axis lost its zoom and pan. With no layer encoding them all, the one
+# that encodes the most, the first on a tie, zooming the channels it encodes.
+# A composite mark (`errorbar`, `errorband`, `boxplot`) holds no selection:
+# Vega-Lite drops one with "Selection not supported for errorbar yet.", so a
+# faceted figure whose first layer was a `Rangebars` had no pan or zoom (snag
+# `drew-a-faceted-f-c1afd58d`). Composite layers are passed over; their marks
+# still zoom through the scales they share with the owner. `nothing` when no
+# other layer encodes a zoomed channel.
 function _zoom_owner(layers::AbstractVector, channels)
-    count_encoded(l) = (enc = l isa AbstractDict ? get(l, "encoding", nothing) : nothing;
-        enc isa AbstractDict ? count(ch -> haskey(enc, ch), channels) : 0)
-    best, n_best = first(layers), -1
+    encoded(l) = (enc = get(l, "encoding", nothing);
+        enc isa AbstractDict ? filter(ch -> haskey(enc, ch), channels) : String[])
+    best = nothing
     for l in layers
-        n = count_encoded(l)
-        n == length(channels) && return l
-        n > n_best && ((best, n_best) = (l, n))
+        (l isa AbstractDict && !_unit_is_composite(l)) || continue
+        chs = encoded(l)
+        length(chs) == length(channels) && return (l, chs)
+        length(chs) > length(something(best, (nothing, String[]))[2]) && (best = (l, chs))
     end
     best
 end
+
+# The automatic zoom/pan selection on `channels`.
+_auto_zoom_param(channels) = Dict{String,Any}(
+    "name" => _AUTO_ZOOM,
+    "select" => Dict{String,Any}("type" => "interval", "encodings" => collect(channels)),
+    "bind" => "scales",
+)
 
 # A map pans and zooms through its one projection. Vega fits the projection's
 # target (an authored `fit`, else what the map draws) into its pixel `extent`,
@@ -3762,18 +3777,12 @@ function add_auto_interactivity!(spec::Dict{String,Any})
                 end
                 is_quant && push!(zoom_ch, ch)
             end
-            if !isempty(zoom_ch)
-                grid_param = Dict{String,Any}(
-                    "name" => _AUTO_ZOOM,
-                    "select" => Dict{String,Any}("type" => "interval", "encodings" => zoom_ch),
-                    "bind" => "scales",
-                )
-                if !isnothing(inner_layers) && !isempty(inner_layers)
-                    sl_params = get!(_zoom_owner(inner_layers, zoom_ch), "params", Dict{String,Any}[])
-                    push!(sl_params, grid_param)
-                else
-                    inner["params"] = [grid_param]
-                end
+            owner = isempty(zoom_ch) ? nothing :
+                !isnothing(inner_layers) && !isempty(inner_layers) ? _zoom_owner(inner_layers, zoom_ch) :
+                _unit_is_composite(inner) ? nothing : (inner, zoom_ch)
+            if !isnothing(owner)
+                unit, chs = owner
+                push!(get!(unit, "params", Dict{String,Any}[]), _auto_zoom_param(chs))
                 _keep_own_clips!(inner)
             end
         end
@@ -3787,11 +3796,11 @@ function add_auto_interactivity!(spec::Dict{String,Any})
     sublayers = get(spec, "layer", nothing)
     mark = get(spec, "mark", nothing)
     mark_type = _mark_type(mark)
-    is_composite = _is_composite_mark(spec)
 
-    # Skip all interactivity for composite marks (boxplot, errorbar, errorband)
-    # — VL doesn't support selections on them
-    is_composite && return spec
+    # A figure that is one composite mark (boxplot, errorbar, errorband) has no
+    # unit that can hold a selection. In a layered figure the zoom goes on
+    # another layer (`_zoom_owner`).
+    _unit_is_composite(spec) && return spec
 
     # Check for aggregate encodings (count, mean, etc.) — zoom can't project on those
     function _has_aggregate(enc_dict, ch)
@@ -3824,20 +3833,19 @@ function add_auto_interactivity!(spec::Dict{String,Any})
         is_quant && !has_agg && push!(zoom_encodings, ch)
     end
     if !isempty(zoom_encodings)
-        grid_param = Dict{String,Any}(
-            "name" => _AUTO_ZOOM,
-            "select" => Dict{String,Any}("type" => "interval", "encodings" => zoom_encodings),
-            "bind" => "scales",
-        )
         if !isnothing(sublayers) && !isempty(sublayers)
             # For layered specs, put bind:scales on one sublayer to avoid
             # VL duplicate signal error (grid_tuple created per view in layer array)
-            sl_params = get!(_zoom_owner(sublayers, zoom_encodings), "params", Dict{String,Any}[])
-            push!(sl_params, grid_param)
+            owner = _zoom_owner(sublayers, zoom_encodings)
+            if !isnothing(owner)
+                unit, chs = owner
+                push!(get!(unit, "params", Dict{String,Any}[]), _auto_zoom_param(chs))
+                _keep_own_clips!(spec)
+            end
         else
-            push!(params, grid_param)
+            push!(params, _auto_zoom_param(zoom_encodings))
+            _keep_own_clips!(spec)
         end
-        _keep_own_clips!(spec)
     end
 
     # Nearest-point tooltip for point marks only.
