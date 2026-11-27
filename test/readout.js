@@ -231,6 +231,46 @@
             ['S1', '0.9em'], ['S2', '0.9em'], ['Dose (mg)', '']]), 'indents ' + JSON.stringify(indents));
         leave('ro-stack-scenarios');
         await settle();
+
+        // --- each layer's own series (snag `embedded-hand-wr-eae60371`) ---
+        // The pointer just beside a line's point at `x` (`dx` px off it).
+        const readLine = async (id, field, x, dx) => {
+            const v = await ready(id);
+            const it = items(v, mark('line', field, x))[0];
+            if (!it) return 'no line item at ' + field + ' ' + x;
+            pointerAt(id, it.x + dx, it.y);
+            await settle();
+            const got = box(id);
+            leave(id);
+            await settle();
+            return got;
+        };
+        // Layers coloured by a constant (`color.datum`) are named by their
+        // legend entry: the rule's interval goes with the binned mean's point
+        // of the same entry, never with the fitted line under the same y title.
+        let got3 = await readLine('ro-datum', 'x', 1, 3);
+        check(same(got3, ['Start: 1', 'Binned mean (± 2 SE): 20.4 (17.3–23.4)', 'Fit: 19.85']),
+            'datum-named layers: ' + JSON.stringify(got3));
+        // Unnamed layers of one y title that draw different columns are two
+        // rows, here named by their tooltip titles; the interval goes with
+        // the value layer drawn next after it.
+        got3 = await readLine('ro-nodatum', 'x', 1, 3);
+        check(same(got3, ['Start: 1', 'Mean change (nats): 20.4 (17.3–23.4)', 'Fitted change (nats): 19.85']),
+            'one y title, two columns: ' + JSON.stringify(got3));
+        // A line with a point overlay is read, and an area titled only by
+        // `axis.title` is that line's interval.
+        got3 = await readLine('ro-overlay', 'x', 3, -3);
+        check(same(got3, ['Iteration: 3', 'Log density (nats): 241 (−1,209 – 698)']),
+            'line with points over an area: ' + JSON.stringify(got3));
+        got3 = await readLine('ro-scatterlines', 'hour', 11, 3);
+        check(same(got3, ['Hour: 11', 'Added dose rate: 0.4096']), 'ScatterLines: ' + JSON.stringify(got3));
+        // The same shapes from the algebra: a Band, the points and a step
+        // line under one label; the auto tooltips share it, so both rows
+        // keep it.
+        got3 = await readLine('ro-shared', 'x', 1, 3);
+        check(same(got3, ['Start: 1', 'Change: 20.4 (17.3–23.4)', 'Change: 19.85']),
+            'algebra layers of one label: ' + JSON.stringify(got3));
+
         // A figure whose only line is passive gets no readout.
         await ready('ro-passive');
         check(!(AoV._readouts['ro-passive'] && AoV._readouts['ro-passive'].plan), 'a passive line got a readout');
