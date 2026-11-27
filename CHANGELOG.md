@@ -18,9 +18,9 @@ failing at run time with a `MethodError`.
 ## 0.2.86
 
 - **The readout keeps each layer's series apart.** A layer coloured by a
-  constant (`"color": {"datum": "Fit"}`, also `fill`/`stroke`), Vega-Lite's
-  one-entry legend, is named by that entry, as a `visual(...; label=…)` layer
-  is. Layers of one name that plot different columns (an observed mean and a
+  constant (`mapping(...; color=direct("Fit"))`, or `"color": {"datum": "Fit"}`
+  and its `fill`/`stroke` spellings in hand-written Vega-Lite), a one-entry
+  legend, is named by that entry, as a `visual(...; label=…)` layer is. Layers of one name that plot different columns (an observed mean and a
   fitted curve under one y title) are one row each, and an interval layer
   (`y2`: a band, a rule) goes with the value layer drawn next after it. A
   layer's y title is read from `axis.title` too. Before, every uncoloured

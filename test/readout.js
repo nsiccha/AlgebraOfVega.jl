@@ -270,6 +270,9 @@
         got3 = await readLine('ro-shared', 'x', 1, 3);
         check(same(got3, ['Start: 1', 'Change: 20.4 (17.3–23.4)', 'Change: 19.85']),
             'algebra layers of one label: ' + JSON.stringify(got3));
+        // `color=direct("Model")` is a constant colour too: its legend entry names it.
+        got3 = await readLine('ro-direct', 'hour', 11, 3);
+        check(same(got3, ['Hour: 11', 'Model: 0.4096']), 'direct colour: ' + JSON.stringify(got3));
 
         // A figure whose only line is passive gets no readout.
         await ready('ro-passive');

@@ -155,7 +155,9 @@ end
                 to_node(path_spec; id="ro-overlay"),
                 vdraw(data(hours) * mapping(:hour => "Hour", :added => "Added dose rate") * visual(ScatterLines) * size;
                     id="ro-scatterlines"),
-                vdraw(shared * size; id="ro-shared")]
+                vdraw(shared * size; id="ro-shared"),
+                vdraw(data(hours) * mapping(:hour => "Hour", :added => "Added dose rate"; color=direct("Model")) *
+                    visual(Lines) * size; id="ro-direct")]
             head = join(html(n) for n in vega_head(; source=:inline))
             driver = read(joinpath(@__DIR__, "readout.js"), String)
             write(joinpath(dir, "page.html"), "<!doctype html><meta charset='utf-8'>" * head *
