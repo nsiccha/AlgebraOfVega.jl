@@ -15,6 +15,20 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
+## 0.2.87
+
+- **A figure with error bars or box plots pans and zooms, with no console
+  warning.** AoV puts its automatic zoom/pan selection on a layer that can
+  hold one: a composite mark (`Rangebars`, `Errorbars`, `BoxPlot`, which
+  Vega-Lite draws as `errorbar` and `boxplot`) is passed over, and its marks
+  zoom with the layer beside it through the scales they share. The selection
+  zooms only the axes that layer draws, and a figure of composite marks alone
+  gets none. Before, a faceted figure whose first layer was a `Rangebars`
+  logged `WARN Selection not supported for errorbar yet.` and Vega-Lite
+  dropped the selection, so the figure had no pan or zoom, and an unfaceted
+  figure with any composite layer had none either. Moving a `Scatter` first
+  in the sum to avoid the warning is no longer needed.
+
 ## 0.2.86
 
 - **The readout keeps each layer's series apart.** A layer coloured by a
