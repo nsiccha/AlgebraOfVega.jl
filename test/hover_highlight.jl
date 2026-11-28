@@ -74,6 +74,25 @@ end
     probes = (; lon=[1.5, 2.5, 3.5], lat=[0.5, 0.5, 0.5], kenn=["a", "b", "c"])
     series = (; t=repeat([1.0, 2.0, 3.0], 3), v=[1.0, 2.0, 3.0, 2.0, 3.0, 4.0, 3.0, 4.0, 5.0],
         kenn=repeat(["a", "b", "c"], inner=3))
+    # A hand-written Vega-Lite spec joins a group through `_aov.link`, the key
+    # `config(link=…)` writes (aov-use §11f; snag hand-written-spe-57544407):
+    # a column facet with a point layer and a text layer for the rows without
+    # a value, the shape Portfolio's article charts draw with `to_node`.
+    vld(p...) = Dict{String,Any}(p...)
+    fit_rows = [vld("fit" => f, "m" => m, "v" => f == "c" ? nothing : v, "note" => f == "c" ? "blocked" : "")
+                for (f, v) in (("a", 1.0), ("b", 2.0), ("c", 3.0)) for m in ("m1", "m2")]
+    fit_y = vld("field" => "fit", "type" => "nominal")
+    raw = vld("data" => vld("values" => fit_rows),
+        "facet" => vld("column" => vld("field" => "m", "type" => "nominal")),
+        "spec" => vld("width" => 150, "height" => 80, "layer" => Any[
+            vld("transform" => [vld("filter" => "isValid(datum.v)")],
+                "mark" => vld("type" => "point", "filled" => true, "size" => 80, "opacity" => 1),
+                "encoding" => vld("x" => vld("field" => "v", "type" => "quantitative"), "y" => fit_y,
+                    "tooltip" => [vld("field" => "fit")])),
+            vld("transform" => [vld("filter" => "!isValid(datum.v)")],
+                "mark" => vld("type" => "text", "align" => "left"),
+                "encoding" => vld("x" => vld("value" => 4), "y" => fit_y, "text" => vld("field" => "note")))]),
+        "_aov" => vld("link" => vld("group" => "fits", "key" => "fit")))
 
     chrome = something(Sys.which("google-chrome"), Sys.which("chromium"), "")
     if isempty(chrome)
@@ -96,7 +115,9 @@ end
                     config(scales=scales(Y=(; zero=true))) * size; id="hh-bars"),
                 # Another group: ignores "probes" announcements.
                 vdraw(data(rows) * mapping(:x, :y) * visual(Scatter) * size *
-                    config(link=(; group="other", key=:kenn)); id="hh-other")]
+                    config(link=(; group="other", key=:kenn)); id="hh-other"),
+                # The hand-written faceted spec, in group "fits".
+                to_node(raw; id="hh-raw")]
             head = join(html(n) for n in vega_head(; source=:inline))
             driver = read(joinpath(@__DIR__, "hover_highlight.js"), String)
             write(joinpath(dir, "page.html"), "<!doctype html><meta charset='utf-8'>" * head *
@@ -110,7 +131,7 @@ end
             if !isnothing(result)
                 report = JSON.parse(replace(result[1], "&quot;" => "\"", "&lt;" => "<",
                     "&gt;" => ">", "&amp;" => "&"))
-                @test report["checks"] >= 48
+                @test report["checks"] >= 57
                 @test isempty(report["failures"])
                 @info "hover/highlight browser checks" checks=report["checks"]
                 isempty(report["failures"]) || println(JSON.json(report["failures"]))

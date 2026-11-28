@@ -322,6 +322,51 @@
         check(same(opacities('hh-lines', 'line', 'kenn'), {a: 1, b: 1, c: 1}),
             'lines after the hovered map left: ' + JSON.stringify(opacities('hh-lines', 'line', 'kenn')));
         check(!AoV._hovers['hh-map'] && !AoV._highlights['hh-map'], 'map state kept after removal');
+
+        // --- A hand-written Vega-Lite spec in a link group ---
+        // `to_node` of a spec carrying `"_aov": {"link": {"group": "fits",
+        // "key": "fit"}}` joins the group as `config(link=…)` does: a column
+        // facet whose points and text (the rows without a value) dim in every
+        // panel (snag hand-written-spe-57544407, aov-use §11f).
+        const raw = marktype => {
+            const out = {};
+            items(AoV.views['hh-raw'], item => item.mark.role === 'mark' && item.mark.marktype === marktype &&
+                item.datum && item.datum.fit !== undefined).forEach(({item}) => {
+                const o = Math.round((item.opacity == null ? 1 : item.opacity) * 1000) / 1000;
+                (out[item.datum.fit] = out[item.datum.fit] || []).push(o);
+            });
+            Object.keys(out).forEach(k => out[k] = out[k].join('/'));
+            return [marktype, out];
+        };
+        const rawMarks = () => [raw('symbol'), raw('text')];
+        view = await ready('hh-raw');
+        const rawLink = AoV._link('hh-raw');
+        check(rawLink && rawLink.group === 'fits' && rawLink.key === 'fit', 'raw spec link: ' + JSON.stringify(rawLink));
+        const rawBefore = rawMarks();
+        check(same(rawBefore, [['symbol', {a: '1/1', b: '1/1'}], ['text', {c: '1/1'}]]),
+            'raw spec before: ' + JSON.stringify(rawBefore));
+        announceKeys('fits', 'a', ['a']);
+        await settle();
+        check(same(rawMarks(), [['symbol', {a: '1/1', b: '0.15/0.15'}], ['text', {c: '0.15/0.15'}]]),
+            'raw spec on table a: ' + JSON.stringify(rawMarks()));
+        check(same(opacities('hh-other', 'symbol', 'kenn'), plainBefore), 'other group on fits a changed');
+        announceKeys('fits', null, ['b', 'c']);
+        await settle();
+        check(same(rawMarks(), [['symbol', {a: '0.15/0.15', b: '1/1'}], ['text', {c: '1/1'}]]),
+            'raw spec on group row b, c: ' + JSON.stringify(rawMarks()));
+        announceKeys('fits', null, []);
+        await settle();
+        check(same(rawMarks(), rawBefore), 'raw spec after an empty list: ' + JSON.stringify(rawMarks()));
+        // Hovering one of its marks announces the key to the group; the
+        // hovered plot itself is not dimmed, and leaving ends it.
+        const rawB = items(view, symbol('fit', 'b'))[0];
+        got = await during(() => pointerAt('hh-raw', rawB.x, rawB.y));
+        check(got.links.length === 1 && got.links[0].group === 'fits' && got.links[0].key === 'b' &&
+            same(got.links[0].keys, ['b']), 'raw spec hover b announced ' + JSON.stringify(got.links));
+        check(same(rawMarks(), rawBefore), 'raw spec dimmed its own hover: ' + JSON.stringify(rawMarks()));
+        got = await during(() => leave('hh-raw'));
+        check(same(got.links.map(l => [l.group, l.key, l.keys]), [['fits', null, []]]),
+            'raw spec leave announced ' + JSON.stringify(got.links));
     } catch (e) {
         failures.push(String(e && e.stack || e));
     }
