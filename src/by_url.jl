@@ -44,6 +44,12 @@ rows for mappings and analyses; a raw-row browser figure can load them from
 Analyses that calculate new summaries in Julia still need to transmit their
 computed result. A URL must be reachable from the final page, including any
 site or reverse-proxy prefix.
+
+An address with a `{column}` placeholder, `by_url(rows, "cells/{cell}.json")`,
+serves each key's rows at its own address: on a figure that follows a click
+selection on that column (`config(select=(; field=:cell, group, initial))`)
+the page carries only the initial keys' rows, and the browser fetches a key's
+rows (`rows_json` of that key's rows) the first time it is selected.
 """
 by_url(rows, url::AbstractString) = ByURL(rows, String(url))
 by_url(rows::Union{ByURL,AddressedColumns}, url::AbstractString) = throw(ArgumentError(

@@ -49,7 +49,8 @@ pointer. Use it for panels in different units, such as a forest of parameters ne
 400 ms above one of coefficients near 0. The colour legend and its selection stay
 one for the stack.
 
-A panel cannot be faceted, a frame animation or a cell column, and
+A panel cannot be faceted, a frame animation, a figure that follows a click
+selection (`config(select=(; …))`) or a cell column, and
 the channel picker works on one figure only (`ArgumentError`). The panels share
 one link group (`config(link=…)`) if any has one. A ribbon panel draws the
 drawing it starts in, without the Ribbons | Intervals switch. `sdraw` composes
@@ -158,6 +159,7 @@ function _vconcat_refuse(kid::Dict, k)
     what = haskey(kid, "facet") || haskey(kid, "spec") ? "faceted (`col=`, `row=` or `layout=`)" :
         any(key -> haskey(kid, key), ("hconcat", "vconcat", "concat")) ? "itself a composition" :
         haskey(get(kid, "_aov", Dict()), "frame") ? "a frame animation (`config(frame=…)`)" :
+        haskey(get(kid, "_aov", Dict()), "select") ? "a figure that follows a click selection (`config(select=(; …))`)" :
         haskey(get(kid, "_aov", Dict()), "cells") ? "a cell column" : nothing
     isnothing(what) || throw(ArgumentError("vconcat: panel $k is $what; a stack holds unfaceted figures on one x."))
     _has_any_encoding(kid, ("column", "row", "facet")) && throw(ArgumentError(

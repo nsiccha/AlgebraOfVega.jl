@@ -162,8 +162,10 @@ names. The same `scales(...)` object can be the second argument to `vdraw` or
 `to_vegalite`.
 
 `params`, `transform`, and other Vega-Lite properties provide an escape hatch.
-`select` adds filter controls; `frame` selects an animation coordinate; `link`
-connects hover identity across figures; `legend_zoom=true` makes a colour
+`select` adds filter controls (`select=:field`), or follows a link group's click
+selection (`select=(; field, group, initial)`); `frame` selects an animation
+coordinate; `link` connects hover identity across figures (`on=:click` also
+selects on click); `legend_zoom=true` makes a colour
 legend selection also zoom each panel's axes to the selected entries' marks.
 Per-layer configuration stays with its
 layer. Configuration applied to a combined figure applies to the combined result.
@@ -179,6 +181,7 @@ function config(; kwargs...)
     haskey(props, :transform) && (props[:transform] = _transform_list(props[:transform]))
     haskey(props, :frame) && (props[:frame] = _frame_options(props[:frame]))
     haskey(props, :link) && (props[:link] = _link_options(props[:link]))
+    haskey(props, :select) && (props[:select] = _select_option(props[:select]))
     haskey(props, :readout) && (props[:readout] = _readout_option(props[:readout]))
     haskey(props, :legend_zoom) && (props[:legend_zoom] = _legend_zoom_option(props[:legend_zoom]))
     Config(props)

@@ -131,6 +131,8 @@ function _draw_kwargs(cfg::Union{Config,Nothing}; faceted=false, layer_encodings
             if !isnothing(s) && !isnothing(_scales_panel_y_scales(s))
                 error("AlgebraOfVega: per-panel Y scales (a `scales(Y=(; …))` key given as a `Dict` keyed by panel, e.g. `scale=Dict(...)` or `domain=Dict(...)`) are not supported on the static Makie path; render with `vdraw`/`to_vegalite` (a Vega-Lite concat of one view per facet column, row or wrapped panel), or write a file with `vsave`, instead.")
             end
+        elseif k === :select && v isa SelectGroupOptions
+            throw(ArgumentError("AlgebraOfVega: `config(select=(; field=:$(v.field), …))` follows a click selection in the browser, which a static Makie figure cannot; render with `vdraw`/`to_html`, write the initial key's figure with `vsave`, or filter the table to one key for a static figure."))
         elseif k === :frame
             throw(ArgumentError("AlgebraOfVega: `config(frame=…)` animations are not supported on the static Makie path; render with `vdraw`/`to_html`, or filter the table to one frame for a static figure."))
         elseif k === :facet

@@ -206,6 +206,8 @@ function _cell_column(spec, scales=nothing; id=nothing, axis::Bool=true)
     props = isnothing(v.config) ? Dict{Symbol,Any}() : v.config.properties
     haskey(props, :frame) && throw(ArgumentError(
         "cell_charts: a cell shows one row key and steps no frames; drop `config(frame=…)`."))
+    get(props, :select, nothing) isa SelectGroupOptions && throw(ArgumentError(
+        "cell_charts: a cell shows its own row key and follows no click selection; drop `config(select=(; …))`."))
     main = findfirst(l -> !isnothing(_frame_table(l, field)), layers)
     isnothing(main) && throw(ArgumentError(
         "cell_charts(… layout=:$field): no layer's data has a column \"$field\"."))
