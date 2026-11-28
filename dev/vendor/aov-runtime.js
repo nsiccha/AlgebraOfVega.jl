@@ -73,7 +73,8 @@ window.AoV = window.AoV || {
         '_embedOpts', '_observers', '_computedWidths', '_corrections', '_correctedRegime',
         '_cur', '_pickers', '_mappings', '_themeKeys', '_reembeds', '_frames',
         '_highlights', '_hovers', '_touches', '_unmeasured', '_ribbonViews', '_scrollFrames',
-        '_mapZooms', '_mapPinches', '_readouts', '_refPending', '_adopting', '_legendZooms', '_intervalsHidden'],
+        '_mapZooms', '_mapPinches', '_readouts', '_refPending', '_adopting', '_legendZooms', '_intervalsHidden',
+        '_keyedShown'],
 
     // Whether the runtime sizes this spec to its container: Julia's
     // `_embed_spec` marks a responsive layered/faceted/per-column spec with
@@ -621,6 +622,8 @@ window.AoV = window.AoV || {
         if (swapped) {
             cur.spec = p.prepared;
             delete self._liveRows[id];
+            delete self._keyedShown[id];
+            self._showSelect(id);
             self._ribbonViewControls(id, old);
             self._intervalControls(id, old, cur.spec);
             // The plot sits in the new figure's area now.
@@ -1028,7 +1031,22 @@ window.AoV = window.AoV || {
     _preloadScript: function(id) {
         var self = this, cur = self._cur[id];
         var urls = cur ? self._dataUrls(cur.spec) : [];
-        if (!urls.length) return Promise.resolve('');
+        // A plot that follows a click selection opens at the keys it shows,
+        // and carries their rows when they come from a per-key address.
+        var f = self._follow(id), seed = '';
+        if (f) {
+            var keys = self.selected(f.group);
+            (f.keyed || []).forEach(function(e) {
+                keys.forEach(function(k) {
+                    var address = e.url.split('{' + f.field + '}').join(encodeURIComponent(k));
+                    if (urls.indexOf(address) === -1) urls.push(address);
+                });
+            });
+            var g = JSON.stringify(f.group);
+            seed = 'AoV._selections[' + g + '] = AoV._selections[' + g + '] || ' +
+                JSON.stringify({keys: keys, source: null}) + ';';
+        }
+        if (!urls.length && !seed) return Promise.resolve('');
         return Promise.all(urls.map(function(url) {
             if (Object.prototype.hasOwnProperty.call(self._preloaded, url)) return self._preloaded[url];
             return fetch(url).then(function(r) {
@@ -1038,9 +1056,9 @@ window.AoV = window.AoV || {
         })).then(function(texts) {
             var map = {};
             urls.forEach(function(url, i) { map[url] = texts[i]; });
+            var body = (urls.length ? 'AoV._preload(' + JSON.stringify(map) + ');' : '') + seed;
             // The same closing-tag rule as `_inlineVendored`.
-            var json = JSON.stringify(map).replace(/<\/(?=(?:script|style|head|body|html)\b)/gi, '<\\/');
-            return '<script>AoV._preload(' + json + ');<\/script>';
+            return '<script>' + body.replace(/<\/(?=(?:script|style|head|body|html)\b)/gi, '<\\/') + '<\/script>';
         });
     },
 
@@ -1374,8 +1392,10 @@ window.AoV = window.AoV || {
             self._frameStop(id);
             delete self._frames[id];
             delete self._mapZooms[id];
+            delete self._keyedShown[id];
         } else if (!keepData) {
             delete self._liveRows[id];
+            delete self._keyedShown[id];
         }
         // A new spec is sized afresh, on a new element or the same one (a
         // picker remap, a structural update_spec, a legend restore). The fit
@@ -1430,7 +1450,7 @@ window.AoV = window.AoV || {
             // Superseded by a newer embed of this id, or disposed: a resize or
             // fit re-embed scheduled earlier must not resurrect the old spec.
             if (self._embedTok[id] !== tok) return Promise.resolve();
-            var s = self._bindDodge(self._capTicks(id, self._withHighlight(id, self._withIntervals(id, self._applyResponsiveWidth(id, JSON.parse(JSON.stringify(cur.spec)), budget)))));
+            var s = self._bindDodge(self._capTicks(id, self._withSelected(id, self._withSelect(id, self._withHighlight(id, self._withIntervals(id, self._applyResponsiveWidth(id, JSON.parse(JSON.stringify(cur.spec)), budget)))))));
             // Host theme, read now: a theme change re-runs this embed.
             var embedOpts = self._withFrame(id, self._themedOpts(id, s, opts), plan);
             var fonts = self._fontsPending((s.config && s.config.font) || (embedOpts.config && embedOpts.config.font));
@@ -1490,6 +1510,7 @@ window.AoV = window.AoV || {
                 self._refLabelsWatch(id, view);
                 self._mapZoom(id, view, result.vgSpec);
                 self._frameSync(id, view);
+                self._selectEmbedded(id, view);
                 // Run anything queued before the view was ready (e.g. appendData)
                 var pending = self._pending[id] || [];
                 delete self._pending[id];
@@ -2724,6 +2745,9 @@ window.AoV = window.AoV || {
             if (self._sameStructure(id, p.prepared) && self._swapData(id, view, p.prepared)) {
                 cur.spec = p.prepared;
                 delete self._liveRows[id];
+                // The swap brought the initial keys' rows back.
+                delete self._keyedShown[id];
+                self._showSelect(id);
                 self._ribbonViewControls(id, el);
                 self._intervalControls(id, el, cur.spec);
             } else {
@@ -4534,6 +4558,7 @@ window.AoV = window.AoV || {
             if (!datum || !el) return;
             el.dispatchEvent(new CustomEvent('aov:click', {bubbles: true,
                 detail: {id: id, datum: Object.assign({}, datum), event: event}}));
+            self._clickSelect(id, datum, event);
         });
     },
 
@@ -4717,6 +4742,7 @@ window.AoV = window.AoV || {
         this._touchOpen(id, press);
         if (el) el.dispatchEvent(new CustomEvent('aov:click', {bubbles: true,
             detail: {id: id, datum: Object.assign({}, press.row), event: press.event}}));
+        this._clickSelect(id, press.row, press.event);
     },
     // No context menu over a pressed mark. A browser that opens it before
     // _TOUCH_HOLD_MS (Android's long press) makes it the long press; one
@@ -5052,6 +5078,292 @@ window.AoV = window.AoV || {
             });
         };
         document.addEventListener('htmxo:link', this._linkListener);
+    },
+
+    // --- Click selections (`config(link=(; …, on=:click))`, `config(select=(; field, group, initial))`) ---
+    // A click or long press on a mark of a plot whose link has `on: 'click'`
+    // selects that mark's key for its group: the selection replaces the
+    // group's keys, Shift-click adds or removes one, and a click on blank
+    // space leaves them (snag `click-a-map-key-a85f71a9`, design `0n1b5vy`).
+    // The runtime keeps one selection per group, `_selections[group] =
+    // {keys, source}`, and announces each change on `document` as
+    // `aov:select`, detail {group, keys, source}. A plot that follows the
+    // group (`_aov.select`) draws only the rows whose field is one of the keys:
+    // its `aov_select` parameter, which the lowering's filter reads, is set
+    // on the live view, so a selection is no re-embed, and its datasets read
+    // from a per-key address (`_aov.select.keyed`) get the selected keys'
+    // rows, fetched once per address. The clicked plot outlines its selected
+    // marks (`aov_selected`, `_withSelected`). A group starts at the keys the
+    // page address names (`?<group>=<key>`), else at the first follower's
+    // `initial`, and each change is written back to the address unless a
+    // clicked plot of the group says `address: false`.
+    _selections: {},
+    _keyedRows: {},
+    // Per plot: the keys whose rows each per-key dataset holds, by dataset
+    // (none recorded: the embedded `initial` rows).
+    _keyedShown: {},
+    _selectRev: 0,
+    _SELECTED_PARAM: 'aov_selected',
+    _follow: function(id) {
+        var cur = this._cur[id], f = cur && cur.spec && cur.spec._aov && cur.spec._aov.select;
+        return f && f.group ? f : null;
+    },
+    _clickLink: function(id) {
+        var link = this._link(id);
+        return link && link.on === 'click' ? link : null;
+    },
+    // Public: the keys a group has selected, as strings ([] for none).
+    selected: function(group) {
+        var st = this._selections[group];
+        return st ? st.keys.slice() : [];
+    },
+    // Public: select `keys` (an array of keys, [] for none) for `group`, as a
+    // click on a mark of the group does. `source` is the element that chose
+    // them (null from page script).
+    select: function(group, keys, source) {
+        var self = this, seen = {};
+        keys = [].concat(keys === null || keys === undefined ? [] : keys)
+            .filter(function(k) { return k !== null && k !== undefined; }).map(String)
+            .filter(function(k) { return seen[k] ? false : (seen[k] = true); });
+        self._selections[group] = {keys: keys, source: source || null};
+        self._selectRev++;
+        self._writeAddress(group, keys);
+        Object.keys(self._cur).forEach(function(id) {
+            var f = self._follow(id), link = self._clickLink(id);
+            if (f && f.group === group) self._showSelect(id);
+            if (link && link.group === group) self._showSelected(id);
+        });
+        document.dispatchEvent(new CustomEvent('aov:select',
+            {detail: {group: group, keys: keys.slice(), source: source || null}}));
+    },
+    _clickSelect: function(id, datum, event) {
+        var link = this._clickLink(id);
+        if (!link || !datum || !Object.prototype.hasOwnProperty.call(datum, link.key) ||
+            datum[link.key] === null || datum[link.key] === undefined) return;
+        var key = this._linkKeyText(link, datum[link.key]), keys = this.selected(link.group);
+        if (event && event.shiftKey)
+            keys = keys.indexOf(key) === -1 ? keys.concat([key]) : keys.filter(function(k) { return k !== key; });
+        else keys = [key];
+        this.select(link.group, keys, this._els[id] || null);
+    },
+    // A group's first selection: the keys the page address names, else
+    // `initial` (a follower's; a clicked plot passes null, so a map embedded
+    // before its followers does not decide that nothing is selected).
+    // Recorded quietly, with no `aov:select`: nothing changed yet; a clicked
+    // plot already on the page outlines the keys.
+    _seedSelection: function(group, initial) {
+        if (this._selections[group]) return;
+        var named = this._addressKeys(group);
+        if (named === null && (initial === null || initial === undefined)) return;
+        var self = this;
+        self._selections[group] = {keys: named !== null ? named : initial.map(String), source: null};
+        self._selectRev++;
+        Object.keys(self._cur).forEach(function(id) {
+            var link = self._clickLink(id);
+            if (link && link.group === group) self._showSelected(id);
+        });
+    },
+    _addressKeys: function(group) {
+        try {
+            var params = new URLSearchParams(window.location.search);
+            return params.has(group) ? params.getAll(group).filter(function(k) { return k !== ''; }) : null;
+        } catch (e) { return null; }
+    },
+    _addressOn: function(group) {
+        var self = this;
+        return !Object.keys(self._cur).some(function(id) {
+            var link = self._clickLink(id);
+            return link && link.group === group && link.address === false;
+        });
+    },
+    // The selection in the page address, as `?<group>=<key>` (one parameter
+    // per key), keeping the address's other parameters and its hash.
+    _writeAddress: function(group, keys) {
+        if (!this._addressOn(group)) return;
+        try {
+            var url = new URL(window.location.href);
+            url.searchParams.delete(group);
+            keys.forEach(function(k) { url.searchParams.append(group, k); });
+            if (url.href !== window.location.href) history.replaceState(history.state, '', url.href);
+        } catch (e) { /* a sandboxed frame or a page with no history: the selection stays on the page */ }
+    },
+    // The spec a following plot embeds, with `aov_select` set to the group's
+    // keys (the lowering seeds it with `initial`).
+    _withSelect: function(id, spec) {
+        var f = spec._aov && spec._aov.select;
+        if (!f || !f.group) return spec;
+        this._seedSelection(f.group, f.initial || []);
+        var keys = this.selected(f.group), name = f.param || 'aov_select';
+        (spec.params || []).forEach(function(p) { if (p && p.name === name) p.value = keys.slice(); });
+        return spec;
+    },
+    // The selection on a following plot's live view: the parameter, the rows
+    // of a per-key address, the hint, and the layout and data panes after.
+    _showSelect: function(id) {
+        var self = this, f = self._follow(id);
+        if (!f) return;
+        var keys = self.selected(f.group);
+        self.whenReady(id, function(view) {
+            if (self._follow(id) !== f) return;
+            try { view.signal(f.param || 'aov_select', keys.slice()); } catch (e) {
+                self._console.error.call(console, '[' + id + '] AoV.select:', e);
+                return;
+            }
+            self._selectHint(id, keys);
+            if (!self._syncKeyed(id, view, keys)) {
+                self._runRelayout(view);
+                self._dataChanged(id);
+            }
+        });
+    },
+    // After every embed of a plot: a follower shows the group's keys (the
+    // embed carried them, but a per-key address's rows may still have to
+    // come), and a clicked plot's outline reads the current selection.
+    _selectEmbedded: function(id, view) {
+        var f = this._follow(id);
+        if (f) {
+            this._selectHint(id, this.selected(f.group));
+            this._syncKeyed(id, view, this.selected(f.group));
+        }
+    },
+    // Swap the selected keys' rows into each dataset a per-key address
+    // fills (`_aov.select.keyed`), unless it shows them already. Returns
+    // whether rows are on their way (they then relayout when they land).
+    _syncKeyed: function(id, view, keys) {
+        var self = this, f = self._follow(id), keyed = (f && f.keyed) || [];
+        if (!keyed.length) return false;
+        var want = keys.join('\n'), shown = self._keyedShown[id] = self._keyedShown[id] || {};
+        var initial = (f.initial || []).join('\n');
+        var todo = keyed.filter(function(e) {
+            return (Object.prototype.hasOwnProperty.call(shown, e.dataset) ? shown[e.dataset] : initial) !== want;
+        });
+        if (!todo.length) return false;
+        Promise.all(todo.map(function(e) { return self._keyedFetch(e.url, f.field, keys); })).then(function(lists) {
+            // A newer selection, or a newer spec for the plot, took over.
+            if (self.selected(f.group).join('\n') !== want || self._follow(id) !== f) return;
+            self.whenReady(id, function(v) {
+                if (self._follow(id) !== f) return;
+                var vg = self._results[id] && self._results[id].vgSpec;
+                todo.forEach(function(e, i) {
+                    var d = vg && (vg.data || []).filter(function(x) { return x.name === e.dataset; })[0];
+                    var rows = d && d.format ? vega.read(lists[i], d.format) : lists[i];
+                    (self._keyedShown[id] = self._keyedShown[id] || {})[e.dataset] = want;
+                    self._applyRows(id, v, e.dataset, rows, vega.changeset().remove(function() { return true; }).insert(rows));
+                });
+            });
+        }).catch(function(err) {
+            self._console.error.call(console, '[' + id + '] AoV.select: the rows of ' + JSON.stringify(keys) + ' could not be loaded:', err);
+            // Draw what the selection leaves of the rows it has, rather than
+            // the previous selection.
+            self.whenReady(id, function(v) { self._runRelayout(v); self._dataChanged(id); });
+        });
+        return true;
+    },
+    // The rows of `keys` from the address template `url` (each key in place
+    // of `{field}`), one fetch per address and page; a saved card's preload
+    // answers first.
+    _keyedFetch: function(url, field, keys) {
+        var self = this;
+        return Promise.all(keys.map(function(k) {
+            var address = url.split('{' + field + '}').join(encodeURIComponent(k));
+            if (!self._keyedRows[address]) {
+                var text = Object.prototype.hasOwnProperty.call(self._preloaded, address) ?
+                    Promise.resolve(self._preloaded[address]) :
+                    fetch(address).then(function(r) {
+                        if (!r.ok) throw new Error(address + ' answered HTTP ' + r.status);
+                        return r.text();
+                    });
+                self._keyedRows[address] = text.then(function(t) { return JSON.parse(t); });
+                self._keyedRows[address].catch(function() { delete self._keyedRows[address]; });
+            }
+            return self._keyedRows[address];
+        })).then(function(lists) { return [].concat.apply([], lists); });
+    },
+    // A following plot with nothing selected says what a click does, in a
+    // line above its (empty) plot area.
+    _selectHint: function(id, keys) {
+        var el = this._els[id];
+        if (!el || !el.parentNode) return;
+        var host = el.parentNode, hint = host.querySelector(':scope > .aov-select-hint[data-aov-hint-for="' + id + '"]');
+        if (keys.length) { if (hint) hint.remove(); return; }
+        if (!hint) {
+            hint = document.createElement('p');
+            hint.className = 'aov-select-hint';
+            hint.setAttribute('data-aov-hint-for', id);
+            hint.setAttribute('role', 'status');
+            hint.style.cssText = 'margin:0 0 .25em;font-size:.85em;opacity:.75';
+            host.insertBefore(hint, el);
+        }
+        hint.textContent = this._texts(el)('select_hint');
+    },
+    // Rows a following plot's downloads and data panes give: those it draws.
+    _selectFiltered: function(id, rows) {
+        var f = this._follow(id);
+        if (!f || !rows) return rows;
+        var want = new Set(this.selected(f.group));
+        return rows.filter(function(r) {
+            if (!r || !Object.prototype.hasOwnProperty.call(r, f.field)) return true;
+            var v = r[f.field];
+            return v === null || v === undefined || (typeof v === 'number' && isNaN(v)) || want.has(String(v));
+        });
+    },
+    // The outline a clicked plot draws around its selected marks: a 2 px
+    // stroke in the page's text colour (3 px on lines), the selected marks
+    // painted last. Patches the copy the view embeds, as _withHighlight does.
+    _selectedValue: function(link) {
+        return {group: link.group, key: link.key, temporal: link.temporal || null, rev: this._selectRev};
+    },
+    _registerSelected: function() {
+        if (this._selectedRegistered || typeof vega === 'undefined' || !vega.expressionFunction) return;
+        var self = this;
+        vega.expressionFunction('aovSelected', function(s, datum) {
+            var st = s && self._selections[s.group];
+            if (!st || !st.keys.length || !datum || !Object.prototype.hasOwnProperty.call(datum, s.key)) return false;
+            var v = datum[s.key];
+            return v !== null && v !== undefined && st.keys.indexOf(self._linkKeyText(s, v)) !== -1;
+        });
+        this._selectedRegistered = true;
+    },
+    _withSelected: function(id, spec) {
+        var link = spec._aov && spec._aov.link;
+        if (!link || link.on !== 'click' || !link.group) return spec;
+        var self = this, name = self._SELECTED_PARAM;
+        self._registerSelected();
+        self._seedSelection(link.group, null);
+        spec.params = (spec.params || []).filter(function(p) { return p.name !== name; })
+            .concat([{name: name, value: self._selectedValue(link)}]);
+        var test = name + ' !== null && aovSelected(' + name + ', datum)';
+        var el = self._elOf(id), ink = (el && self._themeOn(spec) && getComputedStyle(el).color) || '#333';
+        self._legendUnits(spec).forEach(function(info) {
+            var u = info.unit, enc = info.encoding;
+            var mark = typeof u.mark === 'string' ? u.mark : u.mark.type;
+            var style = typeof u.mark === 'object' ? [].concat(u.mark.style || []) : [];
+            if (style.indexOf('aov-passive') !== -1 || ['text', 'boxplot', 'errorbar', 'errorband'].indexOf(mark) !== -1) return;
+            var path = ['line', 'area', 'trail', 'rule'].indexOf(mark) !== -1, extra = {};
+            // Drawn last, so no neighbour paints over the outline. Vega-Lite
+            // sorts bars' stacks and paths' points by `order`, so only marks
+            // that stand alone take it.
+            if (['geoshape', 'rect', 'point', 'circle', 'square'].indexOf(mark) !== -1 && enc.order === undefined)
+                extra.order = {condition: {test: test, value: 1}, value: 0};
+            if (!path) {
+                var st = enc.stroke;
+                if (st === undefined) extra.stroke = {condition: {test: test, value: ink}};
+                else if (st && typeof st === 'object' && st.condition === undefined) extra.stroke = Object.assign({}, st, {condition: {test: test, value: ink}});
+            }
+            var sw = enc.strokeWidth, width = path ? 3 : 2;
+            if (sw === undefined) extra.strokeWidth = {condition: {test: test, value: width}};
+            else if (sw && typeof sw.value === 'number' && sw.condition === undefined && sw.field === undefined)
+                extra.strokeWidth = {condition: {test: test, value: Math.max(width, sw.value)}, value: sw.value};
+            if (Object.keys(extra).length) u.encoding = Object.assign({}, u.encoding, extra);
+        });
+        return spec;
+    },
+    _showSelected: function(id) {
+        var self = this, link = self._clickLink(id);
+        if (!link) return;
+        self.whenReady(id, function(view) {
+            try { view.signal(self._SELECTED_PARAM, self._selectedValue(link)).runAsync(); } catch (e) { /* embedded without the outline */ }
+        });
     },
 
     // --- Labels of reference lines and periods (src/ref_labels.jl) ---
@@ -5752,13 +6064,13 @@ window.AoV = window.AoV || {
         if (!view) return null;
         var self = this, drawn = this._drawnDatasets(id);
         if (!drawn || !drawn.length) {
-            var rows = this._plotData(id);
+            var rows = this._selectFiltered(id, this._plotData(id));
             return rows && this._splitBySource(rows);
         }
         var nonEmpty = function(g) { return g.rows.length > 0; };
         var all = [], values = [];
         drawn.forEach(function(d, i) {
-            self._splitBySource(self._withoutPads(view.data(d.name))).forEach(function(g) {
+            self._splitBySource(self._selectFiltered(id, self._withoutPads(view.data(d.name)))).forEach(function(g) {
                 var group = {label: g.label, rows: g.rows, place: i + 1};
                 all.push(group);
                 if (d.untagged || (g.label !== null && d.tags[g.label])) values.push(group);
@@ -6110,7 +6422,7 @@ window.AoV = window.AoV || {
     // (`plot_texts`, src/plot_texts.jl); without that attribute they are
     // English. LOCKSTEP: `_TEXTS_EN` is the English set of
     // `_RUNTIME_TEXT_NAMES` in src/plot_texts.jl; test/plot_texts.jl pins them.
-    _TEXTS_EN: {"no_data": "(no data available)", "no_summary": "(no summary data available)", "median": "Median", "mean": "Mean", "interval": "{point} [{width} credible interval]", "value": "value", "untitled": "AoV plot", "lang": "en", "play": "Play", "pause": "Pause", "ribbons": "Ribbons", "intervals": "Intervals", "ribbon_view": "Drawing", "overlap": "Bands overlap {score} of the y range", "overlap_auto": "Bands overlap {score} of the y range; intervals above {threshold}", "show_intervals": "Show intervals", "scrollable": "Scrollable plot", "scrollable_table": "Scrollable table", "reset_zoom": "Reset zoom", "table_rows": "Rows {from}–{to} of {total}", "table_pages": "Table pages", "previous_page": "Previous", "next_page": "Next", "table_page": "Page {page}", "table_sorts_all": "A click on a column heading sorts all {total} rows.", "table_csv": "{csv} holds every row."},
+    _TEXTS_EN: {"no_data": "(no data available)", "no_summary": "(no summary data available)", "median": "Median", "mean": "Mean", "interval": "{point} [{width} credible interval]", "value": "value", "untitled": "AoV plot", "lang": "en", "play": "Play", "pause": "Pause", "ribbons": "Ribbons", "intervals": "Intervals", "ribbon_view": "Drawing", "overlap": "Bands overlap {score} of the y range", "overlap_auto": "Bands overlap {score} of the y range; intervals above {threshold}", "show_intervals": "Show intervals", "scrollable": "Scrollable plot", "scrollable_table": "Scrollable table", "reset_zoom": "Reset zoom", "select_hint": "Click an item to show it here", "table_rows": "Rows {from}–{to} of {total}", "table_pages": "Table pages", "previous_page": "Previous", "next_page": "Next", "table_page": "Page {page}", "table_sorts_all": "A click on a column heading sorts all {total} rows.", "table_csv": "{csv} holds every row."},
     _texts: function(el) {
         var host = el && el.closest ? el.closest('[data-aov-texts]') : null;
         var texts = host ? JSON.parse(host.dataset.aovTexts) : {};
@@ -6506,7 +6818,7 @@ window.AoV = window.AoV || {
         var hasSummary = function(g) { return self._buildPrettyRows(g.rows, opts) !== null; };
         for (var i = 0; ; i++) {
             var rows;
-            try { rows = this._withoutPads(view.data('source_' + i)); } catch (e) { break; }
+            try { rows = this._selectFiltered(id, this._withoutPads(view.data('source_' + i))); } catch (e) { break; }
             var groups = this._splitBySource(rows);
             if (groups.some(hasSummary)) return groups;
         }
@@ -7282,7 +7594,7 @@ window.AoV = window.AoV || {
                     spec.width = 'container';
                     spec.autosize = {type: 'fit-x', contains: 'padding'};
                     var kept = {};
-                    ['frame', 'link', 'readout'].forEach(function(k) { if (spec._aov[k] !== undefined) kept[k] = spec._aov[k]; });
+                    ['frame', 'link', 'readout', 'select'].forEach(function(k) { if (spec._aov[k] !== undefined) kept[k] = spec._aov[k]; });
                     delete spec._aov;
                     if (Object.keys(kept).length) spec._aov = kept;
                 }
