@@ -243,8 +243,11 @@ function _rows_with_keys(cols, field::String, keys::Vector{String})
 end
 
 # A `by_url` address with a `{column}` placeholder is fetched per selected
-# key, so it needs the figure to follow a selection on that column.
-function _check_keyed_addresses(drawable, opts)
+# key, so it needs the figure to follow a selection on that column. A spec
+# that wraps an already-lowered Vega-Lite dict (a `vconcat` stack) has no
+# tables left to check.
+_check_keyed_addresses(drawable, opts) = nothing
+function _check_keyed_addresses(drawable::Union{Layer,Layers}, opts)
     for l in _frame_layers(drawable)
         t = extract_data(l)
         _is_by_url(t) || continue
