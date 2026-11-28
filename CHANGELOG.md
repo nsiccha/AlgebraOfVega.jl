@@ -15,6 +15,32 @@ AlgebraOfVega commit is then refused when it resolves, with
 `Unsatisfiable requirements detected for package AlgebraOfVega`, instead of
 failing at run time with a `MethodError`.
 
+## 0.2.88
+
+- **A click on a map item chooses what other charts draw, in the browser.**
+  `config(link=(; group, key, on=:click))` makes a click, or a long press on a
+  touch screen, select the mark's key for its link group (Shift-click adds or
+  removes one; hovering still dims as before). A figure with
+  `config(select=(; field, group, initial))` draws only the rows whose `field`
+  is a selected key, refitting its unpinned axes, with no request and no
+  re-embed, so a static export keeps the drill-down. `initial` is shown
+  before any click; with nothing selected the figure shows the `plot_texts`
+  word `select_hint`. The clicked map outlines its selected marks; the
+  selection is kept in the page address (`?<group>=<key>`, opt out with
+  `address=false`), survives re-embeds, reaches charts embedded later, and
+  the CSV, data preview and saved HTML cards follow it. Page script uses
+  `AoV.select(group, keys)` and `AoV.selected(group)`, and hears
+  `aov:select` on `document`.
+- **`by_url(rows, "…/{field}.json")`**: on a figure that follows a selection
+  on `field`, the page carries only the initial keys' rows and the browser
+  fetches each selected key's rows from its own address once. A `{column}`
+  placeholder on a figure that follows no selection on it is an
+  `ArgumentError`.
+- `config(select=:field)` keeps its dropdown meaning. `sdraw`, `cell_charts`,
+  a `vconcat` panel and `config(frame=…)` refuse the selection form with an
+  `ArgumentError`, as does a summary computed from raw draws whose table has
+  the key column (snag `click-a-map-key-a85f71a9`).
+
 ## 0.2.87
 
 - **A figure with error bars or box plots pans and zooms, with no console

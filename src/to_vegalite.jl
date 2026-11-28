@@ -3029,6 +3029,7 @@ end
 function _lower_vegaspec(v::VegaSpec; interactive::Bool=true)
     spec = _base_vegalite(v.drawable, v.layer_encodings, v.layer_transforms)
     select_fields = nothing
+    selgroup_opts = nothing
     frame_opts = nothing
     link_opts = nothing
     col_yscales = nothing
@@ -3091,6 +3092,10 @@ function _lower_vegaspec(v::VegaSpec; interactive::Bool=true)
                 # Keeps what AoV generated (a map's lookup, a `density()`), and
                 # reaches a layer with its own data too.
                 _prepend_transform!(spec, _transform_list(val))
+            elseif sk == "select" && val isa SelectGroupOptions
+                # Follows a link group's click selection: lowered last, onto
+                # the finished spec (`_apply_select_group!`, src/link.jl)
+                selgroup_opts = val
             elseif sk == "select"
                 # Collect select fields — processed after spec is built
                 select_fields = _select_field_list(val)
@@ -3138,6 +3143,12 @@ function _lower_vegaspec(v::VegaSpec; interactive::Bool=true)
     auto_legend && _add_auto_legend_interactivity!(spec)
     isnothing(frame_opts) || _apply_frame!(spec, v.drawable, frame_opts)
     isnothing(link_opts) || _apply_link!(spec, v.drawable, link_opts)
+    _check_keyed_addresses(v.drawable, selgroup_opts)
+    if !isnothing(selgroup_opts)
+        isnothing(frame_opts) || throw(ArgumentError(
+            "config(select=(; field=:$(selgroup_opts.field), …)) and config(frame=…) both choose which rows a figure draws; give the figure one of them."))
+        _apply_select_group!(spec, v.drawable, selgroup_opts)
+    end
     spec
 end
 

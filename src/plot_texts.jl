@@ -64,6 +64,7 @@ struct PlotTexts
     table_sorts_all::String # the line under a long table: a heading sorts all `{total}` rows
     table_csv::String       # the same line's addition when the figure has a CSV download, `{csv}` its button's words
     reset_zoom::String      # the button over a zoomed or moved map that brings back its fitted view
+    select_hint::String     # a figure that follows a click selection (`config(select=(; …))`) while nothing is selected
     untitled::String        # title of a standalone HTML page without a caption title
     lang::String            # `lang` of a standalone HTML page
 end
@@ -118,6 +119,7 @@ const _PLOT_TEXT_LOCALES = (
         table_sorts_all = "A click on a column heading sorts all {total} rows.",
         table_csv = "{csv} holds every row.",
         reset_zoom = "Reset zoom",
+        select_hint = "Click an item to show it here",
         untitled = "AoV plot",
         lang = "en",
     ),
@@ -166,6 +168,7 @@ const _PLOT_TEXT_LOCALES = (
         table_sorts_all = "Ein Klick auf eine Spaltenüberschrift sortiert alle {total} Zeilen.",
         table_csv = "{csv} enthält jede Zeile.",
         reset_zoom = "Zoom zurücksetzen",
+        select_hint = "Ein Element anklicken, um es hier zu zeigen",
         untitled = "AoV-Grafik",
         lang = "de",
     ),
@@ -208,11 +211,11 @@ _plot_text(texts::PlotTexts, name::Symbol; values...) =
     replace(getfield(texts, name), r"\{([A-Za-z_]+)\}" => m -> string(values[Symbol(m[2:end-1])]))
 
 # The texts the browser runtime writes itself (preview contents, a long table's
-# pager, the frame player, the ribbon switch, a scroll frame's name, a map's reset button, the HTML export). LOCKSTEP: `_TEXTS_EN` in `vendor/aov-runtime.js` holds their
+# pager, the frame player, the ribbon switch, a scroll frame's name, a map's reset button, a selection follower's hint, the HTML export). LOCKSTEP: `_TEXTS_EN` in `vendor/aov-runtime.js` holds their
 # English values; `test/plot_texts.jl` pins the two together.
 const _RUNTIME_TEXT_NAMES = (:no_data, :no_summary, :median, :mean, :interval, :value, :untitled, :lang, :play, :pause,
     :ribbons, :intervals, :ribbon_view, :overlap, :overlap_auto, :show_intervals, :scrollable, :scrollable_table, :reset_zoom,
-    :table_rows, :table_pages, :previous_page, :next_page, :table_page, :table_sorts_all, :table_csv)
+    :select_hint, :table_rows, :table_pages, :previous_page, :next_page, :table_page, :table_sorts_all, :table_csv)
 
 _runtime_texts_json(texts::PlotTexts) =
     _vl_json(NamedTuple{_RUNTIME_TEXT_NAMES}(getfield.(Ref(texts), _RUNTIME_TEXT_NAMES)))
