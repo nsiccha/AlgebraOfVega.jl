@@ -131,7 +131,7 @@ end
             if !isnothing(result)
                 report = JSON.parse(replace(result[1], "&quot;" => "\"", "&lt;" => "<",
                     "&gt;" => ">", "&amp;" => "&"))
-                @test report["checks"] >= 57
+                @test report["checks"] >= 58
                 @test isempty(report["failures"])
                 @info "hover/highlight browser checks" checks=report["checks"]
                 isempty(report["failures"]) || println(JSON.json(report["failures"]))
